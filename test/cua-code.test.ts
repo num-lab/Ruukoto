@@ -7,12 +7,13 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { Db, SchemaVersionError } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import type { McpCuaOperation } from "@ruukoto/core/types.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
+import type { McpCuaOperation, Task } from "@ruukoto/core/types.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { McpStore } from "@ruukoto/agent/mcp/store.ts";
 import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
-import { startTestRuntime, createProjectSession, waitFor, pendingConfirmation } from "./helpers/testkit.ts";
+import { startTestRuntime, createProjectSession, waitFor, pendingConfirmation, realTools } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { withMcpDiscovery } from "./helpers/mock-mcp.ts";
 
@@ -88,7 +89,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [
     { name: "get_desktop_state", description: "观察当前画面", inputSchema: { type: "object", properties: { screenshot_out_file: { type: "string" } } } },
-    { name: "click", description: "点击画面", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, mode: { type: "string" }, debug_image_out: { type: "string" }, session: { type: "string" } }, required: ["x", "y"] } },
+    { name: "click", description: "点击画面", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, scope: { type: "string" }, mode: { type: "string" }, debug_image_out: { type: "string" }, session: { type: "string" } }, required: ["x", "y"] } },
     { name: "run_script", inputSchema: { type: "object", properties: {} } },
   ];
   fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify({...m,pid:process.pid})+'\\n');if(m.params.arguments.mode==='lost')continue;if(m.params.arguments.mode==='incomplete'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{resultType:'input_required',content:[]}})+'\\n');continue;}if(m.params.arguments.mode==='error'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'known failure'}})+'\\n');continue;}result={content:m.params.name==='get_desktop_state'?[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}]:[{type:'text',text:'clicked'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
@@ -177,20 +178,20 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const stale = await submit(sessionId, "stale-observation", "click", { x: 9, y: 9 }); await done(stale);
     assert.equal(sent().length, beforeStale, "未保存的新画面不能放行下一次点击");
     const fresh = await submit(sessionId, "fresh-observation", "get_desktop_state"); await done(fresh);
-    const error = await submit(sessionId, "known-error", "click", { x: 1, y: 2, mode: "error" }); await done(error);
+    const error = await submit(sessionId, "known-error", "click", { scope: "desktop", x: 1, y: 2, mode: "error" }); await done(error);
     assert.equal((await client.request<{ state: string }>("mcp_cua_status", {})).state, "active", "完整错误应答不会冻结");
     const saveMcp = runtime.runtime.store.saveMcpOperation.bind(runtime.runtime.store);
     runtime.runtime.store.saveMcpOperation = (id, operation) => {
       if (operation.state === "sent" && !("transport" in operation) && operation.arguments.mode === "disk") throw new Error("fixture write failed");
       saveMcp(id, operation);
     };
-    const disk = await submit(sessionId, "record-failure", "click", { x: 5, y: 6, mode: "disk" }, "confirm");
+    const disk = await submit(sessionId, "record-failure", "click", { scope: "desktop", x: 5, y: 6, mode: "disk" }, "confirm");
     const diskApproval = await pendingConfirmation(client, disk), beforeDisk = sent().length;
     await client.request("respond_confirmation", { confirmation_id: diskApproval.id, decision: "approve" }); await done(disk);
     runtime.runtime.store.saveMcpOperation = saveMcp;
     assert.equal(sent().length, beforeDisk, "原请求记录失败时零发送");
     assert.equal(runtime.runtime.store.getConfirmation(diskApproval.id)!.consumedAt, null, "批准消费与原请求保存一起回滚");
-    const approved = await submit(sessionId, "approval", "click", { x: 2, y: 3 }, "confirm");
+    const approved = await submit(sessionId, "approval", "click", { scope: "desktop", x: 2, y: 3 }, "confirm");
     const confirmation = await pendingConfirmation(client, approved);
     const beforeApproval = sent().length;
     await client.request("mcp_set_enabled", { service_id: service.id, enabled: false, expected_version: service.configVersion });
@@ -200,7 +201,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     await client.request("mcp_cua_stop", {});
     service = await client.request("mcp_set_enabled", { service_id: service.id, enabled: true });
     const newObserve = await submit(sessionId, "observe-again", "get_desktop_state"); await done(newObserve);
-    const lost = await submit(sessionId, "lost", "click", { x: 3, y: 4, mode: "lost" }); await done(lost);
+    const lost = await submit(sessionId, "lost", "click", { scope: "desktop", x: 3, y: 4, mode: "lost" }); await done(lost);
     const oldOp = runtime.runtime.store.listToolOpsByTask(lost).find(op => op.mcp && op.toolName !== "cua_connection")!;
     assert.equal(oldOp.effectUnknown, true);
     assert.equal(oldOp.mcp!.state, "frozen");
@@ -251,11 +252,272 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     assert.equal(sent().filter(call => call.params.arguments.mode === "lost").length, 1);
     assert.equal(new Set(sent().slice(0, 2).map(call => call.pid)).size, 1, "同一连接跨任务保持进程");
     const observedAfterRecovery = await submit(sessionId, "new-work-observe", "get_desktop_state"); await done(observedAfterRecovery);
-    const incomplete = await submit(sessionId, "incomplete", "click", { x: 7, y: 8, mode: "incomplete" }); await done(incomplete);
+    const incomplete = await submit(sessionId, "incomplete", "click", { scope: "desktop", x: 7, y: 8, mode: "incomplete" }); await done(incomplete);
     const incompleteOp = runtime.runtime.store.listToolOpsByTask(incomplete).find(op => op.mcp && op.toolName !== "cua_connection")!;
     assert.equal(incompleteOp.effectUnknown, true);
     assert.equal(incompleteOp.mcp!.state, "frozen", "非终结应答不能开放新输入");
     assert.ok(incompleteOp.mcp!.response);
     assert.equal(sent().filter(call => call.params.arguments.mode === "incomplete").length, 1);
+  } finally { await runtime.shutdown(); }
+});
+
+test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get_guide 只读", { skip: !available }, async t => {
+  let next: { name: string; arguments: Record<string, unknown> } | null = null;
+  const responder: Responder = async () => {
+    const call = next; next = null;
+    return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
+  };
+  const runtime = await startTestRuntime("cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const { client, dirs } = runtime;
+  const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
+  const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
+  const tools = [
+    { name: "get_window_state", description: "观察窗口", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" }, screenshot_out_file: { type: "string" } }, required: ["pid", "window_id"] } },
+    { name: "get_guide", description: "只读指南", inputSchema: { type: "object", properties: { topic: { type: "string" }, session: { type: "string" } } } },
+    { name: "type_text", description: "Type", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, text: { type: "string" } } } },
+    { name: "click", description: "点击", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, pid: { type: "integer" }, window_id: { type: "integer" }, element_token: { type: "string" }, session: { type: "string" } } } },
+    { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" }, session: { type: "string" }, foreground_fallback: { type: "boolean" } } } },
+  ];
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');let obs=1;for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:a.window_id===8?'s00000008':'s0000000'+(obs++),elements:[],truncated:false}};else if(m.params.name==='get_guide')result={content:[{type:'text',text:'topics: overview, batching'}]};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'2 steps executed'}],structuredContent:{ok:true,executed:2,results:[{ok:true},{ok:true}],observation:a.window_id===8?{ok:false,error:'window_id_not_found'}:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002',invalidated_snapshot_ids:['s00000001']}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+  const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+  const sent = (name: string) => calls().filter(call => call.method === "tools/call" && call.params.name === name);
+  const resolve = runtime.runtime.models.current.modelCatalog.resolve.bind(runtime.runtime.models.current.modelCatalog);
+  runtime.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text"] });
+  async function submit(sessionId: string, key: string, tool?: string, args: Record<string, unknown> = {}, mode = "full_access") {
+    next = tool ? { name: `mcp__mac__${tool}`, arguments: args } : null;
+    const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: MODEL, access_mode: mode });
+    return task.id;
+  }
+  async function done(id: string) {
+    await waitFor("Cua task ended", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.runtime.store.getTask(id)!.status));
+    return runtime.runtime.store.getTask(id)!;
+  }
+  try {
+    const { sessionId } = await createProjectSession(client, runtime.work[0]);
+    await done(await submit(sessionId, "baseline"));
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "get_guide", "click", "type_text", "press_key", "run_steps"] });
+    const checked = await client.request<{ ok: boolean; tools: { name: string }[] }>("mcp_check", { service_id: service.id });
+    assert.ok(checked.tools.some(tool => tool.name === "get_guide"), "get_guide 按允许清单出现");
+    // 未观察窗口的批次整体拒绝（零发送），get_guide 只读可发
+    await done(await submit(sessionId, "early-batch", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }], pid: 42, window_id: 7, observe: {} }));
+    assert.equal(sent("run_steps").length, 0, "未观察窗口不放行批次");
+    const guide = await submit(sessionId, "guide", "get_guide", { topic: "batching" }); await done(guide);
+    const serialized = JSON.stringify(runtime.server.calls);
+    const schemaMatch = serialized.match(/"name":"mcp__mac__run_steps".{0,4000}/);
+    t.diagnostic(schemaMatch ? schemaMatch[0].slice(0, 900) : "run_steps def absent");
+    const hasRestricted = serialized.includes('"maxItems":8') || serialized.includes('"maxItems": 8');
+    assert.ok(hasRestricted, "模型只见受限批次 schema");
+    assert.ok(serialized.includes("include_screenshot 缺省 false，include_accessibility_tree 缺省 true"), "outgoing batch schema exposes effective defaults");
+    assert.ok(serialized.includes("display_only:true 必须关闭树并开启截图"), "outgoing batch schema exposes display-only preconditions");
+    assert.ok(!/"run_steps"[^}]*foreground_fallback/.test(serialized.replace(/\\/g, "")), "不向前台回退能力");
+    assert.equal(sent("get_guide").length, 1, "get_guide 作为只读调用放行");
+    // 纯文本模型也能观察并取得树内授权（不带截图的窗口观察不要求视觉模型）
+    await done(await submit(sessionId, "observe", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }));
+    // 树内元素单发与批次放行；坐标动作仍拒绝
+    await done(await submit(sessionId, "element-click", "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }));
+    assert.equal(sent("click").length, 1, "已交付元素令牌放行");
+    await done(await submit(sessionId, "coord-click", "click", { pid: 42, window_id: 7, x: 10, y: 20 }));
+    assert.equal(sent("click").length, 1, "无截图不放行坐标动作");
+    const batch = await submit(sessionId, "batch", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "type_text", args: { text: "你好" } }], pid: 42, window_id: 7, observe: {} }, "confirm");
+    const approval = await pendingConfirmation(client, batch);
+    await client.request("respond_confirmation", { confirmation_id: approval.id, decision: "approve" });
+    await done(batch);
+    assert.equal(sent("run_steps").length, 1, "一次批准发送整批");
+    assert.equal(sent("run_steps")[0].params.arguments.steps.length, 2, "原样转发规范步骤");
+    // 批次末尾观察（s00000002）成为新授权，旧快照令牌作废
+    await done(await submit(sessionId, "stale-element", "click", { pid: 42, window_id: 7, element_token: "s00000001:14" }));
+    assert.equal(sent("click").length, 1, "批次观察公告失效后旧令牌不放行");
+    await done(await submit(sessionId, "new-element", "click", { pid: 42, window_id: 7, element_token: "s00000002:1" }));
+    assert.equal(sent("click").length, 1, "未交付的行号不授权");
+    // 批次自身结果的文本已投影；新快照行未在批次返回中出现，故 s00000002 行不可见
+    // 末尾观察失败的批次：派发即撤销旧授权，观察失败后旧令牌不能继续操作（零发送）
+    await done(await submit(sessionId, "observe-8", "get_window_state", { pid: 42, window_id: 8, include_screenshot: false }));
+    await done(await submit(sessionId, "batch-8", "run_steps", { steps: [{ tool: "click", args: { element_token: "s00000008:14" } }], pid: 42, window_id: 8, observe: { include_screenshot: false } }));
+    assert.equal(sent("run_steps").length, 2, "观察失败的批次本身仍已派发");
+    await done(await submit(sessionId, "post-fail-click", "click", { pid: 42, window_id: 8, element_token: "s00000008:14" }));
+    assert.equal(sent("click").length, 1, "末尾观察失败后旧令牌不放行");
+    // 批次子动作不在允许列表：整批在发送前拒绝（零发送）
+    await done(await submit(sessionId, "observe-7", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }));
+    await done(await submit(sessionId, "standalone-long-text", "type_text", { pid: 42, window_id: 7, text: "x".repeat(1025) }));
+    assert.equal(sent("type_text").length, 1, "standalone typing retains the upstream text budget");
+    const typing = runtime.server.calls.flatMap(call => call.tools ?? []).map(tool => tool.function as { name?: string; description?: string; parameters?: unknown }).find(tool => tool.name === "mcp__mac__type_text")!;
+    assert.ok(typing, "standalone typing schema actually reached the model");
+    assert.doesNotMatch(typing.description ?? "", /1024/);
+    assert.doesNotMatch(JSON.stringify(typing.parameters), /maxLength/);
+    await done(await submit(sessionId, "denied-child", "run_steps", { steps: [{ tool: "scroll", args: { direction: "down" } }], pid: 42, window_id: 7, observe: { include_screenshot: false } }));
+    assert.equal(sent("run_steps").length, 2, "未允许子动作的批次零发送");
+  } finally { await runtime.shutdown(); }
+});
+
+test("Code Cua：观察授权只在结果进入后续模型请求后激活，同响应写零发送", { skip: !available }, async () => {
+  const script: Array<{ kind: "tool_calls"; calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> } | { kind: "text"; text: string }> = [];
+  const responder: Responder = async () => script.shift() ?? { kind: "text", text: "done" };
+  const runtime = await startTestRuntime("cua-deliver", withMcpDiscovery(responder), { config: { ...realTools(), product: product.runtime, budgetOverrides: { toolResultViewChars: 600 }, mcp: { callTimeoutMs: 300 } } });
+  const { client, dirs } = runtime;
+  const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
+  const LONG_TREE = '- [20] AXTextField "Visible"\n' + "x".repeat(3000) + '\n- [14] AXButton "Hidden"\n' + "x".repeat(3000) + '\n- [90] AXButton "Tail"';
+  const readPath = path.join(runtime.work[0], "sample.txt");
+  fs.writeFileSync(readPath, "offline sequential read");
+  const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
+  const tools = [
+    { name: "get_window_state", description: "观察窗口", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } },
+    { name: "get_desktop_state", description: "观察桌面", inputSchema: { type: "object", properties: {} } },
+    { name: "click", description: "点击", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, pid: { type: "integer" }, window_id: { type: "integer" }, scope: { type: "string" }, element_token: { type: "string" } } } },
+    { name: "type_text", description: "Type", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, text: { type: "string" } } } },
+    { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" } } } },
+  ];
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');let failedReads=0;for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result=a.window_id===8&&++failedReads===2?{isError:true,content:[{type:'text',text:'reread failed'}]}:{content:[{type:'text',text:a.window_id===9?${JSON.stringify(LONG_TREE)}:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:a.window_id===9?'s00000009':a.window_id===8?'s00000008':'s00000001',elements:[]}};else if(m.params.name==='get_desktop_state')result={content:[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}],structuredContent:{}};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'1 step executed'}],structuredContent:{ok:true,executed:1,results:[{ok:true}],observation:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002'}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+  const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+  const sent = (name: string) => calls().filter(call => call.method === "tools/call" && call.params.name === name);
+  const resolve = runtime.runtime.models.current.modelCatalog.resolve.bind(runtime.runtime.models.current.modelCatalog);
+  runtime.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+  async function done(id: string) {
+    await waitFor("Cua task ended", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.runtime.store.getTask(id)!.status));
+  }
+  try {
+    const { sessionId } = await createProjectSession(client, runtime.work[0]);
+    script.push({ kind: "text", text: "ready" });
+    const baseline = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "baseline", input: "baseline", model_selection: MODEL, access_mode: "full_access" });
+    await done(baseline.id);
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "get_desktop_state", "click", "type_text", "run_steps", "hotkey"] });
+    await client.request("mcp_check", { service_id: service.id });
+    // A sequential group must not authorize its own precomputed writes.
+    script.push({ kind: "tool_calls", calls: [
+      { id: "same-obs", name: "mcp__mac__get_window_state", arguments: { pid: 42, window_id: 7, include_screenshot: false } },
+      { id: "same-click", name: "mcp__mac__click", arguments: { pid: 42, window_id: 7, element_token: "s00000001:14" } },
+      { id: "sequential-read", name: "read", arguments: { path: readPath } },
+      { id: "same-desktop", name: "mcp__mac__click", arguments: { scope: "desktop", x: 1, y: 2 } },
+    ] });
+    // The next request carries the observation and may authorize new actions.
+    script.push({ kind: "tool_calls", calls: [{ id: "later-click", name: "mcp__mac__click", arguments: { pid: 42, window_id: 7, element_token: "s00000001:14" } }] });
+    const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "same-group", input: "same-group", model_selection: MODEL, access_mode: "full_access" });
+    await done(task.id);
+    assert.equal(sent("get_window_state").length, 1, "观察本身正常发送");
+    assert.equal(sent("click").length, 1, "同响应内的写零发送；交付后的写放行");
+    // Invalid suffixes must reject the entire batch before dispatch.
+    script.push({ kind: "tool_calls", calls: [{ id: "bad-batch", name: "mcp__mac__run_steps", arguments: { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "hotkey", args: { keys: ["cmd", "shift"] } }], pid: 42, window_id: 7, observe: { include_screenshot: false } } }] });
+    const batchTask = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "bad-suffix", input: "bad-suffix", model_selection: MODEL, access_mode: "full_access" });
+    await done(batchTask.id);
+    assert.equal(sent("run_steps").length, 0, "确定性无效后缀整批零发送");
+    for (const [index, observe] of [{ include_accessibility_tree: false }, { display_only: true }, { display_only: true, include_screenshot: true }].entries()) {
+      script.push({ kind: "tool_calls", calls: [{ id: `bad-observe-${index}`, name: "mcp__mac__run_steps", arguments: { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }], pid: 42, window_id: 7, observe } }] });
+      const invalid = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: `bad-observe-${index}`, input: "invalid observe", model_selection: MODEL, access_mode: "full_access" });
+      await done(invalid.id);
+    }
+    assert.equal(sent("run_steps").length, 0, "invalid effective observe defaults reject the entire valid prefix");
+    script.push({ kind: "tool_calls", calls: [
+      { id: "pending-obs", name: "mcp__mac__get_window_state", arguments: { pid: 42, window_id: 8, include_screenshot: false } },
+      { id: "failed-reread", name: "mcp__mac__get_window_state", arguments: { pid: 42, window_id: 8, include_screenshot: false } },
+      { id: "force-sequential", name: "read", arguments: { path: readPath } },
+    ] });
+    script.push({ kind: "tool_calls", calls: [{ id: "resurrection-write", name: "mcp__mac__type_text", arguments: { pid: 42, window_id: 8, text: "must not send" } }] });
+    const failed = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "failed-reread", input: "failed reread", model_selection: MODEL, access_mode: "full_access" });
+    await done(failed.id);
+    assert.equal(sent("get_window_state").filter(call => call.params.arguments.window_id === 8).length, 2);
+    assert.equal(sent("type_text").length, 0, "failed reread cancels older pending observations");
+    const failureRequest = runtime.server.calls.find(request => request.messages.some(message => message.tool_call_id === "failed-reread"));
+    assert.ok(failureRequest?.messages.some(message => message.tool_call_id === "pending-obs"), "both read results really entered the next request");
+    script.push({ kind: "tool_calls", calls: [{ id: "projected-obs", name: "mcp__mac__get_window_state", arguments: { pid: 42, window_id: 9, include_screenshot: false } }] });
+    script.push({ kind: "tool_calls", calls: [{ id: "hidden-click", name: "mcp__mac__click", arguments: { pid: 42, window_id: 9, element_token: "s00000009:14" } }] });
+    script.push({ kind: "tool_calls", calls: [{ id: "visible-click", name: "mcp__mac__click", arguments: { pid: 42, window_id: 9, element_token: "s00000009:20" } }] });
+    const projected = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "projected", input: "projected", model_selection: MODEL, access_mode: "full_access" });
+    await done(projected.id);
+    const outgoing = runtime.server.calls.find(request => request.messages.some(message => message.tool_call_id === "projected-obs"))?.messages.find(message => message.tool_call_id === "projected-obs");
+    assert.match(JSON.stringify(outgoing), /中间省略/);
+    assert.doesNotMatch(JSON.stringify(outgoing), /\[14\]/);
+    assert.match(JSON.stringify(outgoing), /\[20\]/);
+    assert.equal(sent("click").filter(call => call.params.arguments.window_id === 9).length, 1, "only the actually delivered row authorizes a click");
+    assert.equal(sent("click").find(call => call.params.arguments.window_id === 9).params.arguments.element_token, "s00000009:20");
+  } finally { await runtime.shutdown(); }
+});
+
+test("Code CUA binds observations to persisted host operations, not reusable SDK ids", { skip: !available }, async () => {
+  let next: { id: string; name: string; arguments: Record<string, unknown> } | null = null;
+  const runtime = await startTestRuntime("cua-result-identity", withMcpDiscovery(async () => {
+    const call = next; next = null;
+    return call ? { kind: "tool_calls", calls: [call] } : { kind: "text", text: "done" };
+  }), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const { client, dirs } = runtime;
+  const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
+  const tools = [
+    { name: "get_window_state", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } },
+    { name: "type_text", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, text: { type: "string" } } } },
+    { name: "press_key", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, key: { type: "string" }, modifiers: { type: "array", items: { type: "string" } }, delivery_mode: { type: "string" } } } },
+    { name: "run_steps", inputSchema: { type: "object", properties: { steps: { type: "array" } } } },
+  ];
+  fs.writeFileSync(executable, `#!${process.execPath}
+import fs from 'node:fs'; import readline from 'node:readline';
+const tools=${JSON.stringify(tools)},record=${JSON.stringify(record)};
+if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:'',input_schema:t.inputSchema}))}));process.exit(0);}
+for await(const line of readline.createInterface({input:process.stdin})){
+  const m=JSON.parse(line);if(m.id===undefined)continue;let result={};
+  if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};
+  else if(m.method==='tools/list')result={tools};
+  else if(m.method==='tools/call'){
+    fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments,w=a.window_id===10?11:a.window_id,sid='s'+w.toString(16).padStart(8,'0');
+    result=m.params.name==='get_window_state'?{content:[{type:'text',text:'snapshot '+sid+'\\n- [20] AXTextField "Window '+w+'"'}],structuredContent:{pid:a.pid,window_id:w,snapshot_id:sid}}:{content:[{type:'text',text:'done'}]};
+  }
+  process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
+}
+`, { mode: 0o700 });
+  const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+  const sent = (name: string) => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(call => call.params.name === name) : [];
+  try {
+    const { sessionId } = await createProjectSession(client, runtime.work[0]);
+    const submit = async (key: string, tool?: string, args: Record<string, unknown> = {}, callId = key) => {
+      next = tool ? { id: callId, name: `mcp__mac__${tool}`, arguments: args } : null;
+      const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: MODEL, access_mode: "full_access" });
+      await waitFor("identity task ended", () => ["completed", "failed", "interrupted", "canceled"].includes(runtime.runtime.store.getTask(task.id)!.status));
+      return runtime.runtime.store.getTask(task.id)!;
+    };
+    await submit("baseline");
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "type_text", "press_key", "click", "run_steps"] });
+    await client.request("mcp_check", { service_id: service.id });
+    const original = await submit("original-7", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }, "reused-obs");
+    const originalOp = runtime.runtime.store.listToolOpsByTask(original.id).find(op => op.toolName === "mcp__mac__get_window_state")!;
+    const driver = await runtime.runtime["getDriver"](runtime.runtime.store.getSession(sessionId)!);
+    const results = () => parseSessionFile(runtime.runtime.store.getSession(sessionId)!.sessionFile!).filter(entry => entry.type === "message" && (entry.message as { role?: string }).role === "toolResult");
+    assert.ok(results().some(entry => (entry.message as { ruukotoToolOpId?: string }).ruukotoToolOpId === originalOp.id));
+    for (const [key, requestedWindow, returnedWindow, callId, failAfterMemory] of [
+      ["missing-8", 8, 8, "reused-obs", false],
+      ["missing-9", 9, 9, "unique-obs", false],
+      ["missing-11", 10, 11, "reused-obs", true],
+    ] as const) {
+      const manager = driver["sdk"]!.sessionManager;
+      const append = manager.appendMessage.bind(manager), persist = manager._persist.bind(manager);
+      let injected = false;
+      const matches = (message: unknown) => JSON.stringify(message).includes(`Window ${returnedWindow}`);
+      if (failAfterMemory) manager._persist = entry => {
+        if (!injected && entry.type === "message" && matches(entry.message)) { injected = true; throw new Error("fixture JSONL persist failed after memory append"); }
+        persist(entry);
+      };
+      else manager.appendMessage = message => {
+        if (!injected && message.role === "toolResult" && matches(message.content)) { injected = true; throw new Error("fixture observation append failed"); }
+        return append(message);
+      };
+      let failed: Task;
+      try { failed = await submit(key, "get_window_state", { pid: 42, window_id: requestedWindow, include_screenshot: false }, callId); }
+      finally { manager.appendMessage = append; manager._persist = persist; }
+      assert.ok(injected);
+      assert.equal(failed.status, "failed");
+      const missingOp = runtime.runtime.store.listToolOpsByTask(failed.id).find(op => op.toolName === "mcp__mac__get_window_state")!;
+      assert.notEqual(missingOp.id, originalOp.id);
+      assert.ok(!results().some(entry => (entry.message as { ruukotoToolOpId?: string }).ruukotoToolOpId === missingOp.id));
+      await waitFor("unpersisted grants canceled", () => runtime.runtime["cuaManager"].pendingObservationOpIds(sessionId).length === 0);
+      await submit(`write-${key}`, "type_text", { pid: 42, window_id: returnedWindow, text: "must not send" });
+      assert.equal(sent("type_text").length, 0);
+      assert.ok(!JSON.stringify(runtime.server.calls).includes(`Window ${returnedWindow}`), "no outgoing request contains the unpersisted observation, including contaminated manager memory");
+    }
+    await submit("fresh-8", "get_window_state", { pid: 42, window_id: 8, include_screenshot: false }, "reused-obs");
+    await submit("write-fresh-8", "type_text", { pid: 42, window_id: 8, text: "allowed" });
+    assert.equal(sent("type_text").length, 1, "reuse remains valid when this result is persisted and delivered");
+    for (const key of ["shift+Right", "cmd+s", "PageDn"]) {
+      await submit(`key-${key}`, "press_key", { pid: 42, window_id: 8, key });
+    }
+    assert.deepEqual(sent("press_key").map(call => call.params.arguments.key), ["shift+Right", "cmd+s", "PageDn"], "public key forms remain unchanged on transmission");
+    await submit("bad-foreground-key", "run_steps", { pid: 42, window_id: 8, steps: [{ tool: "click", args: { element_token: "s00000008:20" } }, { tool: "press_key", args: { key: "PLUS", modifiers: ["cmd"], delivery_mode: "foreground" } }], observe: {} });
+    assert.equal(sent("run_steps").length, 0, "the invalid normalized suffix cannot execute the valid prefix");
   } finally { await runtime.shutdown(); }
 });

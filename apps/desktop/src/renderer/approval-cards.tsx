@@ -2,6 +2,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemHeader, ItemTitle 
 import { MessageScrollerItem } from "./components/ui/message-scroller.tsx";
 import { useEffect } from "react";
 import type { ConfirmationRequestView } from "@ruukoto/core/views.ts";
+import { cuaBatchSummary } from "@ruukoto/view/cua-batch.ts";
 import { Button } from "./components/ui/button.tsx";
 import type { CodeState } from "./code-state.ts";
 
@@ -30,7 +31,9 @@ function ApprovalCard({ model, approval }: { model: CodeState; approval: Confirm
     try { params = JSON.parse(detail.text) as Record<string, unknown>; }
     catch { paramsError = "审批参数无法解析，请重新读取。"; }
   }
-  const command = typeof params.command === "string" ? params.command : detail?.text || JSON.stringify(params, null, 2);
+  const batch = approval.scope.kind === "mcp_tool" && approval.scope.cua && approval.scope.remoteName === "run_steps" ? cuaBatchSummary(params) : null;
+  const command = batch ? `批次动作（一次批准绑定全部步骤）：\n${batch.join("\n")}\n\n原始参数：\n${JSON.stringify(params, null, 2)}`
+    : typeof params.command === "string" ? params.command : detail?.text || JSON.stringify(params, null, 2);
   const purpose = typeof params.description === "string" ? params.description : typeof params.purpose === "string" ? params.purpose : typeof params.reason === "string" ? params.reason : null;
   return <MessageScrollerItem><Item asChild variant="muted" size="sm"><section aria-label="命令审批">
     <ItemHeader className="flex-wrap"><ItemTitle>{scopeSummary(approval)}</ItemTitle><ItemActions>

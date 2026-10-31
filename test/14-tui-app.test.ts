@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { ControlConnection } from "@ruukoto/control/connection.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
@@ -40,6 +41,8 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
+import { withMcpDiscovery } from "./helpers/mock-mcp.ts";
+import { product } from "../apps/ruukoto-code/src/product.ts";
 import type { PublicMessageRecall, Session, Task } from "@ruukoto/core/types.ts";
 import type { HistoryPage } from "@ruukoto/core/history.ts";
 import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
@@ -2025,5 +2028,140 @@ test("TUI stop confirmation remains bound to its original backend instance", asy
     await h.app["cmdResumeQueue"]();
     h.terminal.send("\r"); await renderFlush();
     assert.deepEqual(confirmedInstances, [originalInstance]);
+  } finally { quitAll(apps); await t.shutdown(); }
+});
+
+const cuaAvailable = process.platform === "darwin" && fs.existsSync(new URL("../worker/native-macos-supervisor", import.meta.url));
+
+test("TUI CUA批次审批：80×24 下须滚动到内容末尾才可批准", { skip: !cuaAvailable }, async () => {
+  let next: { name: string; arguments: Record<string, unknown> } | null = null;
+  const responder: Responder = async () => {
+    const call = next; next = null;
+    return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
+  };
+  const t = await startTestRuntime("tui-cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+  try {
+    const TREE = "- [0] AXWindow \"Doc\"\n  - [14] AXButton \"保存\"\n  - [20] AXTextField \"名称\"";
+    const executable = path.join(t.dirs.root, "cua-fixture"), record = path.join(t.dirs.root, "calls.jsonl");
+    const tools = [
+      { name: "get_window_state", description: "观察窗口", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } },
+      { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" } } } },
+      { name: "click", description: "点击", inputSchema: { type: "object", properties: { element_token: { type: "string" } } } },
+    ];
+    fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000001',elements:[]}};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'8 steps executed'}],structuredContent:{ok:true,executed:8,results:[],observation:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002'}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+    const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const h = await startApp(t, { sessionId, requests }); apps.push(h);
+    h.terminal.resize(80, 24);
+    const service = await t.client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "click", "type_text", "run_steps"] });
+    await t.client.request("mcp_check", { service_id: service.id });
+    const submit = async (key: string, tool: string, args: Record<string, unknown>, mode = "full_access") => {
+      next = { name: `mcp__mac__${tool}`, arguments: args };
+      const task = await t.client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, access_mode: mode });
+      return task.id;
+    };
+    const ended = async (id: string) => {
+      await waitFor("任务结束", () => ["completed", "failed", "canceled", "interrupted"].includes(t.runtime.store.getTask(id)!.status));
+    };
+    await submit("observe", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }).then(ended);
+    const steps = Array.from({ length: 8 }, (_, index) => index === 7 ? { tool: "type_text", args: { text: `第 ${index + 1} 步文本` } } : { tool: "click", args: { element_token: "s00000001:14" } });
+    const batchTask = await submit("batch", "run_steps", { steps, pid: 42, window_id: 7, observe: { include_screenshot: false } }, "confirm");
+    await waitFor("批次审批到达 TUI", () => h.state.pendingApprovals().length === 1);
+    h.terminal.send("/approvals\r");
+    await renderFlush();
+    h.terminal.send("\r");
+    await waitFor("批次摘要与参数已渲染", () => stripTerminalSequences(h.terminal.output()).includes("批次动作"));
+    // 视口容不下整批：按 a 不发送应答，并给出滚动/翻页提示
+    h.terminal.send("a");
+    await renderFlush();
+    assert.equal(requests.filter(request => request.op === "respond_confirmation").length, 0, "未滚动到末尾不发送批准");
+    assert.match(stripTerminalSequences(h.terminal.output()), /滚动|翻页|视口外/);
+    // 滚动到末尾后同一次批准生效
+    for (let index = 0; index < 12; index++) { h.terminal.send("\x1b[6~"); }
+    await renderFlush();
+    h.terminal.send("a");
+    await waitFor("批准应答已发送", () => requests.some(request => request.op === "respond_confirmation"));
+    await ended(batchTask);
+    assert.equal(h.state.pendingApprovals().length, 0);
+  } finally { quitAll(apps); await t.shutdown(); }
+});
+
+test("TUI CUA批次审批：开窗后终端变矮，批准门禁跟随实际视口", { skip: !cuaAvailable }, async () => {
+  let next: { name: string; arguments: Record<string, unknown> } | null = null;
+  const responder: Responder = async () => {
+    const call = next; next = null;
+    return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
+  };
+  const t = await startTestRuntime("tui-cua-resize", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
+  try {
+    const TREE = "- [0] AXWindow \"Doc\"\n  - [14] AXButton \"保存\"\n  - [20] AXTextField \"名称\"";
+    const executable = path.join(t.dirs.root, "cua-fixture"), record = path.join(t.dirs.root, "calls.jsonl");
+    const tools = [
+      { name: "get_window_state", description: "观察窗口", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } },
+      { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" } } } },
+      { name: "click", description: "点击", inputSchema: { type: "object", properties: { element_token: { type: "string" } } } },
+    ];
+    fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000001',elements:[]}};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'8 steps executed'}],structuredContent:{ok:true,executed:8,results:[],observation:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002'}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+    const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const h = await startApp(t, { sessionId, requests }); apps.push(h);
+    const service = await t.client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "click", "type_text", "run_steps"] });
+    await t.client.request("mcp_check", { service_id: service.id });
+    const submit = async (key: string, tool: string, args: Record<string, unknown>, mode = "full_access") => {
+      next = { name: `mcp__mac__${tool}`, arguments: args };
+      const task = await t.client.request<{ id: string }>("submit", { session_id: sessionId, request_id: key, input: key, model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, access_mode: mode });
+      return task.id;
+    };
+    const ended = async (id: string) => {
+      await waitFor("任务结束", () => ["completed", "failed", "canceled", "interrupted"].includes(t.runtime.store.getTask(id)!.status));
+    };
+    await submit("observe", "get_window_state", { pid: 42, window_id: 7, include_screenshot: false }).then(ended);
+    // Resize while parameters are in flight; the overlay still caps height at 85%.
+    h.terminal.resize(80, 100);
+    const tail = "TAIL_END";
+    const steps = Array.from({ length: 8 }, (_, index) => index === 7 ? { tool: "type_text", args: { text: "x".repeat(1011 - tail.length) + tail } } : { tool: "click", args: { element_token: "s00000001:14" } });
+    const request = h.connection.request.bind(h.connection);
+    let paramsRequested = false;
+    let releaseParams!: () => void;
+    const paramsGate = new Promise<void>(resolve => { releaseParams = resolve; });
+    h.connection.request = async <K extends TuiOp>(op: K, params: OpParams<K>, timeoutMs?: number) => {
+      if (op === "get_confirmation_params") { paramsRequested = true; await paramsGate; }
+      return request(op, params, timeoutMs);
+    };
+    const batchTask = await submit("batch", "run_steps", { steps, pid: 42, window_id: 7, observe: { include_screenshot: false } }, "confirm");
+    await waitFor("批次审批到达 TUI", () => h.state.pendingApprovals().length === 1);
+    h.terminal.send("/approvals\r");
+    await renderFlush();
+    h.terminal.send("\r");
+    await waitFor("parameter request started", () => paramsRequested);
+    h.terminal.resize(80, 60);
+    releaseParams();
+    await waitFor("批次摘要与参数已渲染", () => stripTerminalSequences(h.terminal.output()).includes("批次动作"));
+    await renderFlush();
+    h.terminal.send("a");
+    await renderFlush();
+    assert.equal(requests.filter(request => request.op === "respond_confirmation").length, 0, "视口缩小后未读全不得批准");
+    h.terminal.resize(80, 3);
+    await renderFlush();
+    for (let index = 0; index < 12; index++) { h.terminal.send("\x1b[6~"); await renderFlush(); }
+    h.terminal.send("a");
+    await renderFlush();
+    assert.equal(requests.filter(request => request.op === "respond_confirmation").length, 0, "a clipped body cannot approve even after scrolling");
+    h.terminal.resize(80, 60);
+    await renderFlush();
+    let tailVisible = false;
+    for (let index = 0; index < 12; index++) {
+      h.terminal.send("\x1b[6~");
+      await renderFlush();
+      // Wrapping may split the marker across adjacent framed body rows.
+      tailVisible ||= stripTerminalSequences((h.app as any).tui.previousScreen.join("\n")).replace(/[│\s]/g, "").includes(tail);
+    }
+    assert.equal(tailVisible, true, "the full input tail must reach an actual terminal frame before approval");
+    h.terminal.send("a");
+    await waitFor("批准应答已发送", () => requests.some(request => request.op === "respond_confirmation"));
+    await ended(batchTask);
+    assert.equal(h.state.pendingApprovals().length, 0);
   } finally { quitAll(apps); await t.shutdown(); }
 });

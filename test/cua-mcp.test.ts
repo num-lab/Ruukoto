@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { connectMcpStdio, McpError, type McpCallEvidence, type McpTimeouts } from "@ruukoto/agent/mcp/transport.ts";
-import { cuaArguments, cuaProgram, cuaToolEffect, parseCuaConfig, restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
+import { cuaArguments, cuaNeedsVision, cuaProgram, cuaToolEffect, parseCuaConfig, restrictCuaTool } from "@ruukoto/agent/mcp/cua.ts";
 import { mcpImages, McpImageError } from "@ruukoto/agent/mcp/images.ts";
 
 const tool = { name: "click", inputSchema: { type: "object", properties: {} } };
@@ -170,4 +170,232 @@ test("Cua配置：拒绝任意启动项与异sandbox，模型清单去掉宿主�
     assert.throws(() => cuaArguments(mac, name, { [field]: "/tmp/forbidden-write" }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
   }
   assert.equal(restrictCuaTool(mac, { ...raw, name: "launch_app" }), undefined);
+});
+
+const MAC = () => parseCuaConfig({ kind: "cua-mac", executable: "/Applications/Cua.app/Contents/MacOS/cua-driver", sha256: "a".repeat(64), version: "0.38.0" });
+const ALLOW = ["get_window_state", "get_guide", "click", "double_click", "right_click", "type_text", "press_key", "hotkey", "scroll", "drag", "move_cursor", "run_steps"];
+const VALID_BATCH = () => ({ steps: [{ tool: "click", args: { x: 10, y: 20 } }, { tool: "type_text", args: { text: "hi" } }], pid: 42, window_id: 7, observe: {} });
+
+test("Cua批次：get_guide只读、run_steps受限为规范schema且单步动作集合固定", () => {
+  const mac = MAC();
+  assert.equal(cuaToolEffect(mac, "get_guide"), "read");
+  assert.equal(cuaToolEffect(mac, "run_steps"), "write");
+  assert.equal(restrictCuaTool(mac, { name: "run_script", inputSchema: {} }), undefined);
+  const guide = restrictCuaTool(mac, { name: "get_guide", description: "d", inputSchema: { type: "object", properties: { topic: { type: "string" }, session: { type: "string" } } } })!;
+  assert.deepEqual(Object.keys(guide.inputSchema.properties!), ["topic"], "get_guide 同样去掉会话字段");
+  const schema = restrictCuaTool(mac, { name: "run_steps", description: "d", inputSchema: { type: "object", properties: { foreground_fallback: {}, session: {} } } })!.inputSchema as Record<string, any>;
+  assert.deepEqual(schema.required, ["steps", "pid", "window_id", "observe"]);
+  assert.equal(schema.properties.steps.maxItems, 8);
+  assert.equal(schema.properties.observe.type, "object");
+  assert.ok(!schema.properties.steps.items.properties.tool.enum.includes("set_value"), "set_value 不在批次集合");
+  for (const field of ["foreground_fallback", "session", "app", "window", "target", "scope"]) assert.equal(field in schema.properties, false, `${field} 不向模型开放`);
+});
+
+test("Cua批次：规范形式通过，别名、简写、条件、越界与嵌套宿主字段一律拒绝", () => {
+  const mac = MAC();
+  const pass = cuaArguments(mac, "run_steps", VALID_BATCH(), ALLOW) as { steps: unknown[]; observe: Record<string, unknown> };
+  assert.deepEqual(pass.steps.length, 2);
+  assert.deepEqual(pass.observe, { pid: 42, window_id: 7 }, "observe 注入批次窗口");
+  const denied = (mutate: (batch: Record<string, any>) => void, label: string, list: string[] = ALLOW) => {
+    const batch = VALID_BATCH();
+    mutate(batch);
+    assert.throws(() => cuaArguments(mac, "run_steps", batch, list), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid", label);
+  };
+  denied(b => { b.steps = Array.from({ length: 9 }, () => ({ tool: "click", args: { x: 1, y: 2 } })); }, "超过八步");
+  denied(b => { b.steps = []; }, "空批次");
+  denied(b => { b.steps[0] = { click: { x: 1, y: 2 } }; }, "{tool:args} 简写");
+  denied(b => { b.steps[0].tool = "press"; }, "上游别名 press");
+  denied(b => { b.steps[0].tool = "tab"; }, "键名被当作工具");
+  denied(b => { b.steps[0].tool = "get_window_state"; }, "批次内不含观察工具");
+  denied(b => { b.steps[0].tool = "wait_for"; }, "wait_for 不在首批");
+  denied(b => { b.steps[0].tool = "expect"; }, "expect 不在首批");
+  denied(b => { b.steps[0].tool = "set_value"; }, "set_value 不在批次集合");
+  denied(b => { b.foreground_fallback = true; }, "foreground_fallback 不开放");
+  denied(b => { b.delay_ms = 5000; }, "delay_ms 越界");
+  denied(b => { delete b.observe; }, "observe 必填");
+  denied(b => { delete b.pid; }, "批次窗口必填");
+  denied(b => { b.observe.pid = 999; }, "observe 指向其他窗口");
+  denied(b => { b.observe.session = "other"; }, "observe 嵌套会话覆盖");
+  denied(b => { b.observe.screenshot_out_file = "/tmp/x.png"; }, "observe 嵌套文件输出");
+  denied(b => { b.observe._internal = true; }, "observe 保留字段");
+  denied(b => { b.steps[0].args.session = "other"; }, "步骤嵌套会话覆盖");
+  denied(b => { b.steps[0].args.sandbox = "x"; }, "步骤嵌套 sandbox");
+  denied(b => { b.steps[0].args.debug_image_out = "/tmp/x"; }, "步骤嵌套文件输出");
+  denied(b => { b.steps[0].args.pid = 999; }, "步骤重定向窗口");
+  denied(b => { b.steps[0].args.window = "其他"; }, "步骤 window 覆盖");
+  denied(b => { b.steps[0].args.scope = "desktop"; }, "步骤桌面重定向");
+  denied(b => { b.steps[0].args.from_zoom = true; }, "未开放 zoom 参照");
+  denied(b => { b.steps[0].args.nope = 1; }, "未知步骤字段");
+  denied(b => { b.steps[0].args._internal = true; }, "步骤保留字段");
+  denied(b => { b.steps[0].timeout_ms = 20000; }, "步骤 timeout 越界");
+  denied(b => { b.steps[1].args.text = "x".repeat(1025); }, "文本超长");
+  denied(b => { delete b.steps[1].args.text; }, "必填字段缺失");
+  denied(b => { b.steps[0].args.x = "10"; }, "坐标类型错误");
+  denied(b => { b.steps[0].args.delivery_mode = "yolo"; }, "delivery_mode 枚举");
+  denied(b => { b.steps[0].args = undefined; }, "args 必填");
+  denied(b => { b.steps[0] = { tool: "click" }; }, "步骤缺 args");
+  denied(b => { b.steps[0].args.app = "其他"; }, "步骤 app 覆盖");
+  denied(b => { b.steps[0].args.target = { kind: "desktop" }; }, "步骤 target 覆盖");
+  // 可执行组合：无目标、半截坐标、互斥目标、裸 nth 与 capture_id 错配都在发送前拒绝
+  denied(b => { b.steps[0].args = {}; }, "click 无目标");
+  denied(b => { b.steps[0].args = { x: 10 }; }, "半截坐标");
+  denied(b => { b.steps[0].args = { x: 10, y: 20, element_token: "s00000001:14" }; }, "坐标与令牌互斥");
+  denied(b => { b.steps[0].args = { element_token: "s00000001:14", role: "AXButton", name: "Save" }; }, "令牌与选择器互斥");
+  denied(b => { b.steps[0].args = { role: "AXButton", x: 1, y: 2 }; }, "选择器与坐标互斥");
+  denied(b => { b.steps[0].args = { nth: 2 }; }, "裸 nth 不成选择器");
+  denied(b => { b.steps[0].args = { role: "AXButton", name: "Save", nth: -1 }; }, "nth 须非负");
+  denied(b => { b.steps[0].args = { role: "AXButton", name: "Save", label: "保存" }; }, "name 与 label 互斥");
+  denied(b => { b.steps[0].args = { element_token: "s1:1" }; }, "元素令牌须为钉版格式");
+  denied(b => { b.steps[0].args = { element_token: "s0000000g:14" }; }, "元素令牌十六进制前缀");
+  denied(b => { b.steps[0].args = { element_token: "s00000001:" }; }, "元素令牌缺行号");
+  denied(b => { b.steps[0].args = { role: "AXButton", name: "Save" }; }, "click 不接受选择器目标（菜单路由）");
+  denied(b => { b.steps[0].args = { capture_id: "cap-1" }; }, "capture_id 需配对坐标");
+  denied(b => { b.steps[0].args = { x: 1, y: 2, count: 0 }; }, "count 越界");
+  // Mirror deterministic invoke failures before any valid prefix can execute.
+  denied(b => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "shift"] } }); }, "hotkey 全修饰键无基础键");
+  denied(b => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "shift", "nosuchkey"] } }); }, "hotkey 末位非修饰键不可识别");
+  denied(b => { b.steps.push({ tool: "press_key", args: { key: "nosuchkey" } }); }, "press_key 键名不可识别");
+  denied(b => { b.steps[0].args = { x: 10, y: 10, action: "hover" }; }, "click action hover 不可映射");
+  denied(b => { b.steps[0].args = { x: 10, y: 10, action: "AXPressStuff" }; }, "click action 映射失败");
+  denied(b => { b.steps[0].args = { element_token: "s00000001:14", action: "focus" }; }, "元素目标不接受 focus 字面量");
+  denied(b => { b.observe = { include_screenshot: false, include_accessibility_tree: false }; }, "observe 不能两项皆无");
+  // 受影响子集：生效为文本输入的步骤不接受元素目标（上游过期重试会重放整段输入）
+  denied(b => { b.steps[1].args = { element_token: "s00000001:20", text: "hi" }; }, "type_text 不接受令牌");
+  denied(b => { b.steps[1].args = { role: "AXTextField", name: "名称", text: "hi" }; }, "type_text 不接受选择器");
+  denied(b => { b.steps[1] = { tool: "press_key", args: { element_token: "s00000001:20", key: "asterisk" } }; }, "归一化为 type_text 的 press_key 同样不接受令牌");
+  // 数值边界：上游 schema 的 min/max 在发送前生效
+  denied(b => { b.steps[1].args = { text: "hi", delay_ms: 201 }; }, "type_text delay_ms 越界");
+  denied(b => { b.steps[0] = { tool: "scroll", args: { direction: "down", amount: 51 } }; }, "scroll amount 越界");
+  denied(b => { b.steps[0] = { tool: "drag", args: { from_x: 1, from_y: 2, to_x: 3, to_y: 4, steps: 201 } }; }, "drag steps 越界");
+  denied(b => { b.steps[0] = { tool: "move_cursor", args: { role: "AXButton", name: "x" } }; }, "move_cursor 不接受元素目标");
+  denied(b => { b.steps[0] = { tool: "drag", args: { from_x: 1, from_y: 2, to_x: 3, to_y: 4, element_token: "s1:1" } }; }, "drag 不接受元素目标");
+  // 允许列表：子工具、归一化生效工具与末尾观察都必须显式允许
+  denied(() => {}, "type_text 未允许", ALLOW.filter(name => name !== "type_text"));
+  denied(b => { b.steps[1] = { tool: "press_key", args: { key: "return" } }; }, "press_key 未允许", ALLOW.filter(name => name !== "press_key"));
+  denied(b => { b.steps[1] = { tool: "press_key", args: { key: "asterisk" } }; }, "press_key 归一化为 type_text 需两者皆允许", ALLOW.filter(name => name !== "type_text"));
+  denied(b => { b.steps[1] = { tool: "hotkey", args: { keys: ["cmd"] } }; }, "单键 hotkey 归一化为 press_key", ALLOW.filter(name => name !== "press_key"));
+  denied(() => {}, "observe 工具未允许", ALLOW.filter(name => name !== "get_window_state"));
+  denied(() => {}, "run_steps 未允许", ALLOW.filter(name => name !== "run_steps"));
+  // 合法形态：选择器、元素令牌、整数 delay、显式批次 delivery_mode、observe 限定字段、归一化可解释步骤
+  for (const mutate of [
+    (b: Record<string, any>) => { b.steps[0].args = { element_token: "s00000001:14" }; },
+    (b: Record<string, any>) => { b.steps[0] = { tool: "double_click", args: { role: "AXButton", name: "Save", nth: 0 } }; },
+    (b: Record<string, any>) => { b.steps[0].timeout_ms = 3000; b.delay_ms = 500; b.delivery_mode = "foreground"; },
+    (b: Record<string, any>) => { b.observe = { include_screenshot: false, max_elements: 100, pid: 42, window_id: 7 }; },
+    (b: Record<string, any>) => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "s"] } }); },
+    (b: Record<string, any>) => { b.steps.push({ tool: "press_key", args: { element_token: "s00000001:20", key: "return" } }); },
+    (b: Record<string, any>) => { b.steps.push({ tool: "press_key", args: { key: "asterisk" } }); },
+    (b: Record<string, any>) => { b.steps.push({ tool: "hotkey", args: { keys: ["f5"] } }); },
+    (b: Record<string, any>) => { b.steps[0].args = { x: 10, y: 10, action: "focus" }; },
+    (b: Record<string, any>) => { b.steps[0].args = { x: 10, y: 10, action: "ax_press" }; },
+    (b: Record<string, any>) => { b.steps.push({ tool: "hotkey", args: { keys: ["cmd", "shift", "tab"] } }); },
+    (b: Record<string, any>) => { b.steps.push({ tool: "press_key", args: { key: "+" } }); },
+  ]) {
+    const batch = VALID_BATCH();
+    mutate(batch);
+    assert.doesNotThrow(() => cuaArguments(mac, "run_steps", batch, ALLOW));
+  }
+  // Linux 配置不开放 run_steps（未获能力平价）
+  const linux = parseCuaConfig({ kind: "cua-linux", executable: "/usr/local/bin/cua", sha256: "a".repeat(64), version: "0.7.0", sandbox: "local:desktop", sandboxId: "b".repeat(64) });
+  assert.equal(cuaToolEffect(linux, "run_steps"), null);
+  assert.throws(() => cuaArguments(linux, "run_steps", VALID_BATCH(), ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_tool_denied");
+});
+
+test("Cua参数：确定性调用失败在发送前拒绝，文本上限对模型可见且报错准确", () => {
+  const mac = MAC();
+  const denied = (name: string, args: Record<string, unknown>, label: string) =>
+    assert.throws(() => cuaArguments(mac, name, args), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied", label);
+  // Standalone key/action checks preserve their pinned invocation semantics.
+  denied("hotkey", { keys: ["cmd", "shift"] }, "hotkey 全修饰键");
+  denied("hotkey", { keys: ["cmd", "nosuchkey"] }, "hotkey 基础键不可识别");
+  denied("press_key", { key: "nosuchkey" }, "press_key 键名不可识别");
+  denied("click", { x: 1, y: 2, action: "hover" }, "click action hover");
+  denied("click", { element_token: "s00000001:3", action: "focus" }, "元素目标 focus 字面量");
+  denied("get_window_state", { include_screenshot: false, include_accessibility_tree: false }, "观察不能两项皆无");
+
+  cuaArguments(mac, "hotkey", { keys: ["cmd", "shift", "tab"] });
+  cuaArguments(mac, "press_key", { key: "+" });
+  cuaArguments(mac, "click", { x: 1, y: 2, action: "focus" });
+  cuaArguments(mac, "type_text", { text: "x".repeat(1025) });
+  cuaArguments(mac, "get_window_state", { include_screenshot: false });
+  // Only batch text has the bound; expose it and diagnose its actual length.
+  const messageOf = (fn: () => unknown) => { try { fn(); } catch (error) { return (error as Error).message; } return ""; };
+  const longStep = VALID_BATCH();
+  (longStep.steps[1]!.args as Record<string, unknown>).text = "y".repeat(1025);
+  const stepError = messageOf(() => cuaArguments(mac, "run_steps", longStep, ALLOW));
+  assert.match(stepError, /1024/);
+  assert.match(stepError, /1025/);
+  const typeText = restrictCuaTool(mac, { name: "type_text", description: "输入文本", inputSchema: { type: "object", properties: { text: { type: "string" } } } })!;
+  assert.doesNotMatch(typeText.description ?? "", /1024/, "单次输入不继承批次上限");
+  const runSteps = restrictCuaTool(mac, { name: "run_steps", description: "d", inputSchema: { type: "object" } })!;
+  assert.match(JSON.stringify(runSteps.inputSchema), /1024/, "批次 schema 描述明示 1024 上限");
+});
+
+test("Cua batch observation validates effective defaults and display-only combinations", () => {
+  for (const observe of [{ include_accessibility_tree: false }, { display_only: true }, { display_only: true, include_screenshot: true }]) {
+    assert.throws(() => cuaArguments(MAC(), "run_steps", { ...VALID_BATCH(), observe }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  }
+  for (const observe of [{}, { include_screenshot: false }, { display_only: true, include_accessibility_tree: false, include_screenshot: true }]) {
+    assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", { ...VALID_BATCH(), observe }, ALLOW));
+  }
+  assert.equal(cuaNeedsVision("run_steps", { observe: {} }), false);
+  assert.equal(cuaNeedsVision("run_steps", { observe: { include_screenshot: true } }), true);
+});
+
+test("Cua hotkey plus follows background versus foreground/global delivery", () => {
+  for (const key of ["+", "plus"]) {
+    const keys = ["cmd", key];
+    for (const delivery_mode of [undefined, "background"]) {
+      assert.doesNotThrow(() => cuaArguments(MAC(), "hotkey", { pid: 42, window_id: 7, keys, ...(delivery_mode ? { delivery_mode } : {}) }));
+    }
+    for (const args of [{ delivery_mode: "foreground", pid: 42, window_id: 7 }, { scope: "desktop", delivery_mode: "background" }, { scope: "desktop", element_token: "s00000001:14" }]) {
+      assert.throws(() => cuaArguments(MAC(), "hotkey", { ...args, keys }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+    }
+    const batch = { ...VALID_BATCH(), steps: [{ tool: "hotkey", args: { keys } }] };
+    assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", batch, ALLOW));
+    assert.throws(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "foreground" }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+    assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "foreground", steps: [{ tool: "hotkey", args: { keys, delivery_mode: "background" } }] }, ALLOW));
+    assert.throws(() => cuaArguments(MAC(), "run_steps", { ...batch, delivery_mode: "background", steps: [{ tool: "hotkey", args: { keys, delivery_mode: "foreground" } }] }, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  }
+});
+
+test("Cua public key normalization preserves valid chords and raw parameters", () => {
+  for (const key of ["shift+Right", "cmd+s", "PageDn", " Page_Down ", "ctrl + shift + Right"]) {
+    const args = { pid: 42, window_id: 7, key, modifiers: ["option"] };
+    assert.deepEqual(cuaArguments(MAC(), "press_key", args), args);
+  }
+  assert.doesNotThrow(() => cuaArguments(MAC(), "hotkey", { keys: ["cmd", "PageDn"] }));
+  for (const key of ["cmd++", "cmd+ +s", "cmd+"]) {
+    assert.throws(() => cuaArguments(MAC(), "press_key", { key }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+  }
+});
+
+test("Cua press_key plus validation follows exact normalization and delivery route", () => {
+  const denied = (args: Record<string, unknown>) => assert.throws(() => cuaArguments(MAC(), "press_key", args), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+  const window = { pid: 42, window_id: 7, modifiers: ["cmd"] };
+  for (const key of ["+", "plus", " PLUS ", "cmd+PLUS"]) {
+    assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key, delivery_mode: "background" }));
+    assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key, delivery_mode: "foreground", x: 1, y: 2 }));
+    denied({ scope: "desktop", key, modifiers: ["cmd"] });
+  }
+  for (const key of ["+", "plus", "cmd+plus"]) assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key, delivery_mode: "foreground" }));
+  for (const delivery_mode of ["foreground", "FOREGROUND"]) denied({ ...window, key: "PLUS", delivery_mode });
+  denied({ ...window, key: "PLUS", dispatch: "FOREGROUND" });
+  assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key: "PLUS", dispatch: "foreground", delivery_mode: "background" }));
+  assert.doesNotThrow(() => cuaArguments(MAC(), "press_key", { ...window, key: "PLUS", delivery_mode: " foreground " }));
+  assert.throws(() => cuaArguments(MAC(), "hotkey", { ...window, keys: ["cmd", "+"], delivery_mode: "FOREGROUND" }), (error: unknown) => error instanceof McpError && error.code === "cua_parameter_denied");
+});
+
+test("Cua batch validates the normalized key after rewriting without changing its allowlist", () => {
+  const batch = (args: Record<string, unknown>, delivery_mode = "foreground") => ({ ...VALID_BATCH(), delivery_mode, steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "press_key", args }] });
+  const denied = (args: Record<string, unknown>) => assert.throws(() => cuaArguments(MAC(), "run_steps", args, ALLOW), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  denied(batch({ key: "PLUS", modifiers: ["cmd"] }));
+  denied(batch({ key: "PLUS", modifiers: ["cmd"], delivery_mode: "foreground" }, "background"));
+  for (const args of [{ key: "+", modifiers: ["cmd"] }, { key: "plus", modifiers: ["cmd"] }, { key: "PLUS", modifiers: ["cmd"], x: 1, y: 2 }, { key: "PLUS", modifiers: ["cmd"], delivery_mode: "background" }, { key: "shift+Right" }, { key: "PageDn" }]) {
+    const sent = cuaArguments(MAC(), "run_steps", batch(args), ALLOW);
+    assert.deepEqual(sent.steps, batch(args).steps);
+  }
+  assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", batch({ key: "PLUS" }), ALLOW));
+  assert.throws(() => cuaArguments(MAC(), "run_steps", batch({ key: "PLUS" }), ALLOW.filter(name => name !== "type_text")), (error: unknown) => error instanceof McpError && error.code === "cua_batch_invalid");
+  assert.doesNotThrow(() => cuaArguments(MAC(), "run_steps", batch({ key: "cmd+PLUS" }, "background"), ALLOW.filter(name => name !== "type_text")));
 });

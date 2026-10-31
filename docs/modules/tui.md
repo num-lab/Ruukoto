@@ -75,6 +75,7 @@ Computer recovery starts from the original operation in MCP settings. Verify it 
 - Model/tool text is filtered before terminal rendering to prevent control-sequence injection.
 - A disconnected client shows reconnection state and retries with backoff, then recovers its view.
 - Failed screenshot opening does not offer acceptance. Recovery allows new work but leaves the original unknown operation unchanged.
+- A `run_steps` computer batch approval binds every step: the detail overlay lists the ordered actions, scrolls when content overflows, and refuses approval until all parameter pages have been read through and the content scrolled to the end; the overflow guard follows the current overlay height, including percentage and vertical-margin bounds; an overlay too small to expose its body cannot enable approval by scrolling, so shrinking the window after the approval opened re-arms the scroll requirement.
 
 ## Design Rationale
 

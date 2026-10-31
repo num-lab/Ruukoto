@@ -1,5 +1,5 @@
-/** Coding 的持续电脑连接；冻结与恢复事实随原工具操作落盘。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+/** Coding's persistent computer connection; freeze and recovery facts belong to the original operation.
+ * Note: See .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -10,7 +10,8 @@ import { randomId, type McpCuaOperation as McpOperation, type Task, type ToolOp 
 import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
-import { cuaArguments, cuaProgram, cuaToolEffect } from "./cua.ts";
+import { cuaActionNeed, cuaArguments, cuaBatchPlan, cuaProgram, cuaToolEffect } from "./cua.ts";
+import { clearObservationGrant, cuaObservationBlocked, deliverCuaObservations, dropObservationBase, dropObservationGrant, freshCuaGrants, invalidateCuaSnapshots, requireCuaEligibility, revokeActionable, type CuaGrants, type CuaObservationProjection } from "./cua-observation.ts";
 import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
 import { formatMcpResult, type McpToolInfo } from "./tools.ts";
@@ -18,7 +19,7 @@ import { mcpImages, McpImageError } from "./images.ts";
 
 type Execution = McpOperation["execution"];
 type CuaToolOp = ToolOp & { mcp: McpOperation };
-interface Binding { service: McpServiceConfig; sessionId: string; conn?: McpConnection; transport?: ManagedMcpTransport; execution: Execution; observed: boolean }
+interface Binding { service: McpServiceConfig; sessionId: string; conn?: McpConnection; transport?: ManagedMcpTransport; execution: Execution; grants: CuaGrants }
 export interface CodeCuaStatus {
   state: "idle" | "connecting" | "active" | "frozen" | "recovering";
   sessionId?: string;
@@ -65,7 +66,7 @@ export class CodeCuaManager {
 
   private detectClosed(): void {
     if (!this.binding?.conn?.closed && !this.binding?.transport?.closed) return;
-    this.binding.observed = false;
+    this.binding.grants = freshCuaGrants();
     const last = this.latestExecutions().find(op => op.mcp!.execution.executionId === this.binding!.execution.executionId);
     if (last && !["closed", "recovered", "frozen", "recovering"].includes(last.mcp!.state)) this.save(last.id, { ...last.mcp!, state: "frozen" });
   }
@@ -116,7 +117,7 @@ export class CodeCuaManager {
           const programInScope = await prepareMacosStdioExecution(this.directory, ref, program);
           this.verify(service, task);
           transport = createMcpStdioTransport(programInScope, bind);
-          this.binding = { service, sessionId: task.sessionId, transport, execution, observed: false };
+          this.binding = { service, sessionId: task.sessionId, transport, execution, grants: freshCuaGrants() };
           transport.onError(error => { for (const listener of errors) listener(error); });
           transport.onClose(() => { closed = true; for (const listener of closers) listener(); });
           transport.onMessage(message => {
@@ -140,7 +141,7 @@ export class CodeCuaManager {
               for (const listener of errors) listener(new McpError("evidence_failed", proof.exited ? "电脑初始化结果无法保存；原执行停止已核实，请拥有者检查原操作。" : "电脑初始化结果无法保存，原执行停止尚未核实；保持冻结，请拥有者检查原现场。"));
             }).catch(() => {
               closed = true;
-              if (this.binding?.execution.executionId === execution!.executionId) this.binding.observed = false;
+              if (this.binding?.execution.executionId === execution!.executionId) this.binding.grants = freshCuaGrants();
               for (const listener of errors) listener(new McpError("evidence_failed", "电脑初始化结果或停止证明无法保存；保持冻结，请拥有者检查原现场与存储。"));
               for (const listener of closers) listener();
             });
@@ -209,7 +210,7 @@ export class CodeCuaManager {
         if (proof.exited) this.save(opId, { ...operation, state: "closed", stoppedAt: new Date().toISOString() });
         throw error;
       }
-      this.binding = { service, sessionId, conn, execution, observed: false };
+      this.binding = { service, sessionId, conn, execution, grants: freshCuaGrants() };
       try {
         this.store.withTx(() => {
           this.store.saveMcpOperation(opId, { ...operation, state: "finished" });
@@ -242,12 +243,12 @@ export class CodeCuaManager {
     const binding = this.binding;
     if (!binding || binding.sessionId !== task.sessionId || binding.service.id !== meta.service.id || this.busy) throw new McpError("cua_binding_busy", "电脑连接正由另一操作使用；结束本轮并报告拥有者核实连接。");
     if (task.planMode && meta.effect !== "read") throw new McpError("cua_plan_read_only", "计划模式只允许观察电脑；请向拥有者说明所需操作后结束本轮。");
-    if (!binding.observed && meta.effect !== "read") throw new McpError("cua_observation_required", "电脑连接需要先取得新的画面；先调用画面观察工具，再根据新画面操作。");
-    const args = cuaArguments(meta.service.cua!, meta.remoteName, params);
+    const args = cuaArguments(meta.service.cua!, meta.remoteName, params, meta.service.toolAllowlist);
+    if (meta.effect !== "read") requireCuaEligibility(binding.grants, meta.remoteName, args);
+    else if (["get_window_state", "get_desktop_state"].includes(meta.remoteName)) clearObservationGrant(binding.grants, meta.remoteName, args);
     const operation: McpOperation = { serviceId: meta.service.id, configVersion: meta.service.configVersion, configuration: meta.service.cua!.kind === "cua-mac" ? meta.service.cua : undefined, effect: meta.effect,
       rawTool: { name: meta.remoteName, inputSchema: meta.rawInputSchema ?? meta.inputSchema }, modelTool: { name: meta.exposedName, inputSchema: meta.inputSchema }, arguments: args, execution: binding.execution, state: "prepared" };
     this.save(opId, operation);
-    if (["get_desktop_state", "get_window_state"].includes(meta.remoteName)) binding.observed = false;
     this.busy = true;
     let originalRequest: string | undefined;
     try {
@@ -263,6 +264,7 @@ export class CodeCuaManager {
         beforeDispatch: () => {
           this.verify(meta.service, task);
           if (!originalRequest || signal?.aborted) throw new McpError("canceled", "电脑原调用已停止；该请求未发送。", false);
+          if (meta.remoteName === "run_steps") revokeActionable(binding.grants, cuaBatchPlan(args).key);
           const sent: McpOperation = { ...operation, request: originalRequest, state: "sent" };
           if (consume) consume(sent); else this.store.withTx(() => { this.verify(meta.service, task); this.store.saveMcpOperation(opId, sent); });
         },
@@ -275,23 +277,104 @@ export class CodeCuaManager {
       const current = this.store.getToolOp(opId)!.mcp! as McpOperation;
       if (!current.response || !mcpResponseEnded(current.response)) throw new McpError("remote_incomplete", "电脑原请求尚无完整终结应答，已冻结电脑；停止调用并报告拥有者核实，不能重发旧动作。");
       this.save(opId, { ...current, state: "finished" });
-      if (mcpImages(result).size) binding.observed = false;
       return result;
     } catch (error) {
       const current = this.store.getToolOp(opId)!.mcp! as McpOperation;
       if (error instanceof McpError && error.requestSent === false) this.save(opId, { ...current, state: "not_sent" });
       else if (current.request && (!current.response || !mcpResponseEnded(current.response))) {
         this.save(opId, { ...current, state: "frozen" });
-        binding.observed = false;
+        binding.grants = freshCuaGrants();
       } else this.save(opId, { ...current, state: current.request ? "finished" : "not_sent" });
       throw error;
     } finally { this.busy = false; }
   }
 
-  acceptObservation(opId: string): void {
+  /**
+   * After host-result persistence and formatting, queue observation metadata;
+   * session-history persistence is checked separately before activation.
+   * Eligibility uses the final outgoing projection, not this formatted view,
+   * and activates only once the result truly enters a model request
+   * (deliverObservations): a same-group tool call cannot authorize its own
+   * already-planned writes off an observation that just returned.
+   * Only get_window_state (including batch trailing observes) and
+   * get_desktop_state establish grants; images in write results and
+   * verify_state predicate results are not executable observations.
+   */
+  recordObservation(opId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[]; truncated?: boolean }, modelSeesImages: boolean): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.state !== "finished" || operation.execution?.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
-    this.binding!.observed = true;
+    const binding = this.binding!, grants = binding.grants;
+    const text = delivered.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text!).join("\n");
+    // Screenshot grants require the image to actually reach the model input;
+    // screenshots preserved offline (e.g. by restore) do not count as delivered.
+    const image = modelSeesImages && delivered.content.some(part => part.type === "image" && !!part.ruukotoMediaRef);
+    const truncated = delivered.truncated === true;
+    const state = result.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent) ? result.structuredContent as Record<string, unknown> : undefined;
+    const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
+    // Grants attribute to the window the returned state reports (upstream may
+    // resolve a different target through app/window overrides); missing fields
+    // fall back to the request arguments. When both lack the fields the read is
+    // unattributable — grant nothing and clear affected windows' grants and
+    // baselines since the read baseline may already have moved.
+    const stateKey = (inner: Record<string, unknown>) => {
+      const pid = inner.pid ?? args.pid, wid = inner.window_id ?? args.window_id;
+      return pid !== undefined && wid !== undefined ? `${pid}:${wid}` : undefined;
+    };
+    if (remoteName === "get_window_state") {
+      const key = state ? stateKey(state) : undefined;
+      if (state) invalidateCuaSnapshots(grants, state);
+      if (state && key && !cuaObservationBlocked(state)) grants.pending.push({ opId, kind: "window", key, state, text, image, truncated });
+      else dropObservationGrant(grants, state ? { pid: state.pid, window_id: state.window_id } : args);
+    } else if (remoteName === "get_desktop_state") {
+      grants.pending.push({ opId, kind: "desktop", ok: image && !cuaObservationBlocked(state) });
+    } else if (remoteName === "run_steps") {
+      const observation = state?.observation;
+      const inner = observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true ? (observation as { state?: unknown }).state : undefined;
+      const key = inner && typeof inner === "object" && !Array.isArray(inner) ? stateKey(inner as Record<string, unknown>) : undefined;
+      // Trailing observation unusable (failed, missing or unattributable):
+      // dispatch already revoked actionable grants; drop the diff baseline too.
+      if (key) invalidateCuaSnapshots(grants, inner as Record<string, unknown>);
+      if (key && !cuaObservationBlocked(inner as Record<string, unknown>)) grants.pending.push({ opId, kind: "window", key, state: inner as Record<string, unknown>, text, image, truncated });
+      else dropObservationGrant(grants, key ? { pid: (inner as Record<string, unknown>).pid, window_id: (inner as Record<string, unknown>).window_id } : args);
+    } else if (cuaToolEffect(binding.service.cua!, remoteName) === "write") {
+      grants.pending.push({ opId, kind: "windowHint", need: cuaActionNeed(args) });
+    }
+  }
+
+  pendingObservationOpIds(sessionId: string): string[] {
+    return this.binding?.sessionId === sessionId ? this.binding.grants.pending.map(pending => pending.opId) : [];
+  }
+
+  /** Join only this host operation's persisted result and outgoing projection;
+   *  SDK call ids may repeat across tasks. Missing history cancels pending effects. */
+  deliverObservations(sessionId: string, delivered: ReadonlyMap<string, CuaObservationProjection>, recordedOpIds: ReadonlySet<string>): void {
+    if (this.binding?.sessionId !== sessionId) return;
+    for (const pending of [...this.binding.grants.pending]) {
+      if (recordedOpIds.has(pending.opId)) continue;
+      const operation = this.store.getToolOp(pending.opId)?.mcp;
+      if (!operation || "transport" in operation) throw new McpError("cua_observation_invalid", "电脑观察的宿主操作记录缺失或类型不匹配；停止操作并报告拥有者核实存储。");
+      this.observationDeliveryFailed(pending.opId, operation.rawTool.name);
+    }
+    deliverCuaObservations(this.binding.grants, delivered);
+  }
+
+  /** An observation call returned upstream but its result could not be
+   *  delivered (persist/projection failure or isError): the upstream read
+   *  baseline already moved, so the diff baseline is untrustworthy — drop it
+   *  too; later observations must rebuild. */
+  observationDeliveryFailed(opId: string, remoteName: string): void {
+    const operation = this.store.getToolOp(opId)?.mcp;
+    if (!operation || operation.execution?.executionId !== this.binding?.execution.executionId) return;
+    const grants = this.binding!.grants;
+    const pending = grants.pending.filter(entry => entry.opId === opId);
+    grants.pending = grants.pending.filter(entry => entry.opId !== opId);
+    for (const entry of pending) {
+      if (entry.kind === "window") dropObservationBase(grants, entry.key);
+      else if (entry.kind === "desktop") clearObservationGrant(grants, "get_desktop_state", {});
+    }
+    const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
+    if (remoteName === "get_window_state" || remoteName === "run_steps") dropObservationGrant(grants, args);
+    else if (remoteName === "get_desktop_state") clearObservationGrant(grants, remoteName, args);
   }
 
   async stop(expectedServiceId?: string): Promise<CodeCuaStatus> {

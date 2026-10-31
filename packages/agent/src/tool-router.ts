@@ -48,7 +48,7 @@ import { allowlistEffectFor, type McpStore } from "./mcp/store.ts";
 import { canonicalParamsDigest, formatMcpResult, type McpToolInfo } from "./mcp/tools.ts";
 import { isMcpCredential, mcpCredentialDigest, McpError } from "./mcp/client.ts";
 import { mcpResponseEnded } from "./mcp/transport.ts";
-import { cuaToolEffect } from "./mcp/cua.ts";
+import { cuaNeedsVision, cuaToolEffect } from "./mcp/cua.ts";
 import type { CodeCuaManager } from "./mcp/code.ts";
 import { FILE_SEARCH_DEFINITIONS, FILE_SEARCH_TOOL_NAMES, type FileSearchResult } from "./file-search.ts";
 import type { ImageReference } from "./inbound-images.ts";
@@ -757,7 +757,7 @@ export class ToolRouter {
     // 调用前重读当前配置与凭据绑定：禁用/撤销/版本变化/移出允许列表立即阻止
     const blocked = this.mcpConfigBlock(mcp.store, meta, task);
     if (blocked) return textResult(blocked, true);
-    if (meta.service.cua && !await mcp.supportsImages?.(task)) return textResult("当前模型不支持图片，电脑操作未发送；请拥有者选择支持图片的模型后发起新工作。", true);
+    if (meta.service.cua && cuaNeedsVision(meta.remoteName, input.params) && !await mcp.supportsImages?.(task)) return textResult("该电脑操作需要图片观察但当前模型不支持图片，未发送；改用已交付树内元素动作，或请拥有者选择支持图片的模型。", true);
 
     if (meta.effect === "read" && task.accessMode !== "full_access") {
       return this.mcpSend(mcp, task, meta, input.params, input);
@@ -866,7 +866,7 @@ export class ToolRouter {
     };
     if (!meta.service.cua) this.deps.store.withTx(() => this.deps.store.saveMcpOperation(input.hostOpId, ordinary));
     try {
-      if (meta.service.cua && !await mcp.supportsImages?.(task)) throw new McpError("cua_model_unsupported", "当前模型不支持图片，电脑操作未发送；请拥有者选择支持图片的模型后发起新工作。");
+      if (meta.service.cua && cuaNeedsVision(meta.remoteName, params) && !await mcp.supportsImages?.(task)) throw new McpError("cua_model_unsupported", "该电脑操作需要图片观察但当前模型不支持图片，未发送；改用已交付树内元素动作，或请拥有者选择支持图片的模型。");
       const result = meta.service.cua
         ? await mcp.cua!.call(task, meta, params, input.hostOpId, input.signal, consume, (args, cuaHooks) => mcp.call(args, { ...cuaHooks, beforeDispatch: () => { beforeDispatch(); cuaHooks.beforeDispatch?.(); } }))
         : await mcp.call(params, hooks);
@@ -876,6 +876,8 @@ export class ToolRouter {
       }
       if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
         // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
+        // CUA observation result was not delivered (the upstream read baseline already moved): drop both grants and the baseline.
+        if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
         return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
       }
       const formatted = formatMcpResult(
@@ -886,7 +888,8 @@ export class ToolRouter {
         result,
         originalArtifact,
       );
-      if (meta.service.cua && !formatted.isError && formatted.content.some(part => part.type === "image" && part.ruukotoMediaRef)) mcp.cua!.acceptObservation(input.hostOpId);
+      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, meta.remoteName, result, formatted, (await mcp.supportsImages?.(task)) === true);
+      else if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;
     } catch (err) {
@@ -902,6 +905,8 @@ export class ToolRouter {
       const began = operation && ("transport" in operation ? operation.started && !operation.remoteRejected : !!operation.request && operation.state !== "not_sent");
       const ended = operation && ("transport" in operation ? operation.remoteEnded : !!operation.response && mcpResponseEnded(operation.response));
       if (meta.effect !== "read" && began && !ended) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
+      // When an observation call already reached upstream but its result could not be delivered (persist/projection failure), the upstream read baseline has moved: drop it along with grants. Validation refusals that never reached upstream leave existing grants alone.
+      if (meta.service.cua && began) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       return textResult((err as Error).message, true);
     }
   }

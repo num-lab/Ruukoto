@@ -15,6 +15,7 @@
 | `EventFlow` | Align text, thinking and tools into one conversation timeline |
 | `HistoryRecovery` | Coordinate history pages and long-body reads using UTF-8 byte offsets |
 | `personal-protocol.ts` | Browser-safe PA timeline and protocol types |
+| `cuaBatchSummary` | Ordered one-line summaries of `run_steps` batch steps for approval surfaces |
 
 All interfaces work in browsers and Node; transport is supplied by the client.
 

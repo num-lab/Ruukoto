@@ -79,6 +79,7 @@ import {
 } from "./state.ts";
 
 import { HistoryRecovery } from "@ruukoto/view/history-recovery.ts";
+import { cuaBatchSummary } from "@ruukoto/view/cua-batch.ts";
 import { EventFlowView } from "./event-flow-view.ts";
 import { activityAgo, TwoLineSelectList } from "./session-list.ts";
 import { WorkflowSidebar } from "./workflows.ts";
@@ -152,27 +153,32 @@ const selectTheme = {
 const editorTheme = { borderColor: dim, selectList: selectTheme };
 
 /**
- * 窗口边框与内边距，包住任意组件（列表、文本、自定义面板）。
+ * Window border and padding wrapping any component (lists, text, panels).
  *
- * 边框在容器层绘制，内容按（宽度 − 边框与留白）渲染后逐行补齐，所以内容
- * 多宽都能对齐；中文按显示宽度算，不会被当成两倍宽。不强制撑满宽度。
- * 高度由覆盖层给定（maxHeight）：内容超出时开窗滚动，上下边框始终保留。
+ * The border is drawn by the container; content renders at (width − chrome)
+ * and each line is padded out, so content of any width aligns; CJK counts by
+ * display width, not double cells. Does not force full width.
+ * Height is set by the overlay (maxHeight): overflow scrolls the window; the
+ * borders stay visible when the viewport can fit the frame's chrome.
  */
 class WindowFrame implements Component {
   onKey: ((data: string) => void) | null = null;
-  /** 内边距：左右各 1 列，上下各 1 行。 */
+  /** Padding: one column each side, one row top and bottom. */
   private static readonly PAD_X = 1;
   private static readonly PAD_Y = 1;
-  /** 边框占宽：左右竖线 + 两侧内边距。 */
+  /** Chrome width: left/right border plus inner padding. */
   private static readonly CHROME_X = 2 * (WindowFrame.PAD_X + 1);
-  /** 内容区可见行数上限（0 = 不限制，按内容全展开）。 */
+  /** Visible body row cap (0 = uncapped, content fully expands). */
   private maxRows = 0;
-  /** 内容区滚动起点：内容超出时由 setScroll 调整。 */
+  /** Body scroll origin, adjusted by setScroll when content overflows. */
   private scrollTop = 0;
-  /** 内容区总行数（最近一次渲染记录），用于判断是否需要滚动提示。 */
+  /** Body row count from the last render, used for scroll hints. */
   private contentRows = 0;
+  /** Inner body width from the last render; overflow() recomputes off-screen
+   *  content with the same width. */
+  private lastInner = 0;
 
-  constructor(private readonly content: Component, private readonly textKeys = false) {}
+  constructor(private readonly content: Component, private readonly textKeys = false, private viewportRows?: () => number) {}
 
   handleInput(data: string): void {
     if (!this.textKeys && (matchesKey(data, "q") || matchesKey(data, "escape"))) data = "\x1b";
@@ -184,44 +190,72 @@ class WindowFrame implements Component {
     this.content.invalidate?.();
   }
 
-  /** 内容区可用行数 = 总高 − 上下边框与内边距。 */
+  /** Body rows = total height minus top/bottom border and padding. */
   private bodyRows(height: number): number {
     return Math.max(1, height - 2 * (WindowFrame.PAD_Y + 1));
   }
 
-  /**
-   * 由覆盖层在定高后调用：把面板高度钉死，内容超出即开窗。
-   * 返回内容区实际可见行数，供调用方判断是否需要滚动提示。
-   */
-  setHeight(height: number): void {
-    this.maxRows = this.bodyRows(height);
+  /** Actually visible body rows: the smaller of the open-set cap and the
+   *  current overlay viewport. When the terminal shrinks after the frame
+   *  opened, the overlay clips to the new viewport, so scroll geometry must
+   *  follow the real viewport — otherwise the approve gate passes on the old
+   *  height. */
+  private effectiveMaxRows(): number {
+    const viewport = this.viewportRows?.() ?? 0;
+    const capped = viewport > 0 ? this.bodyRows(viewport) : 0;
+    if (this.maxRows <= 0) return capped;
+    return capped > 0 ? Math.min(this.maxRows, capped) : this.maxRows;
   }
 
-  /** 内容区行数（含上下内边距与边框）——覆盖层定高用。 */
+  /**
+   * Pin the initial panel height; the live overlay cap keeps scrolling within
+   * the current viewport when it shrinks.
+   */
+  setHeight(height: number, viewportRows?: () => number): void {
+    this.maxRows = this.bodyRows(height);
+    this.viewportRows = viewportRows;
+  }
+
+  /** Body rows including padding and border — used by the overlay for sizing. */
   heightFor(width: number): number {
     const inner = Math.max(1, width - WindowFrame.CHROME_X);
     return this.content.render(inner).length + 2 * WindowFrame.PAD_Y + 2;
   }
 
-  /** 滚动内容区：delta 为行数（正数向下）。 */
+  /** Scroll the body; delta is a row count (positive scrolls down). */
   scrollBy(delta: number): void {
-    const max = Math.max(0, this.contentRows - this.maxRows);
-    this.scrollTop = Math.max(0, Math.min(max, this.scrollTop + delta));
+    const { below } = this.overflow();
+    this.scrollTop = Math.max(0, Math.min(this.scrollTop + below, this.scrollTop + delta));
   }
 
-  /** 是否还有未显示的内容（用于滚动提示）。 */
+  /** Off-screen content (scroll hint and approve gate). Recomputed on demand at
+   *  the last render width — otherwise a fresh setText that has not repainted
+   *  yet reads stale row counts and an unread approval passes. */
   overflow(): { above: number; below: number } {
-    const max = Math.max(0, this.contentRows - this.maxRows);
+    const maxRows = this.effectiveMaxRows();
+    if (this.lastInner > 0) {
+      this.contentRows = this.content.render(this.lastInner).length;
+      const visible = maxRows > 0 ? Math.min(this.contentRows, maxRows) : this.contentRows;
+      this.scrollTop = Math.max(0, Math.min(this.scrollTop, Math.max(0, this.contentRows - visible)));
+    }
+    // A cap <= 0 means uncapped (everything visible); otherwise report the
+    // rows outside the viewport.
+    const max = maxRows > 0 ? Math.max(0, this.contentRows - maxRows) : 0;
+    // An overlay smaller than its chrome cannot expose a complete body row.
+    // Scrolling must not make approval possible until the viewport grows.
+    if (this.viewportRows && this.viewportRows() <= 2 * (WindowFrame.PAD_Y + 1)) return { above: this.scrollTop, below: Math.max(1, max - this.scrollTop) };
     return { above: this.scrollTop, below: max - this.scrollTop };
   }
 
   render(width: number): string[] {
     const inner = Math.max(1, width - WindowFrame.CHROME_X);
+    this.lastInner = inner;
     const pad = " ".repeat(WindowFrame.PAD_X);
     const all = this.content.render(inner);
     this.contentRows = all.length;
-    // 内容超出可见区时开窗；边框永远保留，不随内容被裁掉
-    const visible = this.maxRows > 0 ? Math.min(all.length, this.maxRows) : all.length;
+    // Overflow opens a scrolling window; the borders always stay and are never
+    // clipped with the content.
+    const visible = this.effectiveMaxRows() > 0 ? Math.min(all.length, this.effectiveMaxRows()) : all.length;
     this.scrollTop = Math.max(0, Math.min(this.scrollTop, Math.max(0, all.length - visible)));
     const body = all.slice(this.scrollTop, this.scrollTop + visible).map((line) => {
       const padded = line + " ".repeat(Math.max(0, inner - visibleWidth(line)));
@@ -1894,7 +1928,7 @@ export class TuiApp {
     openProcesses: () => {
       if (productFromEnv() !== "ruukoto-code") { this.notify("本会话后台入口仅向 Coding 开放。"); return; }
       void this.backgroundProcesses.refresh();
-      const frame = new WindowFrame(this.backgroundProcesses, true);
+      const frame = new WindowFrame(this.backgroundProcesses, true, () => this.terminal.rows || 24);
       frame.onKey = data => {
         if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) frame.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
         else this.backgroundProcesses.handleInput(data);
@@ -1904,7 +1938,7 @@ export class TuiApp {
     },
     openQuestions: () => {
       void this.ownerQuestions.refresh();
-      const frame = new WindowFrame(this.ownerQuestions, true);
+      const frame = new WindowFrame(this.ownerQuestions, true, () => this.terminal.rows || 24);
       frame.onKey = data => {
         if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) frame.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
         else { this.ownerQuestions.handleInput(data); if (matchesKey(data, "enter") || matchesKey(data, "escape")) frame.scrollBy(-10000); }
@@ -1915,7 +1949,7 @@ export class TuiApp {
     openWorkflow: () => { this.workflowSidebar.open(); this.tui.setFocus(this.workflowSidebar); this.tui.requestRender(); },
     openQueue: () => {
       void this.taskQueue.refresh();
-      const frame = new WindowFrame(this.taskQueue, true);
+      const frame = new WindowFrame(this.taskQueue, true, () => this.terminal.rows || 24);
       frame.onKey = data => {
         if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) frame.scrollBy(matchesKey(data, "pageUp") ? -5 : 5);
         else this.taskQueue.handleInput(data);
@@ -2132,7 +2166,7 @@ export class TuiApp {
     const view = this.sideView(sideId);
     this.sideChat.restore(view);
     if (!view.historyLoaded) void this.loadHistory(sideId, "replace");
-    const frame = new WindowFrame(this.sideChat.component);
+    const frame = new WindowFrame(this.sideChat.component, false, () => this.terminal.rows || 24);
     const rows = this.terminal.rows || 24;
     frame.setHeight(Math.max(6, Math.floor(rows * 0.6)));
     this.sideChatHandle = this.showWindow(frame, { width: "100%", anchor: "bottom-left", maxHeight: rows });
@@ -2673,7 +2707,7 @@ export class TuiApp {
     const body = new VStack([
       { component: this.todoPanel, grow: 0 },
     ]);
-    const frame = new WindowFrame(body);
+    const frame = new WindowFrame(body, false, () => this.terminal.rows || 24);
     const popup: Component = {
       render: (width) => {
         frame.setHeight(Math.max(5, Math.floor(this.terminal.rows * 0.6)));
@@ -2957,7 +2991,7 @@ export class TuiApp {
     const stale = () => closed || isStale() || generation !== this.generation;
     const header = `${bold("Prompt 详情")}\n${headerLines.join("\n")}\n\n`;
     const content = new Text(`${header}加载中…`, 0, 0);
-    const frame = new WindowFrame(content);
+    const frame = new WindowFrame(content, false, () => this.terminal.rows || 24);
     const handle = this.showWindow(frame, { width: "90%", anchor: "center", maxHeight: "85%" });
     frame.onKey = (data) => {
       if (data === "\x1b") {
@@ -3305,18 +3339,37 @@ export class TuiApp {
       header.setText(lines.join("\n"));
     };
     renderHeader(c.permissionVersion, c.status);
+    // A batch approval binds every step at once: before approval the owner must
+    // page through all arguments contiguously and scroll the view to the end.
+    const isCuaBatch = c.scope.kind === "mcp_tool" && c.scope.remoteName === "run_steps" && !!c.scope.cua;
     const paramsText = new Text("参数加载中…", 1, 0);
-    const footerText = new Text(dim("a 批准 · r 拒绝 · n/p 参数翻页 · Esc/q 关闭（关闭不等于拒绝）"), 1, 0);
+    const batchText = new Text("", 1, 0);
+    const batchFooter = () => `a 批准${isCuaBatch ? "（须读完参数并滚动到末尾）" : ""} · r 拒绝 · n/p 参数翻页 · ↑↓/PgUp·PgDn 滚动 · Esc/q 关闭（关闭不等于拒绝）`;
+    const footerText = new Text(dim(batchFooter()), 1, 0);
     const box = new OverlayBox([
       { component: header, grow: 0 },
+      ...(isCuaBatch ? [{ component: batchText, grow: 0 }] : []),
       { component: paramsText, grow: 1 },
       { component: footerText, grow: 0 },
     ]);
-    const handle = this.showWindow(box, { width: "90%", anchor: "center", maxHeight: "85%" });
+    const frame = new WindowFrame(box, false, () => this.terminal.rows || 24);
+    const handle = this.showWindow(frame, { width: "90%", anchor: "center", maxHeight: "85%" });
 
     let offset = 0;
     let total = c.paramsTruncated ? c.paramsBytes : 0;
     let nextOffset = 0;
+    const pages = new Map<number, string>();
+    let batchRendered = false;
+    /** Whether loaded pages cover every argument byte contiguously from 0 — a
+     *  precondition for approving a batch. */
+    const paramsComplete = () => {
+      let end = 0;
+      for (const off of [...pages.keys()].sort((a, b) => a - b)) {
+        if (off !== end) return false;
+        end = off + Buffer.byteLength(pages.get(off)!, "utf8");
+      }
+      return total > 0 && end >= total;
+    };
     // 详情展示以服务端最新记录为准（权限版本可能已变化）
     let currentVersion = c.permissionVersion;
     const loadParams = async (off: number) => {
@@ -3325,6 +3378,7 @@ export class TuiApp {
         if (generation !== this.generation) return;
         offset = slice.params.offset;
         total = slice.params.totalBytes;
+        pages.set(slice.params.offset, slice.params.text);
         // 前进按实际消费字节数（UTF-8 边界对齐），跨页字符不丢
         nextOffset = slice.params.offset + Buffer.byteLength(slice.params.text, "utf8");
         currentVersion = slice.confirmation.permissionVersion;
@@ -3333,15 +3387,40 @@ export class TuiApp {
           footerText.setText(yellow(`该审批当前状态：${slice.confirmation.status}（已不可批准/拒绝） · Esc/q 关闭`));
         }
         paramsText.setText(sanitizeForDisplay(slice.params.text));
+        if (isCuaBatch && paramsComplete() && !batchRendered) {
+          batchRendered = true;
+          let steps: string[] | null = null;
+          try { steps = cuaBatchSummary(JSON.parse([...pages.entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text).join(""))); } catch { steps = null; }
+          // The summary embeds model-supplied selectors/key names/tokens:
+          // sanitize as untrusted text first, then apply trusted styling.
+          if (steps) batchText.setText([bold("批次动作（一次批准绑定全部步骤）"), ...steps.map(sanitizeForDisplay), ""].join("\n"));
+        }
+        refreshFooter();
         this.tui.requestRender();
       } catch (err) {
-        paramsText.setText(red(`参数读取失败：${(err as Error).message}`));
+        paramsText.setText(red(`参数读取失败：${sanitizeForDisplay((err as Error).message)}`));
         this.tui.requestRender();
       }
     };
     void loadParams(0);
 
+    const refreshFooter = () => {
+      const { above, below } = frame.overflow();
+      footerText.setText(dim(batchFooter() + (above + below > 0 ? ` · 另有 ${above + below} 行在视口外` : "")));
+    };
     const respond = async (decision: "approve" | "reject") => {
+      if (decision === "approve" && isCuaBatch) {
+        if (!paramsComplete()) {
+          footerText.setText(yellow("批次批准绑定全部步骤；请先用 n 翻页读完全部参数，再决定批准。"));
+          this.tui.requestRender();
+          return;
+        }
+        if (frame.overflow().below > 0) {
+          footerText.setText(yellow("批次批准绑定全部步骤；请滚动到内容末尾核对全部步骤与参数，再决定批准。"));
+          this.tui.requestRender();
+          return;
+        }
+      }
       footerText.setText(dim("已发送应答，等待后台状态…"));
       this.tui.requestRender();
       try {
@@ -3391,6 +3470,11 @@ export class TuiApp {
         if (nextOffset > offset && nextOffset < total) void loadParams(nextOffset);
       } else if (data === "p") {
         void loadParams(Math.max(0, offset - ENTRY_PAGE_BYTES));
+      } else if ((["up", "down", "pageUp", "pageDown"] as const).some((key) => matchesKey(data, key))) {
+        const step = matchesKey(data, "pageUp") || matchesKey(data, "pageDown") ? 5 : 1;
+        frame.scrollBy(matchesKey(data, "up") || matchesKey(data, "pageUp") ? -step : step);
+        refreshFooter();
+        this.tui.requestRender();
       }
     };
   }
@@ -3408,12 +3492,15 @@ export class TuiApp {
       this.autocompleteOverlay = null;
       this.editor.overlayLines = [];
     }
-    const frame = component instanceof WindowFrame ? component : new WindowFrame(component);
-    const rows = this.terminal.rows || 24;
-    const height = typeof options.maxHeight === "string"
-      ? Math.floor(rows * parseFloat(options.maxHeight) / 100)
-      : options.maxHeight ?? rows;
-    frame.setHeight(height);
+    const frame = component instanceof WindowFrame ? component : new WindowFrame(component, false, () => this.terminal.rows || 24);
+    const height = () => {
+      const rows = this.terminal.rows || 24;
+      const margin = typeof options.margin === "number" ? { top: options.margin, bottom: options.margin } : options.margin;
+      const available = Math.max(1, rows - Math.max(0, margin?.top ?? 0) - Math.max(0, margin?.bottom ?? 0));
+      const maxHeight = typeof options.maxHeight === "string" ? Math.floor(rows * parseFloat(options.maxHeight) / 100) : options.maxHeight ?? rows;
+      return Math.max(1, Math.min(maxHeight, available));
+    };
+    frame.setHeight(height(), height);
     const base = this.tui.showOverlay(frame, options);
     let closed = false;
     const handle: OverlayHandle = { ...base, hide: () => {
@@ -3441,7 +3528,7 @@ export class TuiApp {
     const termWidth = this.terminal.columns || 80;
     const termRows = this.terminal.rows || 24;
     const width = Math.max(12, Math.floor(termWidth * opts.widthRatio));
-    const frame = new WindowFrame(opts.content);
+    const frame = new WindowFrame(opts.content, false, () => this.terminal.rows || 24);
     const maxHeight = Math.max(3, Math.floor(termRows * (opts.maxHeightRatio ?? 0.85)));
     const height = Math.min(frame.heightFor(width), maxHeight);
     // 内容超出给定高度时开窗滚动：上下边框始终保留，不被裁掉

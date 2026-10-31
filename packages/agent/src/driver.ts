@@ -277,7 +277,7 @@ export class Driver {
   private mcpConfigurations = new Map<string, string>();
   /** SDK 装配的执行画像与角色正文签名。 */
   private toolSignature: string | null = null;
-  /** 模型配置已应用、存活 SDK 会话待丢弃重建（issue 21 §4；见 updateModelDeps）。 */
+  /** Rebuild the SDK after model changes or history-persistence failures. */
   private sdkConfigStale = false;
   /** 执行画像（架构工单 08）：任务开始算一次、钉到下一任务开始；首个任务前为 null。 */
   private pinnedProfile: ExecutionProfile | null = null;
@@ -701,7 +701,7 @@ export class Driver {
       ...this.deps.mcp, store: this.deps.mcp.store, credentials: this.deps.credentials, cua: this.deps.mcp.cua,
       task: () => this.currentTask,
       discover: () => this.resourcePhase === "execution" || this.mcpPreflights > 0,
-      cuaAllowed: () => this.resourcePhase === "execution" && this.currentModelSupportsImages && !!this.currentTask && ownerQuestionTaskEligible(this.deps.store, this.currentTask),
+      cuaAllowed: () => this.resourcePhase === "execution" && !!this.currentTask && ownerQuestionTaskEligible(this.deps.store, this.currentTask),
       direct: () => !!this.pinnedExecution && !this.pinnedExecution.tools.includes("tool_search") || !!this.pinnedDefinition?.tools && !this.pinnedDefinition.tools.includes("tool_search") || !!this.currentTask && !!this.deps.allowTaskTool && !this.deps.allowTaskTool(this.currentTask, "tool_search"),
       allow: meta => {
         const current = this.deps.mcp!.store.getService(meta.service.id);
@@ -978,6 +978,7 @@ export class Driver {
         this.bindReportInput(task, context.messages);
         const binding = this.deps.beforeModelRequest?.(task, context.messages);
         if (binding) this.appendMarker("ruukoto_agent_report_context", { taskId: task.id, ...binding, requestBinding: true });
+        this.deliverCuaObservations(task, context.messages);
       } catch (err) {
         if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
         throw err;
@@ -1246,6 +1247,8 @@ export class Driver {
       this.currentTask = null;
       this.taskEnding = null;
       this.activeToolCalls.clear();
+      // Tool-result append failures must not leave grants pending across tasks.
+      this.deliverCuaObservations(task, []);
     }
   }
 
@@ -1309,8 +1312,8 @@ export class Driver {
       if (this.pendingUserImages.length > 0 && !model?.input?.includes("image")) {
         throw new Error(`${IMAGE_INPUT_UNSUPPORTED}:所选模型不支持图片输入`);
       }
-      // 模型配置应用后（issue 21 §4）：旧 SDK 会话闭包持有旧 ModelRuntime，
-      // 任务边界处丢弃，由 ensureSdk 以新模型栈重建（历史在会话文件中）
+      // Reopen authoritative history when model changes or unpersisted CUA
+      // results have made the live SDK/session-manager state stale.
       if (this.sdkConfigStale) {
         await this.dropSdkForToolChange();
         this.sdkConfigStale = false;
@@ -1895,6 +1898,54 @@ export class Driver {
     return this.currentPreview;
   }
 
+  /** Join this CUA result's persisted host operation to its outgoing projection;
+   *  reusable SDK call ids cannot identify an observation.
+   * Note: See .agents/notes/implemented/feature/2026-10-31-cua-batch-eligibility.md
+   */
+  private deliverCuaObservations(task: Task, messages: unknown[]): void {
+    const cua = this.deps.mcp?.cua;
+    if (!cua) return;
+    const pending = new Set(cua.pendingObservationOpIds(task.sessionId));
+    if (!pending.size) return;
+    type ResultIdentity = { role?: unknown; toolCallId?: unknown; toolName?: unknown; ruukotoToolOpId?: unknown };
+    const recorded = new Map<string, ResultIdentity>();
+    try {
+      const file = this.sdk?.sessionFile;
+      if (!file) throw new ContextSendBlocked("cua_observation_unrecorded:电脑观察缺少会话文件，拒绝使用未落盘结果");
+      for (const entry of parseSessionFile(file)) {
+        const result = entry.message as ResultIdentity | undefined;
+        if (entry.type !== "message" || result?.role !== "toolResult" || typeof result.ruukotoToolOpId !== "string" || !pending.has(result.ruukotoToolOpId)) continue;
+        const op = this.deps.store.getToolOp(result.ruukotoToolOpId);
+        if (op && op.sdkCallId === result.toolCallId && op.toolName === result.toolName) recorded.set(op.id, result);
+      }
+    } catch {
+      this.sdkConfigStale = true;
+      cua.deliverObservations(task.sessionId, new Map(), new Set());
+      throw new ContextSendBlocked("cua_observation_unrecorded:电脑观察的会话历史无法核实；结果授权已撤销，请报告拥有者检查存储");
+    }
+    const missing = new Set([...pending].filter(opId => !recorded.has(opId)));
+    // SessionManager may retain a result in memory after its JSONL write failed.
+    if (missing.size) this.sdkConfigStale = true;
+    const delivered = new Map<string, { text: string; image: boolean }>();
+    for (const message of messages) {
+      const entry = message as ResultIdentity & { content?: { type?: unknown; text?: unknown; data?: unknown; ruukotoMediaRef?: unknown }[] } | undefined;
+      if (!entry || entry.role !== "toolResult" || typeof entry.ruukotoToolOpId !== "string" || !Array.isArray(entry.content)) continue;
+      const saved = recorded.get(entry.ruukotoToolOpId);
+      if (!saved || saved.toolCallId !== entry.toolCallId || saved.toolName !== entry.toolName) continue;
+      delivered.set(entry.ruukotoToolOpId, {
+        text: entry.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text).join("\n"),
+        image: entry.content.some(part => part.type === "image" && typeof part.data === "string" && part.data.length > 0 && !!part.ruukotoMediaRef),
+      });
+    }
+    cua.deliverObservations(task.sessionId, delivered, new Set(recorded.keys()));
+    if (messages.some(message => {
+      const opId = (message as ResultIdentity | undefined)?.ruukotoToolOpId;
+      return typeof opId === "string" && missing.has(opId);
+    })) {
+      throw new ContextSendBlocked("cua_observation_unrecorded:本次请求包含未落盘的电脑结果，已撤销授权并拒绝发送；请报告拥有者检查存储");
+    }
+  }
+
   /** 在最终请求校验之后、调用 provider 之前开始计时，排除排队与上下文组装。 */
   private beginModelRequest(task: Task): void {
     this.modelResponseAccepted = false;
@@ -2033,7 +2084,11 @@ export class Driver {
       }
       case "message_end": {
         if (event.message.role === "toolResult") {
-          // SDK 在监听返回后同步落盘；逐条发引用，不等待同批其他工具结束。
+          // Stamp this exact CUA result before Pi appends it; never recover
+          // historical identity through a later task's reusable SDK call id.
+          const opId = this.callMap.get(event.message.toolCallId);
+          if (opId && this.currentMcpTools.get(event.message.toolName)?.service.cua) (event.message as typeof event.message & { ruukotoToolOpId: string }).ruukotoToolOpId = opId;
+          // Pi appends after this listener returns; emit references per result.
           setImmediate(() => this.flushEntryRefs(task));
           return;
         }

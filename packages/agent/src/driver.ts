@@ -978,6 +978,7 @@ export class Driver {
         this.bindReportInput(task, context.messages);
         const binding = this.deps.beforeModelRequest?.(task, context.messages);
         if (binding) this.appendMarker("ruukoto_agent_report_context", { taskId: task.id, ...binding, requestBinding: true });
+        this.deliverCuaObservations(task, context.messages);
       } catch (err) {
         if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
         throw err;
@@ -1893,6 +1894,20 @@ export class Driver {
   currentOutputPreview(taskId: string): { messageId: string; text: string } | null {
     if (this.currentTask?.id !== taskId || !this.currentPreview) return null;
     return this.currentPreview;
+  }
+
+  /** CUA observation grants activate only when the result truly reaches the
+   *  model in this request: a tool group cannot authorize its own writes off an
+   *  observation that just returned. */
+  private deliverCuaObservations(task: Task, messages: unknown[]): void {
+    const cua = this.deps.mcp?.cua;
+    if (!cua) return;
+    const delivered = new Set<string>();
+    for (const message of messages) {
+      const entry = message as { role?: unknown; toolCallId?: unknown } | undefined;
+      if (entry && entry.role === "toolResult" && typeof entry.toolCallId === "string") delivered.add(entry.toolCallId);
+    }
+    cua.deliverObservations(task.sessionId, delivered);
   }
 
   /** 在最终请求校验之后、调用 provider 之前开始计时，排除排队与上下文组装。 */

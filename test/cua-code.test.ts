@@ -339,3 +339,52 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
     assert.equal(sent("run_steps").length, 2, "未允许子动作的批次零发送");
   } finally { await runtime.shutdown(); }
 });
+
+test("Code Cua：观察授权只在结果进入后续模型请求后激活，同响应写零发送", { skip: !available }, async () => {
+  const script: Array<{ kind: "tool_calls"; calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> } | { kind: "text"; text: string }> = [];
+  const responder: Responder = async () => script.shift() ?? { kind: "text", text: "done" };
+  const runtime = await startTestRuntime("cua-deliver", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const { client, dirs } = runtime;
+  const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
+  const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
+  const tools = [
+    { name: "get_window_state", description: "观察窗口", inputSchema: { type: "object", properties: { pid: { type: "integer" }, window_id: { type: "integer" }, include_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } },
+    { name: "get_desktop_state", description: "观察桌面", inputSchema: { type: "object", properties: {} } },
+    { name: "click", description: "点击", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, pid: { type: "integer" }, window_id: { type: "integer" }, scope: { type: "string" }, element_token: { type: "string" } } } },
+    { name: "run_steps", description: "批次", inputSchema: { type: "object", properties: { steps: { type: "array" } } } },
+  ];
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify(m)+'\\n');const a=m.params.arguments;if(m.params.name==='get_window_state')result={content:[{type:'text',text:${JSON.stringify(TREE)}}],structuredContent:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000001',elements:[]}};else if(m.params.name==='get_desktop_state')result={content:[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}],structuredContent:{}};else if(m.params.name==='run_steps')result={content:[{type:'text',text:'1 step executed'}],structuredContent:{ok:true,executed:1,results:[{ok:true}],observation:{ok:true,state:{pid:a.pid,window_id:a.window_id,snapshot_id:'s00000002'}}}};else result={content:[{type:'text',text:'done'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
+  const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+  const sent = (name: string) => calls().filter(call => call.method === "tools/call" && call.params.name === name);
+  const resolve = runtime.runtime.models.current.modelCatalog.resolve.bind(runtime.runtime.models.current.modelCatalog);
+  runtime.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
+  async function done(id: string) {
+    await waitFor("Cua task ended", () => ["completed", "failed", "canceled", "interrupted"].includes(runtime.runtime.store.getTask(id)!.status));
+  }
+  try {
+    const { sessionId } = await createProjectSession(client, runtime.work[0]);
+    script.push({ kind: "text", text: "ready" });
+    const baseline = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "baseline", input: "baseline", model_selection: MODEL, access_mode: "full_access" });
+    await done(baseline.id);
+    const service = await client.request<{ id: string }>("mcp_configure", { name: "mac", cua, tool_allowlist: ["get_window_state", "get_desktop_state", "click", "type_text", "run_steps", "hotkey"] });
+    await client.request("mcp_check", { service_id: service.id });
+    // 审查反例：同一响应里先观察再写——观察结果尚未进入任何模型请求，写不得凭它授权
+    script.push({ kind: "tool_calls", calls: [
+      { id: "same-obs", name: "mcp__mac__get_window_state", arguments: { pid: 42, window_id: 7, include_screenshot: false } },
+      { id: "same-click", name: "mcp__mac__click", arguments: { pid: 42, window_id: 7, element_token: "s00000001:14" } },
+      { id: "same-desktop", name: "mcp__mac__click", arguments: { scope: "desktop", x: 1, y: 2 } },
+    ] });
+    // 第二轮：观察结果已随请求送达模型，元素动作授权生效
+    script.push({ kind: "tool_calls", calls: [{ id: "later-click", name: "mcp__mac__click", arguments: { pid: 42, window_id: 7, element_token: "s00000001:14" } }] });
+    const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "same-group", input: "same-group", model_selection: MODEL, access_mode: "full_access" });
+    await done(task.id);
+    assert.equal(sent("get_window_state").length, 1, "观察本身正常发送");
+    assert.equal(sent("click").length, 1, "同响应内的写零发送；交付后的写放行");
+    // 无效后缀的批次：有效前缀不得先行执行（整批发送前即拒绝）
+    script.push({ kind: "tool_calls", calls: [{ id: "bad-batch", name: "mcp__mac__run_steps", arguments: { steps: [{ tool: "click", args: { element_token: "s00000001:14" } }, { tool: "hotkey", args: { keys: ["cmd", "shift"] } }], pid: 42, window_id: 7, observe: { include_screenshot: false } } }] });
+    const batchTask = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "bad-suffix", input: "bad-suffix", model_selection: MODEL, access_mode: "full_access" });
+    await done(batchTask.id);
+    assert.equal(sent("run_steps").length, 0, "确定性无效后缀整批零发送");
+  } finally { await runtime.shutdown(); }
+});

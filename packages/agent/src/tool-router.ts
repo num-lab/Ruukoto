@@ -876,7 +876,7 @@ export class ToolRouter {
       }
       if (meta.checkOutput && !result.isError && (result.structuredContent === undefined || !meta.checkOutput(result.structuredContent))) {
         // 远端成功应答即已执行：结果不符是已知错误，不标 effect_unknown
-        // CUA 观察调用结果未交付（读基线已前移）：连同授权与基线一起清除
+        // CUA observation result was not delivered (the upstream read baseline already moved): drop both grants and the baseline.
         if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
         return textResult(`远端已执行，但结构化结果与声明的 outputSchema 不符（${meta.service.name}/${meta.remoteName}）`, true);
       }
@@ -888,7 +888,7 @@ export class ToolRouter {
         result,
         originalArtifact,
       );
-      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, meta.remoteName, result, formatted, (await mcp.supportsImages?.(task)) === true);
+      if (meta.service.cua && !formatted.isError) mcp.cua!.recordObservation(input.hostOpId, input.sdkCallId, meta.remoteName, result, formatted, (await mcp.supportsImages?.(task)) === true);
       else if (meta.service.cua) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       this.artifactRefs.set(input.hostOpId, formatted.artifactIds ?? []);
       return formatted;
@@ -905,7 +905,7 @@ export class ToolRouter {
       const began = operation && ("transport" in operation ? operation.started && !operation.remoteRejected : !!operation.request && operation.state !== "not_sent");
       const ended = operation && ("transport" in operation ? operation.remoteEnded : !!operation.response && mcpResponseEnded(operation.response));
       if (meta.effect !== "read" && began && !ended) this.deps.store.withTx(() => this.deps.ledger.markEffectUnknown(task, input.hostOpId));
-      // 已上行的观察调用若结果未能交付（持久化/投影异常），上游读基线已前移：连同基线一起清除；未上行的校验拒绝不影响既有授权
+      // When an observation call already reached upstream but its result could not be delivered (persist/projection failure), the upstream read baseline has moved: drop it along with grants. Validation refusals that never reached upstream leave existing grants alone.
       if (meta.service.cua && began) mcp.cua!.observationDeliveryFailed(input.hostOpId, meta.remoteName);
       return textResult((err as Error).message, true);
     }

@@ -1,35 +1,57 @@
-/** 观察资格判定：只有真正持久化并投影给模型的观察内容才授权写操作。
- * Note: 见 .agents/notes/implemented/feature/2026-10-31-cua-batch-eligibility.md
- * Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+/** Observation eligibility: only content actually persisted and delivered into a
+ *  model request authorizes writes. Grants recorded at format time stay pending
+ *  until the result appears in a subsequent model request — a tool group can
+ *  never authorize its own precomputed writes with a freshly returned observation.
+ * Note: See .agents/notes/implemented/feature/2026-10-31-cua-batch-eligibility.md
+ * Note: See .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
  */
 import { cuaActionNeed, cuaBatchPlan, type CuaActionNeed } from "./cua.ts";
 import { McpError } from "./transport.ts";
 
-/** 某窗口已交付给模型的有效观察：可操作快照（含元素令牌出处）、截图帧与 diff 合并基线。 */
+/** A window's observation delivered to the model: the actionable snapshot (with
+ *  element-token provenance), a screenshot frame, and the diff merge base.
+ *  `detached` marks rows whose positions were fabricated when appending a diff —
+ *  their real ancestors were not delivered, so menu-route checks cannot trust
+ *  their indentation chain. */
 export interface WindowGrant {
-  /** text = 当前可操作视图（diff 读为规范化合并结果：变更行统一为 `- [n]` 行，移除行不保留）；
-   *  detached = 位置由 diff 追加伪造的行号集合——这些行的真实祖先未交付，菜单路由判据不可凭其缩进链。 */
+  /** text = current actionable view (a diff read is normalized: changed rows
+   *  become `- [n]` rows and removed rows drop out). */
   snapshot?: { sid: string; text: string; detached?: Set<number> };
   screenshot?: { captureId?: string };
-  /** 最近一次交付的完整观察文本（sid 为产出该文本的快照）；只作 diff 合并基线，不单独授权。 */
-  base?: { sid: string; text: string };
+  /** The last delivered complete observation text (sid is the snapshot that
+   *  produced it); serves only as the diff merge base and as the restore source
+   *  for same-sid treeless rereads — never actionable by itself. Retained with
+   *  the same detached provenance as the view it describes. */
+  base?: { sid: string; text: string; detached?: Set<number> };
 }
-/** 本执行内仍可作为写操作依据的观察；换绑、冻结、断连、重读或批次派发即失效。 */
-export interface CuaGrants { windows: Map<string, WindowGrant>; invalidated: Set<string>; desktopScreenshot: boolean; activeWindow?: string }
-export const freshCuaGrants = (): CuaGrants => ({ windows: new Map(), invalidated: new Set(), desktopScreenshot: false });
+/** A recorded observation effect that only takes hold once its tool result is
+ *  delivered inside a subsequent model request. */
+export type PendingObservation =
+  | { callId: string; kind: "window"; key: string; state: Record<string, unknown>; text: string; image: boolean; truncated: boolean }
+  | { callId: string; kind: "drop"; args: Record<string, unknown> }
+  | { callId: string; kind: "desktop"; ok: boolean }
+  | { callId: string; kind: "windowHint"; need: CuaActionNeed };
+/** Observation effects still valid for writes within this execution; rebinding,
+ *  freezing, disconnecting, rereading or dispatching a batch invalidates them. */
+export interface CuaGrants { windows: Map<string, WindowGrant>; invalidated: Set<string>; desktopScreenshot: boolean; activeWindow?: string; pending: PendingObservation[] }
+export const freshCuaGrants = (): CuaGrants => ({ windows: new Map(), invalidated: new Set(), desktopScreenshot: false, pending: [] });
 
 const eligibleFailure = (reason: string) => new McpError("cua_observation_required", `${reason}；该请求未发送。先对目标窗口调用 get_window_state 取得新观察（元素动作用已交付的 element_token，坐标动作需要已交付截图），再据此操作。`);
 
-/** 锁屏、AX 未决或启动中的观察不授权写入（degraded_reason 前缀匹配上游枚举）。 */
+/** Locked-screen, unresolved-AX or still-launching observations never authorize
+ *  writes (degraded_reason prefixes match the upstream enum). */
 export const cuaObservationBlocked = (state: Record<string, unknown> | undefined): boolean => {
   const reason = state?.degraded_reason;
   return typeof reason === "string" && /^(screen_locked|ax_window_unresolved|ax_app_launching)/.test(reason);
 };
 
-/** 元素行只按完整令牌或行首 `- [n]` 索引行计数（与上游 snapshot_row 同形态）；子串与标签内文本都不算交付。
- *  完整令牌按上游形态计数：elements JSON 的 `"element_token":"sid:row"` 字段值或 markdown 页脚
- *  `row [N] is "sid:row"` 提示，均要求同行含 element_token 且令牌带引号；元素标签等应用可控
- *  文本内出现的 sid:row 字样不构成交付。行标记与上游 `- [N] ` 一致（单空格、尾随空格）。 */
+/** An element row counts only via the complete token or a line-anchored `- [n]`
+ *  index row (same shape as upstream snapshot_row); substrings and label text do
+ *  not count as delivered. Complete tokens follow the upstream forms: the
+ *  `"element_token":"sid:row"` field in elements JSON, or the markdown footer
+ *  `row [N] is "sid:row"` — both require `element_token` on the same line and a
+ *  quoted token; `sid:row` text inside app-controlled labels is not delivery.
+ *  The row marker matches upstream `- [N] ` exactly (single space, trailing space). */
 const tokenVisible = (text: string, sid: string, row: number): boolean => {
   const escapedSid = sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const token = new RegExp(`["']${escapedSid}:${row}["']`);
@@ -37,14 +59,19 @@ const tokenVisible = (text: string, sid: string, row: number): boolean => {
     || new RegExp(`(^|\\n)[ \\t]*- \\[${row}\\] `).test(text);
 };
 
-/** 令牌所属窗口的当前有效授权（sid 被公告失效后不再可寻）。 */
+/** The current valid grant for a token's window (a sid announced as invalidated
+ *  is no longer addressable). */
 export const tokenGrantWindow = (grants: CuaGrants, sid: string): [string, WindowGrant] | undefined =>
   grants.invalidated.has(sid) ? undefined : [...grants.windows.entries()].find(([, grant]) => grant.snapshot?.sid === sid);
 
-/** 上游 menu_path_in（window_state_view.rs）的等价判定：行角色为 AXMenuItem/AXMenuBarItem 且缩进
- *  祖先链抵达 AXMenuBar 时，钉版驱动会把该行的 click 改执行为 invoke_menu —— 不在批次动作清单的
- *  隐式调用。上游按 sid 存储完整 markdown 并在其上判定；宿主只有交付视图：真实位置可证的行
- *  按祖先链判定，diff 追加行（detached）位置伪造，菜单角色一律按可路由拒绝。 */
+/** Equivalent of upstream menu_path_in (window_state_view.rs): a row whose role
+ *  is AXMenuItem/AXMenuBarItem with an indent-ancestor chain reaching AXMenuBar
+ *  is rerouted by the pinned driver from click to invoke_menu — an implicit call
+ *  outside the batch action set. Upstream stores full markdown per sid and
+ *  judges on it; the host only has the delivered view: rows with provable real
+ *  positions are judged by their ancestor chain, while diff-appended rows
+ *  (detached) have fabricated positions and are refused whenever the role is a
+ *  menu role. */
 const MENU_ROW_ROLES = new Set(["AXMenuItem", "AXMenuBarItem"]);
 
 const treeRowItem = (line: string): { role: string; label: string } | undefined => {
@@ -61,9 +88,11 @@ const treeRowItem = (line: string): { role: string; label: string } | undefined 
   return { role: space < 0 ? body : body.slice(0, space), label: after.match(/^"([^"]*)"/)?.[1] ?? "" };
 };
 
-/** click 令牌的菜单路由判据：交付文本中找不到可解析的 `- [n]` 行（elements/both 之外的格式、
- *  行被截断投影）即不可证明非菜单行，拒绝；detached 行位置由合并追加伪造、祖先不可证明，
- *  菜单角色按可路由拒绝；位置真实的行按上游同构的缩进祖先链判定。 */
+/** Menu-route predicate for a click token: a token whose `- [n]` row cannot be
+ *  parsed from the delivered text (formats other than markdown/both, or a row
+ *  truncated out of the projection) cannot be proven non-menu and is refused;
+ *  detached rows have fabricated positions so menu roles are refused; rows with
+ *  real positions are judged by the upstream-isomorphic indent ancestor chain. */
 const menuTokenBlocked = (snapshot: { text: string; detached?: Set<number> }, row: number): boolean => {
   const marker = `[${row}] `;
   const line = snapshot.text.split("\n").find(l => { const trimmed = l.trimStart(); return trimmed.startsWith("- ") && trimmed.slice(2).startsWith(marker); });
@@ -118,7 +147,9 @@ function checkNeed(grants: CuaGrants, need: CuaActionNeed, label: string, args: 
   if (need.kind === "window" && need.coords && !grant.screenshot) throw eligibleFailure(`${label} 需要目标窗口已交付的截图；元素动作请改用 element_token`);
 }
 
-/** 写操作发送前的观察资格：目标窗口必须持有已交付给模型的有效观察；元素与坐标分别要求快照行与截图帧。 */
+/** Pre-send observation eligibility for writes: the target window must hold an
+ *  observation actually delivered to the model; element and coordinate actions
+ *  require snapshot rows and a screenshot frame respectively. */
 export function requireCuaEligibility(grants: CuaGrants, remoteName: string, args: Record<string, unknown>): void {
   if (remoteName === "run_steps") {
     const plan = cuaBatchPlan(args);
@@ -127,8 +158,10 @@ export function requireCuaEligibility(grants: CuaGrants, remoteName: string, arg
     for (const [index, step] of plan.steps.entries()) {
       const need = cuaActionNeed(step.args);
       checkNeed(grants, need, `批次步骤 ${index + 1}（${step.tool}）`, step.args, { key: plan.key, grant: grant! });
-      // 钉版驱动把菜单栏元素的 click 改执行为 invoke_menu（不在批次动作清单的隐式调用）：
-      // 判据落在该 sid 的完整存储文本上；double_click/right_click 无该路由，普通调用亦不经此路径。
+      // The pinned driver reroutes clicks on menu-bar elements to invoke_menu
+      // (an implicit call outside the batch set); the predicate runs on the
+      // sid's full stored text. double_click/right_click have no such route,
+      // and ordinary calls do not take this path either.
       if (step.tool === "click" && need.kind === "token" && menuTokenBlocked(grant!.snapshot!, need.row))
         throw eligibleFailure(`批次步骤 ${index + 1}（click）的元素是菜单栏成员或祖先不可证明；钉版驱动会把该点击改执行为不在批次动作清单的 invoke_menu。改用 hotkey/菜单等价键，或交付截图后用坐标点击`);
     }
@@ -137,9 +170,11 @@ export function requireCuaEligibility(grants: CuaGrants, remoteName: string, arg
   checkNeed(grants, cuaActionNeed(args), `操作 ${remoteName}`, args);
 }
 
-/** 观察请求的窗口键：pid/window_id 均可归一化为整数时才可归属（字符串数字按上游可强转的
- *  形态归一，其余形态视为不可归属）；缺省时上游解析前台窗口，宿主无法证明目标是谁，
- *  调用方须按“可能影响任一窗口”保守处理。 */
+/** The window key an observation request addresses: attributable only when both
+ *  pid and window_id normalize to integers (numeric strings normalized per the
+ *  upstream coercible forms; anything else is unattributable). When absent,
+ *  upstream resolves a front window the host cannot prove — callers must treat
+ *  the call as possibly touching any window. */
 const argsWindowKey = (args: Record<string, unknown>): string | undefined => {
   const part = (value: unknown) => {
     const num = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
@@ -149,8 +184,10 @@ const argsWindowKey = (args: Record<string, unknown>): string | undefined => {
   return pid !== undefined && wid !== undefined ? `${pid}:${wid}` : undefined;
 };
 
-/** 观察类调用在发送前即失效原窗口/桌面的可操作授权；diff 基线保留供新观察合并。
- *  目标不可归属时撤销全部窗口的可操作授权（基线保留）：重读任意窗口都会推进上游读基线。 */
+/** An observation call revokes the target window/desktop's actionable grants
+ *  before it is even sent; the diff merge base is retained for merging the new
+ *  observation. An unattributable target revokes every window's actionable
+ *  grants (bases retained): reading any window advances the upstream read base. */
 export function clearObservationGrant(grants: CuaGrants, remoteName: string, args: Record<string, unknown>): void {
   if (remoteName === "get_window_state") {
     const key = argsWindowKey(args);
@@ -159,8 +196,10 @@ export function clearObservationGrant(grants: CuaGrants, remoteName: string, arg
   } else if (remoteName === "get_desktop_state") grants.desktopScreenshot = false;
 }
 
-/** 批次开始派发即撤销目标窗口的可操作授权：动作已可能改变界面，旧证据不再有效。
- *  授权仅由批次末尾或其他成功交付的观察恢复；diff 基线保留，供新观察按上游增量语义合并。 */
+/** Dispatching a batch revokes the target window's actionable grants: the
+ *  actions may already have changed the UI so the old evidence is stale. Grants
+ *  recover only from the batch's trailing or another delivered observation;
+ *  the diff merge base is retained for upstream incremental merging. */
 export function revokeActionable(grants: CuaGrants, key: string): void {
   const grant = grants.windows.get(key);
   if (!grant) return;
@@ -169,21 +208,28 @@ export function revokeActionable(grants: CuaGrants, key: string): void {
   if (grants.activeWindow === key) grants.activeWindow = undefined;
 }
 
-/** 远端观察结果未能交付给模型（持久化或投影失败）：上游读取基线已前移但内容不可见，整窗授权与基线一并清除。 */
+/** A remote observation result could not be delivered to the model
+ *  (persistence or projection failure): the upstream read base already advanced
+ *  but the content is invisible, so both grants and the base are dropped and
+ *  later observations must rebuild. */
 export function dropObservationBase(grants: CuaGrants, key: string): void {
   grants.windows.delete(key);
   if (grants.activeWindow === key) grants.activeWindow = undefined;
 }
 
-/** 按观察请求参数清除授权与基线；目标不可归属时清除全部窗口（读基线已在前移的窗口上推进）。 */
+/** Drop grants and bases per the observation request's parameters; an
+ *  unattributable target drops every window (the read base already advanced on
+ *  whichever window upstream read). */
 export function dropObservationGrant(grants: CuaGrants, args: Record<string, unknown>): void {
   const key = argsWindowKey(args);
   if (key) dropObservationBase(grants, key);
   else for (const k of [...grants.windows.keys()]) dropObservationBase(grants, k);
 }
 
-/** diff 文本的行条目：上游按 `+ [n]`（新增）、`~ [n]`（变更）、`- [n]`（已移除，旧 sid 的 id）
- *  输出且不带缩进与 `- ` 前缀；`reindexed:`/标题等非行条目跳过。返回规范化行与行号分类。 */
+/** Row entries in a diff text: upstream emits `+ [n]` (added), `~ [n]` (changed)
+ *  and `- [n]` (removed, id from the old sid) without indentation or a `- `
+ *  prefix; `reindexed:`/headers and other lines are skipped. Returns normalized
+ *  rows plus the row-id classification. */
 const parseDiffRows = (diff: string): { changed: Set<number>; removed: Set<number>; rows: string[] } => {
   const changed = new Set<number>(), removed = new Set<number>(), rows: string[] = [];
   for (const line of diff.split("\n")) {
@@ -196,8 +242,11 @@ const parseDiffRows = (diff: string): { changed: Set<number>; removed: Set<numbe
   return { changed, removed, rows };
 };
 
-/** 基线行 + diff 变更行的规范化合并：被变更/移除的基线行剔除，变更行统一为 `- [n]` 行附后。
- *  结果视图与上游存储的完整 markdown 同形可供行判定；追加行位置不反映真实祖先（调用方记入 detached）。 */
+/** Normalize-merge base rows with diff changed rows: changed/removed base rows
+ *  drop out and changed rows append as `- [n]` lines. The resulting view has the
+ *  same shape as the full markdown upstream stores and is usable for row
+ *  checks; appended positions do not reflect real ancestors (callers record
+ *  them as detached). */
 const mergeDeliveredText = (base: string, diff: string): { merged: string; changed: Set<number>; removed: Set<number> } => {
   const { changed, removed, rows } = parseDiffRows(diff);
   const kept = base.split("\n").filter(line => {
@@ -207,11 +256,19 @@ const mergeDeliveredText = (base: string, diff: string): { merged: string; chang
   return { merged: [...kept, ...rows].join("\n"), changed, removed };
 };
 
-/** 成功观察后登记授权：sid/失效公告/截图帧出自结构化结果，文本只用已交付内容。
- *  diff/no_change 只在上游报出的已解析基线（state.since）与既有交付基线的 sid 一致时才合并
- *  ——上游的 diff 基线可能是批次内定位器读产生的中间快照或模型指定的其他 sid，基线不符时
- *  旧行号与新快照内容无对应关系，按只含变更行的视图授权；交付文本被截断或行号被重排时
- *  该读同样不能作合并基线（丢失的变更记录会让旧行复活）。 */
+/** Record a successful observation as grants: sid/invalidation/screenshot come
+ *  from the structured result; text uses only delivered content.
+ *  diff/no_change merges only when the resolved baseline the observation
+ *  reports (`state.since`) equals the sid of the retained delivery base —
+ *  upstream's actual diff baseline can be an intermediate snapshot produced by
+ *  its batch locator reads or a model-requested sid, and with a mismatching
+ *  baseline old row ids are meaningless — added and changed rows normalize into
+ *  live rows, removed rows drop out of the merged view, and every row of a
+ *  non-empty diff's merged view keeps a fabricated position (a diff carries no
+ *  ancestors, so even kept rows' indentation chains cannot prove menu-route
+ *  ancestry). A delivered text that was truncated, or a reread whose row ids
+ *  were reindexed, cannot serve as a merge base either (lost change records
+ *  would resurrect stale rows). */
 export function grantWindowObservation(grants: CuaGrants, key: string, state: Record<string, unknown>, text: string, image: boolean, truncated = false): void {
   if (cuaObservationBlocked(state)) { grants.windows.delete(key); return; }
   for (const sid of Array.isArray(state.invalidated_snapshot_ids) ? state.invalidated_snapshot_ids : []) {
@@ -224,28 +281,33 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
   if (typeof sid === "string" && sid && !grants.invalidated.has(sid)) {
     const diff = state.since_status === "diff" || state.since_status === "no_change";
     const changedOnly = () => {
-      // 只含变更行的视图：无基线、基线不符、截断交付或行号被重排时都不能续用旧行
+      // Changed-rows-only view: no base, a mismatched baseline, a truncated
+      // delivery or reindexed rows all forbid reusing old row ids.
       const { merged, changed } = mergeDeliveredText("", text);
       grant.snapshot = { sid, text: merged, detached: changed };
       delete grant.base;
     };
     if (!diff) {
-      // 截图式重读（include_accessibility_tree:false）：上游沿用同 sid 保留行与令牌，
-      // 交付文本无行时保留既有可操作视图与合并基线，只按下方规则刷新截图资格
+      // Screenshot-style reread (include_accessibility_tree:false): upstream
+      // keeps rows and tokens under the same sid, so when no rows arrive the
+      // retained non-actionable base restores the actionable view — including
+      // its detached provenance — and only the screenshot rule below refreshes.
       const treeless = !/^[ \t]*- \[\d+\] /m.test(text);
-      if (!(sid === grant.snapshot?.sid && treeless)) {
+      if (sid === grant.base?.sid && treeless) grant.snapshot = { sid, text: grant.base!.text, ...(grant.base!.detached ? { detached: new Set(grant.base!.detached) } : {}) };
+      else {
         grant.snapshot = { sid, text };
         if (truncated) delete grant.base;
         else grant.base = { sid, text };
       }
     } else if (grant.base && grant.base.sid === state.since && !truncated && !text.includes("reindexed:")) {
       const { merged, changed, removed } = mergeDeliveredText(grant.base.text, text);
-      const detached = new Set(grant.snapshot?.detached ?? []);
-      // 非空 diff 不携带祖先：任一变更/移除行都可能改变保留行的缩进链，
-      // 合并视图里所有行的菜单祖先都不可凭位置判定（仅 no_change 保留位置信任）
+      const detached = new Set(grant.base.detached ?? []);
+      // A non-empty diff carries no ancestors: any changed or removed row can
+      // alter kept rows' indentation chains, so no merged-view row can prove
+      // menu ancestry by position (only no_change retains position trust).
       if (changed.size || removed.size) for (const match of merged.matchAll(/^[ \t]*- \[(\d+)\] /gm)) detached.add(Number.parseInt(match[1]!, 10));
       grant.snapshot = { sid, text: merged, detached };
-      grant.base = { sid, text: merged };
+      grant.base = { sid, text: merged, detached };
     } else {
       changedOnly();
     }
@@ -253,6 +315,28 @@ export function grantWindowObservation(grants: CuaGrants, key: string, state: Re
   if (image && state.display_only !== true && state.on_current_space !== false) grant.screenshot = { ...(typeof state.capture_id === "string" ? { captureId: state.capture_id } : {}) };
   else if (state.screenshot_frame_valid === false || state.screenshot_error !== undefined) delete grant.screenshot;
   grants.windows.set(key, grant);
-  // 无内容观察（display_only 等）不产生任何授权，也不应把上下文目标引向空窗口
+  // An empty observation (display_only etc.) grants nothing and must not steer
+  // the context target toward an empty window.
   if (grant.snapshot || grant.screenshot) grants.activeWindow = key;
+}
+
+/** Activate pending observations whose tool results are inside the outgoing
+ *  model request, in recorded order. Entries whose results were not delivered
+ *  (e.g. dropped by context assembly) stay pending: only a later request that
+ *  actually carries them can activate them. */
+export function deliverCuaObservations(grants: CuaGrants, deliveredCallIds: ReadonlySet<string>): void {
+  if (!grants.pending.length) return;
+  const remaining: PendingObservation[] = [];
+  for (const pending of grants.pending) {
+    if (!deliveredCallIds.has(pending.callId)) { remaining.push(pending); continue; }
+    if (pending.kind === "window") grantWindowObservation(grants, pending.key, pending.state, pending.text, pending.image, pending.truncated);
+    else if (pending.kind === "drop") dropObservationGrant(grants, pending.args);
+    else if (pending.kind === "desktop") { if (pending.ok) grants.desktopScreenshot = true; }
+    else if (pending.kind === "windowHint") {
+      const need = pending.need;
+      grants.activeWindow = need.kind === "token" && need.sid ? tokenGrantWindow(grants, need.sid)?.[0] ?? grants.activeWindow
+        : need.kind === "window" ? need.windowKey ?? grants.activeWindow : grants.activeWindow;
+    }
+  }
+  grants.pending = remaining;
 }

@@ -1,8 +1,10 @@
-/** run_steps 审批参数的可读步骤摘要（浏览器安全）；TUI 与桌面审批共用，原始参数仍需逐页展示。 */
+/** Readable per-step summary of run_steps approval arguments (browser-safe);
+ *  shared by TUI and desktop approvals; raw arguments still need paging. */
 
 const truncate = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-/** 解析后的 run_steps 参数 → 有序步骤行；无法识别时返回 null，调用方退回原始 JSON 展示。 */
+/** Parsed run_steps params → ordered step lines; null when unrecognizable, in
+ *  which case the caller falls back to raw JSON display. */
 export function cuaBatchSummary(params: unknown): string[] | null {
   if (!params || typeof params !== "object" || Array.isArray(params)) return null;
   const object = params as Record<string, unknown>;

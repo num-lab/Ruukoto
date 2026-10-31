@@ -11,7 +11,7 @@ import { ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import type { ArtifactStore } from "../artifacts.ts";
 import { prepareMacosStdioExecution, stopMacosExecution } from "../execution/native-macos-identity.ts";
 import { cuaActionNeed, cuaArguments, cuaBatchPlan, cuaProgram, cuaToolEffect } from "./cua.ts";
-import { clearObservationGrant, cuaObservationBlocked, dropObservationGrant, freshCuaGrants, grantWindowObservation, requireCuaEligibility, revokeActionable, tokenGrantWindow, type CuaGrants } from "./cua-observation.ts";
+import { clearObservationGrant, cuaObservationBlocked, deliverCuaObservations, dropObservationGrant, freshCuaGrants, requireCuaEligibility, revokeActionable, type CuaGrants } from "./cua-observation.ts";
 import { connectMcpStdio, createMcpStdioTransport, McpError, mcpResponseEnded, type ManagedMcpTransport, type McpCallBinding, type McpCallHooks, type McpConnection, type McpTimeouts, type CallToolResult } from "./transport.ts";
 import type { McpServiceConfig, McpStore } from "./store.ts";
 import { formatMcpResult, type McpToolInfo } from "./tools.ts";
@@ -290,48 +290,64 @@ export class CodeCuaManager {
   }
 
   /**
-   * 成功调用完成后，按真正持久化并投影给模型的内容更新观察授权。
-   * 只有 get_window_state（含批次末尾观察）与 get_desktop_state 会建立授权；
-   * 写操作结果中的图片与 verify_state 谓词结果都不构成可执行观察。
+   * After a call finishes, record the observation grant computed from what was
+   * actually persisted and projected to the model into the pending queue.
+   * The grant activates only once the result truly enters a model request
+   * (deliverObservations): a same-group tool call cannot authorize its own
+   * already-planned writes off an observation that just returned.
+   * Only get_window_state (including batch trailing observes) and
+   * get_desktop_state establish grants; images in write results and
+   * verify_state predicate results are not executable observations.
    */
-  recordObservation(opId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[]; truncated?: boolean }, modelSeesImages: boolean): void {
+  recordObservation(opId: string, callId: string, remoteName: string, result: CallToolResult, delivered: { content: { type: string; text?: string; ruukotoMediaRef?: unknown }[]; truncated?: boolean }, modelSeesImages: boolean): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.state !== "finished" || operation.execution?.executionId !== this.binding?.execution.executionId) throw new McpError("cua_observation_invalid", "新观察与电脑执行不匹配；停止操作并报告拥有者核实。");
     const binding = this.binding!, grants = binding.grants;
     const text = delivered.content.filter(part => part.type === "text" && typeof part.text === "string").map(part => part.text!).join("\n");
-    // 截图授权要求图片真实到达模型输入；恢复等离线保存的截图不算已交付。
+    // Screenshot grants require the image to actually reach the model input;
+    // screenshots preserved offline (e.g. by restore) do not count as delivered.
     const image = modelSeesImages && delivered.content.some(part => part.type === "image" && !!part.ruukotoMediaRef);
     const truncated = delivered.truncated === true;
     const state = result.structuredContent && typeof result.structuredContent === "object" && !Array.isArray(result.structuredContent) ? result.structuredContent as Record<string, unknown> : undefined;
     const args = ((operation as McpOperation).arguments ?? {}) as Record<string, unknown>;
-    // 授权归属按返回状态报出的窗口（上游可经 app/window 覆盖解析到不同目标），缺字段时退回请求参数；
-    // 两端都缺字段时不可归属——不发放授权，并按读基线可能已前移清除受影响窗口的授权与基线。
+    // Grants attribute to the window the returned state reports (upstream may
+    // resolve a different target through app/window overrides); missing fields
+    // fall back to the request arguments. When both lack the fields the read is
+    // unattributable — grant nothing and clear affected windows' grants and
+    // baselines since the read baseline may already have moved.
     const stateKey = (inner: Record<string, unknown>) => {
       const pid = inner.pid ?? args.pid, wid = inner.window_id ?? args.window_id;
       return pid !== undefined && wid !== undefined ? `${pid}:${wid}` : undefined;
     };
     if (remoteName === "get_window_state") {
       const key = state ? stateKey(state) : undefined;
-      if (state && key) grantWindowObservation(grants, key, state, text, image, truncated);
-      else dropObservationGrant(grants, state ? { pid: state.pid, window_id: state.window_id } : args);
+      if (state && key) grants.pending.push({ callId, kind: "window", key, state, text, image, truncated });
+      else grants.pending.push({ callId, kind: "drop", args: state ? { pid: state.pid, window_id: state.window_id } : args });
     } else if (remoteName === "get_desktop_state") {
-      if (image && !cuaObservationBlocked(state)) grants.desktopScreenshot = true;
+      grants.pending.push({ callId, kind: "desktop", ok: image && !cuaObservationBlocked(state) });
     } else if (remoteName === "run_steps") {
       const observation = state?.observation;
       const inner = observation && typeof observation === "object" && (observation as { ok?: unknown }).ok === true ? (observation as { state?: unknown }).state : undefined;
       const key = inner && typeof inner === "object" && !Array.isArray(inner) ? stateKey(inner as Record<string, unknown>) : undefined;
-      // 末尾观察不可用（失败、缺失或不可归属）：派发时已撤销可操作授权，此处连 diff 基线一并清除
-      if (key) grantWindowObservation(grants, key, inner as Record<string, unknown>, text, image, truncated);
-      else dropObservationGrant(grants, args);
+      // Trailing observation unusable (failed, missing or unattributable):
+      // dispatch already revoked actionable grants; drop the diff baseline too.
+      if (key) grants.pending.push({ callId, kind: "window", key, state: inner as Record<string, unknown>, text, image, truncated });
+      else grants.pending.push({ callId, kind: "drop", args });
     } else if (cuaToolEffect(binding.service.cua!, remoteName) === "write") {
-      const need = cuaActionNeed(args);
-      grants.activeWindow = need.kind === "token" && need.sid ? tokenGrantWindow(grants, need.sid)?.[0] ?? grants.activeWindow
-        : need.kind === "window" ? need.windowKey ?? grants.activeWindow : grants.activeWindow;
+      grants.pending.push({ callId, kind: "windowHint", need: cuaActionNeed(args) });
     }
   }
 
-  /** 观察类调用远端已返回但结果未能交付（持久化/投影失败或 isError）：上游读取基线已前移，
-   *  其 diff 基线不再可信，连基线一并清除，后续观察只能重建。 */
+  /** Activate grants only once the observation actually enters a later model
+   *  request (applied in call order). */
+  deliverObservations(sessionId: string, deliveredCallIds: ReadonlySet<string>): void {
+    if (this.binding?.sessionId === sessionId) deliverCuaObservations(this.binding.grants, deliveredCallIds);
+  }
+
+  /** An observation call returned upstream but its result could not be
+   *  delivered (persist/projection failure or isError): the upstream read
+   *  baseline already moved, so the diff baseline is untrustworthy — drop it
+   *  too; later observations must rebuild. */
   observationDeliveryFailed(opId: string, remoteName: string): void {
     const operation = this.store.getToolOp(opId)?.mcp;
     if (!operation || operation.execution?.executionId !== this.binding?.execution.executionId) return;

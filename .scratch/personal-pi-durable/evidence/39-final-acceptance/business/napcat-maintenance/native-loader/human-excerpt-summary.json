@@ -1,9 +1,0 @@
-{
-  "at": "2026-10-18T16:35:29.123682+00:00",
-  "userProvidedStartupExcerpt": true,
-  "startsAt": "[WARN] [Core] [Packet] NativePacketClient: Napi2NativeLoader 未成功加载",
-  "error": "NativePacketClient 不可用，NapCat.Packet将不会加载！",
-  "earliestNativeLoaderErrorIncluded": false,
-  "rootCauseKnown": false,
-  "nextMaterial": "earlier Napi2NativeLoader 加载出错 or 缺失运行时文件 with underlying Error/code; private complete startup log can be inspected locally"
-}

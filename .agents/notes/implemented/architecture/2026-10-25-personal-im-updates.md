@@ -1,34 +1,29 @@
-# Agent Note: 个人 IM 按平台切换并固定原发送句柄
+# Agent Note: Switch Personal IM platforms independently and pin send handles
 
 Status: implemented
 
-## 问题
+## Problem
 
-个人后台把 QQ API、Telegram 配置和轮询固定在启动闭包。只删除停机要求会让问题、普通回复、委托报告和定时回报继续使用旧连接；来源检查与主会话接纳、发送认领之间的异步窗口还允许换绑插入。CLI 自己配对只能证明 shell 环境，不能证明实际后台凭据或安全转移已开始的发送。
+QQ API, Telegram configuration, and polling lived in a startup closure. Removing only the stopped-backend requirement would leave questions, replies, delegation reports, and scheduled reports using stale connections. Asynchronous gaps between provenance check/main acceptance and send claim allowed rebinding races. CLI-only pairing proved the shell environment, not backend credentials or transfer of an already started send.
 
-## 决定
+## Decision
 
-personalTelegram 持有两个平台各自的当前配置、短互斥段、轮询停止信号和发送句柄。来源核实、main.submit 与保存 submissionId 在同一平台短段中完成；模型请求和等待回答在段外。每次新接纳同时核实运行中入口未暂停且未切换，不能只读尚未更新的持久配置；已提交操作的恢复与结果保留仍沿原记录。主回复、问题续接、委托报告和定时执行均使用同一入口。换绑只停止对应平台的旧收件，提交新代次后，旧待发回复和审批失效；不会等待主模型结束或改变另一平台。
+personalTelegram owns current configuration, a short mutex, polling stop signal, and send handle separately for each platform. Provenance verification, main.submit, and submissionId persistence share one platform critical section; model requests and answer waits stay outside. Each new acceptance checks the running entry is neither paused nor switching, not just durable configuration that may lag. Committed-operation recovery/results keep original records. Main replies, question continuations, delegation reports, and scheduled execution all use this entry. Rebinding stops only that platform's old input; committing a new generation invalidates old unsent replies/approvals without waiting for the main model or changing the other platform.
 
-发送认领与固定句柄选择同属平台短段，sending 同事务保存 configurationVersion。网络请求在段外使用已选句柄，之后的配置变化不重选目标或凭据。QQ 停旧收件时保留已领取发送的旧 socket，最后一个原发送结束后关闭；停止整个后台才等待全部发送收尾。结果未知沿原记录保留，不因切换而重发。重复保存同一配置只更新选择版本，不重连或复活已退役代次。
+Send claim and handle selection share the short section; sending persists configurationVersion in the same transaction. Network work uses the pinned handle outside the lock. Later configuration does not retarget or reauthenticate it. Stopping QQ input retains an old socket while claimed sends remain, closing after the last finishes. Whole-backend stop waits for all sends. Unknown outcomes stay original and are not resent after switching. Saving identical configuration updates selection version without reconnecting or reviving a retired generation.
 
-配对通过固定 settings 动作在原后台执行。客户端生成稳定配对键；同键同参返回原事实，不再次确认 Telegram 水位，同键异参拒绝。后台验证自己的凭据和账号，以随机短语观察实际私聊或好友消息。session-scoped ruukoto.im-pairing 保存请求、凭据引用与摘要、账号、候选和阶段事实，不保存 token。Telegram 接管及确认先登记意图，再记录已观察的结果；丢答不声称平台边界回滚。配对过期或取消恢复原接收；已确认候选在条件保存前保留平台暂停，放弃或期限结束后恢复原入口。
+Pairing runs in the original backend through a fixed settings action. Clients generate a stable pairing key; equal key/parameters return original facts without confirming Telegram watermarks twice, and unequal parameters reject. Backend validates its credentials/account using a random phrase observed in a real private/friend message. Session-scoped ruukoto.im-pairing stores request, credential reference/digest, account, candidate, and phase facts, never token. Telegram takeover/confirmation records intent before observed result; a lost reply does not imply external rollback. Expiry/cancel resumes original input. Confirmed candidates keep their platform paused until conditional save, abandonment, or deadline.
 
-确认配置带 pairingId。后台按平台、完整配置和原设置操作版本消费配对证明，同一操作可恢复，旧证明不能被新操作用来复活旧代次。停用不检查已失效的 token；缺少原 IM 凭据只让对应入口离线，聊天、管理和其他配置仍可使用。离线保存不执行配对；未核实的新绑定启动后仍不能冒充已验证入口。
+Confirmed configuration carries pairingId. Backend consumes proof against platform, complete configuration, and original settings-operation version. The same operation may recover, but a new operation cannot reuse old proof to revive an old generation. Disable never reads stale tokens. Missing IM credentials take only that entry offline, not chat, management, or other configuration. Offline save does not pair; an unverified new binding cannot masquerade as verified after startup.
 
-## 既有笔记审计
+This implements the IM slice of [operation-scoped configuration](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md). [Dual-platform entry](2026-10-17-personal-telegram-entry.md) loses stopped-only pairing/startup-closure restrictions while retaining provenance, short-lived offsets, unknown sends, and QQ input-gap limitations. [Entry authority](2026-10-17-personal-telegram-permissions.md), [questions](../feature/2026-10-21-personal-owner-questions.md), [reports](2026-10-17-personal-delegation-reports.md), and [schedules](2026-10-18-personal-durable-scheduled-work.md) retain business recovery/authority.
 
-[配置更新总提案](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)的 IM 切片落地；[拥有者双平台入口](2026-10-17-personal-telegram-entry.md)只收窄停机配对及启动闭包，保留来源、短期 offset、未知发送和 QQ 接收缺口规则。[入口权限](2026-10-17-personal-telegram-permissions.md)、[持久问题](../feature/2026-10-21-personal-owner-questions.md)、[委托报告](2026-10-17-personal-delegation-reports.md)和[定时工作](2026-10-18-personal-durable-scheduled-work.md)部分重叠，仍各自持有授权与业务恢复。以上互链；没有完全吸收的记录或需拒绝的旧提案。
+## Alternatives considered
 
-## 备选方案
+Restart-on-save reuses old assembly but interrupts unrelated models and the other platform. Holding mutexes during model/network waits simplifies timing but lets one slow answer block rebinding. Closing QQ immediately interrupts issued requests and loses original replies. CLI pairing keeps the wizard but cannot authorize backend credentials; retain interaction while moving verification to the backend.
 
-- 保存后重启后台：复用旧装配最短，但会打断无关模型和另一平台，不能满足在线切换。
-- 把模型与网络等待放入平台互斥：时序容易证明，但一条慢回答会阻止换绑；只保护接纳、认领和选择。
-- 换绑时立即关闭 QQ 连接：清理简单，却会打断已经发出的请求并丢失原应答；原发送保留连接到结束。
-- 继续由 CLI 配对并把结果交给后台：能复用原向导，但 shell 证明不能授权后台环境；保留交互，核实移入后台。
+## Consequences
 
-## 后果
+Both platforms can update independently while old requests, questions, reports, scheduled notifications, and started sends remain explainable. Costs are short-lived pairing facts and old QQ sockets until sends finish. Telegram takeover changes an external watermark; later failure cannot guarantee restoration of platform-acknowledged backlog.
 
-同一后台可独立更新两平台；旧请求、问题、报告、定时通知和已开始发送仍可解释。代价是保留短期配对事实，以及旧 QQ 发送结束前的连接。Telegram 接管改变了外部水位，后续失败只能如实报告，不能保证恢复已被平台确认的积压。
-
-离线回归包含真实本机 socket、独立后台有 token 而 CLI 无 token 的配对、接纳提交窗口、模型在途换绑、TG/QQ 已领取发送、设置暂停及停止收件未完成时的问题与定时接纳、证明复用拒绝及旧发送强杀恢复。真实 Telegram、QQ 账号验收按拥有者本轮要求不执行；本机替身不记作真实平台通过。
+Offline regressions use real local sockets, a separately credentialed backend with a tokenless CLI, acceptance-commit windows, in-flight-model rebinding, claimed TG/QQ sends, paused/stopping input with questions/schedules, proof-reuse rejection, and killed-old-send recovery. Real Telegram/QQ account acceptance was explicitly not run for the original task; substitutes are not platform passes.

@@ -1,5 +1,0 @@
-
-> ruukoto-workspace@0.1.0 verify-md-wrap
-> tsx scripts/verify-md-wrap.ts
-
-verify-md-wrap：96 个文件无跨行段落。

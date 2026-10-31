@@ -1,9 +1,0 @@
-{
-  "pid": 20653,
-  "profile": "/tmp/rmg-u-CwtGLq",
-  "control": "/tmp/rmg-c-5DS6Te",
-  "workspace": "/var/folders/y4/36h8kvvd4q52vjptp522rzfc0000gn/T/ruukoto-it-mygo-ui-tHOMnx/work-0/mygo-experiment",
-  "sessionId": "sess_0bf3f5dd2e7a7c85cdfe0bdc",
-  "runtime": "真实临时 Runtime / ControlServer",
-  "model": "本地确定性 MockModelServer"
-}

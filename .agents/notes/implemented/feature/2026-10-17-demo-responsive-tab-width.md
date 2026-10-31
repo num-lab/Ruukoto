@@ -1,27 +1,23 @@
-# Agent Note: Demo 的动态等宽 Tab
+# Agent Note: Responsive equal-width Demo tabs
 
 Status: implemented
 
-## 问题
+## Problem
 
-[组内排序](../../implemented/feature/2026-10-17-demo-tab-reorder.md)使用固定180px，窄标签区会过早横滚。拥有者要求动态宽度，同时沿用等宽和拖动避让。
+[Tab reordering](2026-10-17-demo-tab-reorder.md) fixed widths at 180 px, causing early horizontal overflow in narrow groups. The owner requested dynamic widths while retaining equal sizing and drag displacement.
 
-## 决定
+## Decision
 
-两组各自按可见标签区宽度与数量均分，限制在96至180px；低于96px所需空间时保持最小宽并横滚。CSS容器单位和列表数量变量完成计算，不新增测量状态或观察器。180px沿用已有上限，96px保留短标题、图标和叠加关闭键的操作空间。
+Each group divides its visible width by its own tab count, clamped to 96-180 px. Below the minimum required space, retain 96 px and scroll horizontally. CSS container units and a count variable express this without measurement state/observers. The original 180 px remains the maximum; 96 px preserves short titles, icons and overlaid close controls.
 
-拖动预览与落点读取同一实际宽度；矩形宽度保留小数，避免offsetWidth取整使多标签的落点累计偏离。已有选中显露、会话身份、取消与关闭行为继续适用。
+Drag previews/drop positions use the same actual width, retaining fractional bounding-rectangle widths rather than integer `offsetWidth` so accumulated rounding does not move drop targets. Selected-tab reveal, session identity, cancellation and closing retain their rules. Only the old fixed-width decision is superseded.
 
-历史检索：前述笔记的排序与避让仍有效，固定180px部分由本篇取代；页签布局和主会话笔记不涉及宽度计算，不改变它们的行为。
+## Alternatives considered
 
-## 备选方案
+- Fixed widths are stable but fail the requested adaptation and waste narrow-group space.
+- ResizeObserver could calculate widths, but existing observation only reveals selection; CSS already expresses layout without another size state.
+- Unlimited shrinking avoids scrolling but makes many tabs impossible to select/close. Keep a minimum.
 
-- 固定宽度最稳定且无需计算，但窄栏不能充分利用空间，不符合本轮动态调整要求。
-- JS ResizeObserver可以测量并逐项更新宽度，但已有观察器只负责显露选中项；CSS能直接表达布局，不再引入一份尺寸状态。
-- 完全压缩可以避免横滚，但大量标签会使关闭与选中难以操作，因此保留最小宽度。
+## Consequences
 
-## 后果
-
-两组在可用空间或数量变化时独立等宽，最小／最大边界和溢出横滚正确；小数宽度下拖动预览、排序与取消正确，活动项可见。工程与实际浏览器证据归[工单16](../../../../.scratch/desktop-shadcn/issues/16-responsive-tab-width.md)。
-
-本轮只验证当前demo浏览器，正式Desktop迁移时须按其内核验收CSS容器单位；宽度上下限的主观观感留拥有者审阅。
+Groups remain independently equal-width as size/count changes, with correct limits/overflow. Fractional-width dragging, ordering and cancellation agree, and the active tab stays visible. Historical engineering/browser evidence remains in the offline responsive-tab work item. Only the demo browser was verified; production Desktop must verify container units on its engine. Owners judge the width limits' appearance.

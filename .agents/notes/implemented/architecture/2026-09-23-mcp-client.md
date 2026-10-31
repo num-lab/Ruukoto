@@ -1,74 +1,59 @@
-# Agent Note: MCP 客户端是受控的外部工具入口
+# Agent Note: MCP is an owner-controlled external tool entry
 
 Status: implemented
 
-传输、命名、发现与SDK重建规则由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；本篇保留原决定，允许范围、秘密隔离、参数校验及未知写不重放继续成立。
+Original identifier: ADR 0006.
 
-模型工具接口的后续决定见[按需工具发现](../feature/2026-10-25-code-tool-discovery.md)；本篇持久化与权限机制仍有效。
+[MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) replaces the original protocol client, naming, discovery, and SDK-rebuild rules. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) replaces Code's project configuration/credential scope. [Tool discovery](../feature/2026-10-25-code-tool-discovery.md), [managed Cua stdio](2026-10-23-cua-official-mcp.md), and [inline images](2026-10-23-mcp-image-results.md) extend the original interface. This note preserves the historical implementation decision while retaining owner allowlists, secret isolation, parameter validation, and no automatic replay of uncertain writes; historical project/HTTP-only claims are not current product limits.
 
-Code 项目配置与凭据范围由[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留被取代的原决定，传输、允许列表、钉版与未知效果规则继续成立。
+## Problem
 
-相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)复用本篇服务配置与发现，不扩展传输和授权。
+Personal needed owner-configured external tools, initially official remote GitHub MCP. A third-party server controls tool names, descriptions, schemas, read-only hints, results, and actual implementation. Merely configuring a server cannot grant authority to model/task text to add services, widen tools, or give project commands arbitrary network/credential access around [access modes](../feature/2026-09-19-explicit-access-modes.md) and [execution isolation](2026-09-20-tool-worker-per-task-container.md).
 
-[Cua 接入](2026-10-23-cua-official-mcp.md)增加电脑专用stdio、目标限制与人工恢复，[内联图片](2026-10-23-mcp-image-results.md)复用原产物和模型输入链；本篇普通HTTP配置与权限语义保持。
+## Decision
 
-原编号：ADR 0006
+Treat MCP as a controlled external-tool entry, not a network/credential grant to ordinary commands. The owner configures services through trusted authenticated management, never repository auto-discovery, model output, or task text. Retain endpoint, credential reference, explicit tool allowlist, enabled state, and comparable configuration version. Remote hints/descriptions do not authorize tools; unlisted tools do not register or execute in any mode.
 
-## 问题
+Owner-declared string allowlist entries denote read tools. Explicit `write`/`unknown` entries use [MCP approval](../feature/2026-09-23-mcp-write-tools-approval.md)'s concrete operation scope, one-shot consumption, and uncertain-result handling. The initial client delivered reads first while writes were separately accepted; [current-account full access](../feature/2026-10-12-full-access-current-account.md) later supersedes the original all-modes per-operation approval requirement, not allowlist or source checks.
 
-个人 Agent 需要接入拥有者配置的外部工具服务，首个接入对象是官方远程 GitHub MCP。Model Context Protocol（MCP）服务是第三方远程执行方：它返回的工具名、描述、schema、只读标注与结果都由服务端决定，客户端核实不了服务端实现。如果把「项目接入了某个 MCP 服务」当成授权本身，模型输出或任务内容就能自行添加服务、扩大工具范围，项目命令也会借此获得任意网络或凭据访问权，绕开[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)和[控制面与执行边界](2026-09-20-tool-worker-per-task-container.md)。
+Credential values stay in CredentialStore and never enter model context, tool results, events, or logs. Bind credentials to configured host, MCP purpose, authorization header, and applicable scope; resolve them before each request so revocation takes effect without falling back to anonymous. Endpoint pinning refuses redirects and never forwards authentication to a different target. The owner explicitly trusts the remote executor: an allowlist limits exposed/callable tools, not hidden server behavior, and a token may authorize more than one repository.
 
-## 决定
+Cancellation/timeout/close ends local waiting, not necessarily remote execution. An already sent uncertain call is not automatically retried; late results after close/timeout are discarded and reconnect does not replay it. HTTP transport or local process stop cannot prove remote business effects stopped.
 
-- **定位。** MCP 客户端是受控的外部工具入口：沿用[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)与[工具工作进程与按任务容器](2026-09-20-tool-worker-per-task-container.md)确立的控制面/执行边界。接入 MCP 不等同于授予项目命令任意网络或凭据访问权。
-- **服务配置是拥有者管理的项目级记录。** 只能经可信入口（认证控制协议与 CLI）管理。记录包含 HTTPS 端点、凭据引用、工具允许列表、启用状态与可比较的配置版本。模型输出与任务内容不能自行添加服务，也不能扩大授权；后台不自动读取仓库中的 MCP 配置文件。
-- **秘密值只存 CredentialStore。** 凭据按 host、用途（`mcp`）与项目/操作 scope 约束；原值不进入模型上下文、工具结果、事件或日志。
-- **任务开始重读配置并钉版工具清单。** 禁用、撤销或配置版本变化立即阻止后续调用；新增工具与扩大范围从下一任务生效，既有任务不能靠重连获得更多权限。
-- **传输与凭据。** 传输只用 Streamable HTTP，凭据由拥有者手动配置。stdio、OAuth 登录、resources、prompts、sampling、elicitation 以及服务端要求客户端代执行的能力都不启用，客户端初始化时不声明对应 capability。
-- **只注册允许列表内且通过 schema 校验的工具。** 工具的只读标注或描述不作为权限依据。允许列表之外的工具（未分类工具）在任何模式下都不注册、不执行。
-- **只读是开放工具的基线。** 允许列表的字符串条目表示拥有者声明的只读工具，在各访问模式下直接执行。写工具与副作用不明工具不由本客户端单独开放：开放它们需要具体操作范围、审批桥单次消费与未知结果恢复，这三项由 personal-agent issue 18 单独交付验收。拥有者须在允许列表条目上显式声明 `write` 或 `unknown`，这类工具才会注册，并经统一审批逐次授权，见 [MCP 写工具：统一审批与单次消费](../feature/2026-09-23-mcp-write-tools-approval.md)。
-- **第三方服务是显式信任的远程执行方。** 客户端白名单约束的是模型可见面，不能证明服务端实现没有额外行为。真正的边界是端点钉源（拒绝跨源重定向，不向非配置目标转发认证）与凭据用途限制，不是工具注解。
-- **连接按任务持有。** 任务结束、取消或后台关闭时回收连接；不同项目不共享带身份的 MCP 会话。
-- **取消只表示本地停止等待。** 客户端不承诺远端操作已停止；已发出但结果不明的调用不自动重试，沿用 effect_unknown 语义。关闭或超时后到达的迟到结果被丢弃，重连不重放已发出的调用。
-- **本地 MCP 子进程（stdio）不启用。** 启用前须补齐执行账户、文件与网络权限、子进程回收设计；不允许以后台身份直接 spawn，受限任务不能经 MCP 获得宿主的完整权限。
-- **GitHub 是普通 MCP 服务。** 旧 GitHub 专用模块的退役与数据迁移由 personal-agent issue 17 承担，见[退役 GitHub 专用模块](../simplification/2026-09-23-retire-github-module.md)；MCP 接入不依赖旧模块，运行时不按 GitHub 服务名分支，也不创建 GitHub 专用的操作类别或存储依赖。
+GitHub remains an ordinary MCP service: no service-name branch, GitHub-specific operation/storage dependency, or fallback to old REST. [GitHub retirement](../simplification/2026-09-23-retire-github-module.md) owns removal/migration independently.
 
-## 实现落点
+## Original implementation and later replacements
 
-共享传输与旧项目装配分别位于 `mcp/transport.ts` 和 `mcp/client.ts`，接口分工及逐请求 token resolver 的失败规则见[传输复用](2026-10-17-mcp-transport-reuse.md)。下文项目配置和凭据存储仍属于旧装配；新接口不授予项目或个人来源权限，HTTP 取消语义不变。
+The initial client used project-owned `mcp_services` introduced in schema v8, unique by `(project_id, name)`. It stored ID/project/slug/endpoint/credential binding name/allowlist/enabled/config version, never secret values. Every field change incremented version, expected-version mismatch returned `version_conflict`, and configuration plus `mcp.service_changed` committed together. Original authenticated `mcp_configure/list/set_enabled/remove/check` and `ruukoto mcp`/configuration UI returned redacted views; check displayed the endpoint before contacting it. Current Code is instance-scoped, independently stored per instance and separate from Personal, with no project/repository MCP credential scope; the linked instance decision also retires incompatible old parameters rather than silently widening them.
 
-运维步骤与排查见[操作手册](../../../../docs/usage.md#57-mcp-服务)「MCP 服务」节。承载上述决定的契约如下：
+The original credential configurator required `purpose=mcp`, matching host, and `authorization`, rejecting incompatible scope or narrowing it to project plus MCP operation. Generic HTTP and other projects could not borrow the binding. This project rule is historical; current per-request purpose/host/operation and per-instance ownership checks remain, without claiming workspace isolation.
 
-- **配置表。** 后台 SQLite 的 `mcp_services` 表（schema v8 引入，`UNIQUE (project_id, name)`），列为服务 ID、项目、名称（项目内唯一的小写 slug，也是工具名命名空间）、端点、凭据绑定名（值不入表）、`tool_allowlist`、`enabled`、`config_version`。任何字段变化都递增 `config_version`；变更带期望版本校验，不符以 `version_conflict` 拒绝；配置变更与 `mcp.service_changed` 事件同事务写入。代码在 `packages/agent/src/mcp/store.ts`。
-- **管理入口。** 控制面操作 `mcp_configure`、`mcp_list`、`mcp_set_enabled`、`mcp_remove`、`mcp_check`，CLI `ruukoto mcp …` 与配置中心复用它们；模型工具不能调用。`mcp_list` 与 `mcp_check` 返回脱敏视图，`mcp_check` 先展示将联系的端点。
-- **端点。** 生产只接受 `https`，`http` 仅限回环地址上的模拟服务；拒绝带 userinfo 的 URL。请求经钉源 fetch 发出：只连配置端点的同源同路径，任何重定向都报错（`packages/agent/src/mcp/transport.ts`）。
-- **凭据。** 配置时要求凭据 `purpose=mcp`、host 与端点 host 一致、经 `authorization` 头注入；已有 scope 与本项目或 `mcp` 操作冲突时拒绝配置，否则把 scope 收紧到本项目加 `mcp` 操作，通用 `http_request` 与其他项目不能借用同名凭据。每个请求都重新解析凭据，撤销立即生效。
-- **工具注册。** 暴露名为 `mcp_<服务名>_<远端工具名>`（小写，非法字符转 `_`，不超过 64 字符，超长截断并带哈希后缀）；截断或转义后冲突的工具禁用。远端 `inputSchema` 与 `outputSchema` 须为普通对象、根类型 `object`、不超过 16 KiB 且能经 TypeBox `Compile` 编译，不满足即禁用该工具，不靠类型断言绕过运行时校验。工具数、分页页数、描述长度与各环节超时的上限集中在 `MCP_LIMITS`。
-- **钉版与 SDK 会话。** 工具清单签名由服务配置版本与暴露名、描述、schema 摘要组成；签名变化时从同一历史文件重建 SDK 会话并重新绑定宿主钩子（`packages/agent/src/driver.ts`）。显式启用但初始化失败的服务记 `mcp.service_unavailable` 事件并列为不可用，任务不带它的工具继续；没有 MCP 配置的项目照常启动。工具定义计入既有上下文预算。
-- **调用前复核。** 每次发送前重读服务配置与凭据：服务被移除、禁用、配置版本变化、工具移出允许列表、凭据被撤销或 host 不一致，都直接拒绝且不发网络请求（`packages/agent/src/tool-router.ts`）。
-- **结果。** 区分传输错误与工具执行错误（保留 `isError`）；保留文本与结构化结果；图片、音频、资源链接等内容类型只说明类型，不自动打开或下载。超过 32 KiB 的结果正文入 ArtifactStore，模型只收预览与产物引用；超过 1 MiB 硬上限的部分截断并明确标记。远端名称、描述与结果一律按外部未核实资料处理。
+Production endpoints accept HTTPS; loopback HTTP exists for test services, and userinfo is rejected. Pinned fetch contacts only the configured origin/path and rejects every redirect. The original transport was Streamable HTTP with manually configured credentials and no stdio, OAuth, resources, prompts, sampling, elicitation, or server-requested client execution capabilities. Arbitrary stdio/OAuth/resources are still not added merely by protocol support; Cua is a later explicitly managed stdio exception with fixed target/program and real stop/recovery requirements.
 
-## 备选方案
+Originally each task reread configuration, discovered and pinned tools, and owned its connection until task end/cancel/backend shutdown; authenticated sessions were not shared across projects. Removal/disable/version change/allowlist removal/revocation/host mismatch refused later calls before networking. Additions never broadened an existing task by reconnecting. The original signature combined service version and exposed name/description/schema digest; a changed signature rebuilt SDK session from the same history and rebound hooks because then-current tool lists were fixed at session creation. Explicit initialization failure recorded `mcp.service_unavailable` and omitted that service's tools, while other tasks/tools continued. Definitions counted toward context budget.
 
-- **保留 REST 负责采集与发布，另加 GitHub 专用授权适配层** — personal-agent issue 06 的 REST 模块已交付 PR、CI 读取与经审批的发布，保留它就不会在过渡期丢掉 GitHub 写能力，也能复用已有的仓库授权。不选，是因为拥有者明确要求 GitHub 作为普通 MCP 工具；并存会让同一能力有两套实现、重复暴露工具，专用分支也会让 GitHub 与其他服务走不同的授权路径。旧 REST 也不作为 MCP 失败时的回退，拥有者接受过渡期 GitHub 写功能不可用。（见 [personal-agent issue 16](../../../../.scratch/personal-agent/issues/16-mcp-github.md) 开头的方向更新与 2026-09-22 Comments，[personal-agent spec](../../../../.scratch/personal-agent/spec.md)「2026-09-22 访谈确认后的实施边界」）
-- **自行实现 MCP 协议、传输与取消** — 项目当时没有任何 MCP 依赖，自写可以不引入新依赖。不选，是因为官方 TypeScript 客户端 `@modelcontextprotocol/client` 已提供协议、传输与取消机制，没有必要自己实现；会话恢复规则按锁定的 SDK 与协商版本验证，不手写兼容层。（见 personal-agent issue 16 实施计划第 1、3 步）
-- **用 SDK 的工具更新接口在原会话上替换 MCP 工具定义** — 不重建会话，开销最小，计划中也把它列为首选。不选，是因为 SDK 的工具白名单在会话创建时固定，更新接口无法安全替换定义；改为工具清单签名变化时从同一历史文件重建 SDK 会话。（见 personal-agent issue 16 实施计划第 4 步与 2026-09-23 Comments）
-- **任务内重新发现工具，或重连后按最新清单扩展** — 新增工具与 schema 变化能立刻生效，不用等下一任务。不选，是因为这样既有任务能靠重连拿到更多权限；改为只在任务开始发现，签名变化按任务粒度重建会话，任务内不重发现。（见 personal-agent issue 16 实施计划第 2 步与 2026-09-23 Comments 的「说明」）
-- **按远端只读标注或工具描述判定权限** — 服务端已经为工具标注是否只读，客户端可据此自动分类，拥有者不必逐个声明。不选，是因为标注与描述由服务端提供，客户端核实不了，伪造的只读标注就能放行写操作；权限只看拥有者的允许列表。（见 personal-agent issue 16「实施范围」与实施计划第 2 步）
-- **自动读取仓库里的 MCP 配置文件** — 仓库自带配置能让项目开箱即用，省去拥有者逐项登记。不选，是因为仓库文件属于任务内容，任务内容与模型输出不能添加服务或扩大授权；配置只经拥有者的可信入口。（见 personal-agent issue 16 实施计划第 2 步）
-- **以后台身份直接 spawn 本地 stdio MCP 子进程** — stdio 是 MCP 的另一种标准传输，服务在本机运行，不依赖远端托管。不选，是因为后台身份持有宿主的完整权限，受限任务会经 MCP 拿到它；官方 GitHub 远程服务支持 PAT，不要求在本机运行 GitHub MCP 进程，首版只用远程 Streamable HTTP。（见 personal-agent issue 16「实施范围」与实施计划第 1 步）
+Original exposed names were `mcp_<service>_<remote>` normalized lowercase with invalid characters replaced, a 64-character cap/hash suffix, and collision refusal. Both schemas had to be plain object-root JSON schemas no larger than 16 KiB and compilable through TypeBox, with discovery/page/description/time bounds in `MCP_LIMITS`. Invalid schemas disabled their tool rather than bypassing validation through a cast. Current Pi 1.3.0 owns naming, discovery, and registry updates, while host authorization and actual argument validation remain. Descriptions/unrelated metadata no longer invalidate calls merely by changing; model-visible definitions remain recorded.
 
-## 后果
+The old result path distinguished transport error from tool `isError`, preserving text/structured output and describing but not opening image/audio/resource types. Above 32 KiB inline output used ArtifactStore with preview/reference; the 1 MiB hard capture bound marked partial content. Inline images now use the linked image decision, while long results and actual model media still require durable provenance rather than temporary Pi files. Names, descriptions, and results remain untrusted external data.
 
-- **收益**：MCP 工具与内置工具走同一条任务生命周期、操作记录、结果展示与产物存储路径，GitHub 与任何其他 MCP 服务共用同一套发现、调用、授权、产物与展示路径，新增服务不需要专用代码。拥有者撤销或禁用服务后，在途任务的下一次调用就被阻止且不发请求；凭据秘密值不会出现在模型可见的任何位置。
-- **代价**：MCP 服务能做什么取决于远端凭据本身的权限。客户端没有参数级限制，项目级启用不等于令牌内的单仓库隔离，客户端不宣称额外的仓库隔离。服务端行为只能靠显式信任，白名单管不住服务端实现。
-- **代价**：stdio 服务与需要 OAuth 登录的服务暂时接不进来；工具新增或 schema 变化要等下一任务，签名变化还会触发一次 SDK 会话重建。
-- **已知上限**：真实 GitHub MCP 只读连通尚未验证，需要拥有者配置独立只读 PAT 后按 docs/usage.md「MCP 服务」节验收，不以模拟测试冒充。启用 stdio 前必须先补齐执行账户、文件/网络权限与子进程回收设计。
+Shared transport interface ownership is in [transport reuse](2026-10-17-mcp-transport-reuse.md), current code in `packages/agent/src/mcp/transport.ts`, and current operation in the [usage manual](../../../../docs/usage.md). The old `mcp/client.ts` and project wrapper are retired. Pi handles connection/protocol/discovery/recovery, with narrow host per-request credential/evidence hooks. The host simplification also removes generic indefinite URL occupancy and cross-restart SSE recovery: unknown operations retain facts and block automatic continuation/retry of their work, but may be explicitly ended by the owner without claiming remote stop. Managed Cua's real shared-resource restrictions remain distinct.
 
-## 验证
+## Alternatives considered
 
-`test/24-mcp.test.ts` 经进程内模拟 Streamable HTTP 服务走真实宿主路径，覆盖配置面校验与版本冲突、schema 迁移、分页发现、工具重名与不支持的 schema、参数校验失败不发请求、结构化结果与 `isError`/传输错误的区分、超大结果入产物、认证失败降级为不可用、超时与断线不重试、取消回收连接、任务间工具刷新、运行中禁用与撤销凭据后不发请求、跨项目隔离与第二服务同一路径、工具定义计入上下文预算、后台崩溃重启后在途调用标 effect_unknown 不重放。用模拟服务而不用真实 GitHub，是为了不依赖凭据也能断言远端实际收到了哪些请求。
+- Keep REST collection/publishing with a GitHub-specific authorization adapter: preserves existing approved PR/CI writes during transition, but the owner explicitly chose ordinary MCP. Two tool implementations would duplicate exposure and authorization; no REST fallback was retained, and temporary loss of GitHub writes was accepted.
+- Implement protocol/transport/cancellation locally: no new dependency in the then-dependency-free project, but the official TypeScript client already supplied these mechanisms. Use the locked SDK and verify negotiated recovery rather than maintaining a compatibility layer. The later move to Pi changes the dependency, not this rationale.
+- Update tools in-place through the old SDK API: least rebuild cost and originally preferred, but its creation-time allowlist could not safely replace definitions. Rebuild from the same history was the original solution, now replaced by Pi-owned registration.
+- Rediscover during a task/reconnect: immediate additions/schema changes, but could expand the task's authority. The original task-pinned approach prevented that; current discovery remains constrained by host eligibility.
+- Trust server read-only hints/descriptions: less owner classification, but server-controlled claims cannot prove no writes. Use owner effect classification.
+- Automatically load repository MCP configuration: convenient project setup, but repository content cannot add services or grant authority.
+- Spawn arbitrary stdio under backend identity: standard local transport without remote hosting, but restricted tasks would acquire backend privileges absent account/file/network/reaping design. Remote GitHub supported PAT and did not need local spawn; later managed Cua required a separate decision.
 
-## 适用范围
+These are recorded alternatives from retired `.scratch/personal-agent/issues/16-mcp-github.md` and its specification (offline provenance), not newly invented options.
 
-完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+## Consequences
+
+MCP and builtin tools share product lifecycle, operation records, results, and artifacts; GitHub needs no privileged special case. Disablement/revocation prevents subsequent unauthorized requests, and credential bodies stay outside model-visible records. Remote authority still depends on actual credentials/server implementation: there is no client parameter-level or token-internal single-repository isolation guarantee.
+
+The original costs were HTTP-only/manual credentials, task-bound tool refresh, and signature-triggered SDK rebuild. Managed Cua, instance configuration, and Pi discovery have superseded parts of those costs, not eliminated remote trust or unknown-effect limits. Original real GitHub read connectivity remained unverified pending an owner-supplied independent read-only PAT; simulations are not evidence that this external acceptance later passed. [Desktop settings](../../proposed/feature/2026-10-21-desktop-settings-management.md) reuses configuration/discovery with its own delivery status.
+
+Historical `test/24-mcp.test.ts` used an in-process Streamable HTTP server through real host paths to assert exact requests without credentials: configuration/version/schema migration, paging, name collisions/unsupported schemas, parameter refusal before send, structured output and `isError` versus transport errors, artifact overflow, auth-unavailable behavior, timeout/disconnect no-retry, cancellation cleanup, task-to-task refresh, runtime disable/revoke zero-send, old cross-project isolation/second-service reuse, definition budgeting, and crash recovery marking uncertain calls without replay. Those old project/naming/SDK tests describe their original implementation; current replacements need their corresponding acceptance rather than claiming this historical suite proves them.

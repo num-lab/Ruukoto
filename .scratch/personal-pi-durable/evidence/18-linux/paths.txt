@@ -1,3 +1,0 @@
-local=/tmp/rk-18-linux-20261017T074832Z
-remote_source=/dev/shm/rk-18-linux-20261017T074832Z
-remote_logs=/tmp/rk-18-linux-20261017T074832Z

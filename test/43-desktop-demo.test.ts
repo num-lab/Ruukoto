@@ -7,21 +7,21 @@ import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
 const read = (path: string) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原生适配只追加", () => {
-  const demo = ".scratch/desktop-shadcn/approved-demo-v4/src";
+  const demo = "test/fixtures/desktop-baselines/approved-demo-v4/src";
   const gui = "apps/desktop/src/renderer";
   const styles = read(`${gui}/style.css`);
   let approvedOffset = 0;
-  for (const line of (read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css")).split("\n")) {
+  for (const line of (read(`${demo}/style.css`) + read("test/fixtures/desktop-baselines/approved-demo-v4-glass.css")).split("\n")) {
     const next = styles.indexOf(line, approvedOffset);
     assert.ok(next >= 0, `定稿样式须保持原文和顺序：${line}`);
     approvedOffset = next + line.length;
   }
-  assert.equal(read(".scratch/desktop-shadcn/demo/src/style.css"), read(`${demo}/style.css`) + read(".scratch/desktop-shadcn/approved-demo-v4-glass.css") + read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css") + read(".scratch/desktop-shadcn/approved-demo-v4-polish.css") + read(".scratch/desktop-shadcn/approved-demo-v4-files-sidebar.css") + read(".scratch/desktop-shadcn/approved-demo-v4-browser-activity.css") + read(".scratch/desktop-shadcn/approved-demo-v4-completed-trace.css") + read(".scratch/desktop-shadcn/approved-demo-v4-connection-loading.css"));
-  assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-rendering.css")));
-  assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-completed-trace.css")));
-  assert.ok(styles.includes(read(".scratch/desktop-shadcn/approved-demo-v4-connection-loading.css")), "保留定稿加载样式，正式功能覆盖继续追加");
+  assert.equal(read("verification/desktop-demo/src/style.css"), (read(`${demo}/style.css`) + read("test/fixtures/desktop-baselines/approved-demo-v4-glass.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-rendering.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-polish.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-files-sidebar.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-browser-activity.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-completed-trace.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-connection-loading.css")).replaceAll("../../../../node_modules/", "../../../node_modules/"));
+  assert.ok(styles.includes(read("test/fixtures/desktop-baselines/approved-demo-v4-rendering.css")));
+  assert.ok(styles.includes(read("test/fixtures/desktop-baselines/approved-demo-v4-completed-trace.css")));
+  assert.ok(styles.includes(read("test/fixtures/desktop-baselines/approved-demo-v4-connection-loading.css")), "保留定稿加载样式，正式功能覆盖继续追加");
   assert.ok(styles.lastIndexOf("transition-property: rotate") > styles.lastIndexOf("transition: transform 150ms"), "工作区箭头的 rotate 过渡必须晚于冻结前缀里匹配不到 rotate 的 transform 过渡");
-  assert.equal(read(`${gui}/connection-loading.tsx`), read(".scratch/desktop-shadcn/demo/src/connection-loading.tsx"), "加载展示组件逐字同步，模拟计时器留在 Demo App");
+  assert.equal(read(`${gui}/connection-loading.tsx`), read("verification/desktop-demo/src/connection-loading.tsx"), "加载展示组件逐字同步，模拟计时器留在 Demo App");
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
   for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
   const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();

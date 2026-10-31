@@ -1,6 +1,0 @@
-{"action":"resources-ready","directory":"/tmp/r38-mjkGqA","child":53289,"model":"http://127.0.0.1:60547/v1","at":1792822751879}
-{"action":"first-child-cleanup-failed","at":1792822751879}
-{"action":"child-closed","code":null,"signal":"SIGTERM","at":1792822751880}
-{"action":"model-close-start","at":1792822751881}
-{"action":"model-closed","at":1792822751881}
-{"action":"directory-remove-start","at":1792822751881}

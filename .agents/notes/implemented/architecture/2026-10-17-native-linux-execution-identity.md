@@ -1,35 +1,35 @@
-# Agent Note: Linux 原生执行按持久身份停止重核
+# Agent Note: Linux native execution rechecks stopping by persistent identity
 
 Status: implemented
 
-## 问题
+## Problem
 
-[个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)要求后台重启后仍能证明外部进程停止；既有原生 launcher 的 scope、组观察和退出事实只存在内存。直接重放启动会产生第二份执行，单看原 PID 或单元 not-found 也不能排除迟到创建和脱组后代。
+The [Personal migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) requires proof of external stopping after backend restart. Existing native-launcher scope/group/exit facts lived only in memory. Relaunching creates a second execution; original PID or unit not-found cannot exclude late creation or descendants that changed process groups.
 
-## 决定
+## Decision
 
-为 Linux 受限执行增加独立持久认领 API，输入为宿主预先提交的执行引用和不可被 worker 读写的私有目录。原子认领发生在平台外调前，同 ID 永不再次启动。认领固定本机、boot、scope 和参数指纹；保存独立 launcher 的寿命身份。scope Description 带宿主随机 token；本次私有 started 标记、Description、InvocationID 与 launcher 的 `/proc` cgroup 成员关系全部匹配，才保存原单元及 cgroup dev/ino。[durable 命令](2026-10-17-personal-durable-commands.md)恢复时传入原启动指纹，停止只接受已有且匹配的 launch 认领；缺失时不新建 stop 先手，已有 stop 先手也不能证明丢失记录的旧执行已停。默认调用保留未派发停止先手语义。停止先持久阻止迟到启动，核对原单元及 cgroup 身份后才发停止请求；未观察、同名占用和组重建不按名字杀进程，不向持久 PID/PGID 发信号。
+Linux restricted execution gains an independent persistent-claim API taking a host-precommitted execution reference and private directory inaccessible to the worker. Atomic claim precedes platform calls; the same ID never launches twice. It pins machine, boot, scope and parameter fingerprint, recording the independent launcher's lifetime identity. Scope Description contains a random host token. The private started marker, Description, InvocationID and launcher's /proc cgroup membership must all match before recording original unit/cgroup dev/ino.
 
-停止仅向已核对 dev/ino 的目录 FD 下打开的原 `cgroup.kill` 写入，不按名字调用 systemctl kill/stop；核对后发生同名换代也不会杀到新组。退出证明同时要求原 launcher/整组已结束、曾观察的原 cgroup 为空或消失及单元静止；未派发或跨 boot 可单独证明无剩余执行。证据缺失、损坏、身份变化或查询失败一律保留未核实和现场。停止结果不是外部命令效果回执；[单次命令宿主适配](2026-10-17-personal-command-execution.md)另存原临时目录及运行返回证据，后续 durable 仍须单独保存操作结果及未知暂停。
+[Durable commands](2026-10-17-personal-durable-commands.md) supplies the original launch fingerprint on recovery. Stopping accepts only an existing matching launch claim; absence does not create a stop-first claim, and an existing stop-first claim cannot prove exit of an old execution whose record is missing. Default calls retain stop-first semantics for undispatched execution. Stopping first persistently blocks late launch, then verifies original unit/cgroup identity before requesting termination. Unobserved execution, same-name occupancy or rebuilt groups do not cause name-based kills, and persisted PID/PGID values are never signaled.
 
-复用现有平台启动核实，Coding 默认路径不启用认领接点。本片在 `PreparedNativeLaunch` 下层工作，暂不改旧 worker 的 Pi 依赖发现，不新增工具、运行状态副本或操作框架。
+Termination writes only to original cgroup.kill opened beneath a directory FD with verified dev/ino, not systemctl kill/stop by name. Same-name replacement after checking cannot kill the new group. Exit proof requires original launcher/whole group ended, the previously observed original cgroup empty or gone, and unit quiescent. Undispatched execution or a different boot can independently prove no remainder. Missing/corrupt evidence, identity changes or failed queries preserve unverified state and evidence. Stop results are not command-effect receipts. The [one-shot command host](2026-10-17-personal-command-execution.md) separately saves original temporary directory/return evidence; durable still records results/unknown pauses independently.
 
-本篇关于完全访问尚未接通的限制由[完全访问命令](2026-10-17-personal-full-access-commands.md)取代；受限实现、既有宿主证据与停止协议的决定仍适用。
+Reuse existing platform launch checks. Coding's default path does not enable persistent claims. The original slice works below PreparedNativeLaunch without changing old worker Pi-dependency discovery or adding tools, duplicate runtime state or an operation framework. [Full-access commands](2026-10-17-personal-full-access-commands.md) later extends tracked execution beyond the initial restricted-only scope while retaining these identity/stopping rules.
 
-## 既有笔记审计
+## Related decisions
 
-按个人 durable、原生执行、停止核实、服务执行身份检索 active notes。[原生沙箱](../../implemented/architecture/2026-10-10-native-execution-sandbox.md)、[个人原生执行](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)部分重叠，保持原权限和 Coding 路径；[固定检查认领](../../implemented/architecture/2026-10-17-service-inspection-identity.md)提供认领与停止先手参考，但其进程组观察不替代任意命令的 cgroup 证明。没有完全吸收或失效提案。
+The original active-note audit searched Personal durable, native execution, stopping and service identity. [Native sandbox](2026-10-10-native-execution-sandbox.md) and [Personal native execution](2026-10-12-personal-native-sandbox.md) retain permissions/Coding paths. [Fixed inspection claims](2026-10-17-service-inspection-identity.md) supplies claim/stop-first precedent, but process-group inspection cannot replace cgroup proof for arbitrary commands. No note was wholly absorbed or invalidated.
 
-## 备选方案
+## Alternatives considered
 
-- 原后台 PID 加固定 scope：改动最少，但后台寿命与单项 launcher 不同，且无法证明同组无关任务和迟到创建已经结束。
-- 复制服务 helper 协议：已有认领与停止先手，但其 root 服务白名单和固定 show/restart 不适合通用工具；扩大 helper 会引入额外提权面。
-- 直接重做全部 worker 和 durable 命令工具：可一次形成用户能力，但会把停止原语与权限、审批、产物和未知恢复耦合，难以单独验证强杀窗口。
+- Original backend PID plus fixed scope: smallest change, but backend lifetime differs from an individual launcher and cannot prove unrelated group work/late creation ended.
+- Copy the service-helper protocol: existing claims/stop-first behavior, but root service allowlists and fixed show/restart do not suit general tools; expanding the helper adds privilege exposure.
+- Rebuild workers and durable command tools together: complete capability at once, but couples stopping primitives with permissions, approvals, artifacts and unknown recovery, obscuring SIGKILL-window verification.
 
-## 验证
+## Verification
 
-见[窄工单](../../../../.scratch/personal-pi-durable/issues/22-native-execution-identity.md)：至多一次启动、停止先手、坏证据保守拒绝、真实 Linux scope 脱组后代与后台强杀恢复。
+Original at-most-once launch, stop-first, conservative bad-evidence rejection, real Linux scope/process-group escape and backend-SIGKILL recovery evidence is offline at `.scratch/personal-pi-durable/issues/22-native-execution-identity.md`.
 
-## 后果
+## Consequences
 
-认领和外部进程不原子；派发后证据缺失可持续保守阻塞，不能以重新调用同 ID 修复。完全访问与远端 MCP 不在本证明范围。持久文件只保证进程崩溃场景，不承诺断电不丢最近写入。
+Claims/external processes are not atomic. Missing post-dispatch evidence can block conservatively indefinitely; invoking the same ID again is not repair. The later full-access extension retains its explicit escape limits. Remote MCP is outside local stopping proof. Persistent files cover process crashes, not guaranteed retention of latest writes through power loss.

@@ -1,9 +1,0 @@
-{
-  "setup_exit": 1,
-  "setup_seconds": 67,
-  "reason": "ENOSPC on /dev/shm during foundation npm ci",
-  "tests_run": false,
-  "build_run": false,
-  "source_after_rechecked_unchanged": true,
-  "rechecked_files": 2006
-}

@@ -1,33 +1,29 @@
-# Agent Note: Coding 预览请求沿工具产物与侧栏接线
+# Agent Note: Wire Coding preview requests through tool artifacts and the inspector
 
 Status: implemented
 
-MyGo 的 URL 展示载体与接管时导航顺序见[右栏浏览器决定](2026-10-29-mygo-agent-browser.md)；本篇来源、文件捕获与历史规则保持。
+[MyGo inspector browsing](2026-10-29-mygo-agent-browser.md) owns URL presentation/navigation ordering. [Preview access](2026-10-25-present-preview-access.md) supersedes the original full-access browser eligibility restriction; file capture, provenance and history remain.
 
-[网页展示权限](2026-10-25-present-preview-access.md)取代本篇URL沿完全访问浏览器资格的约束；文件捕获、来源与侧栏接线保持。
+## Problem
 
-## 问题
+The owner wanted Agents to open files/pages in the inspector. Owner file-tree reads do not use Agent protected-directory restrictions; passing model paths to that interface would mix authorization sources.
 
-拥有者要求 Agent 指定文件或网页，在侧栏打开预览。已有文件树读取属于拥有者操作，不采用 Agent 保护目录；直接把模型路径交给该接口会混淆读取授权。
+## Decision
 
-## 决定
+Main sessions expose `present` with mutually exclusive `path` or `url`. Files use the current task's `read` execution boundary to capture immutable artifacts; Desktop always displays that capture, even for workspace files. Zero-byte reads emit capture facts and create empty artifacts. Reuse Markdown/text/image previews; HTML displays source and unsupported formats state limits.
 
-主会话提供 `present`，指定 path 或 url，二者互斥。文件沿当前任务的 read 执行边界捕获不可变产物，桌面始终显示这份捕获；不因文件位于工作区就改读当前文件。零字节读取也发送捕获事实并创建空产物。沿用现有 Markdown、文本与图片预览；HTML 显示源码，其他不支持格式明确显示限制。
+URLs accept only credential-free HTTP(S). The initial full-access browser eligibility is replaced by the linked preview-access decision. Display uses existing isolated browsing. Models cannot provide file URLs or obtain directory resources through the owner's local-document service. SubAgents/workflow steps cannot present; the main session chooses their results to show.
 
-URL 只接受无凭据 HTTP(S)，沿现有完全访问拥有者浏览器资格核实，桌面使用已有隔离 iframe。模型不能提交 file URL 或借拥有者本机文档服务获得目录资源。SubAgent 与工作流步骤不开放 present；其成果由主会话选择展示。
+Existing tool_intent/tool_result store target, result and artifact. Only live successful results auto-open. If the source session is not current, retain its tab without switching sessions. Duplicate events never reopen a closed tab. Historical tool rows explicitly reopen; replay does not steal focus. Receipt proves only that the preview request was recorded, not client connectivity, page load or owner visibility.
 
-既有 tool_intent／tool_result 保存目标、执行结果和产物。只有 live 成功结果触发自动打开，来源会话不在当前页时只保存其标签，不切换当前会话；重复事件不重开已关闭标签。历史工具行可显式重开，重放不抢焦点。回执只证明预览请求已记录，不宣称客户端连接、页面加载或用户已经看到。
+This reuses [Read snapshots](2026-10-17-desktop-read-snapshot.md) and [complete transfer](2026-10-18-complete-reasoning-and-preview.md) pagination/ownership while adding empty captures. [Owner browsing](2026-10-24-owner-workspace-browsing.md) remains independently authorized; [local-document capabilities](2026-10-17-desktop-local-browser.md) are not granted to this tool.
 
-## 既有笔记审计
+## Alternatives considered
 
-按预览、Read快照、本机浏览器检索三个有效生命周期。[Read快照](2026-10-17-desktop-read-snapshot.md)与[完整预览传输](2026-10-18-complete-reasoning-and-preview.md)部分重叠，复用其分页和归属核实，补齐零字节捕获。[拥有者浏览](2026-10-24-owner-workspace-browsing.md)继续保留独立授权，不适用于模型；[本机浏览器](2026-10-17-desktop-local-browser.md)的主动文件能力不开放给此工具。未发现同题过时提案。
+- Direct file-tree paths use fewer calls but borrow owner authority and lose call-time versions.
+- A new event/control protocol models previews separately, but existing tool records reconstruct target/artifact already.
+- Replaying all opens is proactive but reopens intentionally closed panels. Keep explicit history links.
 
-## 备选方案
+## Consequences
 
-- 直接打开文件树路径：调用最少，但会借拥有者读取资格越过 Agent 边界，也不能保证看到调用时内容。
-- 新增预览事件与控制协议：便于独立建模，但已有工具记录足够重建目标与产物；复用可少维护一套跨层协议。
-- 重放时恢复每次打开动作：离线历史体验更主动，但会重新打开用户已关闭侧栏；保留可点击历史入口。
-
-## 后果
-
-Agent 可以主动展示成果，同时文件权限、捕获版本与来源会话保持可核实。网页需完全访问，文件格式沿现有能力，站点禁止嵌入时浏览器不能绕过。无桌面时请求仍留历史；工具成功不代表可视化验收。定向工具／DOM证据及真实客户端缺口见[工单](../../../../.scratch/agent-tools-next/issues/01-code-tools.md)。
+Agents can present results with verifiable permissions, captured versions and source sessions. URL access follows the later preview-access rule; existing format limits remain and embedding restrictions are not bypassed. Requests remain in history without a desktop. Tool success is not visual acceptance. Historical tool/DOM evidence and real-client gaps remain in the offline Code tools work item.

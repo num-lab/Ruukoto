@@ -1,33 +1,27 @@
-# Agent Note: 登记工作目录不按设备号变化失效
+# Agent Note: A changed device number does not invalidate a registered working directory
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者报告普通任务因工作目录身份变化失败，错误中的真实路径和 inode 相同，仅设备号变化，并明确要求删除设备号检测。设备号是本次文件系统挂载的属性，不能据其变化独立断言持久登记的目录已被替换；本轮没有操作实际卷挂载来核实变化来源。
+An owner reported task failure with an unchanged real path and inode but a changed device number, and requested removal of device-number detection. A device number describes the current mount; its change alone cannot prove replacement of a persistently registered directory. The actual volume remount cause was not verified.
 
-## 决定
+## Decision
 
-共享 `verifyDirIdentity` 及同步变体仅核对登记真实路径和 inode，目录不存在或不再是目录仍拒绝；成功返回本次解析的完整身份。调用方不改写历史登记值，普通任务启动和等待后重新取得目录占用时使用本次设备号，ToolRouter 重新核实工作区后向 LaunchSpec 传递当前 dev/ino。
+Shared `verifyDirIdentity` and its synchronous variant compare registered real path and inode only. Missing/non-directory targets still fail. Success returns the complete current identity without rewriting historical registration. Ordinary task launch and re-acquisition after waiting use the current device number; ToolRouter rechecks the workspace and passes current `dev`/`ino` into LaunchSpec.
 
-设备号字段和 `sameDirIdentity` 的物理别名比较保留。原生启动、worker init 及每次调用使用同次执行钉定的 dev/ino，目录或授予在执行过程中变化仍拒绝；这与跨启动比较持久登记值是不同的检查。冻结工作流来源、工作副本快照、审批对象及旧实例导入的独立身份契约不在本轮变更范围。
+The stored device field and physical-alias comparison in `sameDirIdentity` remain. Native startup, worker initialization and each invocation use `dev`/`ino` pinned for that execution and still reject changes during execution. This is distinct from comparing a persistent registration across launches. Frozen workflow sources, workspace snapshots, approval objects and legacy-import identity contracts are unchanged.
 
-## 既有笔记审计
+[Native execution](../architecture/2026-10-10-native-execution-sandbox.md) retains host identity checks for one execution; this note explains conversion from persistent registration to the current launch identity. [Legacy import](../architecture/2026-10-04-legacy-instance-import.md) and [SubAgent reuse](../feature/2026-10-04-subagent-reuse-close.md) retain their independent attribution/source checks. [Runtime ownership](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) is unaffected.
 
-- [原生执行](../architecture/2026-10-10-native-execution-sandbox.md)：部分重叠，继续持有当前执行的宿主身份核实；本篇明确从持久登记到本次启动身份的转换，互链。
-- [旧实例导入](../architecture/2026-10-04-legacy-instance-import.md)：命中严格目录身份，但属于导入归属的独立契约，不改变。
-- [SubAgent 复用](../feature/2026-10-04-subagent-reuse-close.md)：命中子会话沿用目录，独立来源与快照校验不改变。
-- [后台持有任务](../architecture/2026-09-19-detach-terminal-from-task-runtime.md)：任务归属与本次目录判据无关。
-- 检索 proposed、implemented、rejected 未发现同主题待实施方案，无需吸收或归档。
+## Alternatives considered
 
-## 备选方案
+- Keeping the comparison and asking users to reopen the directory preserves strict cross-device detection, but contradicts the approved behavior and need not refresh old fields when a project is reused.
+- Changing only the shared comparison is shorter, but leaves stale device numbers in LaunchSpec and still fails native startup/worker initialization. Recheck and pass the current identity too.
+- Removing all device fields and physical checks would lose alias mutual exclusion, protected-scope recognition and within-execution replacement detection, exceeding the request.
 
-- 保留设备号比较，要求重新打开目录：能保持严格跨设备判据，但无法满足拥有者要求，且复用旧项目并不必然刷新历史目录字段。
-- 只改共享比较：代码最少，但旧设备号仍进入 LaunchSpec，原生启动或 worker init 会继续拒绝，因此同时核实并传递本次身份。
-- 删除全部 dev 字段与物理身份校验：能消除全部设备号拒绝，但会损失不同挂载别名的互斥、保护范围识别及同次执行替换检测，超出本次目标。
+## Consequences
 
-## 后果
+Device-number changes no longer invalidate ordinary sessions/workspace reads, without a database migration or historical rewrite. The cost is that shared registration checks no longer detect a cross-volume replacement with the same real path and inode. Frozen sources/snapshots may still reject changes under their own contracts.
 
-收益是设备号变化不使普通会话与工作区读取失效，无需数据库迁移或改写历史。代价是相同真实路径、相同 inode 的跨卷替换不再由共享登记复核识别；冻结来源与快照仍可能按其独立身份契约拒绝变化。
-
-回归使用真实临时目录配合旧登记设备号，覆盖同步/异步正反例、文件与 Git 读取、普通任务真实 read 工具、占用与 LaunchSpec 当前设备号。实际重新挂载和重启后的桌面使用未验证；原生边界沿用已有启动身份拒绝测试，不将本轮本地 worker 通过记作真实沙箱验收。
+Regressions use real temporary directories with old registered device numbers. They cover synchronous/asynchronous positive and negative cases, file/Git reads, a real ordinary-task `read`, occupation, and LaunchSpec current identity. Actual remounting and desktop use after reboot were not verified. Existing native launch-identity rejection tests cover that boundary; local-worker success is not real-sandbox acceptance.

@@ -1,33 +1,29 @@
-# Agent Note: 个人单次命令由宿主保存完成证据
+# Agent Note: Host-owned completion evidence for a single Personal command
 
 Status: implemented
 
-## 问题
+## Problem
 
-[独立 worker](../../implemented/architecture/2026-10-17-personal-command-worker.md)与[持久停止引用](../../implemented/architecture/2026-10-17-native-linux-execution-identity.md)尚无实际消费者；后台崩溃后无法从原引用找回临时目录，命令自己输出的成功文本也不能证明宿主完成了输出接收。直接开放 durable 命令会把这些缺口带入权限与工作收尾。
+[The one-shot worker](2026-10-17-personal-command-worker.md) and [durable stop reference](2026-10-17-native-linux-execution-identity.md) needed a real consumer. After a crash, the original reference could not locate its temporary directory; command-written success text could not prove the host finished receiving output. Exposing durable commands directly would carry these gaps into authority and work completion.
 
-## 决定
+## Decision
 
-在个人 app 提供 Linux 受限单次命令的宿主执行、回执查询与停止 API。[durable 命令工具](2026-10-17-personal-durable-commands.md)等可信调用方先保存原工作与执行引用；适配接收已 prepare 的输入，保存私有请求和临时目录绑定后才启动，一引用至多一次。请求指纹覆盖命令、完整 LaunchSpec 和 prepared 输入；临时目录按路径哈希与 dev/ino 在私有目录独占认领到原引用，查询与清理核对反链，防止不同执行共用目录及设备 inode 复用误拒绝。安装输出消费后才关闭 stdin；stdout/stderr 原字节写入 worker 不可见的私有文件，全部接收并观察退出后原子发布完成回执。取消与超时在 launch 前监听，launch 返回或失败后仍按原引用做最后停止核实；已登记独立停止的运行不发布完成回执。回执只说明宿主观察到原运行返回，不把退出码或 stderr 解释为业务效果。
+The Personal app provides host execution, receipt query, and stop APIs for one restricted Linux command. Trusted callers such as [durable command tools](2026-10-17-personal-durable-commands.md) first persist original work and execution reference. The adapter accepts prepared inputs and records a private request/temp-directory binding before launch, at most once per reference. The request fingerprint covers command, full LaunchSpec, and prepared input. A private claim binds path hash and dev/ino to the original reference; query/cleanup check reverse links, preventing shared temp directories and false rejection from inode reuse.
 
-恢复只校验并读取原回执、按原执行引用核实停止。无回执保持未知；文件损坏或版本不符拒绝使用，不重新执行。停止不依赖内存 unit；退出核实后按原目录 dev/ino 清理临时资料，目录被替换则保留现场。私有证据是 OS 执行及产物证据，不持有 durable 工作、权限或队列状态。
+Connect output consumers before closing stdin. Raw stdout/stderr go to private files invisible to the worker. After complete capture and observed exit, publish the completion receipt atomically. Listen for cancellation/timeouts before launch; after launch returns or fails, still perform final stop verification against the original reference. A run with a separately registered stop publishes no completion receipt. Receipts prove only host-observed return, never business effects inferred from exit code or stderr.
 
-本篇关于完全访问尚未接通的限制由[完全访问命令](2026-10-17-personal-full-access-commands.md)取代；受限实现、既有宿主证据与停止协议的决定仍适用。
+Recovery validates/reads the original receipt and checks stop through the original execution reference. No receipt means unknown; corruption or incompatible version rejects use without reexecution. Stop needs no in-memory unit. Only verified exit permits temp cleanup by original dev/ino; a replaced directory is retained. Private files prove OS execution/output, not durable work, authority, or queue state.
 
-## 既有笔记审计
+[Full-access commands](2026-10-17-personal-full-access-commands.md) supersedes the original missing full-access wiring, retaining restricted execution, host evidence, and stop protocol. [Service operations](2026-10-17-personal-service-operations.md) use external-helper receipts not suitable for arbitrary commands. [Background Bash](../../proposed/feature/2026-10-14-bash-background-lifecycle.md) concerns long-lived shared terminals, not this one-shot adapter.
 
-检索个人命令、原生身份、服务回执及 tempDir。worker 与原生身份两篇部分重叠，保留并互链；[服务操作](../../implemented/architecture/2026-10-17-personal-service-operations.md)的外部 helper 回执不适用于任意命令；[后台 Bash 提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)面向共享工具的长期终端，与本片单次个人执行无关。没有完全吸收或失效提案。
+## Alternatives considered
 
-## 备选方案
+Putting capture/recovery directly in durable tools removes an entry point but makes handle-free stop and output/receipt crash windows harder to verify independently. A worker JSON receipt is easy to add, but arbitrary commands can write stdout/stderr and cannot create trusted evidence through that channel. In-memory output suffices normally but loses results and original temp location on restart.
 
-- 直接在 durable 工具内完成捕获和恢复：少一个源码入口，但难以独立验证无句柄停止与输出/回执崩溃窗口；先闭合实际宿主调用，后续工具复用。
-- 在 worker 输出 JSON 成功回执：现有单次入口容易扩展，但命令本身可写 stdout/stderr，不能把同一通道的文本当作可信效果证明。
-- 只返回内存输出：实现最少，正常运行足够；重启后丢失结果和原临时目录，无法兑现安全恢复要求。
+## Verification
 
-## 验证
+Historical evidence in `.scratch/personal-pi-durable/issues/24-command-execution.md` covers cross-process receipt reads, non-replay without receipts, original-reference stop, and preserving replaced directories. Offline stubs and real Linux evidence remain distinct in the archive.
 
-见[窄工单](../../../../.scratch/personal-pi-durable/issues/24-command-execution.md)。验收覆盖正常回执跨进程读取、无回执不重放、原引用停止及目录替换不误删；离线桩与真实 Linux 证据分开记录。
+## Consequences
 
-## 后果
-
-恢复核对要求本机身份、私有证据目录及原 TMPDIR 不变；TMPDIR 改变时保守拒绝查询与清理，须先恢复原环境。prepare 到目录绑定的崩溃窗口可遗留未派发临时目录；接入 durable 时若要求无此泄漏，再为共享 prepare 提供预先确定目录，不扩成当前无人调用的配置。原始双流不经模型截断，回执可跨进程核对；私有文件不是 durable 权限或工作状态。输出占用宿主磁盘，写失败停止并保留未知；本片不承诺磁盘配额或断电持久性。完全访问与 MCP 需要各自停止方案。
+Recovery requires the same machine identity, private evidence directory, and original TMPDIR. Changed TMPDIR conservatively blocks query/cleanup until restored. A crash between prepare and directory binding can leave an undispatched temp directory; if durable integration requires eliminating it, shared prepare needs a predetermined directory rather than speculative unused configuration now. Original streams are not model-truncated, and receipts are cross-process verifiable. Output consumes host disk; write failure stops execution and retains unknown state. No disk quota or power-loss durability is promised. Full access and MCP need their own stop designs.

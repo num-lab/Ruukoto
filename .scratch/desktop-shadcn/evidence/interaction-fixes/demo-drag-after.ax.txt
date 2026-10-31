@@ -1,9 +1,0 @@
-Browser tab: 4, Title: "Ruukoto · Desktop UI Demo", URL: "http://127.0.0.1:5173/".
-The following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
-Removed element IDs: 51-54
-+				100 container
-+					101 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1
-+					102 button 关闭Offline IndexedDB sync for Shinkansen pass
-+						103 image
-+		104 text Offline IndexedDB sync for Shinkansen pass已移至第 3 位，共 3 个。
-The focused UI element is 101 tab (selected, settable, boolean) Offline IndexedDB sync for Shinkansen pass, Value: 1, ID: radix-_r_7_-trigger-sess-ft-1

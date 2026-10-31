@@ -1,8 +1,0 @@
-{
-  "test/personal-cli.test.ts": {
-    "sha256": "d19cfeb50ffcf49ff1b701ef578c2048dc5e2bd381ae93ca1b232621f67aeb4f"
-  },
-  "test/personal-service-operations.test.ts": {
-    "sha256": "80e6ecaf1a17c943c478b6b4633045c9b0c81bd6f3a4a0949a82664b0b6d81f1"
-  }
-}

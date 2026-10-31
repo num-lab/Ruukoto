@@ -1,29 +1,25 @@
-# Agent Note: 网页正文复用获批 HTTP 读取
+# Agent Note: Reuse approved HTTP reads for webpage text
 
 Status: implemented
 
-## 问题
+## Problem
 
-Coding 只有通用 `http_request`，HTML 标签与脚本会遮盖正文；响应超限的事实仅在传输 message 中，现有路由未展示。拥有者要求网页工具能读取正文。
+Coding had only generic `http_request`; HTML tags and scripts obscured page text. Transport truncation was recorded only in a message the router did not expose. The owner requested readable webpage content.
 
-## 决定
+## Decision
 
-新增 `web_fetch(url, reason)`，固定无凭据 GET，沿原 HTTP URL 与 DNS 固定、审批、取消和只读效果分类。既有 `http_request` 保留；Web Search 的项目开关仍只控制搜索服务。获取不执行脚本、不跟重定向、不重试，跳转只返回有效无凭据 HTTP(S) 地址供另次调用。
+`web_fetch(url, reason)` performs a fixed credential-free GET using existing HTTP URL/DNS pinning, approval, cancellation, and read-only effect classification. `http_request` remains. The project Web Search switch still controls only the search service. Fetching executes no scripts, follows no redirects, and retries nothing. A redirect returns only a valid credential-free HTTP(S) destination for a separate call.
 
-复用仓库已安装的 parse5，agent 声明同版直接依赖。正文优先 main／article，再用 body；移除脚本、样式、导航、表单等非正文节点，保留段落与预格式文本。支持 UTF-8 HTML、纯文本和 Markdown，不支持的编码、压缩、二进制或空正文明确失败，不把乱码作为成功正文。
+Reuse installed `parse5`, declared as a direct agent dependency at the same version. Prefer main/article content, then body; remove scripts, styles, navigation, forms, and other non-body content while retaining paragraphs and preformatted text. UTF-8 HTML, plain text, and Markdown are supported. Unsupported encodings, compression, binary data, and empty extracted text fail explicitly rather than return gibberish as success.
 
-原传输最多捕获1MiB，跨上限的数据块保留预算内前缀并返回结构化截断事实。正文预览最多16KiB，长正文存产物并返回字节续读位置；来源截断与预览分页分开，来源未抓全的产物保持 partial，不能称作完整原文。原 HTTP 工具也展示真实截断。30秒仍是 socket 空闲超时，不宣称绝对总时限。
+Transport captures at most 1MiB, retaining the in-budget prefix of a crossing chunk and reporting structured truncation. Text preview is capped at 16KiB; longer text becomes an artifact with a byte continuation offset. Source truncation and preview paging are separate: an incompletely fetched source remains a partial artifact, never a complete original. `http_request` also exposes actual truncation. The 30-second timeout remains socket inactivity, not an absolute deadline.
 
-## 既有笔记审计
+[Tool execution](../architecture/2026-09-20-tool-worker-per-task-container.md) and [result paging](2026-10-16-tool-result-pagination.md) retain approval and artifact ownership. Web Search, MCP, and Personal durable have separate entry points.
 
-按 HTTP、正文、工具产物检索三个有效生命周期。[工具执行边界](../architecture/2026-09-20-tool-worker-per-task-container.md)、[工具结果分页](2026-10-16-tool-result-pagination.md)部分重叠，保留授权和产物归属；Web Search、MCP与个人 durable 命中属于其他入口，未发现冲突或应归档的重复提案。
+## Alternatives considered
 
-## 备选方案
+Returning raw HTTP maximizes reuse but leaves HTML noise and hides upstream truncation. A browser or remote extraction service supports dynamic pages but adds execution, credentials, and cost. Regex tag stripping is short but unreliable for entities, nesting, and malformed HTML; reuse the standard parser.
 
-- 直接返回 HTTP 原文：复用最多，但不能去掉 HTML 噪音，且掩盖上游截断。
-- 新增浏览器或远端提取服务：动态页面覆盖更广，但增加执行、凭据与费用，本次静态正文使用现有解析依赖。
-- 正则删标签：代码短，但实体、嵌套和损坏 HTML 不可靠；沿标准解析器处理。
+## Consequences
 
-## 后果
-
-静态网页正文可读且能继续读取长结果，来源权限和不重放约束保持。需要脚本渲染或其他编码的页面仍须浏览器；提取不是阅读理解，不保证所有站点都能找到正确主区。测试以本地 HTTP 夹具核实真实审批、重定向、编码、截断和产物；真实互联网与模型验证见[工单](../../../../.scratch/agent-tools-next/issues/01-code-tools.md)。
+Static page text is readable with continuation for long output, while source permissions and non-replay rules remain. Script-rendered pages or other encodings still need a browser. Extraction is not comprehension and cannot identify every site's correct main section. Local HTTP fixtures exercise actual approvals, redirects, encoding, truncation, and artifacts. Historical internet/model evidence is in the offline copy of `.scratch/agent-tools-next/issues/01-code-tools.md`.

@@ -1,50 +1,44 @@
-# Agent Note: 个人资料按会话归属并在请求前固定参考
+# Agent Note: Personal references belong to conversations and are pinned before requests
 
 Status: implemented
 
-技能脚本执行的[决定](../feature/2026-10-29-skill-script-execution.md)复用原请求技能快照绑定命令证据，并保留旧加载与显式展开字节；当前实现仍沿本篇及后续已落地决定。
+[Skill script execution](../feature/2026-10-29-skill-script-execution.md) binds command evidence to original request skill snapshots, retaining old loaded/expanded bytes. [Unified HOME discovery](../simplification/2026-10-28-home-skills-discovery.md) supersedes configurable/managed skill sources. [Request configuration](2026-10-25-personal-request-configuration.md) pins original request snapshots rather than invalidating prepared requests on current catalog changes. [Read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) refreshes external bodies during request preparation, then checks saved snapshots/configuration rather than rereading the entire library before sending. Memory/history/source/reference-integrity decisions here remain.
 
-技能来源与管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；本文保留记忆、历史与既有技能快照的核实依据。
+The former [managed-skills](../feature/2026-10-21-managed-skills.md) and [Personal settings](../feature/2026-10-21-personal-settings.md) mechanisms retain historical manifests/receipts and lock-protected validation, not current production skill management. [Desktop settings](../../proposed/feature/2026-10-21-desktop-settings-management.md) owns page-level progress.
 
-Skills 的在线选择与原请求快照采用[请求配置](2026-10-25-personal-request-configuration.md)，不再以当前清单变化否定已固定请求；本文其余记忆、历史、来源及引用完整性约束继续适用。
+## Problem
 
-[读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)将外部技能正文刷新固定在本次请求准备；发送前核实已保存快照、配置与托管选择，不再全库重读。
+The [Personal migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) requires new history, revocable memory/skills and actual model-input evidence without old MemoryStore, project Db, JSONL or role-assembly runtime dependencies. Persistent child context cannot turn history/memory into parent-chat access or old-work authority. Durable reports ordinary section/hook exceptions and continues, so hooks cannot enforce stopping on invalid sources.
 
-相关决定：[托管技能](../feature/2026-10-21-managed-skills.md)提供固定路径与状态清单，[Personal 设置入口](../feature/2026-10-21-personal-settings.md)在档案锁后消费共享检查和管理操作，不取代本篇外部库、停机配置与实际请求证据；页面进度见[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)。
+## Decision
 
-## 问题
+History pages read durable original entries directly. Main may query this instance's registered main/child/scheduled conversations; children/schedules only their own. Closed identities/ended work preserve original text. Tools show user, assistant and tool messages, not request-evidence or approval-ledger data. Search scans at most 256 entries and returns eight hits; an empty page with continuation still permits further scanning. Text pages contain 4096 characters. Native compaction changes active context only; original entries remain searchable.
 
-[个人迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)要求新历史、可撤销记忆与技能，并保留实际模型输入。旧 MemoryStore、项目 Db、JSONL 和角色装配不能成为新实例的运行依赖。长期子身份保留上下文，也不能借历史或记忆取得父聊天及旧工作授权；durable 的 section/hook 抛错会被报告后继续，不能承担来源失效时的停止保证。
+Memory uses session-document indexes with stable IDs, original conversation, category, current version, revocation and revision references. Every change commits content, source and receipt with an immutable revision entry. Repeated tool Task/local request returns the original receipt; same-key/different-arguments fails. Revision/revocation compares expectedVersion. Shared core exports only existing body/category validation, not old Db/MemoryStore. Temporary work progress is not memory. Revocation removes later lookup/read/injection without deleting history or previously sent requests.
 
-## 决定
+Main may manage all new memory, but automatic injection selects only memory created by the current conversation; children/schedules cannot read parent memory. Main revising child memory must use sources visible to that child, not convert parent chat into child data. Sources are visible original messages, registered artifacts with verified byte identity/hash, or trusted locally submitted owner explanations saved with the revision. Model tools have no owner-explanation field. Memory search scans at most 256 records and returns eight per page. Injection selects at most 16 of the latest 256, with combined text capped at 32 KiB; tools find the rest on demand.
 
-历史直接分页读取 durable 原 entries。主会话可查本实例已登记的主、子、定时会话；子与定时仅自身，已关闭身份和已结束工作仍保留原文。工具仅呈现用户、助手和工具消息，不返回请求证据或审批账本的 data。检索每次最多扫描256条、返回8项，空页也可沿续页继续；原文每页4096字符。durable 原生压缩只改变活动模型上下文，原 entries 仍可检索。
+Skills reuse `packages/agent/src/skills.ts` scanning, parsing, bodies and reference reads, not old tool adapters. Configuration, complete catalog/body versions, actual loads and explicit expansions are retained in durable docs/entries. Each request preparation refreshes the catalog and pins a snapshot; reference checks for that request use the same version. Old load/explicit-call results retain original snapshots. Reference files are regular UTF-8 text within the skill directory under existing realpath/64-KiB rules. Skills, memory and history are references, not tool, mode or permission grants. Original Personal main/child prompting requirements for Chinese output, reference precedence, stable memory and original-text lookup are preserved as product prompt behavior, not a repository prose-language rule. Old coding-role tools/catalogs are not introduced.
 
-记忆使用 session documents 索引和稳定编号、原会话、类别、当前版本、撤销及修订引用；每次变更的正文、来源和回执与不可变修订 entry 同 commit。重复工具 Task/本机请求重接原回执，同键异参拒绝，修订与撤销比较预期版本。共享 core 只导出既有正文/类别校验，不引用旧 Db 或 MemoryStore。临时工作进度不写记忆。撤销从后续查找、读取和注入生效，不擦除原历史或过去已发请求。
+The initial implementation combined owner-configured external skills directories with manifest-enabled managed packages, including managed-only use. Snapshots saved stable identity, origin, content revision and read-only status without backfilling fields or recalculating old hashes. Disable/logical removal affected subsequent catalogs/new explicit calls, preserving bodies, loads, expansions and request evidence; managed roots and Mac client paths were not interchangeable and management never rewrote external libraries. Current production discovery instead reads only backend-account `$HOME/.agents/skills/` under the linked HOME decision. Former sources/files remain for historical verification, not current selection or management.
 
-主会话可管理全部新记忆；自动注入只选当前会话产生的记忆，子与定时不能读父记忆。主修订子记忆时，来源仍须对子会话可见，不能借修订把父聊天转换为子资料。来源只接受可见原消息、已登记且字节身份/哈希核实的产物，或可信本机提交并随修订保存的拥有者说明；模型工具没有拥有者说明字段。记忆检索有界扫描256条、每页8项；注入从最近256条选至多16项、正文合计32 KiB，其余由工具按需查找。
+Provider prepareInput assembles references into this request's system sections, not a new owner input. Memory revisions/skill snapshots identify selection. Normalized-input and final-payload boundaries verify the same identities and record ruukoto.model-request; missing sources, invalid pinned versions or failed evidence writes prevent sending. Current catalog edits do not invalidate an already pinned skill request. Main/child/scheduled configuration and recovery share tool lists. Scheduled summaries may query/load skills, but memory writes still require an active authorized source. Plans retain skill-source ceilings; source changes require cancel/recreate under the current source rules, while normal body changes affect later calls.
 
-拥有者配置外部技能库目录，复用 `packages/agent/src/skills.ts` 的扫描、解析、正文和引用读取，不复用旧工具适配。配置、完整目录/正文版本、实际加载及显式展开保存在 durable docs/entries。每次请求前刷新目录；本次引用核实同一份版本，旧加载结果及显式调用仍保留原快照。引用文件只读技能目录内普通 UTF-8 文本，沿既有64 KiB和realpath规则。技能、记忆与历史都是参考，不改变工具、模式或权限。旧个人 main/subagent 的中文、参考优先级、稳定记忆和查原文要求纳入新提示；不引入旧编码角色工具与角色目录。
+Locally authenticated APIs manage memory and query new history. Management lists verify revisions and mark only expected source-unavailable cases as revocable; model lookup/injection remains strict, and other evidence recovery requirements do not weaken. CLI uses names, summaries and guided choices while managing keys/versions internally. Skill configuration formerly used the stopped-profile lock; production skill maintenance is now filesystem-owned under HOME discovery. IM uses existing main tools/explicit skill invocation without a new memory-approval state machine. First reference-extension activation requires old pending inputs/work to finish. Recovery checks indexes, revisions, skill snapshots and load/expansion references bidirectionally and rejects unknown versions before scheduling.
 
-当前技能选择由 `loadHostSkillLibrary` 合并显式配置的外部 skills 子目录和档案内清单启用的托管包；没有外部配置时仍可使用托管包。稳定身份、来源、内容修订与只读状态随新快照记录，模型目录保持原文字；旧快照不补字段、不重算历史哈希。停用和逻辑移除从后续请求的目录与新显式调用生效，旧正文、加载、展开与原请求证据保留。托管根和 Mac 客户端路径不互换，管理操作不改写外部库。
+## Related decisions
 
-参考由 provider 的 `prepareInput` 组装进当次 system sections，不回写为新的拥有者输入。记忆修订和技能快照确定选择身份；规范输入及最终 payload 两边界核实同一批身份后落 `ruukoto.model-request`，缺来源、版本变化或写证据失败均不发送。新主/子/定时配置与重启恢复共用工具清单，定时汇总允许查询和技能读取，记忆变更仍走原活动来源写门。定时创建保存技能配置上限；配置变化须取消重建，技能正文正常变化从后续调用生效。
+The original active-note audit searched long-term memory, skill libraries, history and Personal durable. [History preservation](2026-09-19-preserve-session-history.md), [shared compaction](2026-09-26-lossy-context-compaction.md), [Personal request boundary](2026-10-17-personal-durable-foundation.md), [independent scheduling](2026-10-18-personal-durable-scheduled-work.md) and migration retain their shared/foundation/scheduling responsibilities. Work ownership, child source capabilities and role/workflow steps retain execution authority. Legacy import, branches, group-chat retirement, inbound images, application data and background commands are unrelated. No records are absorbed/deleted.
 
-本机认证接口提供记忆管理和新历史查询；管理列表先核实修订，仅将预期来源不可用标记为可撤销项，模型查询与注入仍严格拒绝，其他证据的恢复要求不变。CLI 用名称、摘要及步骤选择管理，内部键和版本由程序保存；技能配置沿停机锁写入。IM 通过已有主模型工具与主会话显式技能调用可达，不另造记忆审批状态机。首次启用参考扩展需要先完成旧未决输入与工作；恢复双向核对索引、修订、技能快照及加载/展开引用，未知版本在调度前拒绝。
+## Alternatives considered
 
-## 既有笔记审计
+- Automatically share all instance memory: easier preference reuse, but implicitly gives children parent-derived data. Use conversation ownership; explicitly provide needed delegation material, while main may query registered conversations.
+- Render sections and throw on invalid sources: durable can save dynamic prompts, but upstream reports ordinary errors and continues old prompts. Enforce at provider boundaries with identities/versions from one selection.
+- Move old MemoryStore/history indexes or add vectors: reused search or better recall, but introduces old Db/JSONL or another state store. Use bounded literal search until scale requires replacement.
+- Expand explicit skills before submitting new input: no model-input transformation, but changes original owner input and conflicts with IM fingerprints/source checks. Preserve Submission, pin expansion to original user entry and replace only actual provider input with evidence.
 
-按长期记忆、技能库、会话历史和 personal durable 检索 implemented/proposed，rejected 目录不存在。[保留历史](2026-09-19-preserve-session-history.md)、[共享压缩](2026-09-26-lossy-context-compaction.md)、[个人请求边界](2026-10-17-personal-durable-foundation.md)、[独立定时](2026-10-18-personal-durable-scheduled-work.md)和迁移提案部分重叠，互链并保留各自的共享装配、基础或调度职责。工作归属、子来源能力及角色/工作流步骤只涉及既有执行授权，沿其原决定；旧实例导入、分支、群聊退役、图片入站、应用数据空间及后台命令提案与本决定无关。不吸收或删除既有记录。
+## Consequences
 
-## 备选方案
+History/versions append and references/requests are reconstructable, at ongoing snapshot/body disk cost. There is no cross-instance sharing, global disk quota or new search platform. Bounded injection does not guarantee exhaustive model memory lookup; children get their own memory or explicitly delegated material. Revocation cannot recall sent requests or erase original facts from old context; it stops later memory lookup/automatic reference. Real-model restart references, skill-driven tasks and both-platform experience need separate acceptance, not offline snapshots. Original evidence/gaps are offline at `.scratch/personal-pi-durable/issues/33-memory-skills-history.md`.
 
-- 全实例自动共享记忆：个人偏好更容易复用，但子身份会隐式取得父聊天派生资料。选择按会话归属，所需资料由本次委派明确提供，主可显式查询其他已登记会话。
-- 使用 section 渲染并在来源无效时抛错：可以由 durable 保存动态提示，但上游报告普通异常后继续旧提示。选择已有 provider 硬边界，快照与版本从同次选择重建。
-- 搬旧 MemoryStore/历史索引或新增向量检索：可复用检索实现或改善召回，但引入旧 Db/JSONL 和另一份状态。选择有界字面检索，数据规模需要时再替换检索实现。
-- 将显式技能先展开再提交新正文：模型无需额外变换，但改变拥有者原输入，与 IM 指纹和来源核实冲突。保留原 submission，按原用户 entry 固定展开结果，在 provider 前替换实际输入并保存证据。
-
-## 后果
-
-历史和版本只追加，资料与请求可重建，代价是快照及正文持续占用磁盘；没有跨实例共享、全局磁盘配额或新检索平台。注入有界不保证模型主动找全所有记忆，子身份只能得到自身记忆或本次明确委派的资料。撤销不能收回已发送请求或擦去旧上下文中的原始事实；它停止后续记忆查询和自动参考。真实模型的重启引用、技能驱动任务及双平台体验单独验收，离线快照不代替产品效果；具体证据与缺口由[工单](../../../../.scratch/personal-pi-durable/issues/33-memory-skills-history.md)持有。
-
-相关方案：[受控文件检索](../../implemented/feature/2026-10-21-controlled-file-search.md)只发现文件内容，不取代本篇历史、记忆和技能的资料身份。
+[Controlled file search](../feature/2026-10-21-controlled-file-search.md) discovers file contents without replacing history, memory or skill identities.

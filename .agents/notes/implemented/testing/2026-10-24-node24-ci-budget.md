@@ -1,29 +1,27 @@
-# Agent Note: 统一 Node 24 并扩大 CI 完整反馈预算
+# Agent Note: Standardize on Node 24 and allow complete CI feedback
 
 Status: implemented
 
-## 问题
+## Problem
 
-测试裁剪候选在 GitHub 的 macOS/Node24 和两个 Node22 job 仍超过四十五分钟，Linux/Node24 已成功。拥有者要求直接提高 CI 预算，并结束 Node22 兼容以减少维护面。
+The test-reduction candidate still exceeded forty-five minutes on GitHub macOS/Node 24 and both Node 22 jobs; Linux/Node 24 succeeded. The owner requested a larger CI budget and retirement of Node 22 compatibility.
 
-## 决定
+## Decision
 
-CI 只保留 macOS/Linux 两个任务，固定 Node24.15.0，job 上限九十分钟；本仓包最低 Node 版本统一为 >=24.15。setup、桌面环境、部署示例和构建目标同步，Node22 的 SQLite 参数绑定适配退出。保持任务内部执行预算、文件并发、独占分批和失败/跳过语义；预算变更不算性能优化，也不把取消记录改成通过。
+CI has two jobs, macOS and Linux, fixed at Node 24.15.0 with a ninety-minute timeout. Repository packages require `>=24.15`. Setup, desktop environment, deployment examples and build targets agree; Node 22 SQLite parameter-binding compatibility is removed. Internal execution budgets, file concurrency, exclusive batches and failure/skip semantics remain unchanged. A timeout increase is not a performance improvement and does not turn cancellation into success.
 
-## 既有笔记审计
+This supersedes matrix/job limits in [test reduction](2026-10-24-test-suite-reduction.md) and [CI prerequisites](2026-10-22-ci-prerequisites.md), retaining their necessity reviews, platform prerequisites, concurrency and failure propagation. [Workflow joint acceptance](2026-10-13-workflow-joint-acceptance.md) follows the supported versions; old four-cell runs remain historical evidence, as do Node 22 fault investigations and isolation experiments.
 
-[测试精简](../testing/2026-10-24-test-suite-reduction.md)和[CI 前提与并发](../testing/2026-10-22-ci-prerequisites.md)部分重叠：取代矩阵与 job 时限，保留必要性审查、平台前提、并发与失败透传。[工作流联合验收](../testing/2026-10-13-workflow-joint-acceptance.md)部分重叠：当前平台版本沿新支持范围，旧四格实测仍是历史证据。其他提及 Node22 的历史故障、基线和隔离实验保持原样，没有同题提案需要吸收。
+## Alternatives considered
 
-## 备选方案
+- Keeping Node 22 serves older machines, but the owner chose a smaller support surface rather than maintaining its builds and compatibility code.
+- Sixty minutes terminates runaway jobs sooner, but only forty-five-minute truncated macOS samples existed. Ninety minutes allows fuller feedback while retaining a hard limit.
+- Sharding or higher concurrency may reduce wall time but changes contention and scope. Preserve scheduling in this change.
 
-- 保留 Node22 可服务旧机器；拥有者已选择缩小支持面，不再为它维护构建和兼容实现。
-- 只将上限设为六十分钟可更早终止失控任务；目前 macOS 只有四十五分钟截断样本，本轮取九十分钟留出完整反馈余量，仍保持明确上限。
-- 同时分片或提高并发可能缩短墙钟；会改变执行竞争且扩大改动，本轮保持现有调度。
+## Verification
 
-## 验证
+Node 22 and versions below 24.15 are rejected; the 24.15 minimum is accepted. Maintained manifests/locks, targets and current documentation agree. Both SQLite queries retain their real ledger behavior on Node 24. Remote CI passes only when both platforms actually reach foundation tests and exit successfully; missing results remain pending acceptance.
 
-Node22 与低于24.15的环境明确拒绝，24.15最低版本通过；本仓 manifests/锁文件、构建目标与当前文档一致。两处 SQLite 查询在 Node24 保持真实账本行为。新 CI 两个平台实际进入 foundation 并正常退出才算远端通过，缺结果保留待验收。
+## Consequences
 
-## 后果
-
-旧 Node 环境需要先升级；更长 job 会增加失败时的等待与计算用量，不能解决所有测试阻塞或失败。具体变更和证据由[工单06](../../../../.scratch/ci/issues/06-node24-ci-budget.md)持有。
+Older Node environments must upgrade. Longer jobs increase waiting and compute cost on failure and cannot cure every blockage/failure. Historical change/evidence records remain in the offline CI Node 24 budget work item.

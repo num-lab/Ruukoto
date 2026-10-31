@@ -1,55 +1,48 @@
-# Agent Note: 异步用例等待实际阶段信号，分别核实登记与最终结果
+# Agent Note: Async tests await actual phases and distinguish registration from final outcomes
 
 Status: implemented
 
-## 问题
+## Problem
 
-[CI 38114738658](https://github.com/num-lab/Ruukoto/actions/runs/38114738658) 的审查取消测试在审批已登记为 `in_progress` 后立即断言模型服务已收到请求，实际调用数为 0。工作内消息测试则把发送事件中的历史 `pending` 判定当作最终未送达，尽管消息行和投递任务已经核实送达。这两项断言依赖异步调度顺序，单跑通过不能证明全量负载下成立。
+In [CI 38114738658](https://github.com/num-lab/Ruukoto/actions/runs/38114738658), review cancellation asserted a model request immediately after approval became in_progress; actual request count was zero. Work-message tests treated historical pending in the send event as final non-delivery, despite message/delivery-task facts proving delivery. These assume scheduling order; isolated passes do not prove behavior under full-suite load.
 
-[CI 38127175560](https://github.com/num-lab/Ruukoto/actions/runs/38127175560) 的 macOS / Node 22 未知孤儿用例在停止回执后固定等待 80ms 判断心跳，最后断言失败。首次心跳还可能早于 Python 父亲退出；恢复监督器时它仍可合法累计并回收这条父子链。短观察窗不能排除调度延迟，3 秒自然寿命也不能证明观察时夹具仍活着，因而这条断言不能单独证明误杀。
+[CI 38127175560](https://github.com/num-lab/Ruukoto/actions/runs/38127175560) failed macOS/Node 22 unknown-orphan heartbeat assertions after an 80-ms fixed wait. The first heartbeat could precede Python-parent exit, so supervisor recovery could still legitimately observe/reap the chain. A short window cannot exclude scheduling delay, and a three-second natural lifetime cannot prove the fixture remained alive during observation; this alone did not prove an erroneous kill.
 
-[CI 38129294407](https://github.com/num-lab/Ruukoto/actions/runs/38129294407) 中，已修的未知孤儿在两个 macOS 矩阵均通过；相邻的已归属后代用例仍在停止前用固定 100ms 判断心跳增长，两个版本均在这条断言失败。停止后的 80ms 冻结观察也不足以证明后代已经退出。
+In [CI 38129294407](https://github.com/num-lab/Ruukoto/actions/runs/38129294407), fixed unknown-orphan tests passed both macOS matrix cells, but adjacent owned-descendant tests failed their pre-stop 100-ms heartbeat-growth assertion in both versions. Post-stop 80-ms frozen-heartbeat observation also could not prove exit.
 
-个人 durable 流中强杀用例从 spawn 起只给 5 秒等待持久 partial，同时覆盖 tsx 与子进程静态 import。Node 22 的成功诊断已逼近该期限，启动成本挤占了真正受测的打开档案、受理输入与模型流等待；成功诊断不能反向解释原失败轮的全部原因。
+Personal durable stream-SIGKILL tests allowed five seconds from spawn to persisted partial, including tsx/static imports. Successful Node 22 diagnostics approached that deadline, consuming time intended for profile opening, admission and stream waiting. Successful diagnostics cannot retrospectively explain every original failing run.
 
-## 决定
+## Decision
 
-异步测试用被测阶段的实际开始和结束信号同步，不用前一阶段的数据库状态或固定延时推断后一阶段已发生。模拟模型的 responder gate 固定需要覆盖的顺序，`finally` 放行 gate，避免断言失败后夹具阻塞清理。同步只在测试中实现，不新增生产等待接口。
+Tests synchronize on actual start/end signals for the phase under test, not previous-phase database state or fixed delays. Mock responders use gates to force required ordering and finally releases gates so assertion failures cannot block cleanup. Synchronization stays in tests, without new production waiting APIs.
 
-- 审查取消、人工抢先、权限变化与后台重启用例先等 responder 实际接到审查请求，再改变任务状态；放行后等响应生成及审批 `superseded`，核实迟到批准未生效、未消费，工具未执行。
-- 消息用例把发送方保持忙碌，固定回复登记为 `pending`；放行后核实同一消息的唯一投递任务与来源关联。`subagent_message.sent` 保持发送当时的判定，冲刷不能改写或重复历史事件；最终投递结果检查消息行。
-- macOS 未知孤儿夹具先 `setsid` 并确认 `ppid == 1`，再报告就绪并恢复监督器；停止回执后在既有 5 秒等待期限内等新心跳，仍严格要求未核实原因与 `reaped: false`。500ms 心跳刻意超过旧 80ms 窗口，让现有用例检出固定短窗的回归。夹具正常生命期由 `release` 文件控制，`finally` 先释放，已经报告就绪的孤儿还要等关闭心跳文件后的 `finished` 标记才删目录；20 秒上限仅在宿主测试中断时兜底，不改变验收等待期限，也不向未知 PID 发信号。
-- macOS 已归属后代使用长期运行的 detached Node，安装 TERM handler 后报告父 PID，停止前等待新的 500ms 心跳；停止回执严格为 true，后代写出的 TERM 标记另证明它收到并忽略 TERM。后代仅继承 stdout 且从不自行关闭它，既有 5 秒等待期限内的共享管道 EOF 独立证明后代退出，再核对停止回执后的心跳冻结。`release` 仅在 `finally` 写入，不能帮助受测停止通过；20 秒生命上限用于异常测试退出后的兜底。
+- Review cancellation, human-first decisions, permission changes and restart wait for the responder to receive the review request before changing state. After release, await generated response and superseded approval, then verify late approval neither takes effect nor consumes authorization/executes tools.
+- Keep message sender busy so reply registration is deterministically pending. After release, verify the same message's unique delivery Task/source. subagent_message.sent retains the decision at send time; flushing neither rewrites nor duplicates history. Read message rows for final delivery.
+- Unknown macOS orphan fixtures call setsid, confirm ppid == 1, signal ready, then restore the supervisor. After stop receipt, await a new heartbeat within the existing five-second deadline while strictly requiring unverified reason/reaped:false. Deliberate 500-ms heartbeats exceed the old 80-ms window. A release file controls normal lifetime. Finally releases first; ready orphans must close the heartbeat file and publish finished before directory deletion. Missing completion retains the directory. A 20-second lifetime cap only cleans up interrupted test hosts, not extends acceptance, and unknown PIDs are never signaled.
+- Owned macOS descendants use long-lived detached Node, reporting parent PID after installing a TERM handler. Await a new 500-ms heartbeat before stopping; require stopped:true and a TERM marker proving the descendant received/ignored TERM. It inherits only stdout and never closes it itself. Shared-pipe EOF within the existing five-second deadline independently proves exit, followed by frozen heartbeat after stop. release is written only in finally, never helping the tested stop pass; 20 seconds is abnormal-test cleanup fallback.
+- Personal stream-SIGKILL children signal IPC ready after static imports but before Harness.open, then await parent start. Parent bounds ready separately and installs the original five-second persisted-partial wait before start. Real nonempty LiveDoc text proves partial. Ready is capped at ten seconds and the whole test remains fifteen. Startup failure, early exit or missing ready fails with stderr retained. Register after before profile fixtures; kill/join every test child before deleting profiles. Branch finally blocks remain. launch refuses creation after t.signal cancellation so timed-out async continuations cannot spawn children. Local self-checks cover nonzero early exit and started-but-never-ready timeout.
 
-- 个人 durable 流中强杀的子进程在静态 import 后、打开 Harness 前通过 IPC 报 ready，并等待父进程 start。父端独立有界等待 ready，先安装原 5 秒持久 partial 等待再发 start；partial 仍由真实 LiveDoc 中非空文本确认。ready 至多 10 秒、整例仍为 15 秒；启动失败、提前退出和缺 ready 明确失败并保留 stderr，在档案夹具前注册 after，强杀并等本例全部子进程关闭后才允许删档案；各分支 finally 保留，launch 拒绝在 t.signal 已取消后创建子进程，防止整例超时后异步体继续启动。局部自检要求非零提前退出可见、已启动但缺 ready 必须超时。
+[Automatic review](../feature/2026-09-22-auto-review-mode.md), [work messages](../feature/2026-10-05-subagent-messaging.md) and [native sandbox](../architecture/2026-10-10-native-execution-sandbox.md) retain production semantics, including ownership, signals, observation windows and reaping conclusions.
 
-两项机制分别沿用[自动审查](../feature/2026-09-22-auto-review-mode.md)与[工作内消息](../feature/2026-10-05-subagent-messaging.md)的既有契约，没有改变生产语义。
+## Alternatives considered
 
-孤儿同步沿用[原生执行沙箱](../architecture/2026-10-10-native-execution-sandbox.md)的未知归属策略，不修改监督器的归属、信号、观察窗口或回收结论。
+- Increase fixed waits/timeouts: tiny change and fewer local failures, but no proof of request start/delivery and renewed races under different load.
+- Extend orphan lifetime/80-ms window only: tolerates pauses, but proves neither parent exit nor fixture liveness. Use ready/release/finished signals.
+- Keep finite shell descendants with longer windows: fewer edits, but natural exhaustion and short waits still cannot establish exit. Use persistent Node/pipe EOF, not new production status APIs.
+- Increase Personal's five seconds or prewarm: mixes startup/behavior timing or bypasses real new-process locking/crash premises. Ready after Harness.open/submit would remove profile/admission work from the tested budget, so place it after imports only.
+- Accept any historical delivery value: easy assertions, but misses busy-time misdelivery/history rewrites. Gate order and assert registration/final facts separately.
+- Update production events to final state: event-only readers see current outcomes, but loses send-time facts and changes behavior beyond the fixture repair. Retain message/event ownership.
 
-## 备选方案
+## Consequences
 
-- 增加固定等待或超时：改动很小，可能降低本机失败率；不能证明请求已开始或消息已送达，并会把负载变化再次变成竞态，故不选。
-- 只延长孤儿寿命或 80ms 观察窗口：能让更多调度停顿通过；仍不能证明父亲已经退出或观察时夹具仍活着，故用就绪、释放与结束信号控制正常生命周期。
-- 已归属后代继续用有限 shell 循环并延长前后观察窗：沿用旧夹具，修改少；有限循环仍会自然耗尽，固定短窗也不能独立证明进程退出。选长期 Node 与管道 EOF，不新增生产状态查询接口。
-- 增大个人 partial 的 5 秒或预热子进程：修改少或能省冷加载，但前者继续混合启动与行为等待，后者绕过真实新进程的锁和崩溃前提。ready 若放到打开 Harness 或 submit 后，还会移走本应受测的档案准备或输入受理，故固定在静态 import 后。
-- 容许任意历史投递结果：断言容易通过；无法检出忙碌时误投递或冲刷改写历史，故用 gate 固定顺序并分别严格断言。
-- 让生产事件随最终状态更新：读者只看事件也能看到当前结果；会抹掉发送时的事实，且不属于本次测试修复，故保留消息行与事件的分工。
+Tests no longer infer ordering from machine speed and cover registered-but-unsent requests, busy pending delivery and invalid late results. Fixtures explicitly manage/release phases. Mock-responder signals prove actual mock calls, not real-model or OS isolation.
 
-## 后果
+Unknown-orphan checks use real processes/file writes to prove post-stop survival, paying for slow-heartbeat/cleanup waits. Missing readiness/completion fails. Polling still is not a definitive kernel membership set. Owned-descendant EOF depends on controlled processes never closing stdout deliberately, so it is neither a general production reaper nor independent exit-cause proof.
 
-用例不依赖机器速度，且能稳定覆盖登记后仍未发请求、忙碌时待投递与迟到结果失效。代价是夹具需显式控制并释放阶段；阶段信号只证明模拟模型服务的实际调用，不作为真实模型或 OS 执行边界证据。
+Personal changes synchronization only: Harness opening, actual requests/persisted partial, lock exclusion, SIGKILL, unique reopened input and completed/aborted history assertions remain. Five seconds begins when the parent installs waiting before start; imports have ready/whole-test deadlines. This is not a five-second product cold-start guarantee. Local IPC adds neither Coding fixtures nor new recovery interfaces.
 
-未知孤儿用例用真实进程与文件写入核实停止之后的存活，成本包含等待慢心跳和清理确认；就绪或结束信号缺失时用例失败，结束确认失败保留目录。它验证既有未核实与不误杀行为，不能把轮询提升为确定的内核成员集合。
+## Verification
 
-已归属后代的正常停止必须关闭继承的 stdout，观察不再依赖短静待；失败路径通过夹具文件释放后再清理。该退出证据依赖受控后代不会主动关闭 stdout，不能作为任意工具进程的生产回收算法，也不单独判定退出原因。
+A pre-send gate reproduces old review `0 !== 1`; corrected checks pass under the same gate. Holding the sender active breaks the old all-sent-are-task assertion; corrected checks prove pending, later delivery and unchanged history. Original commands/results are offline at `.scratch/ci/2026-10-11-previous-ci-failures.md`.
 
-个人用例只调整阶段同步，打开 Harness、模型请求、真实持久 partial、锁互斥、SIGKILL、重开后的唯一输入和完成/aborted 历史断言保持。5 秒从父进程发 start 前安装等待时起算，模块冷加载另受 ready 与整例期限约束；该用例不证明产品冷启动满足 5 秒。局部 IPC 设施不引入旧 Coding 测试装配，也不改变产品恢复接口。
-
-## 验证
-
-审查请求发送前加门可稳定复现旧断言 `0 !== 1`，修复后同一门控通过。消息用例保持发送方活动时，旧的“所有 sent 均为 task”断言失败，修复后核实 pending、冲刷送达与历史不变。完整命令与结果见[本次 CI 修复记录](../../../../.scratch/ci/2026-10-11-previous-ci-failures.md)。
-
-孤儿夹具的两种扰动分别放慢心跳至 500ms，以及延迟父亲退出并制造观察空档；旧夹具均在相同的停止后心跳断言失败，新同步在同样扰动下通过。具体证据见[未知孤儿 CI 修复](../../../../.scratch/ci/2026-10-11-native-orphan-ci.md)。
-
-已归属后代将旧 shell 的心跳间隔放慢至 500ms 可复现同一停止前断言失败；最终夹具使用同样慢心跳并核实 TERM 与真实 EOF。具体证据见[已归属后代 CI 修复](../../../../.scratch/ci/2026-10-11-native-descendant-ci.md)。
+Slowing orphan heartbeats to 500 ms and separately delaying parent exit/creating an observation gap both break the old post-stop heartbeat assertion; new synchronization passes the same perturbations. Evidence is offline at `.scratch/ci/2026-10-11-native-orphan-ci.md`. Slowing old owned-descendant shell heartbeats to 500 ms reproduces its pre-stop failure; final fixtures use the same interval plus TERM/real EOF proof. Evidence is offline at `.scratch/ci/2026-10-11-native-descendant-ci.md`.

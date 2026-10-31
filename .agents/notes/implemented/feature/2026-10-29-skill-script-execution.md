@@ -1,52 +1,50 @@
-# Agent Note: 技能脚本直接执行且源码默认不进入上下文
+# Agent Note: Execute skill scripts without loading their source by default
 
 Status: implemented
 
-## 问题
+## Problem
 
-技能目录、正文和引用包装此前要求脚本只作为文本返回、不能原地执行。模型要利用脚本时只能读取源码并理解实现，增加工具往返与上下文占用。
+Skill catalog/body/reference wrappers previously allowed scripts only as returned text, forcing models to read implementations before using them and increasing context and tool calls. The original restriction addressed containers unable to see skill directories, execution-account access, and missing interpreters. Both products now had command tools, but actual skill paths remained host-only and absent from restricted execution; removing prompt prohibitions alone would not solve it.
 
-旧禁令由[原技能工单](../../../../.scratch/personal-agent/issues/22-skills.md)确认，针对当时容器看不到技能目录、执行账户权限和解释器缺失。两产品已有命令执行工具后，技能真实目录仍只保存在宿主，受限命令环境未开放该资源；仅删除提示词禁令不足以完成需求。
+Original restriction and owner approval are offline provenance in retired `.scratch/personal-agent/issues/22-skills.md` and `.scratch/skill-script-execution/issues/01-execute-without-source.md`.
 
-## 决定
+## Decision
 
-脚本经现有 `bash` / `run_command` 执行，`skill` 工具继续只读加载，个人主会话仍通过子 Agent 执行命令。拥有者确认的目标与验收由[工单](../../../../.scratch/skill-script-execution/issues/01-execute-without-source.md)持有。
+Execute through existing `bash`/`run_command`; `skill` stays a read-only loader, and Personal main still delegates commands to a child. Catalogs initially expose names/descriptions. On-demand loading and explicit `/skill:<name>` expansion include the selected skill's real directory for resolving relative script paths. Body instructions, arguments, and command results should suffice without reading source. Owner-requested audit or necessary debugging may still read references, retaining path/realpath/UTF-8/64 KiB checks.
 
-### 模型使用方式
+Update catalog, body, reference wrappers, and both products' tool descriptions to the actual available command path: Coding bash, Personal child run_command, or main delegation. Historical requests containing old prohibitions then receive current actionable guidance. `skill` itself does not execute, change its no-effect ledger, or lose Personal safe replay. Script output/errors/stacks may contain source; this decision does not promise source never appears.
 
-技能目录仍先提供名称与描述。按需正文和 `/skill:名称` 展开附带目标技能的真实目录，作为解析相对脚本路径的依据；正文、参数说明和运行结果足够使用脚本，默认无需读取源码。用户要求审计或排障确有需要时，仍可经现有引用读取取得源码；引用文件的路径、realpath、UTF-8 与 64 KiB 限制保留。
+Real directories enter history only for the loaded/explicitly expanded skill, not all host paths. Do not scan scripts to generate descriptions, add script-type detection, entry catalogs, or template syntax. Commands retain the current task or configured command cwd and original output permissions; exposing a read-only skill directory does not make it cwd. Explicit-only skills remain unavailable for autonomous model loading. Personal main may delegate the concrete command/arguments/target obtained by expansion without copying source or widening reference-read eligibility.
 
-脚本经现有命令工具运行，`skill` 不执行命令、不改变其无效果账本或 Personal 的安全重放属性。目录、正文、引用包装与两产品工具描述中的旧禁令已替换为现行执行说明，执行措辞随会话实际命令工具（Coding `bash`、个人子 Agent `run_command`、主会话委派）选择，使带旧禁令的历史恢复请求仍得到当前可行动的指引。脚本自身的标准输出、错误或堆栈可能包含源码；本决定不承诺源码绝不出现。
+### Execution resources and authority
 
-真实目录只随目标技能加载或显式展开进入历史，不批量注入所有宿主路径，不扫描脚本正文来生成说明，不增加脚本类型识别、入口清单或模板替换语法。脚本仍以当前任务或预配置命令目录为初始工作目录，输出写入原获准位置；提供技能目录不等于默认切入该只读目录。仅显式调用的技能仍不能由模型自主加载；个人主会话可将显式展开取得的具体命令、参数和目标交给子 Agent，无需复制源码或扩大引用读取资格。
+Coding uses directory candidates from the task-pinned library supplied by Driver as ToolRouter `skillRoots`. Personal uses the originating model request's `references.skills.snapshotEntry`, resolved by `personalModelRequestSelection`. Shared `packages/agent/src/execution/skill-roots.ts` adds the actual directories read-only, including same-package resources, according to final `LaunchSpec.mode`. Fixed instruction text and execution-time script contents are distinct: scripts/resources are read from disk at execution, not copied or package-version-pinned. Real full access keeps its original launch arguments/file scope; a full-access source whose verification step is actually restricted still receives read-only skill roots under the final mode.
 
-### 执行资源与权限
+Resolve each directory independently through realpath, never mount all HOME or `~/.agents/skills/` as one resource. Reject candidates covering filesystem root or host HOME, including symlinks to either or their ancestors. Normalize/deduplicate; roots fully covered by an existing workspace/grant retain existing permissions with no extra read-only restriction. A new skill root containing a writable root cannot be made wholly read-only and is unavailable.
 
-Coding 使用当前任务钉版技能库中的目录候选（`ToolRouter` 的 `skillRoots` 依赖由 Driver 供钉版技能库），Personal 使用发起该命令的原模型请求所选技能快照（`personalModelRequestSelection` → `references.skills.snapshotEntry`）。共享选择逻辑在 `packages/agent/src/execution/skill-roots.ts`，按最终 `LaunchSpec.mode` 为受限环境一次性开放这些技能的真实目录，只读访问，覆盖脚本及同包资源。技能说明固定与脚本执行时版本分离：脚本和资源取执行时磁盘内容，不复制或钉版整包。真正完全访问保持原启动参数与文件范围；来源任务为完全访问而验证步骤实际降为受限时，仍按最终 spec mode 补齐技能只读根。
+Missing/protected/realpath-drifted/unsafe-alias roots are diagnosed per skill and excluded, while other ordinary commands remain usable: Coding appends host guidance to the tool result; Personal records `unavailable` in command evidence. Never downgrade failures of the original workspace, grants, or `readScope` into a skill warning; those fail normally. Existing protected-path, directory-identity, and hardlink checks remain. Alias checking uses the final authorization set, allowing legitimate links between two authorized skill roots; if whole-set attribution fails, eliminate candidates and isolate individually, remaining conservative.
 
-各技能目录分别使用 realpath，不以整个 HOME 或 `~/.agents/skills/` 的单一挂载替代；拒绝新增会覆盖文件系统根或宿主 HOME 的候选，包括指向这些位置或其祖先的技能符号链接。归一和去重后，已被原工作区或既有授权完整覆盖的目录沿原权限，不重复加只读限制；技能根包含原可写根而无法整根只读时，将该新增技能资源标为不可用。不存在、受保护、真实路径漂移或文件别名冲突的技能根逐项诊断并排除（Coding 进工具结果末尾的宿主提示，Personal 进命令证据的 `unavailable`），其余普通命令继续；不能吞掉原工作区、原授权或原 readScope 的校验失败——原挂载自身失效原样上抛，不折算成技能不可用。现有受保护路径、目录身份和硬链接检查继续适用；文件别名按最终授权集合核实，两棵已授权技能目录间的合法硬链接不误伤，无法整体归因时先消元再逐个隔离。
+Before ensuring a worker, recheck candidates and include final realpath/dev/ino roots in `LaunchSpec.readRoots` and the worker key. Resource changes require verified stop of the old unit before replacement. Unverified stop retains occupancy and refuses replacement. A concurrent directory change after final validation may still fail execution; once an operation starts, failure is not permission to filter and retry automatically.
 
-命令确保 worker 前从原目录候选重核可用技能根，最终根及目录身份（realpath + dev/ino）在 `LaunchSpec.readRoots` 中进入 worker key。资源集合变化时先核实旧执行单元已停止，再建立替代环境；停止未核实仍保留占用并拒绝替代执行。最后复核之后发生的并发目录变化仍可使本次执行明确失败，不能把已开始操作的失败解释为可自动过滤重试。
+This adds read-only file visibility, not execution authority. Existing tool eligibility, workspace/write grants, network, credentials, approvals, timeouts, capture, stop, and effect-unknown rules remain. Missing interpreter/dependency/credential uses ordinary command failure and existing diagnostics; do not auto-install, grant external paths, or replay uncertain commands.
 
-新增的是技能包的只读文件可见性，不是新执行权限。原工具资格、工作区与写授权、联网、凭据、审批、超时、输出捕获、停止和效果未知规则继续生效。解释器、外部依赖或凭据不可见时按普通命令失败，由现有执行层报告受影响操作与下一步；不自动安装环境、开放外部路径或重放效果未知命令。
+### History and recovery
 
-### 历史与恢复
+Persist model-visible directories in load results or explicit expansion without rewriting committed history. Personal's `expandSkillCommandLegacy`/`skillBlockLegacy` are frozen old-format generators: SkillExpansion verification accepts only byte-reconstructible old or new format, rejects tampering, and adds no generic migration layer.
 
-新增模型可见目录随技能加载结果或显式展开保存，不重写已提交历史。Personal 的旧显式展开核实依赖精确重新生成：`expandSkillCommandLegacy`/`skillBlockLegacy` 是冻结的旧格式生成路径，历史 SkillExpansion 只精确接受可逐字节重建的新格式或旧格式，拒绝任意篡改，不引入通用迁移框架。
+At command admission, resolve the original tool's assistant/generation through `personalModelRequestSelection`, verify that library with `personalSkillLibraryAt`, and record original snapshot reference, selected final directory identities, and per-skill unavailability in `CommandAdmission.skills`/`Command.skills`. After admission, restart or later skill refresh verifies original selection/spec/input/fingerprint rather than reading mutable `PersonalSkillsDoc.current` or rediscovering a replacement library. Started commands only verify their original execution. Old commands without these fields retain the old zero-skill-root structure, never receive current roots. Old snapshots/load results/expansions/hashes preserve bytes; old programs unable to understand new evidence must refuse rather than downgrade recovery.
 
-Personal 命令在接纳时通过 `personalModelRequestSelection` 从原 tool 的 assistant/generation 定位 `references.skills.snapshotEntry`，经 `personalSkillLibraryAt` 核实原库，并在接纳、准备证据中保存原快照引用、采用的最终目录身份与逐项不可用清单（`CommandAdmission.skills`/`Command.skills`）。接纳后重启或后续请求刷新技能时，仍核实原选择与原 `spec/input/fingerprint`，不读取会变化的 `PersonalSkillsDoc.current` 或重新发现当前库替换它；已开始命令只核实原执行。无新增字段的旧命令按原零技能根结构核实，不补当前目录。旧快照、加载结果、显式展开和哈希保持原字节；旧程序无法理解新证据时应明确拒绝，不降级恢复。
+## Alternatives considered
 
-## 备选方案
+- Add a dedicated skill-execution tool exposing only the selected package: stable addressing and less visible data, but duplicates command eligibility/admission/recovery. The owner chose existing tools and accepted read-only visibility of the selected library's discovered directories.
+- Remove only prompt restrictions: smallest and sometimes enough in full access, but restricted execution still cannot see HOME skills and models still lack executable paths.
+- Copy entire packages at task start: fixes resource versions, but adds copying, dependency layout, storage, and lifecycle concerns. The owner retained disk-at-use reference semantics.
+- Ban all source reading: prevents deliberate implementation loading, but blocks owner audit/debugging and cannot prevent script output. Default to not reading, allow it when needed.
 
-- 新增专用技能执行入口，只开放当次指定的技能包：寻址更稳定、暴露资源更少，但需新增工具资格、命令接纳与恢复证据，且与已有命令工具重复。拥有者选择复用命令工具，并接受当前发现的各技能目录只读可见。
-- 仅删除提示词禁令：改动最少，完全访问下可能已能运行，但受限命令仍看不到 HOME 技能，模型也缺少可执行路径，无法满足两产品目标。
-- 任务开始时复制完整技能包：可固定脚本与资源版本，但增加复制、依赖布局、存储和生命周期问题。拥有者选择保持引用文件使用时取磁盘内容的规则。
-- 禁止所有源码读取：能防止模型主动读取实现，但妨碍拥有者审计和必要排障，也不能阻止脚本自己输出源码。拥有者选择默认不读、必要时可读。
+## Consequences
 
-## 后果
+Commands can read other files in available skill packages even before a skill is loaded; undisclosed directory names are not a permission boundary. Native alias checks traverse new roots, so large assets/virtualenvs may increase ordinary command preparation cost. Revisit a per-call execution tool if observed cost warrants it; there is no evidence for zero overhead.
 
-全库只读可见会让命令读取尚未加载技能包中的其他文件，目录名即使未进入模型也不是文件权限限制。原生文件别名检查会遍历新增根，含大 assets 或虚拟环境的库可能增加普通命令准备成本；若观察显示成本不可接受，再单独重访按次执行入口，不能无证据声称没有成本。
+Pinned text does not pin scripts: owner file edits affect subsequent execution. External dependencies, another host account, cwd assumptions, or package-local writes can still fail. Personal does not automatically inherit Coding's host node_modules.
 
-固定正文不固定脚本：拥有者修改文件会影响随后执行。依赖位于技能根外、使用不同宿主账户、脚本假设特定 cwd 或需要写入包内时仍可能失败；Personal 不自动获得 Coding 的宿主 node_modules。
-
-验证：正文加载、显式调用及正常执行请求不含脚本独有源码标记（`test/56-skills.test.ts` 真实 bash 闭环），按需源码读取仍可用；受限技能根的选择、隔离、别名与受保护规则在 `test/native-mount-protection.test.ts`，worker key/先停再建/未核实拒绝替代在 `test/100-worker-stop.test.ts`，Personal 原请求快照绑定、篡改分流与旧无字段命令恢复在 `test/personal-command-work.test.ts`，旧显式展开按原字节接受与伪造拒绝在 `test/personal-skills.test.ts`。macOS/Linux 实际受限执行与两产品真实模型闭环属外部验收，未完成前在工单记缺口。
+Verification covers source-marker absence in load/expansion/normal execution requests through real bash in `test/56-skills.test.ts`, while intentional source reads remain. `test/native-mount-protection.test.ts` covers root selection/isolation/aliases/protection; `test/100-worker-stop.test.ts` covers worker keys, stop-before-recreate, and unverified refusal; `test/personal-command-work.test.ts` covers original request snapshot, tampering, and old fieldless recovery; `test/personal-skills.test.ts` covers byte-exact legacy expansion and forgery refusal. Real restricted macOS/Linux execution and both products' real-model loops require external acceptance; missing evidence must remain a gap.

@@ -1,33 +1,27 @@
-# Agent Note: 拥有者工作区浏览不采用 Agent 保护目录
+# Agent Note: Owner workspace browsing does not use Agent protected roots
 
 Status: implemented
 
-[读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)进一步允许拥有者预览普通硬链接，保留符号链接处理与读取一致性核实。
+[Read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) later permits ordinary hardlinks in owner preview, retaining symlink handling and read-consistency checks. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) further removes whole-tree Git metadata restrictions and workspace-registration protection retained by the original change.
 
-[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)进一步取代本篇保留的 Git 全树元数据限制与工作区登记保护规则；文件预览的链接及一致性处理仍保留。
+## Problem
 
-## 问题
+Desktop Files, preview, and Git queries reused restricted-Agent protected-directory scans. Every read traversed backend data, credentials, control directories, and service source. Reading a 25.9KB HTML file took about 1.7 seconds, over 99.9% in protection checks; synchronous scanning also blocked other control requests. The owner explicitly removed that restriction for these three browsing operations.
 
-Desktop 文件树、文件预览和 Git 查询复用受限 Agent 操作的保护目录检查，每次读取都遍历后台数据、凭据、控制目录及服务代码树。一个 25.9 KB HTML 的后台读取耗时约 1.7 秒，其中保护检查超过 99.9%；同步扫描还阻塞其他控制面请求。拥有者明确要求这三类浏览不受此限制。
+## Decision
 
-## 决定
+`listWorkspaceFiles`, `readWorkspaceFile`, and `readWorkspaceGit` are authenticated owner read-only queries. They neither accept nor compute Agent protected roots and do not reject results because registered scope overlaps protected directories. Remove their unused protection helper instead of passing empty roots. Agent tools and restricted execution retain their own protection rules; workspace registration's later rules belong to the superseding operation-specific note.
 
-`listWorkspaceFiles`、`readWorkspaceFile`、`readWorkspaceGit` 是经拥有者认证的只读查询，不接收或计算 Agent 保护根，也不因登记范围与保护目录重叠而拒绝结果。删除专用目录保护辅助函数；Agent 工具、受限执行和工作区登记仍采用原保护规则。
+Browsing still uses a registered root and normalized relative paths, retaining root/ancestor identity, link handling, before/after validation, file versions, and paging budgets. Git keeps fixed read-only commands, revision cursors, bounded output, and the metadata checks still required by the later operation-scoped decision. No arbitrary path, command, or permission option is introduced. Request/response fields and persistence/protocol formats are unchanged.
 
-浏览继续按已登记根及规范相对路径读取，保留根与父链身份、符号链接和硬链接处理、读取前后校验、文件版本与分页预算。Git 保留元数据核实、固定只读命令、修订游标和有界输出；不新增任意路径、命令或权限开关。查询字段与返回格式不变，无协议或持久化迁移。
+This replaces browsing protected-root restrictions in [file wiring](../architecture/2026-10-16-desktop-current-demo.md), [Git wiring](../architecture/2026-10-17-desktop-demo-v4.md), and [history paging](2026-10-17-desktop-git-history-pages.md). [Protection-cost optimization](../bug-fix/2026-10-17-directory-protection-cost.md) no longer applies to owner browsing, but its physical-alias, directory-race, and negative-cache rationale still informs Agent checks. Native execution, SubAgent, Personal durable, snapshots, and Demo retain separate entry points.
 
-## 既有决定
+## Alternatives considered
 
-按拥有者浏览、工作区文件、Git 与保护目录检索 proposed／implemented／rejected。部分取代[文件接线](../../implemented/architecture/2026-10-16-desktop-current-demo.md)、[Git 接线](../../implemented/architecture/2026-10-17-desktop-demo-v4.md)和[历史分页](../../implemented/feature/2026-10-17-desktop-git-history-pages.md)中的保护根约束，其他访问、身份及分页决定保留。[目录保护优化](../../implemented/bug-fix/2026-10-17-directory-protection-cost.md)的浏览检查已退出；保留原篇，因其关于物理别名、目录分类竞态及负缓存的取舍仍可指导 Agent 保护检查。原生执行、SubAgent、个人 durable、历史快照与 Demo 命中属于其他入口，不受本决定影响。
+Caching or asynchronously scanning protected trees could reduce waiting/blocking but would still restrict owner browsing and add invalidation/worker machinery. Passing an empty roots array is shorter but leaves the wrong authority in the interface and a helper that could be reconnected. Removing path/link/all Git validation too exceeds this protected-root decision and changes consistency guarantees; later removals have their own decisions.
 
-## 备选方案
+## Consequences
 
-- 缓存或异步执行保护树扫描：可降低等待或后台阻塞，但仍限制拥有者浏览，与本次明确要求不符，且需增加失效或工作线程机制。
-- 保留保护参数并传空数组：改动少，但接口仍表达错误的权限归属，遗留扫描函数与测试容易被重新接入；直接删除无调用的入口。
-- 同时取消路径、链接及 Git 元数据校验：能放宽更多文件系统形式，但不属于本次保护根决定，且会改变读取一致性与既有失败保证，暂不扩展。
+Owner-query cost no longer grows with unrelated protected trees. Owners can browse backend material within registered scope without making that output a model input or tool authorization. The original change retained registration protection and whole-tree Git scanning; later operation-specific checks supersede both. This note makes no constant-time guarantee for every repository.
 
-## 后果
-
-拥有者查询的成本不再随无关保护树增长，登记范围内的后台资料可由拥有者浏览；浏览结果不因此成为模型输入或工具授权。工作区登记本身仍受既有规则限制。Git 元数据扫描继续随目标仓库大小增长，本次不承诺所有仓库恒定耗时。
-
-控制面回归覆盖保护范围包含登记根时的目录、文件和 Git 成功读取，以及禁止枚举无关保护树；原路径、身份、分页与 Agent 通用保护用例保留。修改前失败、修改后结果与同一文件的耗时复测见[工单](../../../../.scratch/desktop-file-tree/issues/02-owner-browsing-access.md)。
+Control regressions read directory/file/Git successfully when protected roots contain the registered root and forbid traversing unrelated protected trees. Existing path, identity, paging, and Agent protection tests remain. Historical pre-fix failure and same-file timing evidence is in the offline copy of `.scratch/desktop-file-tree/issues/02-owner-browsing-access.md`.

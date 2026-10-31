@@ -1,38 +1,36 @@
-# Agent Note: MCP 传输由宿主提供凭据而不持有旧项目
+# Agent Note: MCP transport receives host credentials without owning legacy projects
 
 Status: implemented
 
-旧SDK执行、发现限额与跨重启原流核实由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；共享传输改用Pi MCP。宿主resolver归属、钉源、秘密隔离与取消不证明远端停止继续成立，本篇保留原决定。
+[MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) replaces the old SDK implementation, discovery limits and cross-restart original-stream verification with Pi MCP. Host-owned resolution, pinned targets, secret isolation and the inability of cancellation to prove remote stopping remain. [Cua](2026-10-23-cua-official-mcp.md) adds controlled stdio and per-call evidence hooks; products own target binding, persistent connections and recovery.
 
-[Cua 接入](2026-10-23-cua-official-mcp.md)增加受控stdio和逐调用证据钩子；目标绑定、持续连接与恢复由产品承担，普通HTTP接口和语义保持。
+## Problem
 
-## 问题
+The [Personal durable migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) reuses only lower-level capabilities without task state. The [MCP client's](2026-09-23-mcp-client.md) public connection API required McpServiceConfig/CredentialStore, forcing Personal HTTP reuse to fabricate legacy project/configuration objects. These were type imports: the problem was public interface coupling, not loading old core at runtime.
 
-[个人 durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)只复用无任务状态的底层能力。[MCP 客户端](2026-09-23-mcp-client.md)的公开连接接口要求 McpServiceConfig 与 CredentialStore，个人端要复用 HTTP 就得伪造旧项目和配置；它们原本是 type import，问题是公开接口耦合，并非运行时加载旧 core。
+## Decision
 
-## 决定
+mcp/transport.ts owns SDK transport, endpoint validation, target-pinned fetch, discovery, calls and error classification. connectMcpEndpoint accepts service identity, fixed endpoint, timeouts, an optional per-request token resolver and host request/response recording hooks. It does not accept arbitrary fetch, headers, OAuth refresh or request configuration. Callers own/close connections; transport owns no tasks, approvals, projects or credential store. Current protocol implementation follows Pi MCP under the superseding note.
 
-`mcp/transport.ts` 持有 SDK、端点校验、钉源 fetch、发现、调用和错误分类。`connectMcpEndpoint` 接受服务标识、固定端点、超时、可选的逐请求 token resolver 及宿主原请求/应答记录钩子，不接受任意 fetch、headers、OAuth 刷新或请求配置。调用方持有连接并负责关闭，传输不持有任务、审批、项目或凭据存储。
+The trusted host resolver verifies original credentials' target, purpose and source scope; the interface grants none of these permissions itself. Only absent resolver means anonymous. An empty token or ordinary resolver exception fails that request before sending with static auth_failed, without anonymous fallback or secret-bearing exception text. Host-thrown McpError retains classification/readable explanation; callers must keep that explanation secret-free.
 
-resolver 由可信宿主核实原凭据的目标、用途和来源范围；接口本身不提供这些授权。没有 resolver 才匿名；已配置 resolver 返回空 token 或抛普通异常时，在发出该请求前报静态 auth_failed，不降级匿名、不复述异常里的秘密。宿主主动抛出的 McpError 继续保留分类与可读说明，调用方须保证说明没有秘密值。
+The original mcp/client.ts adapter retained McpServiceConfig/CredentialStore, calling getForUse on every request to check projectId/mcp scope and host. It re-exported original symbols with one McpError constructor shared by both entries. Runtime, tool plans, router and Driver retained entry/call/close ownership without data/dependency/exports changes. Configuration still owned purpose/header validation; that wrapper was not a claim of complete per-request purpose checking. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) later removes project scope, and Pi integration replaces the old client while retaining product credential ownership.
 
-`mcp/client.ts` 继续适配旧 McpServiceConfig/CredentialStore，每请求调用 getForUse 核对 projectId/mcp 范围与 host；它重导出原符号，新旧入口共用同一个 McpError 构造器。Runtime、工具计划、路由器和 Driver 的入口、调用参数与关闭归属不变，不改旧数据、依赖或包 exports。旧配置入口仍负责 purpose/header 校验，本片不把旧 wrapper 宣称为完整的逐请求用途校验。
+The original locked SDK used listMaxPages to cap discovery at 16 requested pages, raising too_many_pages if another page was required, and capped successful lists at 64 tools with each page's timeout. Its no-cursor listTools already aggregated pages, so a surrounding loop could not enforce request count; SDK limits replaced redundant manual pagination. Repeated cursors followed SDK termination rules without another protocol test. These numeric limits belong to that replaced implementation, not a promise about current Pi discovery.
 
-分页由锁定 SDK 的 listMaxPages 限制为最多请求 16 页，达到上限且仍需继续分页时抛 too_many_pages，不将超限结果当成功清单返回；成功汇总后最多 64 个工具，每页沿原超时预算。SDK 的无 cursor listTools 本来就会自动汇总，外层循环不能限制其请求次数，因此不再重复手写分页；重复游标仍沿 SDK 的结束规则，不新增协议判定。
+HTTP close, cancellation and timeout end local waiting only. Remote MCP work may continue; neither client shutdown nor Linux local-scope stopping proves remote exit. [Write approval](../feature/2026-09-23-mcp-write-tools-approval.md) retains unknown-effect/no-replay rules. The original [Personal consumer](2026-10-17-personal-durable-mcp.md) pinned complete requests/responses and used shared original-SSE GET recovery only for late terminal replies matching the original call, never resending tools/call. Cursor and same-event response were persisted together, with missing evidence remaining unknown. Cross-restart stream recovery is now retired under host simplification; this records its original decision, not a current transport capability.
 
-HTTP 关闭、取消与超时只结束本地等待。MCP 服务可继续执行，客户端不能据此提供远端停止证明；Linux scope 的本机停止证明也不适用于远端。[MCP 写工具](../feature/2026-09-23-mcp-write-tools-approval.md)的不重发和未知效果规则继续成立。个人消费者通过[原生工具与外部证据](2026-10-17-personal-durable-mcp.md)钉定原请求并保存完整应答；共享传输提供原 SSE 流恢复 GET，只读取匹配原请求的迟到终结应答，不重发 tools/call。游标与同事件应答一起交宿主持久化，缺证据保留未知。
+## Related decisions
 
-## 既有记录审计
+The original active-note audit searched MCP, credentials, cancellation, stop proof and durable. Migration, client, write approval and [full-access commands](2026-10-17-personal-full-access-commands.md) retain permission, HTTP cancellation and local command-stopping decisions. This note owns interface responsibilities between transport and legacy assembly. Other execution/business/channel/scheduler notes are unrelated; no note was wholly absorbed or obsolete.
 
-按 MCP、凭据、取消、停止证明和 durable 检索 active notes。[迁移总提案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、原 MCP 客户端、MCP 写工具及[完全访问命令](2026-10-17-personal-full-access-commands.md)部分重叠，保留并互链；本篇仅持有传输和旧装配的接口分工，不取代权限、HTTP 取消或命令停止决定。其他执行、业务、渠道与调度记录无关，没有完全吸收或过时提案。
+## Alternatives considered
 
-## 备选方案
+- Construct legacy project/credential objects for connectMcpService: almost no shared change, but Personal has no legacy project, and fabricated objects reintroduce the old domain without accurately expressing Personal source scope.
+- Copy a Personal client: independent product changes, but protocol, pinned targets, limits and error classification have no product differences; duplication creates two security implementations.
+- Keep the old pagination loop: fewer edits, but the SDK aggregates every page on its first iteration, violating the declared 16-page cap. Use SDK limits/structured errors.
+- Treat a persistent Linux worker or HTTP DELETE as remote stop proof: uniform command-like interface, but these prove only local process/transport-session termination, not remote tool exit. There was no new stdio requirement in this slice.
 
-- 直接沿旧 connectMcpService 构造项目及凭据对象，几乎不动共享代码；不选，因为个人端没有旧项目，伪造对象会把旧配置领域带回新产品，也不能准确表达个人来源范围。
-- 复制一份个人 MCP 客户端，可分别修改两个产品；不选，因为协议、钉源、限额和错误分类没有产品差异，复制会造成两份安全实现的维护。
-- 保留原分页循环，可以少改已有实现；不选，因为 SDK 在循环第一步就汇总全部页，保留它会继续违反已声明的 16 页限额。直接使用 SDK 限额与结构化错误即可恢复约束。
-- 用持久 Linux worker 或 HTTP DELETE 作为远端停止证明，可统一命令式接口；不选，因为它们只能证明本机进程或传输会话结束，不能证明远端工具停止，且没有新增 stdio 要求。
+## Consequences
 
-## 后果
-
-两个产品可共用纯 HTTP 传输，旧调用者继续使用原接口。代价是宿主仍须提供逐请求授权核实；HTTP 操作丢失结果后没有通用的远端停止证明，后续 durable 消费者必须保存未知并等待可信核实，不能重发或提前释放工作。回归与独立审查见[实施工单](../../../../.scratch/personal-pi-durable/issues/27-mcp-transport.md)；本篇只持有共享传输；个人入口与持久恢复见上述记录，不证明真实 MCP、模型或 IM 可用。
+Products share transport without legacy project ownership; compatibility adapters originally retained old callers. Hosts still verify authorization per request. Lost HTTP results have no generic remote stopping proof. Original durable consumers therefore conservatively retained unknown occupancy; current ordinary-HTTP logical completion follows the superseding decision without rewriting remote facts or replaying writes. Original regression/independent review is offline at `.scratch/personal-pi-durable/issues/27-mcp-transport.md`. Transport tests do not establish real MCP, model or IM availability.

@@ -1,29 +1,27 @@
-# Agent Note: 桌面选中文件先快照暂存，再绑定用户任务
+# Agent Note: Snapshot selected Desktop files before binding them to tasks
 
 Status: implemented
 
-相关决定：[Coding 消息重排与引导](../feature/2026-10-28-coding-message-control.md)。
+Related: [Coding message ordering and steering](../feature/2026-10-28-coding-message-control.md).
 
-## 问题
+## Problem
 
-定稿 desktop demo 的附件加号需要真实文件输入，原 submit 仅支持字符串。将路径塞进输入会让模型读取后来变化的文件，并依赖原文件权限；将完整 base64 写进提交与 JSONL 又会越过 1 MiB 控制帧并重复存储。
+The approved Desktop attachment button needed real file input, while submit accepted only strings. Inserting a path would read later file contents and depend on original-file permission. Putting full base64 in submission/JSONL would exceed the 1MiB control frame and duplicate storage.
 
-## 决定
+## Decision
 
-主进程系统选择器是原文件来源，renderer 不能提供路径或上传字节。主进程以不跟随符号链接的文件描述符有界读取选中文件，核对读取前后状态；同一实例内每文件按 192 KiB 分块传入受保护的后台暂存目录。附件沿用入站图片的每次 4 个、每个 8 MiB 上限，普通文件和空文件均可提交。暂存引用、元数据、内容哈希和实例固定；重放同块幂等，缺页、内容冲突、换实例或损坏均拒绝。
+The main-process system picker owns source-file selection; renderer supplies neither paths nor uploaded bytes. Main uses a non-symlink-following descriptor for bounded reads and verifies file state before/after. Within one pinned instance, each file uploads to protected backend staging in 192KiB chunks. Existing inbound-image limits apply: four files per selection, 8MiB each. Ordinary and empty files are accepted. Staging reference, metadata, hash, and instance are fixed. Replaying the same chunk is idempotent; missing chunks, conflicting content, instance changes, or corruption fail.
 
-submit / continue 的可选 attachments 只含稳定 id、安全文件名与大小；主进程待核实记录原样保存，后台与暂存权威元数据比较并纳入幂等摘要，无附件请求沿用原摘要。只有有效附件或非空文本才能入队。文件先定稿；任务、不可变产物元数据与 task.attachments 来源事件在同一 SQLite 事务绑定。文件与 SQLite 不原子，事务失败可留下不可变孤儿文件，相同 id 与哈希可重试，已提交历史与产物不回滚。
+Optional submit/continue `attachments` carry only stable ID, safe filename, and size. Main retains pending-verification requests unchanged. Backend compares authoritative staging metadata and includes it in the idempotency digest; requests without attachments keep their old digest. Queuing requires valid attachments or nonempty text. Finalize files first, then bind task, immutable artifact metadata, and `task.attachments` provenance event in one SQLite transaction. Files and SQLite are not atomic: transaction failure can leave immutable orphan files. Matching ID/hash retries are safe; committed history/artifacts are not rolled back.
 
-Driver 只从 task.attachments 和继续链恢复用户附件，不能把其他任务产物当作用户输入。普通附件引用保存在用户消息的 ruukotoAttachmentRefs，context 提供 read_artifact 的 utf8 / base64 读取指引；图片复用 ruukotoMediaRefs，在最终发送前恢复视觉字节。原用户文字不加入本机路径。历史投影只给 renderer 安全文件名与大小，纯附件输入也保留；分支核对来源事件后冻结引用。所有带 contentHash 的产物禁止 append，读取时核实原字节哈希。
+Driver restores owner attachments only from `task.attachments` and the continuation chain, never arbitrary task artifacts. Ordinary references live in user-message `ruukotoAttachmentRefs`; context explains utf8/base64 reads through `read_artifact`. Images reuse `ruukotoMediaRefs` and restore visual bytes just before sending. Original user text gains no local paths. History exposes only safe filename/size to renderer and retains attachment-only input. Branching verifies provenance events before freezing references. Every artifact with `contentHash` forbids append and verifies the original-byte hash when read.
 
-检索附件、入站图片与产物后，[入站图片](2026-10-07-inbound-image-staging.md)与[产物导出](../feature/2026-10-14-artifact-file-export.md)部分重叠，本篇只持有桌面用户选中文件的输入通路；图片视觉恢复、原有产物范围与导出继续沿原决定。
+[Inbound images](2026-10-07-inbound-image-staging.md) keeps visual restoration and image persistence; [artifact export](../feature/2026-10-14-artifact-file-export.md) keeps artifact scope/export. This note owns the Desktop owner-selected-file input path.
 
-## 备选方案
+## Alternatives considered
 
-给任务增加原文件只读授权可复用普通 read 工具，但文件可能改变、重启后可能消失，也扩大原路径读取范围；采用固定内容产物，不授权邻近文件。仅把文件名显示为附件最省代码，但模型无法读取，不满足真实附件要求。
+Granting read access to the original file reuses normal read tools but allows content changes/disappearance and exposes a path instead of fixed content. A snapshot grants no neighboring-file access. Showing filenames alone is smallest but leaves the model unable to read real attachments. A new table is unnecessary because artifacts and durable events already represent ownership/provenance. Staging manifests do not duplicate a bound flag alongside SQLite.
 
-为所有附件创建新数据库表可以直接持有绑定，但已有 artifacts 与持久事件足以表达来源和归属；暂存 manifest 不另维护 bound 状态，避免与 SQLite 双写。
+## Consequences
 
-## 后果
-
-普通附件通过既有 read_artifact 按字节读取；二进制不会自动转换成可解析的文档，图片只接受既有 JPEG、PNG、WebP 视觉通路。未提交或被移除的暂存快照保留，防止待核实请求和重启丢失字节；当前没有自动清理入口，受单文件和单次选择上限约束但总磁盘用量仍会累积，后续清理必须避开未决提交。协议版本由 desktop 迁移统一提升，避免旧后台静默忽略新字段。
+Ordinary attachments are byte-readable through `read_artifact`, not automatically converted into parseable documents. Visual images remain JPEG, PNG, and WebP only. Unsubmitted/removed staged snapshots are retained to protect unresolved requests and restart recovery. There is no automatic cleanup; per-file/selection limits do not bound cumulative disk use. Future cleanup must avoid pending submissions. Desktop migration owns the protocol bump so old backends cannot silently ignore attachments.

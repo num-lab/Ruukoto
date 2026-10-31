@@ -1,30 +1,27 @@
-# Agent Note: 网页展示独立于浏览器自动化权限
+# Agent Note: Page presentation is independent of browser automation
 
 Status: implemented
 
-MyGo 的 URL 展示已接入原生右栏页面，见[右栏浏览器决定](2026-10-29-mygo-agent-browser.md)；本篇四模式展示资格与零审批决定保持。
+MyGo URL presentation now uses its native right-hand page, as described in the [browser decision](2026-10-29-mygo-agent-browser.md). Four-mode availability and zero approval requests remain this note's decisions.
 
-## 问题
+## Problem
 
-present 的网页展示复用了 browser 自动化资格，普通模式和 Plan 因此无法打开侧栏预览。拥有者明确要求取消这项权限限制；预览只登记给桌面的展示目标，不向 Agent 提供读取DOM、点击或填写表单的工具能力。
+`present` reused browser-automation eligibility for page presentation, preventing ordinary and Plan modes from opening sidebar previews. The owner explicitly requested removal of this restriction. Presentation registers a Desktop display target; it does not give the Agent tools to read DOM, click, or fill forms.
 
-## 决定
+## Decision
 
-删除 presentUrlAllowed 回调与 URL 分支的审批请求；confirm、auto-review、full_access 和 Plan 均可直接登记网页预览。URL分支显式核实当前任务存在、同会话、running、未取消且signal未中止；沿用原工具可用性检查、无凭据 HTTP(S) 校验、成功工具结果与隔离 iframe，不增加配置或新的审批机制。文件预览继续走原读取边界，browser 自动化继续采用自己的规则。
+Remove `presentUrlAllowed` and the URL branch's approval request. `confirm`, `auto-review`, `full_access`, and Plan can register a page preview directly. The URL branch explicitly verifies that the current task exists, belongs to the same session, is running, is not canceled, and has an unaborted signal. Existing tool-availability checks, credential-free HTTP(S) validation, successful tool results, and isolated iframe handling remain. No configuration or new approval mechanism is added. File preview retains its read boundary; browser automation retains its own rules.
 
-## 既有笔记审计
+This partially supersedes the URL permission requirement in the [original preview decision](2026-10-25-code-present.md), not its file capture, source session, historical reopening, or format limits. [Browser automation](2026-10-14-agent-browser.md) and [local document browsing](2026-10-17-desktop-local-browser.md) keep their separate entry points.
 
-按 present、网页预览与完全访问检索 proposed／implemented／rejected，部分取代[原预览决定](2026-10-25-code-present.md)的 URL 权限约束；文件捕获、来源会话、历史重开和格式限制保持。[浏览器自动化](2026-10-14-agent-browser.md)与[本机文档浏览](2026-10-17-desktop-local-browser.md)各自的入口保持。无同题过时提案需要归档。
+## Alternatives considered
 
-## 备选方案
+Reusing browser eligibility keeps one threshold but incorrectly couples display with automation and contradicts the owner's request. Per-URL approval permits individual confirmation but still adds permission steps to ordinary previews. Existing recorded tool calls provide the required trace instead.
 
-- 继续沿 browser 资格：可复用现有门槛，但把展示与自动化绑在一起，违反拥有者取消限制的要求。
-- 改为逐网址审批：能够逐次确认展示目标，但仍给普通预览增加权限步骤；本次直接使用既有工具调用记录。
+## Verification
 
-## 验证
+Real Runtime tests cover success in all four modes, no approvals, and durable preview results; the old implementation must fail in confirm mode. Dangerous-address and file-scope regressions remain passing, and the actual model-visible definition no longer requires full access. Desktop's existing success-event wiring is unchanged.
 
-真实 Runtime 测试覆盖四模式成功、零审批与持久预览结果，旧代码在 confirm 必须失败；危险地址和文件范围回归继续通过，实际模型定义不再包含完全访问前提。桌面现有成功事件接线保持。
+## Consequences
 
-## 后果
-
-网页仍由桌面加载并可运行隔离脚本、发出网络请求；取消模式门槛不意味着网页没有网络活动或必定加载成功。站点嵌入限制和原有文件格式边界保持，真实模型与原生窗口体验未由本次本机夹具证明。
+Desktop still loads pages, which may run isolated scripts and issue network requests. Removing the mode restriction does not promise network inactivity or successful loading. Site embedding restrictions and file-format limits remain. Local fixtures do not establish real-model or native-window experience.

@@ -1,7 +1,0 @@
-/home/eitrous/.npm/_logs/2026-10-17T06_32_53_647Z-debug-0.log
-/home/eitrous/.npm/_logs/2026-10-17T06_32_53_790Z-debug-0.log
-/home/eitrous/.npm/_logs/2026-10-17T06_32_53_959Z-debug-0.log
-/home/eitrous/.npm/_logs/2026-10-17T06_32_54_102Z-debug-0.log
-/home/eitrous/.npm/_logs/2026-10-17T06_32_54_314Z-debug-0.log
-/home/eitrous/.npm/_logs/2026-10-17T06_32_54_481Z-debug-0.log
-/home/eitrous/.npm/_logs/2026-10-17T06_32_55_122Z-debug-0.log

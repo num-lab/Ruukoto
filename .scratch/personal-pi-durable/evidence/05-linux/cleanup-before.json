@@ -1,7 +1,0 @@
-{
-  "remaining_processes": [],
-  "remaining_test_sockets": [],
-  "count_processes": 0,
-  "count_sockets": 0,
-  "scope": "only processes referencing the unique test directory by command or cwd, and sockets under its TMPDIR"
-}

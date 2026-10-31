@@ -1,26 +1,19 @@
-# Agent Note: <标题>
+# Agent Note: <Title>
 
-Status: rejected — <一句话原因>
+Status: rejected — <Reason>
 
-<!--
-  【维护提醒】
-  1. 冻结：不改写为对立面，不随代码演进更新事实；结论在 Status 行。
-  2. 只在能防止重犯时保留：被否方案依赖的技术或 API 已彻底移除、后人不可能再提时，删掉这一篇。
-  3. 价值被新笔记吸收时，按 references/archiving.md 的合并删除流程处理。
--->
+## Problem
 
-## 问题
+<Original motivation.>
 
-<动机>
+## Proposal
 
-## 方案
+<The proposal that was rejected, not its opposite.>
 
-<曾拟议的方案，冻结保留>
+## Alternatives considered
 
-## 备选方案
+<Real alternatives and the reasons they were weighed.>
 
-- **<备选>** — <当时为何考虑、为何最终否掉>
+## Risks
 
-## 风险
-
-<为何否掉；若重提需满足什么条件>
+<Constraints that made the proposal unsuitable.>

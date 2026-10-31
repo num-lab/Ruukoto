@@ -1,27 +1,25 @@
-# Agent Note: 活动文件树反映磁盘变化
+# Agent Note: Keep the active file tree current
 
 Status: implemented
 
-[目录续页与按需 Git](../feature/2026-10-24-directory-pages-lazy-git.md)将刷新扩至已加载前缀，成功后一次替换，保留本篇触发及取消规则。
+[Directory paging and lazy Git](../feature/2026-10-24-directory-pages-lazy-git.md) extends refresh to the loaded prefix and replaces it only after success. This note retains ownership of refresh triggers and cancellation.
 
-## 问题
+## Problem
 
-目录缓存没有失效触发，工作区新增或删除文件后，已打开文件树仍显示旧目录。
+Directory caches had no invalidation trigger, so an open file tree stayed stale after files were added or removed in the workspace.
 
-## 决定
+## Decision
 
-活动 Files 面板每3秒及窗口聚焦刷新根与展开层，串行去重，保留旧成功树并显示可重试错误；关闭或离线停止，卸载取消后续层扫描。删除条目使对应目录、展开状态与文件缓存失效；迟到应答继续按实例代次与状态对象丢弃。 需求与验证入口见[工单20](../../../../.scratch/desktop-shadcn/issues/20-desktop-interaction-fixes.md)。
+The active Files panel refreshes the root and expanded directories every three seconds and on window focus. Reads are serialized and deduplicated. Refresh preserves the last successful tree and exposes retryable errors. Closing the panel or going offline stops refresh; unmounting cancels further directory scans. Removed entries invalidate the corresponding directory, expansion state, and file cache. Late replies are still rejected by instance generation and state-object identity.
 
-## 既有决定
+This extends the [current Desktop demo](../architecture/2026-10-16-desktop-current-demo.md). Original requirements and evidence are in the offline copy of `.scratch/desktop-shadcn/issues/20-desktop-interaction-fixes.md`.
 
-检索 Desktop、Tab、消息渲染、文件预览、产物、会话默认设置的 implemented／proposed／rejected；与[既有迁移](../architecture/2026-10-16-desktop-current-demo.md)部分重叠，本篇补充对应生命周期与读取／创建语义，其余迁移约定继续适用。其他命中无关。
+## Alternatives considered
 
-## 备选方案
+A TTL alone needs fewer changes, but a visible panel would still have no new read to trigger refresh. Invalidating only on tool events misses external editors. A host watcher reacts faster, but adds cross-platform lifecycle and protocol work; bounded read-only enumeration is reused instead.
 
-只加TTL最省代码，但面板可见时没有新读取触发；只按工具事件失效不能覆盖外部编辑器。宿主watcher响应快，但增加跨平台生命周期与协议，本轮复用有界只读枚举。
+## Consequences
 
-## 后果
+Regression coverage includes real temporary-disk changes, timer and focus triggers, hidden-component effects, disconnects, and late replies. External changes can take up to three seconds to appear, and read cost grows with the number of expanded directories.
 
-实际临时磁盘增删、定时／focus、隐藏组件effect、断线与迟到均有回归。最多每3秒才反映外部变化，展开层多时读取成本随层数增长。
-
-[加载反馈](../feature/2026-10-17-desktop-file-tree-loading.md)补充展开意图与完成后展开，保留本篇缓存失效及刷新决定。
+[Loading feedback](../feature/2026-10-17-desktop-file-tree-loading.md) adds expansion intent and delayed opening without replacing cache invalidation or refresh behavior.

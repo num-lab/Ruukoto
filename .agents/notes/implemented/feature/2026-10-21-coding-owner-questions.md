@@ -1,46 +1,44 @@
-# Agent Note: Coding 持久问题与可信回答同事务续接
+# Agent Note: Resume Coding questions and consume answers in one transaction
 
 Status: implemented
 
-本篇关于定时来源不开放提问、回答沿当时模型和模式的范围由[Coding Scheduled](../../implemented/feature/2026-10-25-code-scheduled.md)部分取代：可信 Code 定时根轮及续接保存 coding-schedule 来源，回答与任务归属同事务，沿该轮固定模型和权限；取消、关闭及缺失反链拒绝续接。普通拥有者输入保留 coding-owner 与原回答规则。
+[Coding schedules](2026-10-25-code-scheduled.md) supersedes the original scheduled-source exclusion: trusted schedule roots/continuations preserve coding-schedule provenance and that turn's pinned model/authority; canceled/closed/missing reverse bindings refuse continuation. Ordinary owner input retains coding-owner provenance. [Question types](2026-10-21-owner-question-choice-types.md) supersedes initial single-choice/nonempty-answer/UI-top-action/query-budget/version choices. Other provenance, transaction, recovery, and message-position rules remain here.
 
-本篇关于仅单选、答案非空、桌面顶部操作、查询预算与格式版本的决定由[题型扩展](2026-10-21-owner-question-choice-types.md)取代；其余来源、事务、恢复和消息位置的决定继续适用。
+## Problem
 
-## 问题
+Plain-text questions cannot reliably persist choices, answer provenance, or cross-client consumption. Blocking tools prolong tasks/directory occupancy; consuming first and asynchronously submitting later can strand an answered question without continuation.
 
-普通文本提问不能可靠保存选项、回答来源或跨客户端消费事实。阻塞工具等待会延长任务和目录占用，先消费问题再异步提交任务则可能留下没有续接的已答状态。
+## Decision
 
-## 决定
+`ask_user` is available to genuine ordinary Code owner-input tasks, including Plan, with eligibility verified from task/session/host operation. The initial form supported 1-3 questions (up to 2000 characters), each with 2-5 distinct nonempty choices (up to 200 characters), always allowing free text (up to 4096). Later question-type rules govern current forms. SubAgents, workflows, GitHub, and internal summaries gain no eligibility; the schedule exception is explicit above. [Personal questions](2026-10-21-personal-owner-questions.md) uses its own durable integration rather than these tables.
 
-Coding 的真实普通开发输入开放 `ask_user`，Plan 同样可用；来源由任务、会话与宿主工具操作核实。一次1–3题，题目最多2000字符，选项2–5项、互异非空且每项最多200字符；每题始终可自由输入，答案最多4096字符。SubAgent、工作流、定时、GitHub及内部汇总不取得提问资格。个人 durable 仍沿[共享提案](../../proposed/feature/2026-10-21-persistent-owner-questions.md)单独接入。
+`owner_questions` records complete questions, originating task/tool operation, actual input, and authority snapshot. At most one pending batch per session. Same host operation returns its original result; another creation cannot overwrite pending. Creation immediately returns pending. Driver uses that durable fact to narrow this task's assembly/pre-send tool set/execution checks to host-status queries, allowing explanatory output and turn completion. Other owner tasks retain their tools. Add neither a Task state nor waiting occupancy.
 
-`owner_questions` 保存完整题目、原任务与工具操作、真实输入及当时权限快照，每会话至多一个 pending 批次。同一宿主操作返回原结果，其他创建不能覆盖待答批次。成功立即返回 pending；Driver 从持久创建事实收窄当前任务的装配、发送前集合和调用门，只留宿主状态查询并允许模型输出说明、结束本轮。其他拥有者任务保持原工具资格；不新增 Task 状态或待答占用。
+The trusted answer entry builds the next input from questions/options/actual answers. Its private host binding cannot be specified through wire, chat, or model parameters. `Runtime.submit` checks original-key duplication before execution preflight. The admission transaction creates the unique Task, consumes the question, records answers/actual answering provenance/authority, stores `owner_question_receipts`, and emits state events together. Failure rolls back all; respond/broadcast only after commit. Ordinary owner continuation uses the model/mode/grants at actual answer time, never an old approval; scheduled continuations use their explicitly pinned policy.
 
-可信回答入口生成包含题目、选项和实际答案的下一轮输入，宿主私有绑定不能由 wire、普通聊天或模型参数指定。`Runtime.submit` 原键查重先于执行预检；在原入队事务内插入唯一 Task、消费问题、保存答案、实际回答来源与权限快照、`owner_question_receipts` 及状态事件。故障整体回滚，提交后才应答与广播。新任务采用实际回答时的模型、模式与授予路径，不继承创建时批准。
+State is pending to answered/canceled/stale; terminal states/versions cannot be overwritten. Explicit task cancellation invalidates pending questions in the same transaction. Natural completion, new chat, archive, disconnect, and restart preserve them. Independent card cancellation stores only terminal state/receipt. Synchronous transactions arbitrate answer/cancel; identical original-key replay returns the receipt, mismatched parameters fail.
 
-状态为 pending → answered/canceled/stale，终态及版本不可覆盖。显式取消原任务与待答失效同事务；自然结束、普通新聊天、存档、断线和重启均保留问题。问题卡片可以独立取消，取消只存终态及回执。回答与取消竞争由同步事务仲裁；同键同参只接回原回执，同键异参拒绝。
+### Clients and history
 
-TUI `/questions` 与 Desktop 卡片逐题选择或输入，再核对整批；程序维护问题引用、版本与稳定请求键。回答复用 SubmissionGuard，取消使用共享取消守护；两者发送前保存原参数与数据实例，应答丢失先查原回执，已提交的键再以原参数核实摘要，异参保留冲突；确认未接收后只按原键重试。回答必须有专属回执，不能凭同键普通 Task 推断已消费。
+TUI `/questions` and Desktop guide each choice/free-text response and final batch review. Programs manage question IDs/versions/stable keys. Answer uses SubmissionGuard; cancellation uses the shared guard. Persist original parameters/data-instance identity before sending. On lost response, query the original receipt; verify its full parameter digest even when committed. Retain mismatched-parameter conflicts. Only proven nonadmission permits same-key retry. A normal Task with the same key is not proof of answer consumption: require the dedicated receipt.
 
-Desktop 按拥有者参考图采用题头、编号单选行、自由输入行和底部导航的布局，复用 Button、ToggleGroup 和 Collapsible。单选仍保存完整选项文字，自由输入行仅显示手写回答，避免选中项重复呈现；本地折叠不清除草稿，收起后点击取消先展开确认。参考图仅决定布局，沿用每题非空、最终核对和整批取消的业务语义，不据此新增跳题、选项副描述或推荐标记字段。
+The original owner-supplied card reference led to a question header, numbered choice rows, free-text row, and bottom navigation using Button/ToggleGroup/Collapsible. Store full selected text; show only handwritten text in the free-input row. Folding preserves drafts; cancel on a folded card expands for confirmation first. The reference did not authorize skipped questions, option subtitles, or recommendation fields. Current type/interaction changes belong to the superseding note.
 
-Desktop 的已回答卡片按同会话 `continuationTaskId` 取代对应用户消息的展示，沿原消息容器和时间位置，不在流尾另列一份；普通聊天、Personal和子会话不参与替换。原正文保留在历史和模型输入中，不解析文本前缀推断回答身份。问题与历史允许先后到达；当前问题页未包含的旧回答先保留原用户消息，资料到达后才原位替换。待答、取消和失效没有对应续接消息，继续保留独立卡片。会话渲染单次建立任务关联表，避免逐消息重排历史。
+An answered Desktop card replaces its user message in place by same-session `continuationTaskId`, preserving the message container/time. No duplicate at stream end and no replacement for ordinary chat, Personal, or child sessions. Original text stays in history/model input; do not infer answer identity from text prefixes. Questions/history may arrive in either order: retain the original message until its record arrives, then replace. Pending/canceled/stale cards have no continuation and stay independent. Build one task-association map per render, not a history reorder per message.
 
-问题查询按待答优先分页，每页至多20项及128KiB，不截题目或答案。快照只带全局128KiB内且能放进完整帧的预览，两个客户端在快照和选定会话后补读最近一页；迟到页不能覆盖较新事件。长补发按完整应答预算改走既有无游标快照，问题事件投影只前进，补发不回滚快照。原始答案及规范化输入保存于问题与 Task，实际 SDK 历史和 prompt 快照沿原有落盘规则重建；SQLite 与 JSONL 没有跨文件事务。schema47、协议34沿精确版本拒绝，旧资料用匹配代码查阅；含问题或回执的实例导入明确拒绝，不丢掉绑定后继续。
+Queries prioritize pending and page without truncating questions/answers. Initial limits were 20 records/128 KiB, with snapshot previews fitting both a global budget and the complete frame; the question-type decision owns current budgets. Both clients supplement snapshots/selected sessions with the recent page, rejecting late pages that regress events. Oversize catch-up uses the existing no-cursor snapshot. Question projections only advance. Raw answers/normalized input persist in question/Task; SDK history/prompt snapshots follow existing recording, with no SQLite/JSONL atomicity claim.
 
-SDK 装配统一为无必填字段的工具声明空 required 数组；缺省字段被实际模型服务解释为 null 会拒绝整个请求，单独修某个工具不能恢复共享调用。空数组保留全部参数可选的原语义，实际请求快照核实该声明。
+Schema 47/protocol 34 were introduction versions, not current compatibility promises. Strict versioning requires matching code; instance import with questions/receipts refuses rather than dropping continuation bindings. SDK tool declarations with no required fields emit an empty required array: the actual provider interpreted an omitted value as null and rejected the entire request. Fix shared assembly, not one tool; keep all parameters optional and verify the actual prompt snapshot.
 
-## 既有笔记审计
+[The shared proposal](../../proposed/feature/2026-10-21-persistent-owner-questions.md) retains cross-product intent. [Workflow answers](2026-10-13-workflow-owner-input-and-delivery.md) supplies idempotency/provenance principles, not run/step reuse. [Progressive interaction](../process/2026-10-14-progressive-human-interaction.md) guides clients; [wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) retains natural completion/new-input semantics without lending its waiting state.
 
-[共享提案](../../proposed/feature/2026-10-21-persistent-owner-questions.md)由本篇吸收 Coding 决定，个人 durable 部分仍保留 proposed。[工作流回答](2026-10-13-workflow-owner-input-and-delivery.md)部分重叠，只沿用幂等、来源和独立业务答案原则，不复用 run/step；[渐进交互](../../implemented/process/2026-10-14-progressive-human-interaction.md)约束客户端；[等待与报告](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)部分重叠，保留自然结束与独立新输入的语义，不复用等待状态。其他审批和后台提案不属于本次实现。
+## Alternatives considered
 
-## 备选方案
+- Block inside the tool: simple same-turn return, but holds execution/directory resources. Use durable nonblocking continuation.
+- Reuse approval/workflow questions: existing controls/transactions, but they mean operation authorization or workflow steps, not ordinary session input. Reuse UI parts, not identity/storage.
+- Consume then submit asynchronously: less submit code change, but failure breaks the continuation link. Bind the unique Task in the consuming transaction.
+- Treat normal chat as an answer: no special card, but cannot distinguish conversation/choice/actual consumption provenance. Only trusted question entries consume.
 
-- 阻塞工具等待可在同一轮返回答案，调用形式简单；但会占住执行与目录，故用持久非阻塞续接。
-- 复用操作审批或工作流问题可以借已有控件与事务；两者分别代表操作授权和运行步骤，不符合普通会话身份，故复用交互部件而独立存储。
-- 消费后异步 submit 可少改原提交；失败会断链，故在同一事务绑定唯一 Task。
-- 普通聊天自动作答无需专门卡片；无法区分聊天、选择与真实消费来源，故仅可信问题入口接纳。
+## Consequences
 
-## 后果
-
-新增两张业务表、两个客户端入口与一次后续模型调用，获得跨客户端唯一消费和可恢复回执。版本变化要求新档案及匹配客户端；首版不迁移问题记录、不做多选或多个待答批次。定向存储、SDK、原键恢复、事务故障和导入用例见[工单](../../../../.scratch/agent-tool-completion/issues/02-coding-owner-questions.md)；真实模型与客户端验收分别记证据，离线桩不替代外部结果。
+Two business tables, two client entries, and a subsequent model call buy cross-client single consumption and recoverable receipts. The one-pending-batch limit remains; initial single-choice limits have been superseded. Incompatible versions require matching clients/data policy; no question-record migration was added. Historical `.scratch/agent-tool-completion/issues/02-coding-owner-questions.md` held storage/SDK/original-key/transaction-failure/import checks and separate real-model/client evidence. It is now offline provenance, not proof that every external acceptance requirement has been verified by mocks.

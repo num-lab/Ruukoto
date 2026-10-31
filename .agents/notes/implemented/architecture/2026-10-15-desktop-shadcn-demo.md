@@ -1,53 +1,49 @@
-# Agent Note: Desktop 先审定 shadcn demo 再迁移
+# Agent Note: Approve a shadcn desktop demo before production migration
 
 Status: implemented
 
-相关未实施方案：[设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)拟扩展本篇暂缓的配置能力，保留分类浮窗与视觉；实施前不改变现行交付范围。
+[Settings management](../../proposed/feature/2026-10-21-desktop-settings-management.md) owns the later expansion of deferred configuration, retaining categorized floating-window visuals and its own acceptance status.
 
-## 问题
+## Problem
 
-拥有者需要用 shadcn 统一 desktop 组件，先制作纯前端 demo，调整后再严格迁移正式 GUI。拥有者审阅第一版后明确指定[原始 ui-demo.html](../../../../.scratch/desktop-gui/ui-demo.html)作为外观依据；自拟的品牌块、大标题和固定检查器分页不符合预期。[既有客户端提案](../../proposed/architecture/2026-10-15-desktop-client.md)的业务边界仍然成立。
+The owner requested shadcn desktop components through a frontend-only demo, iterative approval and then strict production migration. After the first review, the owner selected the original `.scratch/desktop-gui/ui-demo.html` as visual authority; invented branding blocks, large headings and fixed inspector tabs were unwanted. That original reference is offline provenance. [Desktop proposal](../../proposed/architecture/2026-10-15-desktop-client.md) retains business boundaries.
 
-## 决定
+## Decision
 
-[独立 demo](../../../../.scratch/desktop-shadcn/demo/README.md)以原 HTML 为视觉基线，后续按拥有者明确批注调整；直接提取 CSS token、字体、阴影、样例数据，并用官方 shadcn 源码组件呈现纯树导航、无边框标签头、连续消息流、浮动输入框和动态右侧标签。demo 仅使用内存数据，不调用 Electron 或真实控制面。
+The independent demo, now `verification/desktop-demo/`, uses the original HTML visual baseline plus explicit owner annotations. CSS tokens, fonts, shadows and sample data are extracted directly, with official shadcn components for tree navigation, borderless tab headers, continuous messages, floating composer and dynamic right tabs. The demo uses memory-only data, never Electron or real control APIs.
 
-拥有者于 2026-10-16 认可当前 demo，要求正式 GUI 严格保持布局、样式及交互，后台已有但 UI 未体现的能力先列清单、暂不新增 UI。[冻结副本与哈希](../../../../.scratch/desktop-shadcn/approved-demo-manifest.json)持有定稿版本，[迁移工单](../../../../.scratch/desktop-shadcn/issues/02-desktop-migration.md)持有实施范围；旧规格的额外诊断面板和参数门槛不再作为界面要求。正式 renderer 直接复用同版组件与 CSS，保留连接、审批、输入恢复、实例隔离和幂等状态逻辑；Electron 仅去掉浏览器 demo 外层桌面与仿真红绿灯，由原生窗口承载。设置只保留主题和运行目标，演示场景不迁移。
+On 2026-10-16 the owner approved the demo and required production to retain layout, styling and interaction strictly. Backend capabilities absent from UI were listed, not added. The frozen approved-demo and approved-demo-manifest.json now live in `test/fixtures/desktop-baselines/`; original scope is offline at `.scratch/desktop-shadcn/issues/02-desktop-migration.md`. Extra diagnostics/parameter gates from the earlier spec ceased to be UI requirements. Production renderer reuses the same components/CSS while retaining connections, approvals, input recovery, instance isolation and idempotent state. Electron removes only the browser's outer desktop/fake traffic lights in favor of native window chrome. Initial settings retain theme/runtime target, not demo scenarios.
 
-[后台 UI 清单](../../../../.scratch/desktop-shadcn/backend-ui-backlog.md)区分已实现控制能力与尚无正式契约的 demo 交互。附件加号已由批注明确纳入界面，但 demo 只保存名称和大小；拥有者明确选择补齐最小后台支持，正式附件与 long diff 的 more 均接真实控制面，不把模拟内容当作真实结果。历史从顶部滚动补读、审批自动完整加载，不能恢复拥有者已删除的说明卡。停止请求受理不代表任务已中断，继续来源必须跟随后台权威状态。
+The original offline `.scratch/desktop-shadcn/backend-ui-backlog.md` distinguishes implemented controls from demo interactions without production contracts. Annotations explicitly included attachments, but demo attachments only held name/size. The owner chose minimal backend completion: production attachments and long-diff more use real controls, not sample results. History pages load on top scrolling and approvals load completely. Removed explanation cards stay removed. Accepted stop requests are not proof of interruption; continuation follows backend authority.
 
-## 浏览器批注的界面约定
+## Approved browser annotations
 
-2026-10-16 的批注明确要求：Edit／Write 按不同文件计数，文件名只留在详情，增删数紧随文件名；SubAgent 脱离工具折叠组独立呈现；输入区左侧为附件和模式，右侧为模型和发送；命令参数常驻，不要求先展开。顶部会话标签区独立于 main，横跨对话与右栏并位于右栏上方；展开右栏保留布局宽度，使输入、审批与发送仍可见。窄输入区允许工具栏换行。
+Edit/Write count distinct files; names stay in details with added/deleted counts immediately after them. SubAgents render outside tool groups. Composer left side holds attachment/mode, right side model/send. Command arguments remain visible. Session tabs span conversation/right sidebar above both, independent of main. Opening the sidebar preserves usable layout so input, approval and send remain visible; narrow composer toolbars wrap.
 
-后续批注进一步确定：顶栏与左栏同底色，主区域左上圆角；删除额外工作区行、右栏内部关闭按钮和固定差异尾注。执行状态由发送按钮呈现，核实期间保留并锁定原草稿和附件，核实完成才加入会话；不再显示运行提示行、待核实卡或效果未知卡。空文件沿用普通内容区，截断内容用 `more` 继续展开。选择菜单以 popper 定位避开触发框。最新批注要求差异直接平铺、审批决定后卡片消失、右栏标签图标统一灰色，并移除所有悬浮说明。左右栏用固定宽内层和外层宽度／透明度过渡，收起时关闭门户菜单并归还焦点；闭合内容不可聚焦，减少动态效果设置下取消动画。
+Later annotations match top/left backgrounds and round main's top-left corner. Remove the extra workspace row, internal right-sidebar close button and fixed diff footnotes. The send button shows execution state. During verification, preserve/lock draft and attachments; add them to conversation only after verification. Remove runtime-hint rows, pending-verification cards and unknown-effect cards. Empty files use ordinary content; truncated content expands via more. Popper menus avoid trigger boxes. Flatten diffs, remove approval cards after decisions, use gray right-tab icons and remove hover explanations. Sidebars use fixed-width inner content with outer width/opacity transitions. Closing removes portal menus/restores focus; closed content cannot focus. Reduced-motion settings disable animation.
 
-最新宽度调节要求在两侧内边界用原生 Pointer Capture 实现，不增加布局依赖；拖动和方向键调整本次页面内的偏好宽度，收起后保留。左栏 180–360px，右栏 260–640px；在空间允许时为正文保留 220px。左栏调整优先为右栏保留下限，右栏再用剩余宽度；CSS 夹紧与分隔柄范围使用同一规则，窗口缩小后重新夹紧，空间恢复后沿用偏好宽度。拖动／键盘调宽不做宽度补间，展开收起仍保留过渡；极窄窗口无法同时满足两侧下限和正文宽度。
+Sidebar resizing uses native Pointer Capture on inner edges without a layout dependency. Drag/arrow keys update page-local preferred widths retained after collapse: left 180-360 px, right 260-640 px, reserving 220 px for content where possible. Left adjustment first preserves right minimum, then right uses remaining width. CSS clamps/handle ranges share rules; smaller windows clamp and larger ones restore preferences. Drag/key resizing has no width tween, while open/close retains transitions. Extremely narrow windows cannot satisfy both minima plus content width.
 
-后续差异批注要求横向滚动时固定左侧行号与增删标记，所有行共用横向范围，使短行也保留固定位置；右栏标签区与正文之间加分隔线，Read 活动不再显示行范围附注。其他活动说明与增删统计保留。
+Diff horizontal scrolling keeps left line numbers/change markers fixed; all rows share one horizontal range, including short rows. A separator divides right tabs/content. Read activity loses line-range annotations while other descriptions/change counts remain.
 
-设置入口已按新批注从下拉菜单改为悬浮窗口，左侧纵向类别、右侧设置项；本阶段仅重排已有的主题、运行目标和演示状态，修改即时生效。复用 Dialog 与 Tabs，保留关闭、焦点归还与窄窗左右布局。窗口版式纳入后续定稿迁移，模拟运行目标与演示场景不因此成为正式配置能力。
+Settings changed from a dropdown to a floating window with vertical categories left/settings right. This stage only rearranges existing theme, runtime target and demo state with immediate application. Dialog/Tabs preserve closing, focus return and narrow-window side-by-side layout. The window layout enters migration, not production support for simulated targets/scenarios.
 
-## 真实子会话的展示输入
+## Real child-session display input
 
-子 Agent 气泡使用 `get_task` 的可选 `displayInput` 展示原始委派请求；runtime 仅在直接父任务中找到成功、效果已知且唯一匹配工作、Agent 和请求键的 `subagent_delegate` 记录时提供。Task、JSONL 与模型输入保留宿主包装原文，普通消息与助手输出不替换。ViewState 把该字段作为不可变元数据保留，迟到详情可补齐但不回滚任务状态；跨实例清空。委派活动行复用 Agent 身份状态，不显示带内部 ID 的工具回执。
+SubAgent bubbles use optional get_task displayInput for the original delegation request. Runtime supplies it only when the direct parent task has a successful, known-effect subagent_delegate operation uniquely matching work, Agent and request key. Task, JSONL and model input retain original host wrappers; ordinary messages/assistant outputs are not replaced. ViewState retains immutable metadata; late details may fill it without rolling back task state, and instance changes clear it. Delegation rows reuse Agent identity state rather than internal-ID tool receipts.
 
-解析包装文本可以少一次关联读取，但依赖提示词形态且容易截错；持久化第二份输入需要扩展 schema 与恢复契约，本轮没有必要。采用现有成功调用参数可直接追溯原请求；无法唯一关联时沿用原文，不猜测。
+Parsing wrappers saves a relationship read but depends on prompt formatting and risks wrong slices. Persisting another input copy requires schema/recovery changes without present need. Existing successful-call arguments directly trace the request; ambiguous association falls back to original text, not guesses.
 
-## 备选方案
+## Alternatives considered
 
-- 直接改 desktop：能立即使用真实状态，但会把视觉调整与业务回归耦合，也不满足先做 demo 的明确顺序。
-- 只复制单文件 HTML：可立即展示原稿，但没有可复用的 shadcn 组件，后续迁移仍需重写。
-- 自拟新布局与配色：允许广泛探索，但拥有者已明确否定；采用指定原稿可以建立可核对的视觉依据。
+- Edit production directly: real state immediately, but mixes visual iteration with behavior regressions and violates the explicit demo-first order.
+- Copy only single-file HTML: immediate original visuals, but no reusable shadcn components and migration still needs rewriting.
+- Invent new layout/colors: broader exploration, but explicitly rejected by the owner. The selected reference supplies verifiable visual authority.
 
-## 后果
+## Consequences
 
-冻结的 23 个文件及哈希持有视觉依据，正式 renderer 保留样式原文前缀和官方组件来源。Electron 原生适配、真实 Markdown 与审批参数只在末尾追加；正文下限处审批标题与按钮自动换行。Conversation 与 Composer 使用不同的组件 key，切换会话不会残留前一份消息流。冻结副本内的旧笔记锚点保留冻结时文本。
+The original 23 frozen files/hashes define that visual baseline. Production keeps original-style prefixes and official component provenance, appending native adaptation, real Markdown and approval parameters. At minimum body width, approval title/buttons wrap. Conversation/Composer use different keys so session changes do not retain old messages. Frozen copies retain their original note anchors unchanged.
 
-工程检查、独立审查与真实窗口的逐项证据见[迁移验收](../../../../.scratch/desktop-shadcn/evidence/2026-10-16/migration/verification.md)。产品体验由拥有者最终核对；真实模型服务及 SSH 未纳入本轮离线验收，附件暂存尚无自动清理。
+Original engineering, independent review and real-window evidence is offline at `.scratch/desktop-shadcn/evidence/2026-10-16/migration/verification.md`. Owner experience requires final review; real models/SSH were outside offline acceptance, and attachment staging initially had no automatic cleanup.
 
-拥有者随后要求仅在可变 demo 中试用 [AI Elements 消息流](../feature/2026-10-16-demo-ai-elements.md)；原冻结副本与本轮正式 GUI 仍沿本篇版本，不因试验自动重定稿。
-
-可变 demo 随后扩充[右栏浏览器、文件树与预览](../feature/2026-10-16-demo-inspector-tools.md)，只使用前端隔离 frame 和静态文件，不改变本篇正式端与冻结稿的业务范围。
-
-拥有者随后明确授权[按当前 demo 更新正式 Desktop](2026-10-16-desktop-current-demo.md)，以 v2 冻结稿替代本篇展示版本，迁入 AI Elements、Context／Effort 和只读右栏工具；本篇恢复、附件、分页及原冻结证据继续保留。
+[AI Elements experimentation](../feature/2026-10-16-demo-ai-elements.md) and [right-sidebar browser/files/preview](../feature/2026-10-16-demo-inspector-tools.md) first changed only the mutable demo, not frozen/production scope. The later owner-approved [current-demo migration](2026-10-16-desktop-current-demo.md) replaces this display version with frozen v2, adding AI Elements, Context/Effort and read-only sidebar tools. Recovery, attachments, paging and original frozen evidence here remain.

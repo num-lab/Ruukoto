@@ -1,17 +1,20 @@
-# macOS launchd 后代回收探针
+# macOS launchd Descendant-Reclamation Probe
 
-`macos-launchd-probe.py` 验证工单 26 的一个生命周期候选机制：把受限进程交给 launchd 管理，能否在 `bootout` 后停止脱离原进程组的后代。它不接入产品，不验证完整文件、网络、凭据或 IPC 策略。
+`macos-launchd-probe.py` tests whether launchd bootout reclaims descendants that left the original process group. It is a historical lifecycle candidate, not product integration or a complete filesystem/network/credential/IPC policy test.
 
-在具有当前用户 GUI launchd domain 的真实 macOS 上运行：
+Run on real macOS with the current user's GUI launchd domain, host Node, `/usr/bin/python3`, `sandbox-exec` and `launchctl`:
 
 ```bash
-python3 verification/foundation/scripts/native-isolation/macos-launchd-probe.py
+probe_root="$(mktemp -d "${TMPDIR:-/tmp}/ruukoto-launchd.XXXXXX")"
+mkdir -p "$probe_root/scripts/native-isolation"
+cp verification/foundation/scripts/native-isolation/macos-launchd-probe.py "$probe_root/scripts/native-isolation/"
+python3 "$probe_root/scripts/native-isolation/macos-launchd-probe.py"
 ```
 
-需要宿主 Node、`/usr/bin/python3`、`sandbox-exec` 和 `launchctl`。缺少能力、启动失败、无有效心跳对照或清理不能核实，退出 2；有效对照下停止失败，退出 1；本脚本两项生命周期验证通过才退出 0。报告写入 `verification/foundation/results/native-macos-launchd.json` 与 `.md`。
+The isolated copy writes reports to `$probe_root/results/native-macos-launchd.{json,md}`. This legacy script has no output argument; running the checkout copy would overwrite tracked historical reports. Preserve the external result instead. Exit 2 means missing capability, startup/control failure or unverified cleanup; 1 means stopping failed under a valid running control; 0 requires both lifecycle checks to pass.
 
-脚本只创建本次唯一 label 的临时 GUI job，设置 `RunAtLoad=true`、`KeepAlive=false`、`ExitTimeOut=1`、`AbandonProcessGroup=false`。job 经 `sandbox-exec` 启动，测试策略仅禁止网络。Python `start_new_session=True` 与 Node `detached:true` 分别创建后代；后代忽略 SIGTERM，在临时目录持续写入虚拟心跳，另有 20 秒自停上限。
+The probe creates only its unique temporary GUI job with `RunAtLoad=true`, `KeepAlive=false`, `ExitTimeOut=1`, `AbandonProcessGroup=false`. sandbox-exec applies a network-denial-only test policy. Python `start_new_session=True` and Node `detached:true` create TERM-ignoring descendants writing synthetic heartbeats, with a 20-second self-stop limit.
 
-停止前先证明后代在执行，停止后同时核实 job 已移除、父进程退出、后代存活状态与心跳变化。清理仅操作本次 job，并要求捕获 PID 的 argv 包含本次唯一临时目录才允许发送 SIGKILL；随后核实 PID 退出和心跳冻结。父进程已经启动但子进程 spawn 回执缺失，或无法核实清理时保留临时目录，不能通过删除心跳掩盖残留。
+Before stop, prove actual descendant activity. Afterward inspect job removal, parent exit, descendant liveness and heartbeat changes. Cleanup touches only this job and signals a captured PID only after its argv matches the unique temporary directory, then verifies exit/frozen heartbeat. A started parent without child-spawn receipt, or unverifiable cleanup, retains temporary data rather than hiding residue by deleting heartbeats.
 
-2026-10-08 在 macOS 27.0 / Darwin 27.0.0 / arm64 / Node 24.15.0 上，两条路径均得到有效运行对照，随后均失败：`bootout` 退出 0、job 查询退出 113、父进程已退出，脱离组的后代仍继续写入。最终所有临时 job 与捕获进程清理完成。该结果否决本次 launchd 回收候选，不代表所有特权原生管理方式均不可行，也不能作为工单 26 原生替换完成的依据。
+On 2026-10-08, macOS 27.0/Darwin 27.0.0/arm64/Node24.15.0, both controls were valid and both stopping paths failed: bootout returned 0, job query 113 and parents exited, but detached descendants kept writing. All captured processes/jobs were eventually cleaned. This rejects that launchd candidate, not every privileged native-management approach, and does not establish completion of the native replacement.

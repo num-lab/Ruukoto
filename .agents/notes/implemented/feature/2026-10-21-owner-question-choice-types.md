@@ -1,30 +1,30 @@
-# Agent Note: 拥有者问题的选项说明、推荐、多选与跳题
+# Agent Note: Owner-question descriptions, recommendations, multiple choice and skipping
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者要求问题卡片缩小自由输入图标，移除顶部进度、折叠和关闭，新增 Skip、选项说明、推荐标记和多选。这改变了[首版持久问题](2026-10-21-coding-owner-questions.md)的非空答案、仅单选和桌面顶部操作限制；来源核实、整批消费、唯一续接与已答卡片原位替换继续沿用。
+The owner requested a smaller free-input icon, removal of top progress/collapse/close controls, and Skip, option descriptions/recommendations and multiple selection. This supersedes [initial durable questions](2026-10-21-coding-owner-questions.md)'s nonempty/single-choice/top-control restrictions, retaining source checks, whole-batch consumption, unique continuation and in-place answered cards.
 
-## 决定
+## Decision
 
-Coding 的 `ask_user` 选项接受原字符串或 `{label, description?, recommended?}`，保留字符串原形以维持历史和宿主操作参数的比较。每题仍为2–5个选项，名字非空、互异且最多200字符，说明最多500字符；推荐布尔值只展示标签，不预选或自动提交。`multiple: true` 必须提供选项，省略或 false 沿单选；任意题仍可自由输入。
+Coding `ask_user` options accept original strings or `{label, description?, recommended?}`. Preserve string representation for historical/host-operation comparison. Each question has 2-5 distinct nonempty labels up to 200 characters; descriptions are at most 500. Recommended is a display Boolean, never preselection/submission. `multiple: true` requires options; omitted/false is single choice. Free text remains possible for every question.
 
-单选答案沿用 `{text, option}`；多选使用 `{text, options}`，索引按题目顺序严格递增且互异、范围合法，正文必须为所选名字按相同顺序以换行连接。两种选择字段互斥；手写答案不带选择字段。说明与推荐不混入答案，但完整题目和选项元数据保留在持久问题、事件及模型续接输入中。
+Single-choice answers retain `{text, option}`; multiple choice uses `{text, options}` with unique in-range indices strictly increasing in question order. Text must equal selected labels joined by newlines in that order. Selection fields are mutually exclusive; handwritten answers have neither. Descriptions/recommendations are excluded from answer text but retained in persisted questions, events and model continuation input.
 
-Skip 将当前题替换为 `{text: ""}` 并前进，末题进入整批核对；允许全部跳过。纯空格、空答案夹带选择字段、漏题或伪造选项正文均拒绝。核对和终态以“已跳过”显示空答案，落盘与规范化模型输入仍为空；跳题既不取消整批，也不提前产生续接。控制面待核实记录同步接纳空答案和多选，重连继续沿原键核实。
+Skip replaces the current answer with `{text: ""}` and advances; the last question enters batch review. All questions may be skipped. Reject whitespace-only text, empty answers with selection fields, missing questions and forged label text. Review/final cards display skipped status while persisted/normalized model text remains empty. Skipping neither cancels the batch nor resumes early. Pending control-plane verification accepts empty/multiple answers and reuses original keys after reconnect.
 
-Desktop 只保留顶部题干，移除顶部进度、折叠及取消入口；底部保留题号、前后导航、Skip 和下一步，最终统一核对再提交。说明紧随名字，推荐标签按参数展示；单选保留编号，多选以复选框替代编号，不额外显示多选标签；输入文字清除所有选择，选择不回填输入行。自由输入图标固定为12像素。TUI 单选仍选择后前进，多选 Enter 切换并保留光标，另选下一题，以复选框替代编号；保留整批取消和返回操作。
+Desktop retains only the question at top. Bottom controls keep question number, back/forward, Skip and Next, with one final review/submit. Descriptions follow labels; recommendations follow metadata. Single choice keeps numbering; multiple choice uses checkboxes without another label. Typing clears selections; selecting does not populate free input. Its icon is 12 px. TUI single choice advances on selection; multiple choice toggles with Enter while retaining cursor and offers a separate next action. TUI retains batch cancel/back.
 
-新字段和空答案不能被旧程序正确解释，存储版本升至48、控制协议升至35，沿精确版本拒绝，不迁移或清空旧档案；旧资料保留并用匹配代码查阅。完整问题查询页增至256KiB，以容纳最多三题、选项说明和4096字符答案的最坏JSON转义；快照预览仍限128KiB，由客户端补读完整问题。
+This introduced storage version 48 and control protocol 35: old code cannot interpret new fields/empty answers, so strict versions reject rather than migrate/clear archives; matching old code can read old data. Complete-question pages increase to 256 KiB for three questions, descriptions and 4096-character answers under worst JSON escaping; snapshot previews remain 128 KiB with client rereads.
 
-## 备选方案
+## Alternatives considered
 
-- 将选项统一改成对象可减少运行时分支，但会改写旧参数表示，破坏原操作比较；保留字符串与对象两种表示。
-- 另加 skipped 字段可显式区分空答案，但拥有者已指定答案为空，额外字段会增加协议与恢复状态；直接以空字符串保存。
-- 多选也沿用单选 option 字段可少一个字段，但不能表达多个索引；新增 options 并保留单选字段，后端核实正文一致。
-- 不提升查询预算可保持原上限，但新增说明后最坏转义问答超过128KiB，可能出现空页且游标不前进；只提升完整查询预算，快照仍有界。
+- Converting all options to objects reduces branches but changes historical operation representation.
+- A skipped field is explicit but duplicates the requested empty-answer meaning and expands recovery state.
+- Reusing single `option` cannot represent multiple indices; separate `options` preserves old semantics and validates text.
+- Keeping 128 KiB risks empty nonprogressing pages after descriptions; increase only complete queries, not snapshots.
 
-## 后果
+## Consequences
 
-题目资料、空答案与多选都可经原事务、快照、原键回执及模型输入重建，客户端无需猜测正文或自动补答案。版本升级要求匹配的客户端和后台，新独立档案验证不代表旧档案迁移通过；日常档案与进程不在本次改动范围内。验收和外部环境范围见[工单](../../../../.scratch/agent-tool-completion/issues/02-coding-owner-questions.md)。
+Metadata, skipped answers and selections reconstruct through original transactions, snapshots, keyed receipts and model input without guessed answers. Matching client/backend versions are required. New-archive tests do not prove old-archive migration, and daily data/processes are untouched. Historical acceptance/environment scope remains in the offline durable-owner-questions work item.

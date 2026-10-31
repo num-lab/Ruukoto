@@ -1,32 +1,30 @@
-# Agent Note: 目录列表的保护检查只遍历目录
+# Agent Note: Directory-list protection scans only directories
 
 Status: implemented
 
-[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代本篇的桌面保护检查，专用目录检查函数已删除。本篇保留物理别名、分类竞态及负缓存的取舍，供 Agent 保护规则参考。
+[Owner workspace browsing](../feature/2026-10-24-owner-workspace-browsing.md) supersedes this desktop protection check; its dedicated directory-check helper has been removed. This record retains the physical-alias, classification-race and negative-cache tradeoffs relevant to Agent protection.
 
-## 问题
+## Problem
 
-文件树逐层枚举最多 200 项，但读取前后分别核实工作区根与目标，通用保护判断每次递归遍历保护树的全部对象，总代价与保护资料及服务代码的文件量相关。隔离实测即使目标为空也需约 1.4 秒，阻塞后台事件循环。前端已有逐层加载、缓存和请求去重。
+The file tree lists at most 200 entries per level, but generic protection checks before and after reading recursively scanned every protected object for both workspace root and target. Cost therefore grew with protected data and service-source files. Isolated measurements took about 1.4 seconds even for an empty target, blocking the backend event loop. Frontend lazy loading, caching and request deduplication already existed.
 
-## 决定
+## Decision
 
-仅为目录列表增加批量检查入口，同阶段合并工作区根与目标的祖先身份，逐保护目录一次匹配，Dirent 排除普通文件与符号链接；入口实际核实两目标为目录，每个保护目录枚举前后以 BigIntStats 比较 dev／ino／mode／mtimeNs／ctimeNs，变化时拒绝，避免文件被换成目录后仍按旧 Dirent 跳过。目录身份仍以 dev／ino 比对，覆盖保护根子目录的挂载别名。反向核实工作区不能覆盖任一保护根，包括文件保护根。读取前后各重新检查，不复用上一阶段的负结果，异常继续失败关闭。通用文件保护与预览入口保持逐对象检查。
+The original directory-list optimization batched root and target ancestor identities within each phase and scanned each protected directory once. Dirent classification skipped ordinary files and symlinks, after verifying both targets were directories. BigIntStats comparisons of `dev`, `ino`, `mode`, `mtimeNs` and `ctimeNs` before/after each protected-directory enumeration rejected replacement and revision changes, including a file replaced by a directory after classification. `dev`/`ino` matching covered mount aliases of protected descendants. Reverse containment also rejected workspaces covering any protected root, including file roots.
 
-## 既有决定
+Pre-read and post-read scans were independent; negative results were never reused across phases. Errors failed closed. Generic file protection and previews retained per-object checks. This optimized comparable object types, not the protection rules in [native execution](../architecture/2026-10-10-native-execution-sandbox.md), the read-only identity guarantees in [the desktop design](../architecture/2026-10-16-desktop-current-demo.md), or [MyGo control wiring](../architecture/2026-10-17-desktop-mygo-experiment.md).
 
-按目录、保护范围、identityCovers、文件树与挂载别名检索。与[当前桌面界面](../../implemented/architecture/2026-10-16-desktop-current-demo.md)部分重叠，保留只读与身份复核；与[原生执行](../../implemented/architecture/2026-10-10-native-execution-sandbox.md)部分重叠，目录列表只优化可比较对象类型，通用文件保护不变；[MyGo 外壳](../../implemented/architecture/2026-10-17-desktop-mygo-experiment.md)保留 Node 控制接线。其他命中为 demo 或无关运行机制，不替代其决定。
+## Alternatives considered
 
-## 备选方案
+- Merely batching four scans into two is smaller but still reads metadata for every file and retains second-scale cost on large trees.
+- Removing all protection-tree traversal misses bind/hard-link aliases of protected descendants and violates file protection.
+- Watcher or TTL caches cannot prove freshness after lost events, external changes or child mounts; root mtime is insufficient, and stale negative results weaken protection.
+- Threads, prefetch or a different tree widget may improve responsiveness, but do not remove the confirmed synchronous work.
 
-- 仅合并扫描：最少改动，可把四轮降至两轮，但仍逐文件读取元数据，保护树大时继续秒级等待。
-- 全局删掉保护树遍历：成本最低，但漏掉保护子对象的挂载或硬链接别名，违背现有文件保护。
-- 跨请求监听或 TTL 缓存保护身份：可复用全部扫描，但异步丢事件、目录变化及子对象挂载不能靠根 mtime 证明，负缓存会放宽边界。
-- 线程、预取或更换树组件：可改善响应或等待感，但不减少已证实的同步扫描工作量；本轮先减少工作。
+## Verification
 
-## 验证
+Historical regressions checked unchanged list results, one scan per protected directory per phase, no per-file lstat growth, independent post-checks, fail-closed behavior, physical directory aliases and generic hard-link/preview protection. A 5,000-file tree improved from 34.260 ms to 4.682 ms median; the protected code tree from about 1.58 s to 0.41 s. Isolated MyGo first content was about 0.52 s and cached reopening 34-46 ms. Seven real Linux bind cases and generic protection regressions passed. Raw records remain in the offline `desktop-file-tree` acceptance material.
 
-目录列表返回值不变，同阶段每保护目录一次，普通文件增加不带来逐文件 lstat；前后复核、异常拒绝、目录物理别名和文件预览／通用硬链接回归通过。真实基准中，5000 文件保护树中位数从 34.260 ms 降至 4.682 ms，代码树保护根从约 1.58 秒降至 0.41 秒。隔离 MyGo 首次可绘制内容约 0.52 秒，缓存重展 34–46 ms；Linux 真实 bind 7 项及通用文件保护回归通过，原始材料见[验收记录](../../../../.scratch/desktop-file-tree/evidence/2026-10-17/verification.md)。
+## Consequences
 
-## 后果
-
-目录树仍需遍历和枚举条目，成本随目录与条目量增长，不承诺恒定成本。Dirent 分类与物理别名需在 macOS 和 Linux 亲验；读取期间保护关系变化必须由后置独立扫描拒绝。若剩余同步扫描仍阻塞，再根据完整链路计时讨论线程方案。
+Traversal still grows with directory and entry count; it is not constant-time. Dirent classification and physical aliases require real macOS/Linux checks. Changes during reading must be rejected by an independent post-scan. Any future thread-based optimization should follow complete-path measurement, not replace these freshness guarantees.

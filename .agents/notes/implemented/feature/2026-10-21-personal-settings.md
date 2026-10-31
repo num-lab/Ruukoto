@@ -1,51 +1,57 @@
-# Agent Note: Personal 设置通过认证后台查询与停机持锁机器入口保存
+# Agent Note: Personal settings use authenticated backend queries and bounded machine management
 
 Status: implemented
 
-技能库配置与托管管理由[统一 HOME 发现](../simplification/2026-10-28-home-skills-discovery.md)部分取代；旧技能配置与维护回执保留为历史，新技能查询只读固定目录。
+[Settings save/effect versions](../architecture/2026-10-25-personal-settings-versions.md) supersedes blanket offline-save/unrelated-work preflight: ordinary settings can save online/offline with versioned receipts and effect recovery. [HOME skills discovery](../simplification/2026-10-28-home-skills-discovery.md) supersedes library configuration/managed skill mutation; old configuration/maintenance receipts remain historical and new skill queries are read-only at fixed directories. Authentication, profile identity, revisions, and bounded protocol remain here.
 
-普通配置的在线/离线保存、版本回执与生效恢复采用[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)，不再统一停机或核实无关工作；本文其余认证、档案身份、修订与有界管理入口约束继续适用。
+## Problem
 
-普通配置保存的停机条件由[设置版本与生效恢复](../architecture/2026-10-25-personal-settings-versions.md)部分取代；本篇保留原身份、认证与旧维护恢复依据。
+[Desktop settings](../../proposed/feature/2026-10-21-desktop-settings-management.md) needs new durable Personal model/skill/MCP management. Existing [local management](../architecture/2026-10-17-personal-local-management.md) offers interactive wizards/business queries, not revisions/profile identity/machine protocol. Desktop reading active SQLite, parsing wizard prose, or testing models in an SSH shell would bypass backend exclusivity or use different credentials from the real service.
 
-## 问题
+## Decision
 
-[桌面设置规划](../../proposed/feature/2026-10-21-desktop-settings-management.md)需要管理新 durable Personal 的模型、技能与 MCP；[本机管理](../architecture/2026-10-17-personal-local-management.md)只有交互向导与业务操作查询，没有配置修订、档案身份和受限机器协议。桌面若自行读取活跃 SQLite、解析向导文字或用 SSH shell 环境测试模型，会绕过后台独占、错误身份与实际服务凭据检查。
+`ruukoto settings` accepts one v1 JSON request on stdin, at most 128 KiB, and returns one product-marked success/structured-error JSON on stdout, at most 256 KiB. Fixed operations reject unknown fields; no commands, SQL, arbitrary file access, or lifecycle templates. Authenticated Unix-socket GET/POST /settings lets the lock-owning backend query metadata, paged MCP services/full one-service definitions, blockers, preflight, explicit model tests, and lifecycle. Model/MCP configuration reads do not network.
 
-## 决定
+Try the live backend first. Only unavailable connection or lost response permits attempting the original profile lock; lock contention rejects, and disconnection is not proof of shutdown. Offline queries also hold the lock. Original saves/MCP format migration/managed mutations required stopped+locked operation; ordinary-save behavior now follows the save/effect successor.
 
-`ruukoto settings` 从 stdin 接收一份最多 128 KiB 的版本 1 JSON，通过 stdout 返回一份最多 256 KiB 的产品标记与成功结果或结构化错误。操作采用固定名单，参数拒绝未知字段；不接受命令、SQL、任意文件读写或自由生命周期模板。在线 `GET /settings` 与 `POST /settings` 沿原 Unix socket 认证，由持锁后台提供配置元数据、分页 MCP 服务、单服务完整定义、未决阻塞、预检、显式模型测试与生命周期查询；模型与 MCP 的读取不联网。
+Profile identity hashes canonical remote path and directory device/inode without changing profile.json or base format. Model, original skill-source, and MCP revisions hash raw configuration bytes, with missing for absence. Original offline maintenance rechecked identity/revision/business format/unresolved client input/input/work/unknown resource state under the same lock, even for identical config, then reused existing save/single-file replacement; never claimed a multi-file transaction. Those broad blockers remain historical maintenance rationale, not a blanket rule for current ordinary saves.
 
-机器入口先尝试当前后台；只有连接不可用或应答丢失时才尝试取得原档案锁，锁竞争仍拒绝，不将断线当作停机。离线查询也持锁，保存、MCP 格式迁入与托管变更只在停机持锁内执行。档案身份由规范远端路径与目录设备、inode 的摘要组成，不更改 `profile.json` 或基础业务格式；模型、技能来源配置与 MCP 各自使用原始配置字节摘要作为修订，缺失用 `missing`。程序在同一锁内重新核实身份、修订、业务格式、待核实客户端输入、未完成输入/工作及未知外部占用，连相同配置也不能跳过未决检查；再复用原保存函数与单文件替换，不承诺多文件事务。
+### Original maintenance preflight
 
-在线预检与离线保存都检查待答问题、未释放目录认领及待核实的问题/后台结束回执文件；后台启动任务或提问任务终结不代表这些事项已结束，问题索引缺少对应记录时拒绝预检，避免先停服务再由保存拒绝。未核实外部操作由同一查询汇总，复用通用工具、MCP、浏览器、命令、服务与应用数据的原判别，以及服务检查和浏览器绑定的停止事实；原工具 Task 已终结仍不等于外部结束。在线从已有 Harness 记录只读查询，离线持锁直接读取 Storage；最多输出 32 条，达到上限后仍核实后续版本和引用，未知或损坏记录继续拒绝，不能靠删除索引或不显示超限条目绕过。
+Online/offline maintenance checked unanswered questions, unreleased directory claims, and unresolved question/background-completion receipt files. A finished startup/question task did not prove resolution; missing indexed question records rejected preflight before stopping service. Shared classification covered tool/MCP/browser/command/service/application unknown effects and service-inspection/browser-binding stop facts; task terminal did not mean external completion. Online queried Harness read-only; offline read Storage while locked. Output capped at 32 blockers but still validated later versions/references; unknown/corrupt hidden rows could not be bypassed by deleting indexes or truncating display. Current operation-specific save/effect rules supersede unrelated-work blocking.
 
-模型配置只存凭据环境变量名。只读查询与预检分别报告实际后台中该引用是否存在，离线固定为尚未验证；显式测试用所选草稿与实际后台凭据发固定 `ping`、最大输出 1 token 的无工具请求，30 秒内结束，只返回固定成功、超时、缺凭据或失败诊断，不回传模型正文与 SDK 错误，不建立主会话工作。设置 socket 的闲置时限和专用客户端总时限为 35 秒，其他控制请求仍为 5 秒；收件时限保持 10 秒。保存仍返回连接未测试。
+### Actual-backend model tests
 
-诊断请求发送前将选择配置、固定输入和预算写入 `ruukoto.settings-model-test` data entry，实际 `onPayload` 再保存与同一测试键关联的请求体，两个边界任一写失败均不发送 HTTP；认证头不入记录。诊断 entry 没有 model 消息，不成为主对话输入或提交工作。固定测试没有 system prompt 或工具 schema；实际本地请求与持久记录逐字段核实。
+Configuration stores credential environment-variable names only. Read/preflight report whether the actual backend has that reference; offline is unverified. An explicit test uses selected draft plus actual backend credentials for fixed ping, max output one token, no tools, deadline 30 seconds; return only fixed success/timeout/missing-credential/failure diagnostics, never model body or SDK error, and create no main work. Settings socket idle/client total timeout is 35 seconds versus ordinary control 5 seconds; receiving timeout stays 10 seconds. Saving does not imply tested connectivity.
 
-技能操作直接消费共享 `ManagedSkillsStore`：配置来源与托管状态使用各自内容修订，列表/详情/导入预览在线只读，导入/启停/逻辑移除在停机锁内再次核对身份、清单修订和未决事实。`skills.select-directory` 仅对拥有者明确指定的 library/import 目录枚举至多 1000 个子项，分页最多 50 个普通子目录，不返回普通文件或任意引用文本；预览/提交再沿共享安全导入核实全部包内容。外部库失效时管理查询明确给出诊断，仍可读取模型、MCP 和当前配置以修复；执行请求继续严格拒绝失效库，不把诊断降级用于模型选择。托管根固定在档案，路径以 Personal 来源标记返回，不解释成 GUI 本机路径。档案布局与旧请求证据由[基础保护](../architecture/2026-10-17-personal-durable-foundation.md)和[技能历史](../architecture/2026-10-18-personal-memory-skills-history.md)持有。
+Before send, persist selection/fixed input/budget as `ruukoto.settings-model-test`; actual onPayload saves the request body under the same test key. Either persistence failure sends zero HTTP; authentication headers are excluded. Diagnostic data entries have no model messages and do not enter main conversation/work. Fixed tests have no system prompt/tool schema; actual request and records are checked field by field.
 
-托管写回执返回 saved、skills 目标及已提交的身份、状态和修订，不附技能正文；正文另以只读详情获取，避免变更已经提交后因正文应答超限报告假失败。清单提交失败沿共享规则保留原清单及合法孤立内容，丢答则按预览身份和修订查询，不自动重发导入。
+### Skills: original management and current read-only discovery
 
-MCP 查询仅返回私有凭据文件引用、摘要和匿名/有效/缺失/无效状态；文件有效不代表远端认证通过，失效不转匿名。端点 query 的值以固定占位符返回；保存只有在原服务身份与原脱敏端点完全相符时才恢复隐藏值，其他带占位符的端点拒绝。发现由拥有者显式触发，只列原工具定义、不调用业务工具，允许列表仍由拥有者选择。配置保存由程序生成新代次；已有版本 1 必须先经 `mcp.migrate` 显式迁入版本 2，不能以普通表单保存静默迁入。启停、恢复格式与历史证据由 [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md)持有。
+The original implementation reused `ManagedSkillsStore`, separate source/manifest revisions, online read-only list/detail/import preview, and stopped+locked import/enable/remove with identity/revision/blocker rechecks. Owner-selected library/import directory enumeration capped at 1000 children and 50 ordinary subdirectories/page, without files/arbitrary reference text; preview/commit revalidated all package content. Invalid external libraries produced management diagnostics while model/MCP/current-config reads stayed available for repair, but execution still rejected invalid libraries. Fixed profile-managed paths were marked Personal source, not GUI-local paths.
 
-配置修订用固定缓冲流式 SHA-256，不把机器请求上限套到既有合法配置文件上。MCP 定义按服务和工具分页，`mcp.get` 默认一项工具；`mcp.set-enabled`、`mcp.remove` 与 `mcp.save-service` 在后台按原服务身份更新，新代次沿同一保存规则，省略工具时保留完整原允许列表。这样大配置也能做小修改，无需回传整档案或缩掉原 schema；完整 `config.save` 仍明确表示替换整份配置。各请求和响应继续有界，超大单工具返回明确超限错误。
+Original mutation receipts returned saved target/committed identity/state/revision without bodies, avoiding false failure after commit from an oversized response. Details were separate reads. Failed manifest commit retained old manifest and valid orphan content; lost import responses required preview-identity/revision readback, not automatic resend. HOME discovery now removes these mutation/library controls while keeping history/receipts. [Foundation](../architecture/2026-10-17-personal-durable-foundation.md) and [skills/history](../architecture/2026-10-18-personal-memory-skills-history.md) retain layout/request evidence.
 
-settings 生命周期查询仅报告是否运行、当前进程、开发受管标记及原启动环境尚未验证，不提供自动恢复保证或执行服务管理；[SSH 维护](2026-10-21-personal-settings-ssh.md)的独立 maintenance 入口核实 systemd 精确授权与原监督服务。CLI shell 中的凭据仍不能证明原服务可恢复。
+### MCP and large configurations
 
-## 既有笔记审计
+Queries expose private credential-file references/digests and anonymous/valid/missing/invalid status, not secret bytes. Valid file does not prove remote authentication; invalid never falls back anonymous. Replace endpoint query values with fixed placeholders. Save can restore hidden values only when original service identity and redacted endpoint match exactly; other placeholder endpoints reject. Discovery is explicit owner action and lists definitions without business calls; owner selects allowlist. Host assigns new generations. Original v1 -> v2 used explicit mcp.migrate rather than silent form conversion; later MCP format rules belong to [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md) and its successors.
 
-按 Personal 配置、本机接口、停机持锁与设置检索 active notes；[桌面设置提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)、[本机管理](../architecture/2026-10-17-personal-local-management.md)、[基础保护](../architecture/2026-10-17-personal-durable-foundation.md)、[技能历史](../architecture/2026-10-18-personal-memory-skills-history.md)与 [MCP](../architecture/2026-10-17-personal-durable-mcp.md)部分重叠，继续分别持有产品规划、后台独占、布局、请求证据和外部调用恢复，本篇只新增机器管理协议。[产品入口](../simplification/2026-10-18-personal-product-entry.md)继续持有正式 bin 的装配。工作、命令、服务、浏览器、Telegram 与调度笔记命中其既有停机配置事实，未改这些能力。没有完全吸收、过时提案或应归档项。
+Hash configuration with fixed-buffer streaming SHA-256, not machine-request limits on already-valid files. Page definitions by service/tool; mcp.get defaults to one tool. mcp.set-enabled/remove/save-service update by original service identity and use the same generation rules; omitted tools preserve the complete old allowlist. Small edits therefore need not roundtrip all configuration or shrink schemas. config.save still means full replacement. Requests/responses remain bounded; a single oversized tool fails explicitly.
 
-## 备选方案
+Lifecycle reports running state/current process/development-manager flag and unverified original launch environment, not automatic restoration or service management. [SSH maintenance](2026-10-21-personal-settings-ssh.md) separately verifies exact systemd authorization/original supervisor. Shell credentials cannot prove the original service can restart.
 
-- 桌面直接读写远端文件与 SQLite：可以少一个协议，但在线绕过后台持锁与原请求事实，离线又无法将修订比较和保存放在同一锁内。
-- 将交互向导文本当成机器接口：可以复用全部提示，但解析不稳定，也不能可靠区分字段错误、明确拒绝与应答丢失。
-- 用 SSH shell 直接测试后再启动服务：实施简单，但 shell 凭据不证明原 systemd 或 CLI 后台拥有相同环境，因而离线只能报告尚未验证。
-- 在档案格式中新增永久身份：跨目录仍可保留身份，但需要修改已提交基础标记；现阶段路径与目录身份摘要足以拒绝错档案和目录替换，不引入格式迁移。
-- 对 MCP query 直接回显或重建端点：前者可能暴露秘密，后者会丢失原连接字段；采用原身份和脱敏值的严格匹配保留。
+## Related decisions
 
-## 后果
+The original audit found partial overlap with desktop proposal/local management/foundation/skills/MCP/product entry; each retains planning, exclusivity, layout, request evidence, external recovery, or bin wiring. Work/command/service/browser/Telegram/schedule behavior is not redefined here. No complete absorption or archive change was needed.
 
-现有聊天和恢复不依赖桌面，也不引入旧 Runtime；机器与在线入口复用 Personal 的原配置保存与凭据校验。代价是版本化协议、配置字节修订与少量预检读取；目录搬迁须重新选择身份，模型连接测试可能计费，生命周期与真实 SSH/systemd 仍需后续部署验收。窄回归使用真实 Unix socket、stdin 子进程、临时档案、SQLite 和本地模型服务，证明未知操作/版本、认证、身份、修订、锁冲突、未决阻塞、单文件失败、脱敏、最大输出与超时；这些替身不证明真实模型认证或生产服务可恢复。
+## Alternatives considered
+
+- **Desktop directly edits remote files/SQLite:** one less protocol, but bypasses online ownership and cannot atomically compare/save offline revisions under the profile lock.
+- **Parse interactive wizard text:** reuses prompts, but unstable and unable to reliably distinguish field error, rejection, or lost response.
+- **Test via SSH shell then start service:** simple, but shell environment does not establish service credentials; offline must remain unverified.
+- **Add permanent profile-format identity:** portable across moves, but alters existing base markers. Path/device/inode digest is enough to reject wrong/replaced profiles without format migration.
+- **Echo or reconstruct MCP query values:** echo risks secrets; reconstruction loses fields. Strict original-identity/redacted-value matching preserves them.
+
+## Consequences
+
+Chat/recovery remains independent of desktop and introduces no legacy Runtime. Machine/live interfaces reuse personal save/credential checks. Costs are versioned protocol, byte revisions, and bounded preflight; moving directories requires reselecting identity. Explicit model tests can incur cost. Narrow tests use real Unix sockets/stdin children/temp profiles/SQLite/local model service for unknown operations/versions, authentication, identity/revision, lock contention, original blockers, single-file failure, redaction, output caps, and timeout. They do not prove real model authentication or production SSH/systemd recovery. This migration reruns no runtime/deployment tests; ordinary saves and skills follow their current successors.

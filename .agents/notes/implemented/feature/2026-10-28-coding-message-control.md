@@ -1,93 +1,89 @@
-# Agent Note: Coding 消息队列重排与运行中引导
+# Agent Note: Reorder Coding input queues and guide running tasks durably
 
 Status: implemented
 
-## 问题
+## Problem
 
-Code 当前把每条用户输入登记为 Task，再按创建时间串行执行；拥有者不能调整待执行顺序，也不能在同一任务内补充纠正。只调用 SDK steer 会把已接纳输入留在内存，且当前上下文选择把最后一条 user 当作当前任务，可能使原始要求退出必留范围。
+Code originally registers every user input as a Task and runs creation-order FIFO. The owner cannot reorder pending input or correct a running task in place. SDK steer alone is volatile; treating the last user message as the entire current task can omit its original requirement. Original product contract/SDK evidence are historical offline `.scratch/coding-message-control/spec.md`, issues `01-queue-and-guidance.md`, and `evidence/sdk-contract.md`.
 
-产品约定由[规格](../../../../.scratch/coding-message-control/spec.md)持有，步骤与证据由[工单](../../../../.scratch/coding-message-control/issues/01-queue-and-guidance.md)持有。本篇扩展[后台持有与 FIFO](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)、[用户附件来源](../../implemented/architecture/2026-10-16-owner-attachments.md)和[等待解除](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)，并同步其中因本功能改变的事实。
+## Decision
 
-## 决定
+Reuse Task as the durable input receipt, adding queue order and guidance routing. New guidance and queued-to-guidance accept ordinary chat input only, retaining source Task ID/body/attachments/submission choice. Routing chooses current-task input or ordinary queue-front fallback. Continuations/question answers keep their existing independent execution relationships and cannot themselves convert to another task's guidance.
 
-复用 Task 作为持久输入回执，增加队列顺序与引导路由。新引导和排队转引导只接收普通聊天输入，沿用源 Task ID、正文、附件和提交选择；路由决定输入进入当前任务，还是回到普通队首。继续与问题回答保留原有独立执行关系，不新增它们转交另一任务的语义。
+### Queue and compatibility
 
-### 队列顺序与兼容
+Tasks have pending order; sessions have queue revision. Without explicit reorder, preserve FIFO. All enqueue sources allocate order together; owner reordering permutes existing owner-input positions only, preserving internal-summary positions. Fallback guidance forms one queue-front batch in admission order, later fallbacks behind earlier unexecuted ones. Order/revision/event commit together; enqueue/dequeue/cancel/route changes advance revision, preventing stale-list overwrite.
 
-为 Task 保存待执行顺序，为 Session 保存队列修订；没有显式重排时仍为原 FIFO。所有新入队来源共用顺序分配，普通重排只置换拥有者输入已有位置，内部汇总保留宿主管理位置。回退引导按接纳序号组成一个队首批次，后到的回退排在此前尚未执行的回退之后。顺序、修订和事件同事务提交；入队、出队、取消、路由改变也推进队列修订，客户端不能拿旧列表覆盖新事实。
+After async directory checks, `runQueueLoop` transaction rechecks queued state, no pending guidance route, and executable head position before setting running. Reorder never resumes a paused queue. Handshake/query/replay/view share persisted order, not createdAt.
 
-`runQueueLoop` 在异步目录核实之后、真正置 running 的事务内，重查 Task 仍 queued、没有待引导路由且仍为可执行队首。重排不能恢复暂停队列。握手、查询、事件补发与共享 view 全部读取同一顺序，不再用创建时间推断执行顺序。
+Original baseline schema 53/protocol 43 advanced to schema 54/protocol v45. Schema must change because older code would independently execute queued guidance sources. Preserve [strict Code versions](../simplification/2026-10-24-code-instance-mcp.md): start a fresh directory, leave old SQLite/JSONL/artifacts/credentials unmoved/unchanged/undeleted, no v53 migration/config conversion. Old rejects new and new rejects all older schema before creating tables/updating version. In-place continuation needs a new owner decision, not hidden compatibility.
 
-基线 schema 为 53、控制协议为 43；落地为 schema 54、协议 v45。新格式必须升级 schema，因为旧程序不认识待引导路由，可能把源 queued Task 独立执行。沿用[Code 库严格版本切换](../../implemented/simplification/2026-10-24-code-instance-mcp.md)：新数据目录从空档案开始，旧 SQLite、JSONL、产物与凭据原地保留，不修改、不移动、不删除，不提供 v53 加法迁移或旧配置转换。旧程序拒绝新 schema，新程序拒绝全部旧 schema；拒绝前不能先写新表或版本号。若以后需要原地延续旧会话，须由拥有者重审既有决定，不能由实施者暗加兼容。
+### Route and execution ownership
 
-### 引导路由与执行归属
+`task_guidance` uses source Task ID as input identity and saves same-session target, admission sequence, stage, and actual JSONL entry. Stages mean pending admission, joined target history, fallback, or pre-admission cancellation, not a copy of model-request lifecycle. At most one unresolved route per source. Reuse Task request keys/digests/lookup/events; no extra guidance ID or first-request snapshot ledger.
 
-新增小型 `task_guidance` 表，以源 Task ID 作为输入身份，保存同会话目标 Task、接纳次序、阶段与实际 JSONL entry。阶段只表达待接入、已归入目标历史、已回退、接入前撤销，不复刻模型请求生命周期。同源输入至多一个未收束路由；提交与重试复用 Task 请求键、摘要、现有查询及持久事件，不再增加独立 guidance ID 或首次请求快照关系。
+Admission transaction verifies ordinary Code session, directly submitted ordinary-chat source, receptive target, queued source, and complete attachment provenance. Host relationships establish identity, not text prefixes. Persist before SDK scheduling, unconsumed-approval invalidation, or wait release. Pending source stays queued but ordinary scheduling excludes it. After actual target JSONL admission, close its independent execution intention as canceled/converted_to_guidance. Views explain the route, not independent completed, owner cancellation, or another cancel bubble. Admitted input can never fall back as a separate execution.
 
-接纳事务核实普通 Code 会话、源为直接提交的普通聊天输入、目标仍可接入、源仍 queued 与附件来源完整性；来源由宿主关联判断，不解析正文前缀。保存路由后才排 SDK、失效未消费审批和解除等待。源 Task 在待接入期间仍为 queued，但被普通调度排除。进入目标 JSONL 后，其独立执行意图以 `canceled/converted_to_guidance` 收束；TaskView、查找与历史由路由说明实际去向，不伪造独立 completed、拥有者主动取消或额外取消气泡。已接入的输入不能再独立回退执行。
+Close target admission before finishing. Unadmitted guidance and guidance arriving after closure remove the route and reuse the same source Task in the front batch with original key/model/mode/authority/attachments. Canceling a pending source revokes route and corresponding SDK input; canceling a queued task cannot retract already-written history. Stop/occupancy/restart protections precede queue-front dispatch.
 
-目标进入收尾前封闭接入。尚未进入目标历史的引导、以及封闭后到达的引导，解除执行路由并让同一源 Task 按队首批次独立执行，保留原请求键、模型、模式、授权与附件。取消仍待接入的源 Task 时撤销路由并移除 SDK 中对应输入；已接入历史的输入不能靠取消一个排队 Task 撤回。普通停止、占用与重启恢复规则优先于队首调度。
+### SDK and disk-history admission
 
-### SDK 与历史接入
+Pi 1.3.0 can take steering into a local batch before async next-turn preparation; the public queue is then empty, and clearQueue or abort+clearQueue cannot stop that batch appending user history. The SDK counterexample means queue extraction/clearing is not history-admission proof or permission to fallback.
 
-Pi 1.3.0 会先把引导取到局部批次，再异步准备下一轮；此时公开队列为空，`clearQueue` 与 `abort + clearQueue` 均不能阻止该批次继续落 user 历史。[SDK 门槛证据](../../../../.scratch/coding-message-control/evidence/sdk-contract.md)覆盖这个反例与下述公开接口修补；不能把取出视为历史接入，也不能据清队列成功直接回退源 Task。
+Use public sdk.agent.steer with source Task ID/attachment references on native user messages and all-consumption mode. Verify metadata retention, batch behavior, and finishing through narrow public-API contract tests, not private fields/vendor changes. After durable admission, keep input in host routes initially, not immediately in SDK.
 
-通过公开的 `sdk.agent.steer` 排入带源 Task ID 和附件引用的原生 user 消息，并采用 SDK 的 all 消费方式，在下一安全边界按次序读取当时待处理输入；不按文本或时间猜身份。先用窄 SDK 契约检查核实元数据保留、批次消费及收尾行为，不依赖私有字段或改 vendor。
+`finishTurn` respects action:end, error, and stop. Only when continuation is allowed and guidance is pending does it synchronously reserve current source IDs in an in-memory batch before returning continue. If source cancel commits first it is excluded; if reservation wins, cancellation waits for actual persistence reconciliation, without prematurely marking SQL admitted. This avoids an empty batch from prepare-time cancellation causing an extra model call.
 
-持久接纳后先留在宿主路由，不立即排 SDK。`finishTurn` 尊重原有 `action: end`、错误和停止决定；只有可继续且有待引导时，才在返回 `continue` 前同步预留当时的源 ID 为内存接入批次。源取消若先完成事务，预留不选它；预留若先发生，源取消等待实际落盘结果后核实现状，不提前更新 SQL 的已接入阶段。这样不因准备期间取消成空批而额外调用模型。
+Public prepareNextTurnWithContext completes original SDK preparation, then synchronously adds still-live guidance received during preparation and steers all in durable admission order. That selection is the next-request cutoff; later input waits for the next boundary and remains protected by the approval barrier. After all users append, public prepareRequest verifies actual JSONL entries, updates routes, and releases batch cancellation waits. No long model call occurs between selection and ownership update. Existing context assembly still owns selection records; prompt snapshots do not become a new execution gate.
 
-公开 `prepareNextTurnWithContext` 先完成原 SDK 准备，再同步加入准备期间收到、尚未取消的引导，按持久接纳次序一起排入 `agent.steer`。这个选批时刻是下一请求的输入截点；截点后到达的引导属于下一边界，审批屏障仍覆盖它们。全部 user 已追加后，在公开 `prepareRequest` 核实实际 JSONL entry、更新持久路由，再解除该批源取消等待；选批与归属更新之间不放入长模型调用。选择记录仍由原装配负责，不把这里变成 prompt 快照执行门槛。
+After target stop, synchronous public sdk.subscribe user message_start/message_end listeners throw a fixed coded stop error before append, preventing unpersisted guidance admission. Do not make them async or move to exception-swallowing extension hooks. Agent and SessionManager may both retain unwritten entries; refreshContext reads manager memory, not disk. Wait for run closure, reconcile against actual JSONL, discard old SDK/manager, and use a fresh SDK reopened on the original file for cleanup markers/later tasks. Never continue writing a polluted manager. Parse/ownership failure pauses the affected session. For partial admission, each written entry belongs to target and only unwritten sources cancel/fallback; settle batch waits after success/stop/error reconciliation, leaving no hanging promises.
 
-目标停止后，公开 `sdk.subscribe` 的同步 user `message_start`／`message_end` 监听在 append 之前抛固定带 code 的停止错误，阻止尚未落历史的引导继续接入；不能改成 async 监听，也不能搬到会吞异常的扩展钩子。SDK 的 Agent 与 SessionManager 都可能保留未落盘条目，`refreshContext()` 只读 manager 内存，不是磁盘重读。必须等本次 run 真正收束，按实际 JSONL 核实源归属，丢弃旧 SDK／manager；必要收尾标记与后续任务由重新打开原 JSONL 的新 SDK 处理，不继续写污染 manager。磁盘解析或归属核实失败时暂停受影响会话。部分接入逐条裁决：已落 entry 归目标，未落源才撤销或回退；失败／停止路径在核实后解除批次等待，不留悬挂 Promise。
+SDK user message_end precedes JSONL append and only assembles references. Register admission after matching real entry by source Task ID. Selection persistence remains required; diagnostic prompt snapshots may be missing and follow existing error reporting, not a new guidance requirement. History admission is not proof the model read it; actual request/response records establish that.
 
-SDK 的 user `message_end` 回调早于 JSONL append，只用来装配引用；实际 entry 落盘后，按源 Task ID 核实目标归属并登记接入。后续发送复用现有上下文装配：选择记录仍须落盘，prompt 快照继续作为可缺失的诊断，失败只按原路径报告，不新增引导执行门槛。历史接入不等于模型已读，实际发送与响应沿已有记录判断。
+JSONL is authoritative and not atomic with SQLite. Recovery compares source IDs, target log, and routes: unwritten input returns to queue front; written input stays in target and never reappends or executes independently. Log-written/SQL-missing gets a proven association; SQL-admitted/log-missing or conflicting ownership pauses/reports. Missing diagnostic snapshots do not affect classification. Abort does not clear steering: close admission, wait for run closure, clear residue, reconcile each entry, then fallback. Identical text has distinct source IDs; memory cleanup is not evidence.
 
-JSONL 是消息历史唯一权威副本，与 SQLite 不承诺原子。恢复只需用源 Task ID 对照目标日志与持久路由：未落历史的输入回到普通队首，已落历史的输入归原目标任务，不能重复追加或独立执行。日志已写而 SQL 未更新时补可证关联；SQL 声称已接入但日志缺失或归属冲突时暂停受影响会话并报告。诊断快照缺失不影响这些判断。
+### Complete input, projection, and authority
 
-SDK abort 不会清空 steering 队列；目标停止／收尾先封闭接纳，等 run 收束后清除残余输入、逐条核实 JSONL 与持久路由，再决定回退。同文消息用不同源 Task ID 区分，内存清理结果不充当接入证明。
+Mandatory current input is original requirements plus every admitted guidance item, not last user only. Context selector, Jev relevance, budgets, compaction, and resume use the same input set with reconstructable selection/requests. User grouping must not demote original requirements or pre-guidance task tools to another task. Keep existing lossy tool-result/budget policy; no unlimited-context promise or unconditional inclusion of other Tasks.
 
-### 完整输入、上下文与授权
+Continuation/answer queueing/reordering and independent execution retain resumesTaskId, attachment chain, continuationTaskId, and answer receipts, with no answer-card/receipt routes. Ordinary guidance can join such a running task while existing assembly preserves its original source.
 
-当前任务的必留输入由原始要求加本任务已接入的全部引导组成；`context-selector` 不再把最后一条 user 等同于整个当前任务。Jev 相关性输入、预算、压缩与继续恢复使用同一输入集合，选择记录与实际请求可重建。不能因 user 分组错误把原始要求或引导前的本任务工具轨迹降成别的任务；工具结果的既有有损清理与预算策略保留，不能承诺无界上下文，也不能把其他 Task 的输入无条件并入。
+Separate input identity from execution target: target groups execution; bubbles dedupe source Task ID plus real entry, not one-user-per-task. Preserve original and two identical guidance messages independently; answer cards must not replace ordinary guidance in the same task. find_task still returns source Task with route fields explaining target.
 
-继续与问题回答只保留原有排队、重排和独立执行，原 `resumesTaskId`、附件链、`continuationTaskId` 与答案回执不变，不增加答案卡或问题回执路由。正在执行这类任务时，普通引导仍归入该当前任务，由既有装配保留其原始来源。
+Queue creation, execution, and chat admission have distinct evidence. Pending list uses persisted order; ordinary chat uses actual start event, guidance actual JSONL position, never source createdAt. Live/replay/history/cold recovery merge stable identities in the same order, not insert old bubbles then reshuffle by timestamps.
 
-输入身份和执行目标分开投影：目标 Task ID 用于执行分组，气泡以源 Task ID 和实际 entry 去重，不能沿用“一 Task 一 user”的合并规则。原要求与两条同文引导分别保留；原问题回答卡仍匹配自身输入，不能误替换同任务中的普通引导。`find_task` 仍返回源 Task，额外路由字段说明执行目标，不破坏现有提交核实。
+Guidance files/images remain immutable source-task artifacts, available to target only through trusted same-session current-input routes. Extend existing task.attachments/resume resolution without copying artifacts or accepting arbitrary task artifacts/local paths. Per-input references avoid one shared pending-attachment variable. Branching copies JSONL and freezes trusted guided-attachment provenance, never active routes. Offline import rejects Code source profiles/guidance records and declares the new table excluded in TABLE_POLICY; no guidance/answer-source migration is added.
 
-队列创建顺序、执行顺序与聊天接入顺序各有证据：队列显示持久待执行顺序，普通输入聊天位置取实际开始事件，运行中引导取实际 JSONL 接入位置；不能用源 Task 的 createdAt 排聊天。实时、事件回放、历史补读与冷恢复按稳定输入身份合并并恢复同一接入次序，不先插旧气泡再靠时间重排。
+Target retains its model/permission/source; source input mode/path does not elevate it. Consumed data still rechecks existing access. Fallback uses source's original submission, not later session defaults.
 
-引导图片／文件继续绑定源 Task 的不可变产物，通过同会话可信路由开放给目标当前输入，扩展现有仅从 task.attachments 与继续链恢复的限定；不复制产物、不接受任意其他 Task 产物或本机路径。每条引导独立绑定引用，不能复用单个 pending 附件变量串到别条消息。
+### Approval and waits
 
-分支复用现有 JSONL 复制，仅补齐已引导附件的可信来源冻结；不复制活跃引导路由。现有离线导入不接收 Code 源档案，新表在 TABLE_POLICY 登记排除并拒绝含引导记录的源，不实现引导状态或答案来源导入。
+After durable guidance admission, transactionally invalidate target pending/approved-but-unconsumed approvals, then release relevant waits. Consumption and invalidation arbitrate in the same database state; consumed operations continue. The barrier lasts until the batch enters the next model request; late approvals/unconsumed operations from the old assistant tool batch cannot run first. Started operations are not forcibly stopped and retain real effect facts.
 
-当前任务保持既有模型、权限和来源身份，源输入携带的模式或路径不能升级目标 Task。已消费资料仍按原规则逐次复核。回退独立执行采用源 Task 的原提交选择，不采用届时的会话默认。
+Reuse wait-only release for agent/background-process waits, not whole-task requestStop. Do not cancel SubAgents/workflows/background processes or discard directory yield/reacquire/report claims. Tool text accurately says guidance arrived, old pending operation did not execute, or only waiting ended; it is not owner rejection or proof background stopped. Model-visible wording follows agent-facing-text and actual snapshots, not invented model evidence.
 
-### 审批与等待
+Ordinary submit in a normal Code main session no longer automatically releases agent/process wait and calls requestStop(owner_input). Enter always queues; explicit guidance alone uses wait-only release. Other host/session sources retain their own eligibility, not new interruption authority.
 
-持久接纳引导后，事务内失效目标未消费的 pending／approved 审批，再定向解除等待；批准消费与失效由同一数据库状态裁决，已消费的操作继续。接入屏障持续到该批引导被纳入下一模型请求，旧 assistant 工具批次随后才到达的待审批或尚未消费操作不能绕过屏障先执行。已开始的操作不强停，明确保存其原效果事实。
+## Related decisions
 
-复用 agent wait 与后台进程 wait 的仅解除等待入口，不走整个 Task 的 requestStop，不取消 SubAgent、工作流或后台进程，不丢目录让出／重取及报告认领规则。返回模型的工具结果准确说明收到新引导、原待审批操作未执行或仅结束等待，不冒充拥有者逐项拒绝，不声称后台已停止。实际新增模型可见措辞实施时按 agent-facing-text 核对快照；本轮不虚构模型调用证据。
+This extends [backend/FIFO ownership](../architecture/2026-09-19-detach-terminal-from-task-runtime.md), [owner attachments](../architecture/2026-10-16-owner-attachments.md), and [wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md); other history/no-replay/authorization/report rules remain. [Generic wait](2026-10-25-code-wait.md), [durable questions](2026-10-21-coding-owner-questions.md), and strict version switching retain their independent contracts. The audit found no relevant competing rejected note and no complete absorption/deletion/archive change; personal/IM/background-lifecycle matches were unrelated.
 
-普通 Code 主会话的普通 submit 不再因当前任务在 agent／process wait 就解除等待并执行 `requestStop(owner_input)`；移除该入口原来的自动中断行为，普通 Enter 始终排队。只有显式引导走上述仅解除等待路径；其他会话与宿主来源保持各自资格，不借此新增打断权。实现时同步旧 wait 笔记的有效事实。
+## Alternatives considered
 
-## 既有笔记审计
+- **SDK steer/follow-up only:** minimal/native, but volatile with abort residue and no durable acceptance/unique-execution proof. Use it as a carrier only.
+- **Stop then continue:** reuses stop, but force-stops tools and changes identity/approvals contrary to guidance semantics.
+- **Universal owner-input subsystem:** conceptually separates all inputs, but expands Task attachment FKs, submits, questions, and host sources beyond this need. Task plus route is enough.
+- **Put order/routes in meta without schema bump:** flexible JSON, but old programs execute pending sources and lifecycle/receipts become manual indexes. Use real tables and version rejection.
+- **Cancel queued Task then copy body:** easy wiring, but loses request/attachment identity and can create duplicate fallback tasks. Reuse the receipt.
+- **Convert/import continuations/answers or add guidance IDs/snapshot ledgers:** unifies more paths without a first-release use case; source Task/target entry/existing request records suffice.
+- **Additive v53 migration:** locally feasible and preserves sessions, but the owner already chose strict new-profile versions. This task cannot reverse that authorization.
 
-按 queue／FIFO／steer／followUp／等待／附件／上下文及 db.ts 的版本门锚点检索 proposed、implemented 与 rejected，rejected 未命中相关笔记。后台持有与 FIFO、附件、等待归属三篇部分重叠并互链；本提案扩展顺序、可信输入来源与解除等待方式，其余历史、不重放、权限与报告规则保留。[通用 wait](../../implemented/feature/2026-10-25-code-wait.md)的工具名称及后台生命周期、[持久问题](../../implemented/feature/2026-10-21-coding-owner-questions.md)的唯一回答关系均保留；[Code 严格版本切换](../../implemented/simplification/2026-10-24-code-instance-mcp.md)继续生效并互链。其余个人 durable、IM 与后台生命周期命中无关，没有完全吸收、删除或归档的笔记。
+## Consequences
 
-## 备选方案
+Store owns tasks.queue_order, sessions.queue_revision, and task_guidance. Runtime adds submit.guidance, steerTask, reorderQueue, getTaskQueueDetail; control adds task_queue/queue_reorder/steer_task, session.queue_changed/task.guidance, and taskGuidance snapshots. Shared views use guidanceFor/queuedTasksFor, exclude pending routed sources, and use ruukotoSourceTaskId plus actual admission for history. Desktop supplies compact accessible move-up/down/convert controls and send-as-guidance; TUI has /queue and /steer.
 
-- 只用 SDK steer／follow-up：接口最少、原生支持轮次间输入；队列易失、abort 后可能残留，无法承诺已接纳消息恢复和唯一执行，因此只把它作为执行载体。
-- 中断当前 Task 再以 continue 模拟引导：能复用已有停止路径；会强停工具、改变任务身份与审批，不符合本次已确认语义。
-- 新建覆盖所有入口的 owner-input 体系：彻底分离输入和执行，概念整齐；本次会连带改附件 Task 外键、普通提交、问题回答及宿主入口，新增范围过大，保留 Task 加路由。
-- 把路由与顺序全写在 meta、保持 schema 版本：可复用 JSON 状态；旧程序仍会误执行待接入 Task，且生命周期、回执和查询变成另一套手工索引，采用正规表及明确升级。
-- 先取消排队 Task 再复制正文引导：容易接线；丢失原附件与请求身份，且回退可能产生第二份任务，保留同一输入回执。
-- 为继续／答案增加转换、导入路由或独立引导 ID 与快照账本：可统一所有输入路径；首版没有这些使用场景，源 Task、目标 JSONL entry 和现有请求记录已足以表达普通消息归属，不承担额外关系维护。
-- v53 到新版本的加法迁移：可以原地保留已有会话，格式变化也较局部；现有拥有者决定明确删除兼容并要求重审后才能恢复迁移，本功能未获翻转授权，沿用严格拒绝与新数据目录，保留旧档案。
+Persistent acceptance, disk admission, and actual model reading must stay distinct to prevent simultaneous SDK/ordinary execution. Cross-store recovery, multi-user projections, and approval barriers depend on complete provenance. Continuation/answer conversion remains excluded. Fresh schema means old chats do not automatically appear; retain old profiles/unknown effects with matching code for verification.
 
-## 后果
+## Verification
 
-落地形态：Store 负责顺序/修订/引导路由单一事实（`tasks.queue_order`、`sessions.queue_revision`、`task_guidance` 表）；Runtime 提供 `submit` 的 `guidance` 标志、`steerTask`、`reorderQueue`、`getTaskQueueDetail`；控制面新增 `task_queue`、`queue_reorder`、`steer_task` op 与 `session.queue_changed`、`task.guidance` 事件，快照携带 `taskGuidance`；共享 view 按路由区分投影（`guidanceFor`、`queuedTasksFor` 排除待接入源，历史归属以 `ruukotoSourceTaskId` 为准，已接入气泡按真实接入时刻定位）。桌面有紧凑排队面板（上移/下移/转引导、键盘与无障碍反馈）与发送为引导开关；TUI 有 `/queue` 与 `/steer`。
-
-覆盖：store 窄测（顺序/修订/重排/引导状态机/旧 schema 拒绝）、runtime 集成（submit 引导接入、steer_task 转换与回退队首、queue_reorder 修订冲突）、SDK 契约（steer/abort/边界预留/停止守卫）、控制面 op 穷举均在 `test/queue-guidance-*.test.ts`、`test/sdk-steering-contract.test.ts`、`test/66-control-seam.test.ts` 通过；`npm run check:static` 全绿。
-
-代价与遗留：必须继续区分持久接纳、历史接入与模型实际读取，避免同一输入同时留在 SDK 和普通队列；跨存储恢复、多 user 投影和审批屏障依赖历史归属字段的完整性。首版不支持继续或答案转引导；以后确有需求再单独定义其来源语义。严格 schema 切换仍要求新数据目录，旧会话不会自动出现，原档案与未核实外部效果在原版本保留核实。真实模型与真实双客户端交互仍属外部验收，缺前提时不记通过。
+Original implementation recorded passing store/runtime/SDK/control cases in `test/queue-guidance-*.test.ts`, `test/sdk-steering-contract.test.ts`, and `test/66-control-seam.test.ts`, covering order/revision/routes/old-schema rejection, submit/convert/fallback/CAS, steer/abort/reservation/stop guards, and op enumeration; check:static passed at that revision. These are historical results, not rerun here. Real-model and dual-client interaction remain external acceptance with unmet prerequisites never counted as passes.

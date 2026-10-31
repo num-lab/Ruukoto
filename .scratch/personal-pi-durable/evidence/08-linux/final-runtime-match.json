@@ -1,9 +1,0 @@
-{
-  "runtime_files": 565,
-  "matches_current_workspace": true,
-  "final_three_hashes": {
-    "apps/ruukoto/src/personal-harness.ts": "7dcac3f8ca0bae3d7be0999cb5521aaaac9eec6863231c21a23cbbcd7c4a02ff",
-    "apps/ruukoto/src/personal-permissions.ts": "62dfbb7f1d302b9357bf24cecc8c35803f9efdad20379f75b79a962c78a5c901",
-    "test/personal-telegram-permissions.test.ts": "2deea77714b255e694c1788135d6c017448a0ae20bd0aad60a7a20c070ccbcf4"
-  }
-}

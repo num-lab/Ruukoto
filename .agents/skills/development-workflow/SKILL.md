@@ -1,60 +1,60 @@
 ---
 name: development-workflow
-description: 在 Ruukoto 开始改动、接手工单、编写方案或承担审查时使用。按影响分轻重流程，依据仓库中的有效任务交接，分别完成工程验收与产品验收。
+description: "Use when starting a Ruukoto change, taking over work, planning or reviewing. Establish effective requirements and independently verify engineering and product acceptance in proportion to impact."
 ---
 
-# 跨模型开发流程
+# Development Workflow
 
-输入可以是新需求，或任务路径与当前角色。新需求先分流，重流程由方案者建立工单并澄清目标；已有工单的角色可由请求或下一步确定。角色决定责任，模型由拥有者选择。本流程管理本仓库的开发协作，不改变产品运行时的任务或审批。
+This workflow governs development of Ruukoto, not the products' runtime tasks or approvals. A role defines responsibility; the owner chooses the model. The input may be a new request or an existing Issue and next role.
 
-## 1. 接手与分流
+## 1. Take Over And Choose Scope
 
-1. 读根指示、[领域入口](../../../docs/agents/domain.md)；已有工单时按[任务约定](../../../docs/agents/issue-tracker.md)读取。从需求或工单目标找到关联规格、相关模块与决策，再按需读取源码和专项 skill。
-2. 对照当前检出核实工单：要求是否被后续决定取代、依赖是否成立、计划是否仍可执行、旧审查是否覆盖当前内容。正文是现行记录，Comments 是历史；两者矛盾时查来源并修正现行记录。无法确认的取舍才找拥有者，不能凭旧 `ready-for-agent` 开始实施。
-3. 按影响选择流程，简述理由。轻量：排版、错字、无行为变更的局部整理，或恢复已有明确约定的局部修复，且不涉及权限、数据安全、持久化或跨模块契约。重流程：新行为、架构、契约、开发流程、测试策略，以及上述高影响修复。发现范围扩大时转入重流程。
+Read `AGENTS.md` and [CONTEXT.md](../../../CONTEXT.md), then the referenced Issue, specifications and related decisions. Check the current source before trusting a ticket: later decisions, changed dependencies and new code may invalidate its plan or review. The Issue body is the current record; comments preserve history. Resolve factual contradictions from their sources; ask the owner only about unresolved choices.
 
-轻量路径直接实施，按[改动面选择检查](../pre-push-checks/SKILL.md)，报告结果与未验证项。无交接需要时不强制新建工单或套完整模板；是否写笔记仍按 [maintain-notes](../maintain-notes/SKILL.md)。需要交接时，只记录目标、当前状态、下一步和证据。
+Use the lightweight path for local mechanical changes or repairs restoring a clear existing contract, provided they do not affect permissions, data safety, persistence or cross-module behavior. Implement, run [scoped checks](../pre-push-checks/SKILL.md), and report the result and real gaps. No full template or new Issue is required unless handoff/tracking needs it. [maintain-notes](../maintain-notes/SKILL.md) separately determines whether a decision note is needed.
 
-重流程使用工单作为唯一工作入口。下一角色能够从入口找到有效目标、确认边界、当前成果与下一步后，才算交接完成；资料缺失时先补齐可查事实。
+Use the full path for new behavior, architecture, contracts, development process, test strategy and high-impact repairs. If scope grows, switch paths. The Issue is the single work entry: a successor must be able to find the effective goal, confirmed boundaries, current results and next action there.
 
-## 2. 方案与确认
+## 2. GitHub Issues And Planning
 
-方案者把目标、非目标、关键契约和可验证的验收标准写入规格或工单，附拥有者已确认的依据；共享要求只引用，不复制。区分待决定的取舍和已有授权，聊天中的新决定及时写回。[决策笔记](../maintain-notes/SKILL.md)承载理由与备选，工单承载实施步骤、影响范围、文档落点与验证方法。
+Use [num-lab/Ruukoto Issues](https://github.com/num-lab/Ruukoto/issues). Fetch the user's URL or number directly, for example `gh issue view <number> --repo num-lab/Ruukoto --comments`. Features, behavior fixes, architecture changes and work needing tracking or handoff require an Issue before implementation. Use GitHub's native open/closed Issue states and draft/open/merged PR states; an open Issue can explain its current blocker or next action without custom status labels or a Project automation system. Do not maintain a repository-local mirror.
 
-独立方案审查发生在实施前。审查者核对原始需求、当前源码及相关决定，检查方案能否达成目标、是否遗漏调用方与失败路径、验收是否真能证明行为。尚未确认的目标或关键取舍，整理给拥有者一次决定；已确认的内容不重复请示。方案没有阻断意见，且确认范围清楚，才交实施。
+Keep the body useful to the next contributor: goal and confirmed non-goals, scope and dependencies, verifiable acceptance criteria, current plan/results, evidence locations and next responsibility. Include only applicable fields. Record new owner decisions in the Issue; link shared requirements rather than copying them. Agent-authored bodies use English. Raw logs, credentials, screenshots and session captures stay outside Git; publish only sanitized conclusions and accessible evidence references.
 
-## 3. 实施与文档
+Planning records the confirmed goal, non-goals, key contracts and acceptance criteria, with the source of owner approval. Decision notes hold durable reasons and alternatives; the Issue holds steps, affected callers/tests/docs and verification methods. For exploratory research, track questions and dependencies in Issues; resolve them with a concise answer and evidence instead of maintaining a separate local map.
 
-实施者可调整文件、步骤和实现方法，记录必要理由；只有改变已确认目标、非目标、关键契约或验收标准时，才先说明冲突并重新讨论。方案前提或关键设计无法满足要求时，退回方案者修订并复审受影响部分；不通过改低验收要求让实现过关。
+An independent plan review precedes full-path implementation. The reviewer reads the original request, current code and decisions, checks omitted callers and failure paths, and asks whether the proposed checks can prove the outcome. Proceed when confirmed scope is clear and no blocking finding remains. Do not request confirmation again for already approved choices.
 
-实施者负责修改、相关测试以及实际行为与未验证项的记录。文档角色根据确认决定、实际代码和证据，按[人类文档规范](../writing-docs-for-human/SKILL.md)同步说明；发现事实不清或实现不符时退回对应角色，不自行补造决定。文档不是单独派发角色的强制理由，责任可以由实施者承担；需要换模型写作时，仍在同一工单交接。
+## 3. Implement And Document
 
-同一工作区同一时刻只安排一个写入者。需要并行实现时使用独立工作副本，汇总后按实际结果重新确定验证范围；审查者默认只读。
+The implementer may change file choices and implementation steps within the approved goal. Changes to confirmed goals, non-goals, key contracts or acceptance criteria go back to the owner first. An unsound design returns to planning and affected review; lowering the acceptance bar is not a fix.
 
-## 4. 独立审查与返工
+The implementer owns changes, regression tests, observable results and unverified items. Update human docs from actual code and evidence using [writing-docs-for-human](../writing-docs-for-human/SKILL.md); unclear facts go back to their source rather than becoming invented decisions. A separate documentation role is optional.
 
-独立是不同的执行上下文：审查者直接读取需求、相关规则、实际改动和验证材料，作者总结仅作导航。可以使用同一种模型，但作者在原会话内自检不算独立审查。没有可用审查者时保存待审状态，不自行补一个通过结论。
+One writer owns a working copy. Parallel implementation uses isolated copies; integration gets checks appropriate to the actual combined change. Reviewers are read-only by default.
 
-| 审查对象 | 必须核实 |
+## 4. Independent Review And Rework
+
+Independence means a separate execution context reading the requirements, rules, diff and evidence directly. It may use the same model; an author's self-check is not independent review. If no reviewer is available, keep the Issue awaiting review rather than inventing approval.
+
+| Review | Required evidence |
 | --- | --- |
-| 方案 | 原始需求与方案是否一致；取舍是否在确认范围内；调用方、失败路径与验收方法是否完整 |
-| 实现 | 逐项验收要求对应的实际行为；计划本身有无错误；相关调用方、测试和文档是否一致；改动是否越界 |
-| 验证材料 | 对应什么内容与环境；检查是否实际执行；通过是否能证明声称的行为；缺少哪些真实环境证据 |
+| Plan | Original requirements, authorized choices, callers, failure paths and credible acceptance methods |
+| Implementation | Actual behavior against each criterion, soundness of the plan, callers/tests/docs and scope |
+| Verification | Exact checked content/environment, commands actually run, what a pass proves and missing real-environment evidence |
 
-审查者亲自执行与疑点和验收相关的最小检查，沿用已有证据阶梯，不机械重跑全量。修复类改动核实回归检查能捕获原问题，必要时在隔离副本中撤去修复或构造负例；无法运行时明确缺口。测试全部通过仍可能是实现或计划错误。
+Reviewers run the smallest relevant checks for doubts and acceptance, reusing valid evidence rather than mechanically repeating the suite. For fixes, confirm that the regression check detects the original problem, using a counterexample or isolated removal of the fix when needed. State inability to run a check. A green suite does not prove a sound implementation or plan.
 
-审查记录写清对象、结论、依据和未覆盖项。阻断意见必须指向违反的要求、可复现反例或必要证据缺口，并给出下一责任角色；偏好或可选优化单列，不阻止交付。
+Record review object, conclusion, evidence and uncovered scope in the Issue/PR. A blocking finding names a violated requirement, reproducible counterexample or necessary evidence gap and the next responsible role; preferences remain optional. Implementation faults return to implementation, plan faults to planning, and factual prose errors to documentation. Resolve technical disputes with requirements, source or experiments; escalate only choices that need the owner.
 
-实现缺陷返实施者，方案缺陷返方案者，表达与事实不符返文档责任者。技术返工在已确认范围内完成；需要改变拥有者决定时才升级。争议先用需求来源、代码或实验判断，仍涉及取舍时汇总成一个待决问题，不互相改标准或无限重复同一意见。
+When rework reveals a reusable process fault, update its owning instruction or check. Write a [postmortem](../../postmortem/README.md) only when its criteria apply.
 
-返工暴露可复用的流程问题时，先修正持有该要求的文档或检查；满足[复盘条件](../../../docs/postmortem/README.md)再写复盘，不把一次失误直接扩成常驻规则。
+## 5. Acceptance And Handoff
 
-## 5. 验收与交付
+Engineering acceptance maps requirements to evidence and, for the full path, has no unresolved blocking implementation-review finding. Product acceptance covers only specified subjective experience and product choices; omit empty sections when none apply. Missing required real-environment verification remains a gap with a recovery condition, not an exemption.
 
-工程验收逐项对应要求和证据，重流程还需独立实现审查无未解决阻断；产品验收只处理计划中列明的主观体验与产品取舍。没有这类要求时写明不适用及理由。必要真实环境验证缺失属于证据缺口，保留待验收及恢复条件，不能借“不适用”跳过。
+Evidence is valid only for the reviewed content. Mark affected conclusions stale when requirements, code or documents materially change; recheck that scope, including behavior introduced by integration. Unrelated edits do not invalidate everything.
 
-记录格式和[状态](../../../docs/agents/triage-labels.md)由任务约定持有。检查与审查只对被检内容有效：相关代码、需求、计划或文档发生实质变化后，标明旧结论的失效范围，复核受影响部分；不因无关改动重复全部流程。汇总或合并产生的新行为也要覆盖。
+Keep the Issue open while implementation, review or required acceptance remains. Close it after acceptance, or with an explicit not-planned reason; reference the closing PR when applicable. Handoff states the outcome, evidence, remaining action and responsible role. Acceptance does not grant permission to commit, merge, deploy or publish.
 
-交付时给出行为变化、验收结果、未验证项和下一责任人。任务验收通过不额外授予提交、合并、部署或发布权限；这些动作沿用拥有者已有授权。
-
-方法依据见[决策记录](../../notes/implemented/process/2026-10-12-agentic-development-workflow.md)。
+Method: [development decision](../../notes/implemented/process/2026-10-12-agentic-development-workflow.md); tracker and language policy: [development standards](../../notes/implemented/process/2026-10-31-development-standards.md).

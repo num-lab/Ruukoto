@@ -1,31 +1,27 @@
-# Agent Note: 非执行配置变更只检查相关占用与凭据
+# Agent Note: Check only relevant execution use and credentials during configuration edits
 
 Status: implemented
 
-## 问题
+## Problem
 
-Code 将提供方与模型的显示名、模型顺序和真实新增模型都当作既有执行变化，运行或排队任务会阻止这些编辑。个人 MCP 保存逐个求值所有凭据，已失效的旧凭据因此阻止停用、删除及其他服务的修改。文件检索还把首次未找到 rg 的结果保留到 Coding worker 退出，提示则一律要求重启。
+Code treated provider/model display names, ordering, and genuinely new models as changes to existing execution, blocking edits during running/queued tasks. Personal MCP re-evaluated every credential on every save, so one stale credential blocked disable/delete and edits to unrelated services. Coding file search cached a missing rg until worker exit and always recommended restarting.
 
-## 决定
+## Decision
 
-RuntimeModels 比较提供方与模型的执行字段：忽略两层 name，以唯一模型 ID 比较既有定义，保留其他已知与未知字段的深比较。新增 ID 只有 SDK 当前目录也不存在时才不影响旧执行；首次在 models.json 声明内置 ID 仍是覆盖。重复 ID 在共享目录校验中拒绝。引用核实、修订比较、完整模型栈准备、发布、回滚与停止等待保持原归属。
+RuntimeModels compares provider/model execution fields, ignoring both name fields and matching existing definitions by unique model ID. Other known and unknown fields retain deep comparison. A new ID is non-execution-changing only if absent from the SDK's current catalog too; first declaring a built-in ID in models.json is still an override. Shared catalog validation rejects duplicate IDs. Reference checks, revision comparison, full-stack preparation, publication, rollback, and stop waiting retain their owners.
 
-个人 MCP 保存复用 validatePersonalMcpCredentials，只核实新增、从停用变启用、改变 credential 或 Cua 绑定的服务。停用和删除不读取旧凭据，未修改认证的其他服务不参与本次验证；实际发现、调用和恢复仍逐请求核实原凭据，失效不降级匿名。此切片不单独放宽原未决操作与档案锁要求，在线保存由完整配置更新链路负责。
+Personal MCP save reuses `validatePersonalMcpCredentials` only for new services, disabled-to-enabled changes, and changes to credential or Cua binding. Disable/delete reads no old credential; unchanged authentication on other services is outside this save's validation. Real discovery, invocation, and recovery still verify original credentials per request and never downgrade invalid auth to anonymous. This slice does not relax pending-operation or profile-lock requirements; the complete configuration-update flow owns online save.
 
-Coding worker 每次检索复用 resolveFileSearchExecutable，在当前可见 PATH 重新发现已安装工具；个人宿主原本已逐调用发现。诊断提示在现有 PATH 安装后再次调用，仅改变后台环境时提示重启。执行仍留在原沙箱，不因工具安装扩大已建立单元的挂载范围。
+Coding worker calls `resolveFileSearchExecutable` for each search against its currently visible PATH. Personal host already did so. Diagnostics recommend installing in the existing PATH and retrying, reserving restart advice for backend-environment changes. Execution remains in the original sandbox; installation does not expand an existing unit's mounts.
 
-## 既有笔记审计
+This partly implements [operation-scoped configuration](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md), limited to Code presentation changes, MCP credential checks, and rg discovery. Other online application/migration/recovery remains with that proposal. [RuntimeModels](../architecture/2026-10-23-runtime-models.md), [Code model settings](../feature/2026-10-21-code-model-settings.md), [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md), and [controlled search](../feature/2026-10-21-controlled-file-search.md) keep stack, credential location, execution, and data boundaries except the explicitly replaced all-credentials-on-save rule.
 
-[配置更新总提案](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)部分落地，本篇仅承载 Code 显示变更、MCP 凭据校验与 rg 发现；其余在线应用、迁移和恢复仍由提案及工单推进。[RuntimeModels](../architecture/2026-10-23-runtime-models.md)与[Code 模型设置](../feature/2026-10-21-code-model-settings.md)保留栈和凭据位置归属；[个人 MCP](../architecture/2026-10-17-personal-durable-mcp.md)只翻转每次保存重新求值全部凭据；[受控文件检索](../feature/2026-10-21-controlled-file-search.md)保留执行与资料边界。均为部分重叠并互链，没有完全吸收的记录或需拒绝的旧提案。
+## Alternatives considered
 
-## 备选方案
+Removing all catalog occupancy checks is shorter but allows address/auth/capability/built-in overrides to change old execution. Skipping credentials only on disable rescues one action but still blocks unrelated edits. Restarting for every rg installation works but unnecessarily interrupts the backend when PATH is unchanged. Check actual execution/auth changes and rediscover through the existing helper.
 
-- 直接去掉模型目录占用检查：代码更少，但地址、认证、能力和内置覆盖仍会影响旧执行，保留执行差异判断。
-- 只在 MCP 停用时跳过凭据：能解救单项停用，但坏凭据仍阻止修改其他服务；验证范围按实际认证变化决定。
-- 安装 rg 后重启整个后台：能重新装配工具，但无须改变进程环境的安装不应打断后台；沿既有发现能力逐调用核实。
+## Consequences
 
-## 后果
+Display-only edits and genuinely new models need not wait for same-provider tasks; existing SDK sessions/task selections remain. Bad MCP credentials can be disabled/deleted, while new/enabled/changed authentication and real calls still reject invalid references. Tests cover running, queued, awaiting-confirmation, built-in override, duplicate IDs, bad credentials, and same-process installation/rediscovery. Mock models/local workers do not substitute for real-model, IM, or native Linux acceptance.
 
-纯展示与真正新增模型不等待同提供方任务，旧 SDK 会话和任务选择保持原样。MCP 坏凭据可被停用或删除，新增、启用、改认证与真实调用仍拒绝无效引用。新用例覆盖运行、排队、待确认、SDK 内置覆盖、重复 ID、坏凭据及同进程安装 rg 后重新发现；模拟模型和本机 worker 不代替真实模型、IM 或 Linux 原生验收。
-
-原生单元的工具链和挂载在启动时固定。安装在原单元不可见的自定义目录时，新单元仍须重新核实工具链，不能为发现新工具给旧沙箱增加路径授权。
+Native-unit toolchains/mounts are fixed at launch. Installation into a custom directory invisible to an old unit requires new-unit toolchain verification, not adding path authority to the old sandbox.

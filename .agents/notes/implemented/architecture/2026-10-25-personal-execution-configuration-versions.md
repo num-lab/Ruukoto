@@ -1,36 +1,38 @@
-# Agent Note: 命令与服务按原配置版本核实并在相关执行结束后切换
+# Agent Note: Commands and services verify original configuration versions and switch after related execution ends
 
 Status: implemented
 
-## 问题
+## Problem
 
-命令目录与服务部署路径永久固定在档案上，恢复把全部历史与当前指纹比较。直接允许换目录或 helper 会把旧执行重新解释为新环境，新的 helper 对旧操作的“未找到”尤其不能证明原执行已结束。
+Command directories and service deployment paths were permanently bound to profiles, with recovery comparing all history to current fingerprints. Allowing path/helper changes directly would reinterpret old executions in a new environment. A new helper's not-found response especially cannot prove original execution ended.
 
-## 决定
+## Decision
 
-命令与服务沿[配置更新方案](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md)使用同一档案的不可变配置版本。模块当前选择同时保存唯一配置版本和文件修订；命令、后台进程、服务检查与写操作在接纳时记录原选择，原请求与原停止核实始终解析该版本。旧记录缺版本时只使用迁移基线，不回写旧 entry。文件保存、发布回执和格式迁移继续由 personal-settings 持有。
+Commands/services use immutable configuration versions within one profile under [operation-scoped configuration](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md). Current module selection stores a unique configuration version and file revision. Commands, background processes, service checks and writes record original selection at admission; requests/stopping verification always resolve that version. Unversioned legacy records use only the migration baseline without rewriting entries. personal-settings retains file saving, publication receipts and format migration.
 
-迁移只等待本能力已接纳的任务、会话后台、未决停止与未知效果，不取消这些工作，也不等待无关聊天。停止或效果尚未核实时仅报告该能力等待生效。新目录继续核实 realpath、dev/ino、本机与 TMPDIR；生产服务发布继续核实 Linux、root 路径保护及策略的本机身份，实际协议和部署健康仍由原 helper 操作核实。切换服务路径使旧长期授权失效，不能给新部署续用。
+Migration waits only for this capability's admitted Tasks, conversation background processes, pending stops and unknown effects. It neither cancels them nor waits for unrelated chat. Unverified effects/stopping reports that capability pending. New directories still verify realpath, dev/ino, machine and TMPDIR. Production service publication still verifies Linux, root path protection and policy machine identity; original helper operations verify actual protocol/deployment health. Changing service paths invalidates old standing grants, never extending them to the new deployment.
 
-新模型请求记录命令与服务的配置版本。旧响应到达后若选择与当前不同，新的执行接纳明确拒绝；已接纳执行按原版本继续核实。设置写意图未核实期间只暂停本目标的新接纳，查询与原操作恢复仍可用。计划快照保存这两个配置版本，实质迁移后改回不能复活旧范围；旧计划只在当前仍为原迁移基线时按旧快照核实。
+New model requests record command/service configuration versions. When an old response arrives after selection changed, new execution admission rejects it; admitted execution continues verification against the original version. Unverified settings-write intent pauses new admissions only for that target; queries/original recovery remain available. Schedule snapshots pin both versions. Changing back after substantive migration cannot revive old scope. Old plans use old snapshots only while current selection remains the original migration baseline.
 
-首次启用候选可撤回到明确未启用的基线：内部撤回保存 JSON null 与新的配置版本，普通配置保存仍拒绝 null。发布时先核实本能力占用，再从主/子模型配置移除工具和扩展、停止并停用当前对象；旧 registry 定义与原保存回执保留。冷启动将该 null 版本识别为未启用，不从启动参数补回能力。缺文件基线若来自已有执行历史的宿主注入，不能当作从未启用，撤回明确拒绝而不丢失原历史。
+First-enable candidates can be withdrawn to an explicitly disabled baseline. Internal withdrawal saves JSON null and a new version, while ordinary configuration save still rejects null. Publication first checks capability occupancy, then removes tools/extensions from main/child configuration, stops and disables the current object. Old registry definitions/receipts remain. Cold start recognizes null as disabled and does not restore capability from startup arguments. A missing-file baseline from host injection with execution history is not never-enabled: withdrawal rejects rather than dropping history.
 
-终态命令不再次调用停止，也不为查看历史重新访问旧目录。仍需读取原输出或停止原进程时保持原执行引用与证据校验，缺失只报告原项不可用；服务的旧检查证据也不依赖新 helper。保存新文件不迁移、改写或删除旧 entry、命令证据和后台记录。
+Terminal commands are not stopped again and history inspection does not revisit old directories. Reading original output/stopping original processes still checks execution references/evidence, reporting only that item unavailable when missing. Old service-check evidence likewise does not depend on a new helper. Saving new files neither migrates nor rewrites/deletes entries, command evidence or background records.
 
-既有可信宿主可直接向 openPersonalHarness 注入配置而不创建配置文件。命令只有 missing 基线时，在核对原模块指纹后向同一配置链追加 origin=host 的原配置，保留 content=null 与 revision=missing，不声称原文件存在；捕获时记录最后 entry 边界，只有此前无版本的旧命令沿该基线恢复，不回写旧 entry。离线档案已有命令指纹但缺宿主基线时，在写意图与换文件前拒绝保存，须先用原可信宿主核实配置。发生目标保存后必须解析保存版本，不能以新注入默认覆盖历史。服务按同一方式捕获宿主基线，文件配置仍只保存三条部署路径，hostService 单独保留原 useSudo 与超时，后继服务文件版本继承同值元数据，撤回转成文件后也能脱离注入参数冷启；旧无版本写操作须属于捕获时已存在的任务集合，旧检查须处于捕获 entry 边界之前。只读宿主的基线记录不启用服务写操作。缺宿主服务基线时同样在保存前拒绝。撤回尚未生效的命令或服务候选时，可把原宿主配置保存成新文件版本，原 missing 基线保持不变。已核实停止的服务操作再次查询停止时幂等返回，不重新接触旧部署。
+Trusted hosts may inject configuration directly into openPersonalHarness without files. For a command missing-file baseline, after checking original module fingerprint, append the original configuration to the same chain with origin=host, content=null and revision=missing, without claiming a file existed. Capture the last-entry boundary; only earlier unversioned commands use that baseline, without rewritten entries. An offline profile with command fingerprints but no host baseline rejects saving before intent/file replacement; the original trusted host must verify configuration first. Once a target save exists, resolve its saved version rather than overriding history with new injected defaults.
 
-## 既有笔记审计
+Services capture host baselines the same way. File configuration still stores only three deployment paths; hostService separately retains original useSudo/timeout. Later file versions inherit this metadata, so withdrawal converted to a file can cold-start without injection. Old unversioned writes must belong to the captured existing-Task set; old inspections must precede the captured entry boundary. A read-only host baseline does not enable service writes. Missing host-service baselines also reject before saving. Withdrawing an unapplied command/service candidate may save the original host configuration as a new file version while leaving the missing baseline unchanged. Rechecking a verified-stopped service operation returns idempotently without touching old deployment.
 
-[固定命令目录](2026-10-17-personal-command-configuration.md)、[固定服务配置](2026-10-17-personal-service-configuration.md)部分重叠，本决定取代其永久不变和全部历史依赖 current 的要求；原权限、保护根、持锁及执行身份继续成立。[服务检查](2026-10-17-personal-durable-inspection.md)、[命令工作](2026-10-17-personal-durable-commands.md)与[会话后台](../feature/2026-10-21-personal-background-processes.md)部分重叠，保留原接纳、双事实、目录认领及外部证据规则。配置总方案仍持有其他模块的目标，不由本切片宣称全部落地。其余模型、MCP、IM 与应用数据笔记不改变归属；无完全吸收或应归档的笔记。
+## Related decisions
 
-## 备选方案
+This partly supersedes permanent binding/current-dependent history in [fixed command directory](2026-10-17-personal-command-configuration.md) and [fixed service configuration](2026-10-17-personal-service-configuration.md), retaining permissions, protected roots, locks and execution identity. [Service inspection](2026-10-17-personal-durable-inspection.md), [command work](2026-10-17-personal-durable-commands.md) and [conversation background processes](../feature/2026-10-21-personal-background-processes.md) retain admission, dual facts, directory claims and external evidence. The overall proposal still owns other modules and is not completed by this slice. Model, MCP, IM and application-data notes keep their ownership; none is wholly absorbed or archived.
 
-- 保持永久绑定并另建档案：旧恢复最简单，但迁移丢失同档案的连续工作历史，不能满足同机换目录和部署路径的要求。
-- 同时运行多套命令与服务实例：可以不停顿地接纳新能力，但增加执行环境和停止句柄管理；首版在本能力安全边界切换，保留旧历史即可。
-- 旧历史只按 prepared.spec 核实：不依赖当前路径，但缺少外部配置来源会让被改写的执行记录自证；不可变配置版本和原接纳 entry 一起核实。
-- 全局等待空闲：容易复用现有门闩，但会让无关聊天、搜索和其他能力阻止本目标更新；原操作相关占用足以保护执行身份。
+## Alternatives considered
 
-## 后果
+- Keep permanent binding and create a new profile: simplest old recovery, but loses continuous same-profile history and cannot meet same-machine directory/deployment migration requirements.
+- Run multiple command/service instances simultaneously: uninterrupted new admissions, but more environment/stop-handle management. First release switches at this capability's safe stopping boundary and retains history.
+- Verify history only from prepared.spec: independent of current path, but rewritten execution records become self-authenticating without external configuration provenance. Verify immutable versions plus original admissions.
+- Wait for global idle: reusable gate, but unrelated chat/search/capabilities block this target. Related operation occupancy is sufficient to protect execution identity.
 
-同一档案可保留跨目录和 helper 部署的历史，原终态环境消失不再阻断新配置启动。代价是引用的版本必须永久保留，缺链继续拒绝；活跃旧操作不能借换配置绕过停止和效果核实。缺 Linux、真实 helper 部署或 sudoers 前提时只报告未验证，受控替身不证明生产执行健康。工程与外部验收证据归[实施工单](../../../../.scratch/configuration-updates/issues/01-remove-global-restrictions.md)。
+## Consequences
+
+One profile retains history across directory/helper deployments; vanished terminal environments no longer prevent starting new configuration. Referenced versions must remain permanently available; broken chains still reject. Active old operations cannot use configuration changes to bypass stopping/effect verification. Missing Linux, real helper deployment or sudoers prerequisites remains unverified; controlled substitutes do not prove production health. Original engineering/external evidence is offline at `.scratch/configuration-updates/issues/01-remove-global-restrictions.md`.

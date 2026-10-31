@@ -1,33 +1,29 @@
-# Agent Note: 个人后台分析由宿主菜单控制
+# Agent Note: Control Personal background analysis through host menus
 
 Status: implemented
 
-## 问题
+## Problem
 
-[模型后台分析](2026-10-17-personal-model-work.md)可委派和查询，但拥有者只能借模型控制工作。菜单必须固定原工作与入口，避免模型不可用时无法取消，或旧菜单取消/关闭复用后的身份。[总方案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)允许按真实接口分片，整项汇报仍需要后续聚合。
+[Model background analysis](2026-10-17-personal-model-work.md) supports delegation/query, but owners otherwise depend on the model for control. Menus must pin original work and entry so a model outage does not prevent cancellation and stale menus cannot act on reused identities. The [overall migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) permits slices around real interfaces; whole-request reporting still needs aggregation.
 
-## 决定
+## Decision
 
-本机认证接口与 Telegram 宿主菜单共用工作查询、原结果分页、停止证明和取消事实。Telegram 只管理原 bot、owner、generation；引用已送达宿主菜单选择专用动作，不使用正文中的内部引用。关闭同时核实原工作仍是该身份最新工作且空闲，旧菜单不追随身份复用。单项工作控制不等于整项委托取消或最终汇报。结果分页与生成截断分开：原 assistant 以 length 结束时，每页返回 partial=true，CLI/IM 与定时汇总明确只是已保存片段；翻完页不能视为完整回答。不自动续写、不改变原 Task 完成或身份释放。查询按原 work.taskId 直接投影当前宿主命令事实，各状态和每页保留；当前核实事实优先于旧子回答，CLI/IM/定时汇总同样显示，不按复用身份混入旧工作。
+Authenticated local controls and Telegram host menus share work queries, original-result paging, stop evidence, and cancellation facts. Telegram manages only the original bot/owner/generation. Dedicated actions reference delivered host menus, not internal references copied from text. Closing additionally requires the original work to remain the identity's latest work and idle; old menus never follow reuse. Single-work control is not whole-delegation cancellation or final reporting.
 
-取消意图与 Telegram 固定回执在同一 durable commit 保存。工作 Task 等待回答时观察自己的 document，发现取消后停止原工作子会话的全部后台执行，只有停止成功才释放原占用并收尾；正常完成同样复查取消事实。查询依据原生 Task 与原占用，faulted 不当作停止证明。沿用已有状态，不新增控制任务或另一套执行镜像。
+Result paging is separate from generation truncation. If the original assistant ends with length, every page reports partial=true and CLI/IM/scheduled summaries say it is only a saved fragment. Reading all pages does not complete the answer. No automatic continuation or change to original Task completion/identity release occurs. Queries project current host-command facts from original work.taskId in every state/page. Current verified facts outrank old child text; CLI/IM/scheduled summaries show them without mixing prior work from a reused identity.
 
-主会话选择新的 `personal-work-controls` 扩展，旧程序因此拒绝新菜单档案。恢复先核实菜单与原工作/入口关系，再恢复任务。新观察者不改变旧工作 Task 的输入或 checkpoint，已有工作可以继续恢复。
+Cancellation intent and Telegram's fixed receipt share one durable commit. While waiting for a reply, the work Task observes its own document. On cancellation it stops every background execution in the original child session, releasing occupancy and finishing only after verified stop. Normal completion also rechecks cancellation. Query uses native Task/original occupancy; faulted is not stop evidence. Reuse existing states without another control Task or execution mirror.
 
-## 既有笔记审计
+Main selects the new `personal-work-controls` extension, making old programs reject new-menu profiles. Recovery first validates menu/original-work/entry relations, then restores Tasks. The observer changes neither old Task input nor checkpoints, so existing work remains recoverable. [Background work](2026-10-17-personal-background-work.md), model work, [Telegram authority](2026-10-17-personal-telegram-permissions.md), and shared delegation/workflow/OS-stop mechanisms keep their own rules.
 
-按后台工作、工作菜单、停止核实和 Telegram 来源检索 active notes。[后台工作](2026-10-17-personal-background-work.md)、模型工作、[Telegram 权限](2026-10-17-personal-telegram-permissions.md)与总方案部分重叠，各保留事实并互链；旧共享委派、工作流控制与 OS 停止仍适用原底座，不改变。没有完全吸收或待归档记录。
+## Alternatives considered
 
-## 备选方案
+Model-only controls reuse wiring but prevent stopping analysis when the model is unavailable. A durable cancellation-control Task could call Harness.abortTask but duplicates Task/receipt relations already represented by work cancellation facts. Bundling whole-request reports requires input aggregation and report/delivery lifecycle first; complete single-analysis controls can ship independently without pretending individual child replies are a final report.
 
-- 所有控制继续通过模型工具：复用已有接线、代码最少，但模型不可用时拥有者无法直接停止后台分析；提供零模型宿主操作。
-- 新建持久取消控制 Task：能直接调用 Harness.abortTask，但额外引入 Task 与回执关系，而工作本身已经有取消事实；由原 Task 观察该事实并沿原停止路径收尾。
-- 与整项汇报同片交付：可一次完成整项体验，但须先新增原输入聚合和汇总/发送生命周期；先交付现有单项分析的完整控制，后续聚合复用此入口，不把子结果逐项外发冒充最终报告。
+## Verification
 
-## 验证
+Coverage includes bounded history/body pages, cancellation of blocked work, crash after cancellation persistence, retained occupancy on faulted, stale-menu isolation, Telegram entry/generation boundaries, zero-model controls, and non-replay of unknown sends. Real CLI PTY needs no internal keys. Historical narrow/static/Linux evidence is in the offline copy of `.scratch/personal-pi-durable/issues/11-work-controls.md`.
 
-历史和正文有界分页，取消阻塞工作与落盘后崩溃均可收尾，faulted 保留占用；旧菜单不操作下一工作；Telegram 原入口/代次隔离、零模型控制与未知发送不重放；CLI 真实 PTY 全程无需内部键。窄用例、静态与 Linux 证据由[控制工单](../../../../.scratch/personal-pi-durable/issues/11-work-controls.md)持有。
+## Consequences
 
-## 后果
-
-增加原工作菜单与恢复核实的维护成本；列表按原生记录扫描，当前隔离分析规模适用，实际历史增长后再按查询证据优化。[追加说明](2026-10-17-personal-work-notes.md)使用相同原工作菜单；没有整项归属、外部子工具或自动最终回报，完整产品与真实平台验收仍由总工单承担。
+Menus and recovery relations add maintenance. Lists scan native records, adequate for the current isolated-analysis scale; optimize only with evidence from larger histories. [Work notes](2026-10-17-personal-work-notes.md) reuse the original-work menu. Whole-request ownership, external child tools, automatic final reporting, and complete product/platform acceptance remain with the overall migration.

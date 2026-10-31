@@ -1,68 +1,67 @@
-# Agent Note: 桌面设置复用产品配置来源并显式维护 Personal
+# Agent Note: Desktop settings reuse product configuration owners and explicit personal management
 
 Status: proposed
 
-PA 配置的当前交互由[直接保存](../../implemented/simplification/2026-10-28-desktop-personal-direct-save.md)收窄为一次保存，通用确认和编辑前修订不再作为桌面保存前提。
+This remains the overall settings/combined-acceptance proposal, not a claim that nothing is implemented or that all product acceptance passed. [Settings shell](../../implemented/feature/2026-10-21-desktop-settings-shell.md), [Code models](../../implemented/feature/2026-10-21-code-model-settings.md), [Code MCP](../../implemented/feature/2026-10-21-code-mcp-settings.md), [Code skills](../../implemented/feature/2026-10-21-desktop-code-skills.md), [Personal machine settings](../../implemented/feature/2026-10-21-personal-settings.md), [SSH maintenance](../../implemented/feature/2026-10-21-personal-settings-ssh.md), and [Personal pages](../../implemented/feature/2026-10-21-desktop-personal-pages.md) own delivered components and their evidence.
 
-技能发现与管理范围由[统一 HOME 发现](../../implemented/simplification/2026-10-28-home-skills-discovery.md)取代；两端只读固定目录，本文其他设置与组合验收范围保留。
+Current supersessions: [direct Personal save](../../implemented/simplification/2026-10-28-desktop-personal-direct-save.md) removes generic confirmation/edit-time revision prerequisites; [HOME discovery](../../implemented/simplification/2026-10-28-home-skills-discovery.md) makes both skill pages read-only at fixed directories; [Tailscale HTTPS/WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md) replaces the old Personal connection for chat/settings; [save/effect versions](../../implemented/architecture/2026-10-25-personal-settings-versions.md) replaces blanket stopped-only ordinary configuration saves. [Operation-scoped configuration](../architecture/2026-10-25-operation-scoped-configuration.md) retains proposed adjustments beyond its already-delivered successors; it is not wholesale implementation evidence.
 
-配置更新与迁移的拟调整范围见[按受影响对象更新配置](../architecture/2026-10-25-operation-scoped-configuration.md)；该提案尚未落地，本文现行约束继续有效。
+## Problem
 
-PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)，统一新聊天与设置；本篇配置能力与生效规则继续适用。
+Desktop originally exposed appearance, old Personal connection, and archives; the session model menu could not manage providers, skills, or external tools. On 2026-10-21 the owner requested a complete plan for both Code and Personal. Code already had much of the control API, but new personal durable had different protocol/configuration lifecycle. Copying forms alone could display the wrong backend or scope as configured.
 
-技能后端已按[固定托管路径与清单](../../implemented/feature/2026-10-21-managed-skills.md)落地，[Personal 设置入口](../../implemented/feature/2026-10-21-personal-settings.md)已完成认证查询、停机持锁机器协议与档案接线；[SSH 维护](../../implemented/feature/2026-10-21-personal-settings-ssh.md)与 [Personal 三类页面](../../implemented/feature/2026-10-21-desktop-personal-pages.md)已接线，真实环境与双壳组合验收仍由各工单持有；本提案继续记录总体验收范围。
+## Proposal
 
-## 问题
+Keep the categorized settings dialog with explicit product choice in Models, Skills, and MCP, preserving actual product differences rather than inventing a uniform full-feature configuration platform. Code uses its Runtime/model/MCP versions/discovery/approval; personal adapts independently to durable. Original shared requirements are historical offline `.scratch/desktop-settings/spec.md`, not a maintained task entry.
 
-桌面设置只有外观、旧 Personal 连接与存档，会话模型菜单不能管理提供方、技能或外部工具。2026-10-21 拥有者要求制定补全方案，并确认覆盖 Code 与 Personal。Code 配置控制面已具备大部分能力，而新个人 durable 使用不同协议与停机配置；仅复刻表单会把错误的后端或作用范围展示为已配置。
+### Configuration ownership
 
-容器部分已由[设置容器](../../implemented/feature/2026-10-21-desktop-settings-shell.md)落地，Code 模型设置由[按配置位置管理模型凭据](../../implemented/feature/2026-10-21-code-model-settings.md)持有；[Code MCP](../../implemented/feature/2026-10-21-code-mcp-settings.md)、[Code Skills](../../implemented/feature/2026-10-21-desktop-code-skills.md)与上述 Personal 接线分别持有已实施决定；本篇保留整体规划及待组合验收范围。
+The owner-confirmed 2026-10-24 [instance MCP decision](../../implemented/simplification/2026-10-24-code-instance-mcp.md) removes Code workspace/legacy-project selection/filtering/compatibility. Manage without a workspace; credentials are MCP-purpose/operation/endpoint-bound from first write. Storage/protocol/CLI/TUI/desktop must agree. Use new Code profiles, preserving old records rather than merging/broadening old services. Old chats cannot continue in-place on the new version. This revision reopened prior MCP engineering acceptance; old approval/evidence does not cover new instance scope, Cua unresolved work, or complete shutdown.
 
-## 方案
+Model credential metadata represents configuration locations. Replace/remove only the owner-selected storage entry/directory field, not every possible source. Configured does not mean authentication failed or succeeded. Directory/environment sources may still apply after deleting a store item; fully resolving authentication during listing may run commands or refresh OAuth. List provable redacted locations without evaluating dynamic secrets; unknown source/validity stays unverified until explicit connection test. Desktop/TUI online/offline share semantics without a new global resolver.
 
-沿用现有分类浮窗，在模型、Skills、MCP 中显式选择产品。2026-10-24 拥有者要求取消 Code MCP 工作区配置与向后兼容，当前规划改为[实例统一配置](../../implemented/simplification/2026-10-24-code-instance-mcp.md)：删除工作区和旧项目来源选择、项目筛选及兼容分支，无工作区也可管理，凭据仍首次写入即限 mcp 用途/操作与端点。Code 复用现有 Runtime、模型与 MCP 的版本、发现和审批路径，同步修改存储、协议、CLI/TUI 与桌面；Personal 设置继续独立适配 durable。具体交互、契约及工单由[共享规格](../../../../.scratch/desktop-settings/spec.md)持有。
+### Historical managed-skills choice and its replacement
 
-模型凭据元数据按配置位置展示，来源替换/移除只作用于拥有者选定的存储条目或目录字段；现有 configured 不升级为「认证已失效」的结论。目录和环境等来源可能在存储条目删除后继续生效，读取时执行完整认证解析又可能执行命令或刷新 OAuth，因此配置列表只读脱敏位置，不求值动态秘密；无法安全证明的来源或有效性保持未验证，由显式连接测试另验。Desktop 与 TUI 在线/离线采用相同语义，不新增全局凭据解析器。
+The original accepted proposal copied imports to a host-private fixed managed root while external trees/references stayed read-only. A minimal manifest held identity/content revision/enabled state; published package bytes never changed. Enable/disable/logical removal changed the manifest, not paths referenced by old snapshots. Ended agent_wait snapshots can be consumed by future tasks, so idle tasks do not prove paths deletable; future selection filters new availability and records it while originals remain. No physical collection, marketplace, source updater, or editor was planned.
 
-技能导入复制到宿主私有、固定路径的托管区，保留原技能树及外部引用为只读来源；不向已有目录写停用状态。托管清单仅保存身份、内容修订与可用状态，包内容发布后不改；启停与逻辑移除只改清单，不移动已钉版正文的引用路径。ended agent_wait 的参考快照仍可供未来任务使用，不能靠当前任务空闲证明旧路径可删除；后续新任务从旧快照选择时按新状态过滤并记录本次选择，旧快照与引用原样保留。首版不做物理回收，技能市场、源码更新与编辑器也不属于首版。
+That design required Personal's lock-owned top-level layout/permission checks to recognize a directory in both ordinary-private and locked-permission classifications, then validate fixed internals while locked. Merely adding a name to a file whitelist could reject the directory or apply file permissions. Manifest/temp/staging stayed inside managed root; safe uncommitted objects could reopen without entering catalog, and old profiles without the optional root kept format/history. New managed checks did not claim all old files had equivalent validation.
 
-Personal 的档案锁持有顶层布局与权限的判断；托管根必须同时进入普通私有目录分类和锁后权限分类，再在持锁后核实固定内部布局。只让已有普通文件白名单接受新名字会拒绝目录或误设文件权限，不能仅在技能扫描处接线。清单、临时文件与暂存全部留在托管根内，安全未提交对象可重开而不入目录，旧档案缺少此根不影响原格式与历史；新增托管检查不宣称原档案所有文件已具有相同检查。
+[Managed skills](../../implemented/feature/2026-10-21-managed-skills.md) delivered that historical design. HOME discovery now supersedes import/enable/remove and source configuration in both products; current overall acceptance must validate fixed-directory read-only discovery and preserved old evidence, not require removed management controls. The stable-reference rationale remains useful for retained historical content.
 
-Personal 在线只读及显式模型测试使用既有本机认证 HTTP 接口，停机写入使用远端受限机器入口与档案锁，SSH 只承载固定操作与 JSON。拥有者从 GUI 显式选择停存启；按原 CLI 或 systemd 生命周期操作，未决工作、未知外部占用和锁失败均阻止变更。现有 helper 不允许管理后台自身；systemd 写管理以前置管理员精确授权及无超时强杀的单元为条件，GUI 不自行安装提权。原启动环境无法核实时保持只读或未验证，不复制服务秘密。不为少一步而引入热改配置、自动取消或强杀。单表单单次配置写入，不引入跨文件配置事务。
+### Personal save and lifecycle boundaries
 
-本轮只规划设置管理，不把 Personal 聊天迁移、权限、IM 或工作流管理夹带进来。两端的模型与 MCP 凭据形式分别展示，保留实际能力差异；不建立抽象成全功能相同的配置平台。
+Originally online read/test used authenticated local HTTP, while writes used a stopped, lock-held bounded remote JSON machine entry carried by SSH. The owner explicitly selected stop-save-start under original CLI/systemd lifetime; pending work/unknown occupancy/lock failure blocked maintenance. The existing service helper cannot manage its own backend. Systemd mutation required administrator-granted exact authority and a unit without timeout force-kill; GUI installed no privilege. Unverifiable original environment meant read-only/unverified, never copied service secrets, automatic cancellation, or force killing. Each form wrote one configuration, not a multi-file transaction.
 
-2026-10-21 拥有者明确「方案已通过」，确认本提案与共享规格的范围和取舍；独立方案复审已无技术阻断，按工单依赖交实施。本篇保持 proposed，代码落地后再按实际结果转 implemented。
+Those transport/ordinary-save interactions are superseded by Tailscale, save/effect versions, and direct save. Preserve original maintenance/identity/unknown-effect protections where still required; do not impose old stop/revision-confirmation UI on every current save. Direct save does not authorize bypassing backend receipts or concurrency checks. Real original-service restoration still needs evidence, not shell-credential assumptions.
 
-2026-10-24 的 MCP 修订只更新方案，03 重开；旧批准和工程证据不覆盖本次实例化。新方案拒绝旧 Code 数据库、保留原档案并使用新数据目录重新配置，不合并或扩权旧服务；代价是旧会话不能在新版本原地继续。完整退出与 Cua 未决处理由实例 MCP 提案持有，本篇其他已确认范围继续有效。
+This proposal adds settings, not unrequested Personal chat migration, permission/IM/workflow management. Later independently approved chat/connection changes are owned by their own decisions, not silently added here.
 
-## 既有笔记审计
+### Confirmation and remaining status
 
-按 desktop、设置、模型、MCP、Skills、durable 与配置检索 proposed / implemented；rejected 目录不存在。以下均部分重叠，保留原决定与历史证据，无完全吸收或过时提案。
+The owner explicitly approved this proposal/shared scope on 2026-10-21; independent design review had no technical blocker before implementation handoff. Components subsequently landed and newer choices superseded parts. Keep proposed until combined requirements and actual engineering/product evidence justify resolving the overall item; neither the original approval nor individual completed notes implies full combined acceptance.
 
-| 笔记 | 关系与处理 |
-| --- | --- |
-| [桌面客户端](../../proposed/architecture/2026-10-15-desktop-client.md) | 延续宿主、SSH、安全与丢答规则；本提案新增设置及新 durable 管理，不以旧连接当新接口 |
-| [桌面定稿](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md) | 保留视觉与分类浮窗；本轮拟扩展其暂缓的配置能力，未实施前原运行事实不改 |
-| [MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[写工具审批](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | 复用发现、版本与批准；项目配置和凭据范围由[实例 MCP 提案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代，不改变逐操作审批 |
-| [个人 MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | 保留代次、凭据身份、原请求及未知占用；单服务停用的配置版本须单独验证 |
-| [个人技能与历史](../../implemented/architecture/2026-10-18-personal-memory-skills-history.md) | 沿用外部库与参考证据，新增托管来源不能破坏旧快照与调用记录 |
-| [个人档案基础](../../implemented/architecture/2026-10-17-personal-durable-foundation.md) | 06 需在严格顶层布局、目录权限与持锁读取中接入可选托管根，保留原实例锁、版本与旧档案拒绝规则 |
-| [Agent 等待与参考快照](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md) | `latestAgentReferenceSnapshot` 仍可返回 ended 记录，采用稳定路径保留旧引用，新任务可用性另行选择，不改写原参考证据 |
-| [渐进交互](../../implemented/process/2026-10-14-progressive-human-interaction.md) | 程序管理 ID、版本与请求键，人只选对象、填写配置、确认影响 |
+## Related decisions
 
-## 备选方案
+The original desktop/settings/model/MCP/skills/durable audit found partial overlaps, no complete absorption or obsolete proposal. [Desktop client](../architecture/2026-10-15-desktop-client.md) owns host/bridge/security/lost-response layering; [desktop design](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md) owns visual/category presentation. [MCP client](../../implemented/architecture/2026-09-23-mcp-client.md) / [write approvals](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) retain eligibility/approval while instance-MCP and later Pi decisions own configuration/protocol changes.
 
-- 只接 Code 设置：模型与 MCP 多为已有接口，交付最快；拥有者明确要求两端，故 Code 可分段交付，但不能据此完成整项需求。
-- 所有配置统一成一个后端服务并在线更新：表单与调用可共用更多代码；Personal 停机锁、凭据引用与 durable 证据不同，强行统一会引入迁移和新的运行风险，选择各自接线。
-- 桌面直接编辑配置文件或远端拼 shell：入口少、无需扩展管理 API；会绕过版本、锁、未决与副作用核实，且增加 renderer 的文件和命令权限，因此采用宿主明确放行与产品配置函数。
-- 托管启用/停用目录间移动，并在任务空闲时允许操作：不需要状态清单，目录即配置；ended wait 的参考快照仍可能被未来任务消费，空闲不足以证明引用已释放，保守拒绝会使这些实例长期无法管理，因此采用固定目录与最小状态清单。
-- 配置列表通过实际认证解析给出有效来源：可直接观察某次解析的结果；目录凭据命令与 OAuth 刷新会让读取产生副作用，SDK snapshot 又未必是当前事实，因此只展示可证明的配置位置，实际可用性留给显式测试。
+[Personal MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) owns generations/credentials/request/unknown facts with subsequent simplifications; per-service enablement must be separately verified. [Personal information](../../implemented/architecture/2026-10-18-personal-memory-skills-history.md), [foundation](../../implemented/architecture/2026-10-17-personal-durable-foundation.md), and [wait references](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md) preserve original instance/layout/version/history/snapshot rules. [Progressive interaction](../../implemented/process/2026-10-14-progressive-human-interaction.md) keeps IDs/versions/request keys program-owned; people choose objects/configuration/impact, with direct-save successor removing redundant confirmation.
 
-## 验收标准
+## Alternatives considered
 
-[规格 R1–R9](../../../../.scratch/desktop-settings/spec.md#共同契约与失败处理)均有对应窄测与真实环境清单；两端各自能管理模型、托管技能和 MCP，配置在退出重开后可核实；Code 的 TUI 与会话菜单保持一致；Personal 有真实 Linux SSH 与按原生命周期停存启证据。缺少前提时保留待验收，不能用 SSR 或服务桩替代真实服务。
+- **Code only:** fastest because APIs exist, but owner requires both; staged Code delivery cannot close the whole request.
+- **One backend configuration service with hot updates:** more shared forms/calls, but original personal lock/credential/durable evidence differs and forced unification adds migration/runtime risk. Keep product owners; later safe online saves do not require merging runtimes.
+- **Desktop file edits or assembled SSH shell:** fewer APIs, but bypasses versions/locks/unresolved effects and broadens renderer file/command powers. Use fixed host-authorized product operations.
+- **Move managed packages between enabled/disabled directories when idle:** no manifest, but ended reference snapshots can still be used later; idle is not no-reference, and conservative blocking would make maintenance indefinite. Fixed paths/minimal manifest were the original choice, later superseded by read-only HOME discovery rather than unsafe moving.
+- **Resolve live authentication to list effective sources:** gives one resolution result, but credential commands/OAuth refresh cause read-side effects and SDK snapshots may be stale. Show known configuration positions; explicitly test actual usability.
 
-## 风险
+## Acceptance criteria
 
-Personal 增加受限机器入口与维护流程，范围明显大于为 Code 加表单；首次交付应先用隔离档案验证，不操作生产档案。停机检查会拒绝有未决工作的变更，用户需要先完成原工作；模型环境引用与 systemd 环境须按实际身份核实。托管技能受文件数量与大小限制，外部维护来源暂不提供一键停用或删除；逻辑移除保留磁盘字节，状态清单需原子保存和恢复校验，实际磁盘增长成为问题时再单独设计可证明无引用的物理回收。这些限制在页面明确显示，工程与产品验收仍须在实施后完成。
+Map the original shared R1-R9 to narrow tests and real-environment evidence, updated only for the named confirmed successors. Both products must expose correct model/MCP scope and current read-only skills discovery, with saved configuration verifiable after close/reopen. Code TUI/session menus must agree. Personal must prove current authenticated transport/save/effect behavior and, when maintenance is actually required, real Linux SSH/original-service lifecycle recovery. Removed managed-skill/stop-every-save UI is historical, not an unmet requirement to restore it.
+
+Independent combined review must distinguish engineering checks from owner-visible dual-shell experience and real model/service/deployment acceptance. Missing prerequisites keep acceptance pending with recovery conditions; SSR, mock services, and component builds cannot substitute for real service evidence. Do not claim all requirements passed from the implemented child notes.
+
+## Risks
+
+Personal machine/maintenance management is larger than Code forms; validate isolated profiles before production. Necessary pending-work/unknown-effect checks may still block relevant changes; actual backend identity/environment, not an SSH shell, determines credentials and restoration. Original managed packages had count/size limits and retained bytes after logical removal; retained historical references still prohibit casual physical cleanup. Current fixed-directory skills do not revive removed import/delete UI. New cleanup, if needed, requires proof of no remaining references.
+
+Versioned save/effect recovery, Tailscale transport, and direct-save UI require combined verification after supersession. Engineering and subjective product acceptance remain separate and unresolved where evidence is absent; this migration runs no runtime, dual-shell, real-model, or deployment tests.

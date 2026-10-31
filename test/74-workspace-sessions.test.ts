@@ -18,9 +18,8 @@
  * 6. TUI 选择面板：ruukoto-code 产品下列出工作区与旧项目、不出现角色与群聊项目；
  *    ruukoto 产品下行为不变（角色项目仍列出）。
  *
- * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite/Pseudo-Terminal 真实）；
- * 真实环境（macOS 本机真实 bin）验证记录见 .scratch/agent-direction/smoke-05-workspace-sessions.mts
- * 与工单 Comments。
+ * These offline assertions stub the model but use real processes, files, sockets, SQLite and PTYs.
+ * Historical macOS bin acceptance and ticket comments remain in the offline agent-direction archive.
  */
 
 import { test } from "node:test";

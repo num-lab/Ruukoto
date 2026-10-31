@@ -1,25 +1,25 @@
-# Agent Note: 文件树先读取再展开
+# Agent Note: Read folders before expanding them
 
 Status: implemented
 
-[目录续页与按需 Git](2026-10-24-directory-pages-lazy-git.md)取消新标签页的 Git 检测及错误区域，入口固定可见；文件夹加载反馈保持。
+[Directory paging and lazy Git](2026-10-24-directory-pages-lazy-git.md) removes Git detection and its error area from new tabs and keeps entry points visible. Folder-loading feedback remains.
 
-## 问题
+## Problem
 
-文件树首读与每个目录展开都插入读取文字，占用内容行；空目录提示和新标签页的检测文字、差异清单增加了布局变化。
+Initial file-tree reads and each folder expansion inserted loading text as content rows. Empty-directory messages, new-tab detection text, and diff lists caused further layout changes.
 
-## 决定
+## Decision
 
-根目录首读显示带可访问名称的加载图标。文件夹点击把意图写入既有folders并直接启动loadDirectory，只有目录有value或error才实际展开，读取中图标放在文件夹行末，箭头保持收起；再次点击取消展开意图，完成响应仍可进入缓存。缓存命中直接展开，刷新保留旧内容与展开状态，图标反馈读取中；失败展开错误与重试，重试期间重新等待。根和子空目录均留空，不输出“暂无文件”。
+The root's first read shows an accessibly named loading icon. Clicking a folder stores intent in the existing `folders` state and starts `loadDirectory` directly. Actual expansion waits for a directory value or error. While reading, the icon sits at the end of the folder row and the arrow stays collapsed. A second click cancels expansion intent, but the completed response may still populate the cache. Cache hits expand immediately. Refresh preserves old content and expansion with a loading icon. Failure expands an error and retry action; retry waits again. Empty roots and folders remain blank, without a no-files message.
 
-右栏新标签页保留浏览器、文件树、Git与SubAgent入口，不显示Git检测中的文字和工具差异清单；检测失败仍给出错误与重试。消息内的diff入口和已打开diff标签继续可用。Demo只使用同步样例，不模拟读取延迟，同步新标签页与空树展示。
+The original new-tab simplification retained browser, file-tree, Git, and SubAgent entry points, removed Git-detection text and diff lists, and retained retryable detection failures. The later directory-paging decision supersedes detection itself. Inline diff entry points and open diff tabs remain usable. Demo uses synchronous samples rather than simulated delays, with matching new-tab and empty-tree presentation.
 
-本篇补充[文件树刷新](../bug-fix/2026-10-17-desktop-file-tree-refresh.md)，读取权限、缓存代次与刷新周期继续适用；收窄[右栏扩充](2026-10-16-demo-inspector-tools.md)的新标签页展示。按Directory、文件树、加载与侧栏检索，其他命中为无关的Git分页和正文渲染。
+This supplements [file-tree refresh](../bug-fix/2026-10-17-desktop-file-tree-refresh.md): read permissions, cache generations, and refresh intervals remain. It narrows new-tab presentation from the [inspector expansion](2026-10-16-demo-inspector-tools.md).
 
-## 备选方案
+## Alternatives considered
 
-立即展开再插入子目录加载图标改动少，但仍会出现额外内容行，不符合行末反馈要求。仅在子Directory挂载后读取沿用旧代码，却无法同时延迟展开，故点击时直接读取。失败不展开可保持空白，但会隐藏错误与恢复入口；空目录显示提示虽有解释作用，拥有者明确要求留空。
+Immediate expansion with a child loading icon needs fewer changes but still inserts an extra content row. Reading only after child Directory mounts retains the old structure but cannot also delay expansion, so reading starts on the click. Leaving failures collapsed hides recovery; empty-folder text was explicitly rejected by the owner.
 
-## 后果
+## Consequences
 
-加载不会插入临时子项，失败与重试仍可见。展开意图和实际open不同，自动刷新继续复用意图扫描；读取中取消不会撤销已发出的只读请求。真实组件回归与浏览器验收范围见[工单23](../../../../.scratch/desktop-shadcn/issues/23-files-sidebar.md)。
+Loading adds no temporary child items, while errors and retry remain visible. Expansion intent differs from actual open state, and automatic refresh still scans intent. Canceling intent does not revoke an already issued read-only request. Component regressions and browser acceptance scope are recorded in the offline copy of `.scratch/desktop-shadcn/issues/23-files-sidebar.md`.

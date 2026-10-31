@@ -1,45 +1,27 @@
-# Agent Note: Desktop 迁入当前 demo
+# Agent Note: Migrate the current Demo into Desktop
 
 Status: implemented
 
-Markdown 文件内容中的图片加载由[直接显示图片](../simplification/2026-10-25-desktop-markdown-images.md)持有，文件预览本身的后台读取规则继续适用。
+[Direct Markdown images](../simplification/2026-10-25-desktop-markdown-images.md) owns embedded-image loading; preview-file reads still use the backend. [Directory paging](../feature/2026-10-24-directory-pages-lazy-git.md) removes the 200-total directory limit. [Read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) permits ordinary hardlinks. [Owner browsing](../feature/2026-10-24-owner-workspace-browsing.md) removes browsing protected-root scans. [Complete chunked transfer](../feature/2026-10-18-complete-reasoning-and-preview.md) removes the preview-total limit. Registered roots, paths, read consistency, and original access scope remain.
 
-[文件树续页](../feature/2026-10-24-directory-pages-lazy-git.md)取代目录每层 200 项总上限，保留分页容量、路径与读取一致性核实。
+## Problem
 
-[读取检查复用](../bug-fix/2026-10-24-read-check-overhead.md)取代文件预览的多硬链接拒绝，其余路径与读取一致性要求保持。
+The owner requested production migration of the current Demo after several annotation rounds. The [earlier frozen migration](2026-10-15-desktop-shadcn-demo.md) lacked AI Elements, Context, Effort, and inspector browser/files. Overwriting renderer would lose real state; copying fixtures would invent it.
 
-工作区浏览的保护根约束由[拥有者浏览权限](../feature/2026-10-24-owner-workspace-browsing.md)取代；登记根、路径及读取一致性规则继续适用。
+## Decision
 
-文件预览总量上限由[完整分块传输](../feature/2026-10-18-complete-reasoning-and-preview.md)部分取代；原访问范围继续成立。
+Keep submission idempotency/recovery, approval, single-diff, and history semantics. Update presentation to Demo and add minimal read-only wiring. The original migration freezes v2 without changing old snapshots, copies new theme/primitives directly, and appends native-window adaptation separately. Historical approval is in `.scratch/desktop-shadcn/issues/05-current-demo-migration.md` in the offline archive; frozen sources are retained under `test/fixtures/desktop-baselines`.
 
-## 问题
+Context uses existing selection records/window snapshots; Effort uses real model levels; thinking uses recorded text/time. Missing data stays unknown. The original browser uses isolated iframe with existing native-collision/tab interaction, not model browser tools. Files come only from registered workspaces through bounded read-only control queries, checking root identity, relative paths, and stable reads. Later owner-browsing rules supersede this migration's original protected-root check.
 
-拥有者要求把经过多轮批注的当前 demo 迁入正式 Desktop。旧[冻结迁移](2026-10-15-desktop-shadcn-demo.md)不含 AI Elements、Context、Effort 和右栏浏览器／文件视图，直接覆盖 renderer 会丢真实状态，直接复制 fixture 会伪造数据。
+## Alternatives considered
 
-## 决定
+Copying the whole Demo App preserves appearance fastest but replaces real models/directories/submission with static data. Copy only presentation primitives/styles. Electron WebContentsView offers a fuller browser but adds native coordinates, popup occlusion, and permissions; the original migration keeps approved iframe limits. Renderer-local reads remove a control layer but grant arbitrary local access; root/path authority remains in backend.
 
-保留提交幂等／恢复、审批、单次差异及历史语义，展示层按 demo 更新并补齐最小只读接线。按[工单](../../../../.scratch/desktop-shadcn/issues/05-current-demo-migration.md)冻结 v2，旧快照不变；新主题和原语直接复制，原生窗口适配独立追加。
+## Consequences
 
-Context 接既有选择记录和窗口快照，Effort 接模型真实档位，thinking 用已记录文本和时间。缺数据保持未知。浏览器沿用隔离 iframe 与原生碰撞／标签交互，不接模型工具浏览器；文件只从已登记工作区经有界只读控制面取得，复核根身份、保护根、相对路径和读取稳定性。
+[Trace migration](2026-10-16-desktop-trace-migration.md) later changes thinking/tool details, preserving other boundaries and historical evidence. Original engineering/isolated-Electron acceptance is in the archived migration issue. Both frozen generations remain; theme/primitives trace byte-for-byte to v2. Empty thinking/tool message bodies are filtered before rendering to avoid empty spacing, while attachment-only messages remain. Independent-review fixes for disconnect forwarding, in-flight Context refresh, and empty outer spacing have narrow regressions.
 
-## 备选方案
+The original iframe has no bridge, Node, device, or top-navigation authority; sites may forbid embedding, and address-bar history does not include internal page history. Original reads returned 200 directory entries and 256KiB previews with explicit truncation/unsupported feedback; the later decisions above replace total limits. Node before/after path checks are not an atomic openat sandbox. Context capacity comes from recorded snapshots or stays unknown. Protocol 28 introduced the migration and rejects incompatible clients.
 
-- 整体复制 demo App：保持外观最快，但会以静态数据替代真实模型、目录和提交状态；只复制展示原语与样式。
-- 引入 Electron WebContentsView：能获得完整浏览器能力，但增加原生层坐标、弹层遮挡与额外权限；采用 demo 已明确的 iframe 限制。
-- renderer 直接读取本机文件：少一层控制面，但会给前端任意本机读取；根目录与路径授权留在后台。
-
-## 后果
-
-本篇 thinking 正文与工具详情决定由[后续 Trace 迁移](2026-10-16-desktop-trace-migration.md)部分取代，原迁移证据与其他边界继续保留。
-
-工程与隔离 Electron 验收见[工单](../../../../.scratch/desktop-shadcn/issues/05-current-demo-migration.md)。新旧冻结稿分别保留，主题和全部原语逐字可追溯至 v2；真实思考与工具空正文在渲染前过滤，避免无内容的消息行占距，纯附件消息仍显示。独立审查发现的断线转发、Context 在途新事件刷新与空消息外层间距均配最窄回归。
-
-iframe 受站点嵌入策略限制，地址栏历史不包含网页内部历史；网页没有 bridge、Node、设备或顶层导航权。文件单层返回 200 项、预览 256 KiB，截断与不支持显式可见；Node 的路径前后复核不等同原子 openat 沙箱。Context 容量来自记录快照，缺失保持未知。协议提升到 28，旧客户端明确拒绝。
-
-旧冻结迁移与本篇部分重叠，旧批准、附件、分页及恢复理由继续成立；[右栏 demo 试验](../feature/2026-10-16-demo-inspector-tools.md)的静态内容与 demo-only 边界由本轮明确迁移授权取代，旧证据不改写。未在新 demo 体现的后台能力继续保留清单。
-
-文件树目录保护检查的批量扫描与目录分类稳定性由[目录保护优化](../bug-fix/2026-10-17-directory-protection-cost.md)补充；文件预览及其他宿主工具继续本篇与原生执行约定。
-
-PA、标签排序、Git graph 与玻璃层的后续迁移由[当前迁移](2026-10-17-desktop-demo-v4.md)持有，本篇其他行为继续适用。
-
-后续局部调整见[后续决定1](../bug-fix/2026-10-17-desktop-file-tree-refresh.md)；对应生命周期与默认设置以新决定为准，其余迁移契约保留。
+Earlier approval, attachments, paging, and recovery rationale remains. This migration explicitly supersedes Demo-only/static-content scope in [inspector experiments](../feature/2026-10-16-demo-inspector-tools.md), without rewriting old evidence or silently dropping backend capabilities absent from the Demo. [Directory-protection cost](../bug-fix/2026-10-17-directory-protection-cost.md) records the original batched-check/race rationale; later browsing removals apply as stated above. [Desktop v4](2026-10-17-desktop-demo-v4.md) owns Personal, reordering, Git graph, and glass migration. [File-tree refresh](../bug-fix/2026-10-17-desktop-file-tree-refresh.md) owns later refresh lifecycle.

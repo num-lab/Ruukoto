@@ -1,37 +1,51 @@
-# Agent Note: 当前工作区快照与相对基线的子增量
+# Agent Note: Snapshot the current workspace and compute child deltas against it
 
 Status: implemented
 
-## 问题
+## Problem
 
-[可配置角色](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)要求代码审查和修改使用当前工作区，并保护来源。只从 HEAD 创建 worktree 会漏掉 staged/unstaged、新文件和删除；将这些原有内容再次套回会误算子成果。来源本身不能执行旧 freeze 的 `add -N`，也不能因私有索引仍使用源对象库而产生对象写入。
+[Configurable roles](2026-10-14-configurable-subagent-roles.md) requires review/modification against the current workspace while protecting its source. A HEAD worktree omits staged/unstaged changes, new files, and deletions; reapplying those original changes misidentifies them as child output. Source capture must not run old freeze's `add -N`, nor write source objects through a private index that still uses the source object database.
 
-## 决定
+## Decision
 
-Git target 独立于角色。捕获阶段在持有来源占用的 worker 内固定 HEAD、索引状态、来源目录与共享 Git 身份，按当前路径和实际原始文件字节、类型及执行位生成树，HEAD 只作溯源与对象可用性预检；包含已跟踪实际内容与非忽略新文件，不复制忽略依赖。来源读取禁止 partial clone 自动下载对象，缺所需对象明确失败；私有 Git 初始化使用空模板及固定 SHA-1，读取来源对象不继承来源 promisor/remote 配置；不运行 clean/smudge、textconv、外部 diff、hooks/fsmonitor，不写来源文件、index、对象或 refs/config。两次原始树与前后指纹必须一致，否则拒绝本次准备，保留现场。原索引及 split-index 的实际共享索引另在私有位置保存和核实；枚举文件只读私有索引，避免 Git 读取源 split-index 时刷新共享索引时间。
+A Git target is independent of role. Inside a worker holding source occupancy, pin HEAD, index state, source-directory identity, and shared-Git identity, then construct a tree from actual paths/raw bytes/types/executable bits. HEAD is provenance and an object-availability preflight, not the content baseline. Include tracked current contents and nonignored new files, not ignored dependencies. Disable partial-clone lazy fetch; missing required objects fail. Private Git initialization uses empty templates and SHA-1, inheriting neither promisor nor remote configuration. No clean/smudge, textconv, external diff, hooks, or fsmonitor runs, and source files/index/objects/refs/config remain unwritten. Two raw trees and before/after fingerprints must match or preparation refuses while preserving evidence. Save and verify the actual index and split-index shared index privately; enumerate only through that copy to avoid Git refreshing source shared-index timestamps.
 
-捕获使用完全独立的私有 bare Git 与临时索引，按 `hash-object --no-filters` 存入原始 blob，保存 staged blob 供索引追溯。私有对象不得指向 alternates、外部 Git、符号链接或多硬链接；宿主以纯文件读取核实对象散列、类型和完整树闭包，模型请求与恢复前同样核实。源 HEAD 与 Git 指向、目录 dev/ino 及私有基线摘要关联到版本化 `WorkspaceSnapshot`，持久记录缺失或失配明确失败。
+Capture uses a fully separate bare Git database and temporary index. `hash-object --no-filters` stores raw blobs, with staged blobs retained for index provenance. Private objects must not use alternates, external Git pointers, symlinks, or multiple hardlinks. The host reads files directly to verify hashes, object types, and the complete tree closure, again before model requests/recovery. A versioned `WorkspaceSnapshot` binds source HEAD/Git pointers, directory dev/ino, and private-baseline digest; missing or mismatched durable evidence fails explicitly.
 
-普通捕获与副本登记分别登记不调用模型的独立宿主 Task 和工具账本，绑定真实父任务、工作、操作与来源身份。父任务继续持有来源占用，宿主 Task 临时持有副本占用；父停止先收尾宿主单元。登记阶段仅新增专属分支和 worktree 管理元数据，用 `--no-checkout` 后按捕获树物化，不接触原工作树/index、原 HEAD、分支、hooks/config。该准备资格不提供给子模型。停止未核实保留两个任务占用、已知结果和现场，不重放操作；宿主任务排除普通模型队列、模型补选及普通继续入口。
+### Preparation ownership
 
-冻结、独立验证与普通汇总共用同一捕获树；子成果只计算该树之后的增量，冻结记录和验证记录同时固定快照摘要。验证副本从同一原始树加冻结字节建立，原工作区后来的内容不进入验证副本。汇入前检查当前副本仍等于冻结字节，再按所有受影响文件的完整字节、类型和执行位核实来源全部等于基线或全部等于子成果：前者预检后套用，后者幂等返回，混合或后来变化拒绝。不同 hunk 的后来修改也拒绝，无关文件不阻塞；完整差异不增加累计汇入状态，后续新改动可能须新工作处理。
+Ordinary capture and work-copy registration each have an independent no-model host Task and tool ledger bound to the real parent task, work, operation, and source identity. The parent retains source occupancy; the host task temporarily holds copy occupancy, and parent stop settles its host units first. Registration adds only the dedicated branch and worktree metadata, uses `--no-checkout`, then materializes the captured tree without changing source worktree/index/HEAD/branches/hooks/config. The child model does not receive this preparation authority. Unverified stop retains both tasks' occupancy, known results, and files without replay. Host tasks stay outside ordinary model queues, fallback model selection, and ordinary continuation entries.
 
-受保护目标要求 Git，实际命令用 native 沙箱，来源、共享 Git、私有基线与附加来源只读；副本内检查产物可写。结构化文件工具、路径授予与批准后的宿主写操作使用同一来源保护，绝对路径、别名、符号链接及多硬链接不得旁路。native 对挂载中全部文件和目录的 dev/ino 核实读写等级，不能以 nlink=1 排除 file bind；宿主按目标与祖先 inode 正向核查保护树，拒绝保护根内子对象的 bind/hardlink 别名，不跟随符号链接。内置 reviewer 收紧为 confirm，完全访问父级不改变该限制；自定义 full_access 仍是账户信任，不声称物理隔离。无目标保留独立目录与获准资料，普通非 Git target 保留 direct 和 agent_wait 串行；保护要求及工作流写入在副作用前拒绝非 Git。
+Freeze, independent verification, and ordinary integration use the same captured tree. Child output is only its subsequent delta; freeze and verification both pin snapshot digest. Verification copies use baseline raw bytes plus frozen changes, never later source edits. Before integration, verify the current copy still equals frozen bytes. Across every affected file, complete bytes/type/executable bit must then be all baseline or all child result: preflight/apply the former, idempotently return the latter, reject mixed or later-modified content. Even a later change in a different hunk of an affected file conflicts; unrelated files do not. Full-diff integration adds no cumulative merge state, so later changes may require new work.
 
-基线损坏只阻断受影响的新执行、排队/消息、等待目标、结果恢复和送达。终态结果记具体失败 code，真实 Task 终态、已提交 Work、旧结果和文件不改写，不补造来源报告；已有待送 AgentReport 标为 undelivered。其他任务继续，未知异常仍上报。定时收尾保留父最终回复与未知占用事实，取消仍停止已登记 Task；导入校验当前快照但不搬移私有对象或补造基线。文件准备、源套用和 SQLite 登记不是跨文件系统事务。
+### Source protection and failure
 
-## 与相关决定的关系
+Protected targets require Git and actual commands use native sandboxing. Source, shared Git, private baseline, and additional materials are read-only; check outputs in the copy are writable. Structured file tools, grants, and approved host writes use the same protection against absolute paths, aliases, symlinks, and hardlinks. Native checks compare dev/ino and read/write level for all mounted files/directories; nlink=1 does not rule out file bind mounts. Host writes positively check target/ancestor inode against protected trees, refusing bind/hardlink aliases to protected children without following symlinks. The builtin reviewer is confirm even under a full-access parent. Custom full access remains account trust, not physical isolation.
 
-[worktree](2026-10-04-subagent-worktrees.md)的 HEAD-only 基线、父 Task 临时执行归属由本篇部分取代，写入目标钉定、目录占用、禁止宿主 Git 和保留成果继续适用。[普通汇总](../feature/2026-10-05-integrate-worktree-results.md)的 `add -N` 与只靠 patch 可套用判断由本篇部分取代，工具入口、事件账本、取消/关闭后成果可找回仍适用。[工作流真实步骤](2026-10-13-workflow-step-capabilities.md)采用本篇基线摘要与子增量，冻结资格及独立验证归属保持。[来源能力](2026-10-15-subagent-source-capabilities.md)持有角色权限和请求记录，本篇持有目标字节及宿主准备；[工作流接口](2026-10-15-workflow-role-interface.md)持有角色接线、验证资格与显式接口升级。包职责与执行后端笔记无决定翻转，不搬移或改写归档。
+No-target work keeps an independent directory and authorized material. Ordinary non-Git targets keep direct execution and serial `agent_wait`; protection requirements and workflow writes reject non-Git before effects.
 
-## 备选方案
+Baseline corruption blocks only affected new execution, queues/messages, wait targets, result recovery, and delivery. Terminal result records carry a specific failure code; real task terminal state, committed work, old results, and files are not rewritten, and no source report is fabricated. Existing pending AgentReports become undelivered. Other tasks continue; unexpected errors remain reported. Scheduled settlement preserves parent final replies and unknown occupancy, while cancellation still stops registered tasks. Import validates current snapshots but neither moves private objects nor invents baselines. File preparation, source application, and SQLite registration are not a cross-filesystem transaction.
 
-HEAD worktree 最接近现成实现，但漏掉正在审查的真实内容，不满足当前工作区目标。临时索引配源对象库或 alternates 可少复制对象，但真实实验中 Git 写入会刷新已有 source loose object 时间，不能证明捕获零写入；即使暂时未新增对象也不采用。直接 checkout 捕获树可复用过滤器，却会改变 CRLF/二进制字节或执行源 smudge，因此用原始物化。只用 `apply --check` 可容纳不同 hunk 的并发编辑，但无法证明受影响成果仍基于预期来源，所以先核实完整文件。将准备操作全记在父账本省一个 Task，但无法区分捕获零写入、登记元数据与子任务资格，不能满足独立宿主归属。
+## Related decisions
 
-## 后果
+This partially replaces [worktrees](2026-10-04-subagent-worktrees.md)' HEAD-only baseline and parent-owned temporary preparation, retaining fixed write targets, occupancy, no host Git execution, and preserved output. It replaces [ordinary integration](../feature/2026-10-05-integrate-worktree-results.md)'s `add -N` and patch-applicability-only test, retaining tools, event ledgers, and retrieval after cancel/close. [Workflow real steps](2026-10-13-workflow-step-capabilities.md) uses this baseline/delta while retaining freeze and independent verification eligibility. [Source capabilities](2026-10-15-subagent-source-capabilities.md) owns role authority/request evidence; [workflow interface](2026-10-15-workflow-role-interface.md) owns role wiring, verifier eligibility, and explicit interface upgrades. Package/backend decisions and sealed archives are not replaced.
 
-代码修改和审查看到同一实际基线，子增量不会重套父原有改动；来源零写入和宿主登记可分别核查，保护覆盖真实命令与宿主文件路径。代价是复制私有对象、两次读取与完整性核实增加 IO；宿主非关联文件的保护检查随保护树大小遍历，本仓 62,985 文件/6,370 目录实测约 278–280ms，未缓存以免沿用旧别名，副本、私有基线及失败现场长期保留；已提交引用不得自动清理。非 SHA-1 Git 对象格式、非 UTF-8 文件名、子模块/嵌套 Git、非普通文件及祖先目录别名明确拒绝，不能退成 HEAD-only。外部编辑没有宿主锁，捕获稳定性和汇入预检只证明对应观测，不能承诺跨进程原子或跨成果回滚。真实机制、负例、双平台 native 和最终对象证据由[工程记录](../../../../.scratch/subagent-roles/evidence/03-implementation.md)持有，真实模型及联合产品验收另由后续工单持有。
+## Alternatives considered
 
-Git 套用预检仍决定平台支持的差异：APFS 默认大小写不敏感时，仅大小写重命名的非空子增量会被 Git 以 EEXIST 拒绝，来源/index 与副本保持不变；Linux 大小写敏感目录可以套用。没有为此另写源回写器，拒绝时保留成果和实际诊断。
+- Use HEAD worktrees: closest to existing code, but omits the actual content under review.
+- Use a private index with source objects/alternates: copies less, but real experiments showed Git refreshing existing source loose-object timestamps. No-write capture cannot rely on observing no newly added objects.
+- Checkout the captured tree: reuses Git filters, but can change CRLF/binary bytes or execute source smudge filters. Materialize raw bytes instead.
+- Use only `apply --check`: tolerates concurrent edits in other hunks, but cannot prove affected output still uses its expected source. Verify entire files first.
+- Put preparation entirely in the parent ledger: saves a task, but conflates zero-write capture, metadata registration, and child eligibility. Keep independent host ownership.
 
-原生全局保护根未作为显式只读挂载时，外部特权预先将其子文件 bind 到可写范围仍有既有旁路；宿主文件入口已拒绝同一对象，来源/共享 Git/私有基线/附加资料均属本篇显式只读挂载范围。该全局情形另留真实反例，由后续原生保护审计处理，本篇不把它算作已通过范围。
+## Consequences
+
+Review and modification share the actual baseline, so child integration does not reapply the parent's preexisting changes. Capture no-write and host registration can be verified separately, and protection reaches both commands and host writes. Costs include private-object copies, double reads/integrity checks, and indefinite retention of copies/baselines/failure evidence. Committed references are never automatically cleaned up.
+
+Historical uncached host protection traversal on this repository's 62,985 files/6,370 directories measured about 278-280 ms. Later [batched read checks](../bug-fix/2026-10-24-read-check-overhead.md) reduce duplicate scans within an operation without a cross-launch authorization cache; the historical number is not a current latency guarantee. Non-SHA-1 Git, non-UTF-8 names, submodules/nested Git, unsupported nonregular files, and ancestor aliases fail explicitly rather than falling back to HEAD. External editors do not share host locks: capture stability/preflight proves only its observation, not cross-process atomicity or rollback across results.
+
+On default case-insensitive APFS, Git may reject a nonempty case-only rename delta with EEXIST, preserving source/index/copy; case-sensitive Linux can apply it. No alternate source writer was added to hide that refusal. Preserve output and diagnostics.
+
+An existing limitation remains outside this explicit-mount protection: a privileged external actor can bind a child of a global protected root into writable space when that root is not explicitly mounted read-only. Host file entries refuse the same object; source/shared Git/private baseline/additional materials are all explicit read-only roots here. The global counterexample requires separate native-protection work and is not counted as passed.
+
+Mechanism, negative cases, dual-platform native tests, and final-object evidence were recorded in retired `.scratch/subagent-roles/evidence/03-implementation.md` (offline provenance). Real-model and combined-product acceptance remain separate.

@@ -1,27 +1,23 @@
-# Agent Note: TUI 退出后不重启动画计时器
+# Agent Note: Do not restart animation timers after TUI exit
 
 Status: implemented
 
-## 问题
+## Problem
 
-TUI 退出会关闭连接并清除动画计时器，但已发出的 continue 应答可以在退出后才回到 submitText。应答更新状态并通知界面，refreshAll 再进入 tickTiming；连接已关闭，活动任务状态不会继续更新，新建的引用计时器会永久保留进程。Linux 的 Node 22.19/24.15 在真实任务运行时延迟应答并退出，均复现测试体通过而文件进程不退出。
+TUI exit closes its connection and clears animation timers, but an outstanding `continue` reply can reach `submitText` afterward. Updating state notifies the view, and `refreshAll` calls `tickTiming` again. The closed connection no longer updates active-task state, so a newly referenced timer can keep the process alive forever. On Linux with Node 22.19 and 24.15, delaying a reply during a real running task and then exiting reproduced a passing test body whose file process never exited.
 
-## 决定
+## Decision
 
-tickTiming 在退出状态下直接返回。quit 仍负责清除既有计时器，迟到应答不得重新持有动画资源；后台任务、请求接收及原持久化语义保持。守门放在计时器创建入口，所有刷新调用共同遵守，不逐个拦截异步调用方。
+`tickTiming` returns immediately after exit. `quit` still clears existing timers; late replies must not reacquire animation resources. Backend tasks, request acceptance, and persistence semantics remain unchanged. Guarding timer creation covers every refresh caller without intercepting each asynchronous caller separately.
 
-沿用 32-dev 的重载/继续集成，以两个 Promise 分别控制模型完成与应答交回；确认任务真实运行、退出客户端后才交回应答，提交收尾后核实无动画计时器，再放行模型并检查后台独立完成。失败清理回收本用例重新出现的计时器，使反例以断言失败退出而非挂住整套。
+The 32-dev reload/continue integration uses two promises to control model completion and reply delivery independently. It verifies that the task really runs, exits the client, then delivers the reply. After submission settles, it checks that no animation timer exists, releases the model, and checks independent backend completion. Failure cleanup collects any timer recreated by the counterexample so the assertion fails instead of hanging the entire suite.
 
-## 既有笔记审计
+This supplements [backend/terminal separation](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) without stopping tasks on client exit. [Development launchers](../process/2026-10-09-dev-launchers.md) own a different lifecycle and still stop their managed backends. The defect was found during [test-suite reduction](../testing/2026-10-24-test-suite-reduction.md); it is a product race, not a consequence of test count.
 
-[后台和终端分离](../architecture/2026-09-19-detach-terminal-from-task-runtime.md)部分重叠：继续沿用终端退出不停止任务，只补足客户端资源释放。[开发启动器](../process/2026-10-09-dev-launchers.md)是不同所有者的退出清理，不改变其停止受管后台的职责。未发现同题提案；本修复由[测试精简](../testing/2026-10-24-test-suite-reduction.md)诊断发现，独立记录产品缺陷，避免把挂住归因于测试数量。
+## Alternatives considered
 
-## 备选方案
+Waiting for every asynchronous reply at exit gives one cleanup sequence, but depends on network/backend latency and cannot prevent later notifications from creating other resources. Unref lets the process exit but still refreshes a closed client. Delaying test exit or forcibly killing its process hides the race. Guard the animation-resource owner instead.
 
-- 退出时等待所有异步应答可统一串起收尾；会受网络与后台耗时影响，且无法保证迟到通知不再创建其他资源，本次只需守住动画创建入口。
-- 对计时器 unref 能让进程退出；仍会在已关闭客户端继续刷新，不能代替清理。
-- 延迟测试退出或强制终止进程容易获得绿灯；会隐藏真实客户端竞态，不采用。
+## Consequences
 
-## 后果
-
-修复只阻止退出后的动画，不把客户端退出当成后台操作取消。迟到提交仍按原请求事实收尾；其他客户端资源若有独立生命周期，仍由各自入口负责。受控红绿、原 CI 适用性和完整检查结果见[修复工单](../../../../.scratch/ci/issues/03-tui-exit-late-response.md)。
+Only post-exit animation is blocked; exiting is not cancellation of a backend operation. Late submissions settle according to the original request. Other resources retain their own lifecycle owners. Historical red/green, CI applicability, and complete-check results are in the offline copy of `.scratch/ci/issues/03-tui-exit-late-response.md`.

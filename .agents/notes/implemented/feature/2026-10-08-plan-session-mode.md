@@ -1,45 +1,39 @@
-# Agent Note: Plan 作为持续会话选择并固定采用自动审查
+# Agent Note: Plan is a persistent session choice with fixed auto-review policy
 
 Status: implemented
 
-原编号：ADR 0025
+Original identifier: ADR 0025.
 
-## 问题
+## Problem
 
-一次性 /plan 输入让下一条普通消息自动回到执行，无法持续调研与完善计划；从历史文本或继续链推导模式又使可信会话选择与任务实际工具、说明和审批策略不一致。普通开发会话需要一个可持久化、由拥有者手动切换的 Plan 选择。
+A one-shot /plan input returns the next ordinary message to execution, preventing sustained investigation/planning. Inferring mode from historical text or resume chains disagrees with trusted session choice and actual tools/instructions/approval. Ordinary development sessions need a persistent owner-controlled Plan selection.
 
-## 决定
+## Decision
 
-普通开发会话提供 Plan 选项并持续到拥有者手动更换，替代一次性 `/plan` 文本入口。会话默认模式包含 Plan，任务单独保存计划工作方式与访问模式：Plan 固定组合工具白名单、计划说明和 `auto-review`，复用 [显式访问模式](2026-09-19-explicit-access-modes.md) 的拥有者权限边界及 [自动审查模式](2026-09-22-auto-review-mode.md) 的独立审查策略，不增加第四种访问策略。
+Plan persists until the owner changes it and replaces the one-shot /plan command. Session default and task execution policy are distinct: Plan combines a fixed tool allowlist, planning instructions, and auto-review, reusing [access modes](2026-09-19-explicit-access-modes.md) and [review policy](2026-09-22-auto-review-mode.md), not a fourth access strategy.
 
-新任务在提交时固定选择，会话设置只影响后续新任务；继续中断任务按当前默认值或显式选择创建新任务，不从输入或继续链推断 Plan。任务内部不能进入、退出 Plan 或改动其审批策略，以保证执行环境、工具集合与计划说明始终一致；需要执行时先中断、手动切换模式再继续。旧文本保留原文，通用 schema 升级不回填计划状态。保留 `bash` 等调研工具的代价是只读行为仍依赖计划说明，不能把 Plan 宣称为全面只读的安全边界。
+Pin each new task at submission. Defaults affect later tasks only; resuming an interrupted task creates a new task using current default or explicit selection, never text/resume-chain inference. A running task cannot enter/exit Plan or change its policy. To execute, interrupt, manually switch, then continue. Keep historical text unchanged and do not backfill planning state during general schema migration. Retaining bash for research means instructions, not comprehensive read-only enforcement, constrain writes.
 
-## 持久化与入口边界
+## Persistence and entries
 
-会话默认选择独立使用 SessionDefaultMode，任务在提交时固定 planMode=true、accessMode=auto-review；schema v32 补 tasks.plan_mode 并重建会话模式 CHECK，旧任务默认非 Plan，原会话字段、任务、索引和外键保留。控制协议 v16 的快照与 task.queued 事件带固定选择，TUI、CLI/API 和配置中心共用后台真实值，按会话版本条件保存。
+SessionDefaultMode includes Plan; tasks pin planMode=true/accessMode=auto-review. Schema v32 introduced tasks.plan_mode and rebuilt the session-mode CHECK while preserving old fields/tasks/indexes/foreign keys; old tasks default non-Plan. Protocol v16 snapshots/task.queued exposed the fixed choice. TUI/CLI/API/configuration use backend truth and session-version conditional saves; those numbers identify introduction, not current schema/protocol.
 
-显式一次性提交选择优先于会话默认值；请求摘要绑定原参数，未显式选择记 null，以 request-v2: 去重，不随随后默认值改变而漂移。旧摘要只按原三种访问模式核实，显式 Plan 不与旧 Auto review 混同。
+Explicit one-off selection wins over default. Request-v2 digests bind original parameters, with null for no explicit choice, so retries do not drift when defaults change. Old digests validate original three access modes; explicit Plan is not equivalent to old auto-review.
 
-仅普通开发会话支持 Plan；main、SubAgent、归档会话和 IM 入口在后台拒绝。TUI 的 /mode、Shift+Tab、底栏和跨会话设置同步包含 Plan，切换普通会话时将源选择保存到目标；TUI /plan 为未知命令，CLI/API 的 /plan 文本只是普通输入。计划完成或「开始实现」输入不自动退出，执行前须先中断并手动切换。
+Only ordinary development sessions support Plan; host rejects main, SubAgent, archive, and IM entries. TUI /mode, Shift+Tab, status bar, and cross-session settings include it; switching ordinary sessions saves the source selection to the target. TUI /plan is unknown; CLI/API /plan text is ordinary input. Completing a plan or saying "start implementing" does not switch automatically.
 
-工具白名单、计划说明和画像读取固定字段，装配、发送前与调用门采用同一过滤。edit/write、记忆写入、非只读 MCP 与未列工具不可用；bash、request_file_access、http_request、todo_write 与 skill 仍保留。外部访问工具可提出写文件或 POST 参数，按既有审批执行；工具名单和提示不提供全面只读保证。SubAgent 管理器同样依据父任务固定字段拒绝显式修改或继续 writeTarget；PLAN_TOOL_NAMES 未开放 subagent_delegate。批准计划不等于批准计划内具体操作。
+Assembly, pre-send, invocation, and profile read the same pinned fields. Exclude edit/write, memory writes, non-read MCP, and unlisted tools; retain bash, request_file_access, http_request, todo_write, and skill. External file/HTTP tools can still request writes or POST under normal approval, so tool filtering/prompting is not a read-only security boundary. SubAgent manager also rejects explicit modification or continued writeTarget under the parent field; PLAN_TOOL_NAMES does not expose subagent_delegate. Plan approval is not approval of every concrete operation in it.
 
-## 备选方案
+## Alternatives considered
 
-旧 /plan 一次性命令无需新增会话状态、版本 CAS 与广播，且下一条消息即可执行，曾由[原工单 26](../../../../.scratch/personal-agent/issues/26-plan-mode.md)选择。拥有者在[工单 31](../../../../.scratch/personal-agent/issues/31-plan-mode-selection.md)确认持续到手动切换，旧入口无法满足这个生命周期，因此删除文本标记与继续链兼容，历史原文保留。
+- **One-shot /plan:** no session state/CAS/broadcast and easy next-message execution; originally chosen in offline `.scratch/personal-agent/issues/26-plan-mode.md`. The owner later required persistence until manual switch in issue `31-plan-mode-selection.md`, so remove text markers/resume compatibility while keeping originals.
+- **Inherit Plan from interrupted source:** prevents accidental changes on resume, but overrides the owner's current choice. Confirmed semantics create a new task from submitted/current choice without inherited approvals.
+- **Read-only mounts as a hard guarantee:** could constrain retained bash, but the original local/full-access paths ran natively and mounts only covered the then-server container backend, not both products uniformly. The chosen research tools plus explicit limitation remain; current auto-review restriction alone does not make all approved operations read-only.
 
-从中断源任务继承计划模式可避免继续时误修改，原工单 26 曾采用；但它会覆盖拥有者当前已选择的模式。工单 31 第二轮确认继续创建新任务、使用提交时当前或显式选择，旧批准不继承。
+## Consequences
 
-用只读挂载提供硬保证可阻止保留 bash 写入，但原工单 26 核实当时 local/full_access 在本机执行，挂载只能覆盖服务器容器后端，不能形成两产品统一约束。因此保留调研工具和计划说明，并明确其非全面只读边界；当前固定 Auto review 不改变这项提示约束上限。
+Planning persists across tasks with one pinned source for environment/tools/instructions. It costs distinct default/task fields and disallows in-task transition; continuing old /plan work requires current selection. Bash and approved external requests can write, so Plan is not another security policy. [Current-account full access](2026-10-12-full-access-current-account.md) owns later account/environment/authorization changes without altering this choice.
 
-## 后果
+## Verification
 
-Plan 可持续保存和跨任务恢复，同时复用既有自动审查边界；执行环境、工具和说明始终由同一个固定任务字段决定。代价是会话默认与任务访问模式需分别存储，模式不能在任务内部进入或退出，旧 /plan 中断任务继续时必须重新选择。保留 bash 和外部请求工具意味着批准后仍可能写入，不能把 Plan 当作独立安全策略。
-
-## 验证
-
-历史实施证据见[工单 31](../../../../.scratch/personal-agent/issues/31-plan-mode-selection.md)：npm run typecheck 与 git diff --check 通过；全量 npm test 1008 项中 1007 通过、0 失败、1 个未启用真实模型连通性检查跳过。相关测试覆盖持续两轮 Plan、默认与显式选择、继续、任务级切换拒绝、schema 回滚与恢复、请求幂等、TUI/CLI/配置中心和工具过滤；test/67-visual-docs 4/4。七页图解 95 张切片已渲染检查，无布局问题。原实施未另行运行真实模型或独立 Linux 容器部署验证，访问后端与审批策略复用原覆盖路径。
-
-## 适用范围
-
-完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+Historical issue 31 recorded passing typecheck/diff checks; 1008 tests with 1007 passed, zero failed, one gated real-model skip. Related cases covered two persistent Plan turns, defaults/overrides, resume, rejected task switches, schema rollback/recovery, request idempotency, TUI/CLI/configuration, and tools. Former visual-docs test/67 passed 4/4; seven diagram pages/95 slices were inspected without layout issues. Those removed diagrams are historical evidence, not current verification entry points. No separate real-model or Linux container acceptance ran; this migration reruns no runtime tests.

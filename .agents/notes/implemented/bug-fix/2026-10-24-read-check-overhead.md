@@ -1,34 +1,27 @@
-# Agent Note: 读取沿本次快照复用核实结果
+# Agent Note: Reuse verification within the current read snapshot
 
 Status: implemented
 
-## 问题
+## Problem
 
-拥有者文件预览因多硬链接被拒，虽然读取不改变任何名字的内容。技能管理同次查询重复遍历包和技能库，个人模型请求在准备参考、记录输入及发送 payload 时各加载全库。原生显式挂载逐项扫描相同保护树，已有批量检查却只用于运行依赖。这些处理增加拒绝或读取成本，没有对应的额外操作。
+Owner file preview rejected multiple hardlinks even though reading changes no name's content. Skill management rescanned packages/catalogs within one query; Personal requests loaded the full catalog during reference preparation, input recording, and payload sending. Explicit native mounts scanned the same protected trees individually even though dependency checks already had batching. These costs/rejections performed no additional operation.
 
-## 决定
+## Decision
 
-拥有者可以预览登记根内的普通硬链接文件。文件与父链身份、符号链接处理、读取前后变化和分页修订核实继续适用；从其他名字修改同一对象同样使本次读取或旧分页失败。此决定不改变 Agent 文件写入和原生执行的硬链接要求。
+Owners may preview ordinary hardlinked files inside registered roots. File/ancestor identity, symlink handling, before/after changes, and page revision checks remain. Changing the object through another name invalidates the current read or old cursor too. Agent writes and native-execution hardlink restrictions are unchanged.
 
-技能管理在同次同步布局核实中保存每个已遍历包的内容修订，清单比对复用该结果；列表及详情复用本次已加载条目生成重名诊断，不再重新读取启用技能库。来源排序、赢家、限额、私有权限、普通文件与读取稳定性要求保持；不保留跨调用的放行缓存。SDK 不提供原始正文，继续由 SDK 扫描和解析、宿主读取正文钉版，不维护第二套扫描器。
+Within one synchronous skill-layout verification, retain each traversed package's content revision and reuse it for manifest comparison. List/detail duplicate-name diagnostics reuse loaded entries instead of rereading enabled skills. Source order, winner selection, limits, private permissions, ordinary-file checks, and stable reads remain. No cross-call allow cache is kept. SDK still scans/parses while host reads/pins raw text, because SDK does not expose it; no second scanner is maintained.
 
-个人请求的 `prepare` 完整读取技能库并保存本次快照。规范输入和实际 payload 两处仍核实持久快照、配置及目录身份，并用有界稳定读取的当前托管清单确认本次选择仍启用且身份、路径与内容修订一致；不重新读取包正文。外部正文修改和新增技能从下一次 `prepare` 生效，本次使用已经保存的内容；托管停用、移除、配置变化或清单损坏继续阻止发送。包完整性仍在加载、管理和档案重开检查；引用文本沿原规则在调用时读取并记录，旧快照和显式展开不改写。
+Personal request prepare loads the complete skill catalog once and persists that snapshot. Normalized-input and payload boundaries still validate the durable snapshot, configuration, and directory identity. A bounded stable read of the current managed manifest confirms that selected skills remain enabled with matching identity/path/content revision, without rereading package bodies. External text edits and new skills affect the next prepare; this request uses saved content. Managed disable/remove, configuration change, or corrupt manifest still blocks send. Loading, management, and profile reopening continue full package integrity checks. Reference text is read/recorded at invocation under existing rules; old snapshots and explicit expansion are not rewritten.
 
-原生执行将已规范化的工作区、授予路径和只读根合为一次显式挂载保护核对。运行依赖仍独立按每个保护根及既有代码资产只读例外核实；候选及祖先身份、保护树别名和变化继续由批量实现验证。授权树的 `assertNativeFileLinks` 保持，不把它与保护树核对合并，不缓存跨启动结果。
+Native execution batches normalized workspace, granted paths, and read-only roots into one explicit-mount protection check. Runtime dependencies remain separately checked per protected root with existing read-only code-asset exceptions. The batch implementation still verifies candidate/ancestor identities, aliases, and changes. `assertNativeFileLinks` on granted trees stays separate; there is no cross-launch cache.
 
-## 既有决定
+This replaces hardlink rejection in [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md)/[Desktop file wiring](../architecture/2026-10-16-desktop-current-demo.md), and repeated external-body reads in [Personal references](../architecture/2026-10-18-personal-memory-skills-history.md). [Managed skills](../feature/2026-10-21-managed-skills.md) retains state/layout/old-reference rules. [Native batching](2026-10-18-batch-native-protection-checks.md) extends to explicit mounts without changing dependency exceptions. Write/sandbox protections elsewhere are not relaxed.
 
-按硬链接预览、技能钉版、托管选择及批量保护检索既有笔记。[拥有者浏览](../feature/2026-10-24-owner-workspace-browsing.md)与[文件接线](../architecture/2026-10-16-desktop-current-demo.md)的多硬链接拒绝由本篇取代，其路径和一致性要求保留。[个人参考](../architecture/2026-10-18-personal-memory-skills-history.md)中发送前重读外部正文的规则改为本次快照选择；[托管技能](../feature/2026-10-21-managed-skills.md)的状态、私有布局和旧引用保持。[原生批量核对](2026-10-18-batch-native-protection-checks.md)扩展到显式挂载，原运行依赖例外不变。其他命中的来源保护、导入与快照安全规则用于写入或受限执行，不在本次放宽范围；没有整体吸收的旧笔记或需要归档的提案。
+## Alternatives considered
 
-## 备选方案
+Cross-request caches save more reads but cannot reliably detect external content, mount, and managed-state changes. Rechecking bodies before every send finds disk edits, but invalidates an already pinned/recorded request unnecessarily; refresh on next prepare while checking current disable/config immediately. Rewriting SDK scanning saves a raw-body read but assumes ownership of nesting, links, frontmatter, and diagnostic compatibility. Removing native checks or checking only path text misses physical aliases/protected ancestors; reuse existing identity-aware batching.
 
-- 缓存跨请求的技能库或保护树：可以进一步减少读取，但无法可靠发现外部内容、挂载与托管状态变化；只在一次核实中复用已经读取的结果。
-- 每个发送边界继续重读技能正文：可在发送前发现磁盘更新，但本次输入已经固定并保存，重新扫描只是使已记录请求失效；选择下一次准备时刷新，当前配置和停用继续立即核实。
-- 重写 SDK 技能扫描器：能省去单个文件解析后的正文读取，却需接管嵌套目录、链接、frontmatter 和诊断兼容；保留现有解析依赖。
-- 删除原生保护检查或只检查文本路径：实现更少，但会放过物理别名和保护祖先；复用既有批量身份检查。
+## Consequences
 
-## 后果
-
-文件预览新增普通硬链接支持，没有扩大路径入口。个人每次请求只刷新一次技能库，变动在下一次准备生效；本次输入仍可从保存记录重建。管理查询与原生挂载消除同次重复扫描，但完整包、授权树、运行依赖检查仍有实际成本，不承诺常数延迟。
-
-验证范围与真实环境结果见[任务](../../../../.scratch/owner-operation-scope/issues/02-remove-remaining-read-overhead.md)。未改变 wire 或持久化格式，不需要数据迁移。
+Preview supports ordinary hardlinks without a broader path entry. Each Personal prepare refreshes skills once and remains reconstructable from saved records. Management and native mounts avoid duplicate scans within one operation, but package, granted-tree, and dependency validation still cost work; no constant latency is promised. Wire/persistence formats are unchanged. Historical verification/platform results are in the offline copy of `.scratch/owner-operation-scope/issues/02-remove-remaining-read-overhead.md`.

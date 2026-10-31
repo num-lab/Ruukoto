@@ -1,2 +1,0 @@
-Remove all three waitForInspections calls in isolated personal-work.ts; keep release transaction guard unchanged. Expected narrow regression: native WorkTask faults instead of remaining resumable while inspection stop is unverified.
-Select only the existing normal-completion subcase in the isolated test copy to avoid a secondary cancellation timeout after the expected premature terminal state. Assertions remain unchanged.

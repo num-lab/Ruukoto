@@ -1,26 +1,24 @@
-# Agent Note: Demo 启动连接加载页
+# Agent Note: Demo startup connection overlay
 
 Status: implemented
 
-可见标题与仅限 Demo 的范围由[Desktop 同步](2026-10-18-desktop-connection-loading.md)部分取代，原首轮验收证据保留。
+[Desktop loading-state migration](2026-10-18-desktop-connection-loading.md) supersedes the original title/demo-only scope; initial evidence remains historical.
 
-## 问题
+## Problem
 
-拥有者要求 GUI 打开后连接后台的阶段显示全屏遮罩，先在可变 Demo 确认。Demo 使用内存数据，没有真实后台就绪信号；直接等待连接会无法退出，直接迁入 Desktop 则越过本轮授权范围。
+The owner requested a full-screen overlay during backend connection, first approved in the mutable demo. Memory fixtures have no real readiness signal; waiting for one never finishes, while immediate production migration exceeds that stage's authorization.
 
-## 决定
+## Decision
 
-Demo 首次挂载显示全屏 shadcn Dialog，居中显示旋转环和「正在连接后台…」，沿用 Neutral 明暗语义色与毛玻璃背景。2.2 秒计时器只模拟就绪，不请求后台或表示真实连接耗时；设置的演示状态提供重播入口。App 卸载清理计时器，不显示百分比或阶段进度。
+On first mount, Demo shows a full-screen shadcn Dialog with a centered spinner and the original connecting-backend label, using Neutral themes and a blurred background. A 2.2-second timer simulates readiness only, not a backend request or measured latency. Settings can replay it. Unmount clears the timer; show no percentage or staged progress.
 
-Dialog 禁止 Escape、外部点击和关闭按钮；底层 inert 与全局快捷键隔离持续到退出动画结束，之后聚焦消息输入。减少动态效果时不旋转、不淡出，减少透明度或无滤镜支持时使用实色。新增样式只追加可变 Demo，差量快照沿用现有来源核对；Desktop 与已冻结版本保持原样。
+Disable Escape, outside-click and close buttons. Underlying `inert` and global-shortcut isolation remain until the exit animation ends, then focus the composer. Reduced motion disables rotation/fade; reduced transparency or missing filter support uses solid color. Append mutable-demo styles only and retain existing source-difference checks; production/frozen versions do not change in this decision. [Environment warmup](../bug-fix/2026-10-17-desktop-connection-startup.md) owns actual readiness, while [AI Elements Demo](2026-10-16-demo-ai-elements.md) retains its memory-data boundary.
 
-历史检索中，[启动环境预热](../bug-fix/2026-10-17-desktop-connection-startup.md)持有真实连接流程，与本轮模拟加载页无重叠；[AI Elements Demo](2026-10-16-demo-ai-elements.md)的内存数据边界继续成立。
+## Alternatives considered
 
-## 备选方案
+- A custom overlay uses fewer components but repeats focus/modal behavior. Reuse Dialog.
+- Implementing real connection/error/retry completes startup behavior but exceeds this demo-design step; wire real state during migration.
 
-- 自建遮罩可以少用组件，但需要重复实现焦点约束与模态交互；复用已有 Dialog。
-- 同时实现真实连接、失败与重试能覆盖完整启动流程，但本轮只确认 Demo 加载页，真实状态接线留给后续迁移。
+## Consequences
 
-## 后果
-
-加载期间所有底层内容不可交互，退出后会话和右栏不重建；可反复查看现有主题中的效果。工程与浏览器证据见[工单](../../../../.scratch/desktop-shadcn/issues/27-startup-loading.md)。模拟计时器不证明实际后台可用，迁移时须改由真实连接状态驱动。
+The background cannot be operated while loading, and closing does not recreate sessions/inspector state. Themes can be replayed. Historical engineering/browser evidence remains in the offline startup-loading work item. A mock timer proves no backend availability; production must use real connection state.

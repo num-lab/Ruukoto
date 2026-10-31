@@ -1,31 +1,31 @@
-# Agent Note: PA 桌面设置直接保存
+# Agent Note: Save Personal desktop settings directly
 
 Status: implemented
 
-## 问题
+## Problem
 
-普通配置编辑先展示“查看保存影响”，再打开通用确认框；表单还把编辑前的档案与修订作为保存前提。刷新已有草稿会直接进入冲突，保存结果待核实时又禁止离开整个设置窗口。拥有者要求删除这些步骤，使远端配置回到编辑后直接保存。
+Ordinary edits required viewing save impact and a generic confirmation. Old form profile/revisions gated saves, refreshing drafts caused conflicts, and unknown results locked the settings window. The owner requested direct save.
 
-## 决定
+## Decision
 
-PA 模型、MCP 与电脑配置直接保存，启停、删除、迁移和撤回也直接提交。删除通用配置确认状态、弹窗及保存导航续步；停止沙箱与结束未知业务调用保留各自的后果确认。正常页面只展示业务字段和结果，档案路径与维护原因不常驻。
+PA model/MCP/Computer saves and enable/delete/migrate/withdraw submit directly. Remove generic configuration-confirmation state/dialog/navigation continuations. Sandbox stop and ending unknown business calls retain their specific consequence confirmations. Normal pages show business fields/results, not permanent profile-path/maintenance explanations.
 
-渲染层生成操作键，写请求正文只传业务内容；操作键通过 IPC 随请求交给宿主，便于丢答后按同一回执收敛草稿。宿主从当前认证连接读取 profile 和最新文件修订，补齐已有 v2 协议字段；旧表单元数据不参与保存判断。因此保存可能覆盖编辑期间其他入口对同一对象的修改，未编辑的其他 MCP 服务仍由服务级操作保留。服务端认证、单写入者、提交时的修订检查、持久版本链和回执不变。保存前读取失败及明确未发送不会留下接纳关联；结果未知继续核实原键。
+Renderer generates an operation key and sends business data only; IPC carries the key to the host for receipt-based recovery. The host reads profile/latest file revisions from the current authenticated connection and fills existing v2 fields; stale form metadata does not gate saving. A save may therefore overwrite concurrent changes to the same object. Service-scoped operations preserve other unedited MCP services. Authentication, one writer, commit-time revision checks, durable version chains and receipts remain. Pre-read failure/known-unsent requests leave no acceptance association; unknown results verify the original key.
 
-刷新保留草稿并允许继续保存。PA 保存中与结果未知时可以切页或关闭设置，容器按包含来源身份的 instanceId 与类别暂存原页面实例，避免丢失尚未登记或失败的提交草稿；离页清除电脑图片接受资格，真实断连仍淘汰旧应答。Code 与 PA 连接设置继续使用原导航保护。
+Refresh retains drafts and permits saving. During PA save/unknown outcome, navigation/closing is allowed; the container retains original page instances by source-bearing instanceId/category so unregistered/failed drafts survive. Leaving clears Computer image-acceptance eligibility; actual disconnect still invalidates old responses. Code and PA connection settings retain original navigation protection.
 
-读取设置时按原键核实 saved、waiting、unknown 的操作，不只核实本机接纳关联。显示未结操作的页面每两秒刷新一次，卸载即停止，读取失败停止自动查询并显示错误；明确生效失败只由用户选择下一步。后台读取保留已打开的服务编辑器；原操作被证实保存后清除该提交的草稿状态，证实未保存则保留可重试草稿。自动核实不重新提交保存，页面重开可继续查询。
+Settings reads verify saved/waiting/unknown operations by original key, not just local acceptance associations. Pages with unsettled operations refresh every two seconds, stopping on unmount or read failure; failures stay visible and confirmed apply failure requires an owner decision. Background reads preserve open service editors. Confirmed save clears that submission's draft state; confirmed nonsave retains retryable drafts. Automatic verification never resubmits, and reopening resumes queries.
 
-## 既有决定
+## Related decisions
 
-按 desktop、配置确认、草稿、维护与修订检索 proposed、implemented、rejected。本文部分取代[个人设置页面](../feature/2026-10-21-desktop-personal-pages.md)的保存确认、原表单修订和维护交互，以及[设置容器](../feature/2026-10-21-desktop-settings-shell.md)针对 PA 配置的全窗导航禁止；两篇保留其他产品与恢复职责。[设置保存与生效](../architecture/2026-10-25-personal-settings-versions.md)和[HTTPS 连接](../architecture/2026-10-24-personal-tailscale-https.md)保留后台协议、原键与认证决定；[设置总提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)的旧维护流程已有后续决定，本次只补互链。rejected 中的 Cua 集成提案与本次确认裁剪无关。
+This supersedes save confirmation, stale-form revisions and maintenance interaction in [Personal pages](../feature/2026-10-21-desktop-personal-pages.md), plus PA-wide navigation locking in [settings container](../feature/2026-10-21-desktop-settings-shell.md). Other product/recovery duties remain. [Settings versions](../architecture/2026-10-25-personal-settings-versions.md) and [HTTPS](../architecture/2026-10-24-personal-tailscale-https.md) retain backend/authentication/receipt contracts. The [overall proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md) links successors rather than restoring old maintenance workflow.
 
-## 备选方案
+## Alternatives considered
 
-- 仅把按钮改成“保存”：改动最少，但通用确认、旧草稿冲突和全窗锁仍存在，不能满足目标。
-- 删除远端身份与修订协议：可以省字段，但会破坏现有版本链及原操作恢复；将这些字段留给宿主生成即可消除用户负担。
-- 未知结果自动重存：容易恢复按钮可用性，但可能重复接纳配置；继续查询原操作。
+- Rename the button only: smaller, but keeps generic confirmation/stale-draft conflicts/window locking.
+- Remove remote identity/revision protocol: fewer fields, but breaks version-chain/original-operation recovery. Let the host provide them instead.
+- Resave automatically on unknown outcome: makes buttons usable but risks duplicate acceptance. Query the original operation.
 
-## 后果
+## Consequences
 
-正常保存只有一次提交动作，等待不会锁住其他设置；代价是最后保存的业务内容可能覆盖同一对象的外部修改，并在进程内保留尚未确定的表单。真实桌面及 PA 环境体验仍由[工单](../../../../.scratch/desktop-personal-save-simplification/issues/01-direct-save.md)记录验收缺口。
+Ordinary saves take one submission and pending work does not lock other settings. Last-saved content may overwrite external changes to the same object, and unsettled forms remain in process memory. Real Desktop/PA experience gaps remain in the offline direct-save work item.

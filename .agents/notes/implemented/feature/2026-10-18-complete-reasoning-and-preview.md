@@ -1,34 +1,27 @@
-# Agent Note: 思考与文件预览完整分块传输
+# Agent Note: Transfer complete recorded reasoning and file previews in chunks
 
 Status: implemented
 
-## 问题
+## Problem
 
-思考阶段只保留末尾 8 KiB，六行滚动区不会跟随新增内容；工作区文件超过 256 KiB 被判不支持，Read 捕获预览也只读首页。拥有者明确要求移除两类内容截断，并让思考自动滚到最新行。直接发送全文会撞上控制面 1 MiB 帧限制，反复发送累计思考还会使事件存储随长度平方增长。
+Thinking retained only its last 8KiB and its six-line scroll area did not follow new text. Workspace files larger than 256KiB were unsupported, and Read snapshots loaded only their first page. The owner requested removing both total limits and following the latest thinking line. Full-text frames exceed the 1MiB control limit; repeated cumulative thinking snapshots also make event storage quadratic.
 
-## 决定
+## Decision
 
-协议 32 将 `task.thinking` 的新事件改为 UTF-8 字节偏移增量，每块最多 8 KiB；Driver 保留完整公开思考，节流时只发送尚未发送的部分，空块仍记录开始、计时起点与结束。分块不切断 UTF-8 字符，未补齐的 UTF-16 高代理项等待下一次更新。EventFlow 按偏移补洞和去重，阶段元数据以最新事件为准；旧无 offset 事件仍按快照替换。异常终态复制末块收束时不重复拼接。旧记录中已经丢失的思考前文无法据此恢复，不生成或猜测未收到的模型内容。
+Protocol 32 changes new `task.thinking` events to UTF-8 byte-offset deltas of at most 8KiB. Driver retains complete exposed reasoning and sends only unsent text when throttling. Empty chunks still record start, timing origin, and end. Chunks do not split UTF-8 characters; an incomplete UTF-16 high surrogate waits for the next update. EventFlow fills holes/deduplicates by offset and takes phase metadata from the newest event. Legacy events without offsets still replace snapshots. Copying the last chunk to close an abnormal terminal state does not append it again. Text discarded by older versions cannot be restored; missing model content is never generated or guessed.
 
-`read_workspace_file` 按登记根、相对路径、offset、length 与 version 返回 base64 字节页，每页最多 256 KiB，无总文件长度上限。version 是 dev/ino/mode/size/mtime/ctime 的摘要；后页必须携带首页修订，修订变化、短读、路径链或 descriptor 变化都使本次读取失败。每页仍核实保护根、符号链接、硬链接及真实目录，renderer 不能指定任意绝对路径。旧客户端在握手处按协议版本明确拒绝，不维护旧全文应答的第二套入口。
+`read_workspace_file` takes registered root, relative path, offset, length, and version and returns base64 pages <=256KiB without a total file-size limit. Version hashes dev/ino/mode/size/mtime/ctime. Later pages require the first revision; changed revision, short reads, or changed path chain/descriptor fail the read. Path identity and relevant link/read-consistency checks remain; later [owner browsing](2026-10-24-owner-workspace-browsing.md) and [read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) remove protected-root scans and hardlink rejection. Renderer cannot choose arbitrary absolute paths. Old clients fail the protocol handshake rather than use a second legacy full-response endpoint.
 
-Desktop 对工作区文件及 Read 捕获产物读取全部页，逐页核实来源、偏移、总量与修订或产物状态，完整拼合后才解码 UTF-8 与图片并显示；任一页失败不展示混合或部分页面。关闭、断线、快照或重试使旧代次停止续页。Read 的真实 partial 状态仍显示紧凑提示，取消前 256 KiB 的展示截断提示；二进制、SVG/PDF 与无效图片仍不当作支持类型显示。
+Desktop loads every page of workspace files and Read artifacts, validating origin, offset, total, and revision/artifact state on each. Only complete assembly is decoded as UTF-8/images and displayed; any failed page prevents mixed or partial display. Close, disconnect, snapshot, or retry invalidates the old generation and stops further pages. Real partial Read state retains a compact warning; the artificial first-256KiB display-truncation warning is removed. Binary, SVG/PDF, and invalid images remain unsupported preview types.
 
-Desktop 与可变 Demo 的流式思考保持六行内部滚动高度，文本更新后仅设置该区域的 scrollTop。历史思考保持手动浏览，主消息流仍由 Message Scroller 持有，不调用 scrollIntoView。
+Streaming reasoning in Desktop and mutable Demo retains a six-line internal scroll region. Text updates set only that region's scrollTop. Historical reasoning stays manually scrollable; Message Scroller owns the main transcript, with no scrollIntoView call.
 
-## 既有笔记审计
+This supersedes tail/cumulative-snapshot rules in [execution activity](../bug-fix/2026-10-17-desktop-execution-activity.md) while preserving phase provenance; it removes total-preview limits in [Read snapshots](2026-10-17-desktop-read-snapshot.md) and [Desktop migration](../architecture/2026-10-16-desktop-current-demo.md), retaining capture/authorization. [Completed traces](2026-10-18-completed-trace.md) keeps height/collapse behavior. Trace components, script budgets, and artifact-export authority remain independent.
 
-- [思考阶段展示](../bug-fix/2026-10-17-desktop-execution-activity.md)：部分取代 8 KiB 尾部和累计快照约定，阶段来源继续保留；互链。
-- [Read 捕获快照](2026-10-17-desktop-read-snapshot.md)与[正式界面](../architecture/2026-10-16-desktop-current-demo.md)：部分取代 256 KiB 总量限制，权限和捕获版本语义继续保留；互链。
-- [完成后收起](2026-10-18-completed-trace.md)：部分重叠，六行高度及完成后的折叠规则不变，补充流式内部滚动；互链。
-- 命中的 Trace 迁移、脚本隔离和产物导出分别持有组件接入、脚本预算与导出授权，与本次总量限制无关；proposed/rejected 未发现重复方案。
+## Alternatives considered
 
-## 备选方案
+Removing truncation while sending full text is smaller but breaks frame/history-page budgets and duplicates storage. Increasing 256KiB/8KiB constants retains total truncation and cannot guarantee frame safety. Backfilling from history after thinking ends leaves streaming truncated, and ordinary history text does not contain reasoning anyway.
 
-- 直接删截断、继续发全文：改动少，但实时帧和历史事件页会超限，累计快照造成重复存储，不能完整可恢复地工作。
-- 抬高 256 KiB 或 8 KiB 常量：能容纳较大样例，但仍有总量截断，也不能保证单帧安全，不满足拥有者目标。
-- 思考结束后从历史补回完整正文：可少改实时事件，但运行中仍截断，且历史普通正文投影并不包含思考，不能解决流式显示。
+## Consequences
 
-## 后果
-
-完整思考与文件可以经有界帧恢复，权限、真实 partial 和跨页变化不被掩盖。客户端与后台须一起升级至协议 32。全文仍在内存中组装，源码高亮、行号和思考节点的渲染成本随内容增长；不把分块传输宣称为无限内存或大文件虚拟化。分块不能恢复旧版已经截掉的前文，也不改变模型上下文预算及工具输出的既有截断策略。
+Complete recorded reasoning/files are recoverable through bounded frames without hiding authorization, true partial state, or cross-page changes. Client/backend must support protocol 32. Full content still assembles in memory, and highlighting, line numbers, and reasoning DOM cost grow with length. Chunked transport is not unbounded memory or file virtualization. It restores no previously discarded prefix and changes neither model context budgets nor existing tool-output truncation policy.

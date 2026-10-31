@@ -1,37 +1,31 @@
-# Agent Note: Demo 右栏工具预览
+# Agent Note: Demo inspector tools
 
 Status: implemented
 
-可变 Demo 的原始 HTML 禁令由[Markdown 渲染 HTML](../simplification/2026-10-25-desktop-markdown-html.md)取代，冻结稿保留历史。
+[Markdown HTML rendering](../simplification/2026-10-25-desktop-markdown-html.md) supersedes the mutable demo's raw-HTML ban; frozen versions retain historical behavior.
 
-## 问题
+## Problem
 
-拥有者需要在可变 demo 内扩充浏览器、文件树和文件预览。[前版定稿](../architecture/2026-10-15-desktop-shadcn-demo.md)只交付 diff 与 SubAgent，正式端禁止直读工作区与加载远程内容；不能把 demo 的新试验自动变成 Electron 或控制面的改动。
+The owner wanted browser, file tree and previews in the mutable demo. The [previous approved design](../architecture/2026-10-15-desktop-shadcn-demo.md) supplied only diffs/SubAgents, while production prohibited direct workspace reads and remote content. A demo experiment must not silently change Electron or control-plane behavior.
 
-## 决定
+## Decision
 
-新增三类右侧 tab，沿用[顶部标签](2026-10-16-demo-header-model-menu.md)与会话隔离，不另设常驻模式栏。文件列表按工作区提供独立静态样例，不由 diff 拼造完整文件，不接本机文件系统；文件预览与 diff 使用不同 ID。源码和文本只读，Markdown 用本仓库已有 react-markdown 的同版本并关闭原始 HTML，图片只使用显式 fixture 资源；空文件保持空源码区，不支持及缺失有明确结果。
+Add three inspector tab types using existing [header tabs](2026-10-16-demo-header-model-menu.md) and session isolation, not a permanent mode bar. Each workspace gets independent static file fixtures rather than reconstructed diff fragments or local filesystem access. File previews and diffs have distinct IDs. Source/text are read-only; Markdown uses the already-maintained react-markdown version, initially with raw HTML disabled. Images use explicit fixture resources. Empty files remain empty source areas; unsupported/missing files have explicit results.
 
-浏览器使用受隔离 iframe、地址栏历史与重建刷新；仅接受不含凭据的 http(s)。[MDN iframe](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe)说明 load 不能证明成功，站点可拒绝嵌入；[同源策略](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy)限制读取跨源内容，因此不伪造标题、最终 URL 或网页内部导航历史。浏览器导航记录按 tab 保留，当前会话切换 tab 保持 frame，切换会话重新装载；不授予 allow-same-origin、顶层导航、弹窗或下载，不添加代理或 Electron webview。默认本地样例可离线核验；父界面在创建 iframe 前识别同源根入口与 /index.html 并显示提示，因为隔离来源会先于 React 入口触发模块 CORS，不能依赖子页脚本防自身嵌套。新开／切换与调宽后显露活动 tab，避免新增工具标签藏在横向溢出区；只滚动标签组，不移动焦点或重建网页。
+The browser uses a sandboxed iframe, address-bar history and remount-based refresh, accepting only credential-free HTTP(S). As [iframe documentation](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe) explains, `load` is not proof of success and sites may refuse embedding. The [same-origin policy](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy) prevents reading cross-origin content, so do not invent titles, final URLs or internal page history. Navigation state is per tab. Switching tabs within a session retains the frame; switching sessions reloads it. Grant no `allow-same-origin`, top navigation, popups or downloads; add neither a proxy nor Electron webview.
 
-历史检索中，前版定稿与顶部布局为部分重叠，保留并互链；正式 Desktop 提案继续约束真实端，Agent 自动化浏览器的进程／工具契约与此纯前端 iframe 无关。
+A local default fixture supports offline verification. Before iframe creation, the parent detects same-origin root and `/index.html` entries and explains the restriction: sandbox-origin module CORS fails before React can prevent self-nesting. Opening/switching/resizing reveals the active tab by scrolling only its tab group, without changing focus or remounting the page.
 
-## 备选方案
+## Alternatives considered
 
-- 直接接 Electron webContents 与真实目录：可以获得完整浏览器历史和工作区，但超出当前 demo，需先设计正式协议及隔离，不能借视觉试验放宽 CSP。
-- 用 diff 行推导文件树和完整内容：无需另写 fixture，但变更片段不是完整文件，容易把删除行和缺失行当真实内容。
-- 手写 Markdown parser 或直接 innerHTML：依赖最少，但增加格式与脚本处理错误；使用已维护的渲染库并禁原始 HTML。
+- Electron webContents and real directories offer full history/workspaces but exceed the demo. Production protocols/isolation require their own design; a visual experiment does not authorize relaxed CSP.
+- Deriving full files from diffs saves fixtures but confuses removed/missing lines with complete content.
+- A handwritten Markdown parser or `innerHTML` avoids dependencies but increases format/script-handling risk. Reuse the maintained renderer and the applicable HTML policy.
 
-## 后果
+## Consequences
 
-[工单](../../../../.scratch/desktop-shadcn/issues/04-inspector-tools-demo.md)持有导航、隔离、文件各类型、危险地址／文本及窄栏／明暗的验收证据。已有 diff、Agent、审批与单行输入区沿用；工程结果与拥有者最终体验验收分开记录。
+Historical acceptance for navigation, isolation, file types, dangerous addresses/text, narrow widths and themes remains in the offline inspector-demo work item. Existing diffs, Agents, approval cards and single-line composer remain. Engineering results and owner experience acceptance are distinct.
 
-iframe 不能替代完整桌面浏览器，外站可拒绝嵌入，网页内部导航不进入地址栏历史；静态文件不代表真实工作区。正式迁移需另行设计读取与浏览器契约，本轮不修改后台。
+An iframe is not a full desktop browser: sites can refuse embedding and internal navigation does not become address-bar history. Static files are not real workspace contents. The later authorized [Desktop migration](../architecture/2026-10-16-desktop-current-demo.md) wires real read-only files and isolated browsing under its own contracts, while this note retains demo facts.
 
-后续拥有者已明确授权[当前 demo 迁入 Desktop](../architecture/2026-10-16-desktop-current-demo.md)，只读文件和隔离浏览器已按真实端契约接线；本篇静态样例与验收仍保留为 demo 的事实。
-
-正式迁移提交后，拥有者继续在可变 demo 试验[源码高亮与输入交互细化](2026-10-16-demo-input-preview.md)；该轮高亮器只属于可变 demo，未自动迁入正式端或旧冻结稿。
-
-后续[Git graph试验](2026-10-17-demo-git-graph.md)沿用独立标签和会话隔离，仅仓库样例提供只读提交图，不改变本篇的文件树与浏览器契约。
-
-[文件树加载反馈](2026-10-17-desktop-file-tree-loading.md)收窄新标签页展示并取消空目录文案，不改变预览和隔离浏览器的边界。
+Later [source highlighting/input refinements](2026-10-16-demo-input-preview.md) belong only to the mutable demo unless explicitly migrated. The [Git graph](2026-10-17-demo-git-graph.md) reuses session-isolated tabs and repository fixtures. [File-tree loading feedback](2026-10-17-desktop-file-tree-loading.md) narrows the new-tab display and removes empty-directory prose without changing preview/browser authorization.

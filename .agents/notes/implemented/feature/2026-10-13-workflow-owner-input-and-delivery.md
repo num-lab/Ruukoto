@@ -1,47 +1,47 @@
-# Agent Note: 工作流业务回答与整项最终送达
+# Agent Note: Workflow business answers and one final delivery for the whole run
 
 Status: implemented
 
-## 问题
+[Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) now lets an active waiting parent claim results and continue, with the independent tool-free summary as fallback. It supersedes unconditional separate summaries here, not unique reporting, trusted bindings, source checks, or no resend after uncertainty. [Internal report visibility](2026-10-14-internal-report-visibility.md) owns trusted hiding of host prompts.
 
-[工作流规格](../../../../.scratch/agent-workflow/spec.md)要求主聊天可继续、人工问题跨重启保留、回答不能充当工具批准，且整项工作只回报一次。[执行基础](../architecture/2026-10-13-workflow-runtime-and-store.md)已有问题和步骤事实，但没有可信产品答复或最终送达；[普通父级送达](2026-10-02-im-approval-and-final-report.md)不能识别 dev 的整项汇总，[调度收尾](2026-10-12-generic-scheduled-tasks.md)只看任务树会把等待中的工作流提前关闭。
+## Problem
 
-## 决定
+Workflows must let main chat continue, preserve human questions across restart, never treat business answers as tool approval, and report the whole work once. [Execution foundations](../architecture/2026-10-13-workflow-runtime-and-store.md) already had questions/steps but no trusted product answer or final delivery. [Ordinary parent delivery](2026-10-02-im-approval-and-final-report.md) could not identify whole-run dev summaries, and [schedule settlement](2026-10-12-generic-scheduled-tasks.md) looking only at task trees could close a waiting workflow prematurely. Original requirements are offline provenance in retired `.scratch/agent-workflow/spec.md`.
 
-业务回答使用运行 ID、步骤键、问题版本、问题建立时固定的 `runVersion`、完整来源快照与稳定请求键。`runVersion` 标识问题的建立代次，其他分支进度或脚本身份收尾不会使同一待答命令过期；运行必须仍处于 running/waiting，首次消费还复核当前来源和问题依赖资料。取消与答复在同一同步事务仲裁；暂停、旧入口、撤销资料、已答问题和错误代次拒绝新消费。`workflow_controls` 为控制和回答共用每运行请求键空间，同键同参读原回执，同键异参拒绝；取消后读取旧回答回执不恢复执行。
+## Decision
 
-`ask` 可声明最多 20 个不同字符串选项及有界基础 JSON Schema。问题、约束、来源、回答、步骤完成事实、请求回执和可选 IM 回执同事务提交；任一写失败全部回滚。控制面只接受 ID、代次、版本、请求键与 JSON 回答，不允许填授权来源。问题全文和回答按 UTF-8 字节查询。
+Business answers bind run ID, step key, question version, question-creation `runVersion`, complete source snapshot, and stable request key. Other branch progress/script cleanup must not expire a pending answer: `runVersion` identifies question creation, not every run mutation. The run must still be running/waiting; first consumption rechecks current source and question material dependencies. Cancellation/answer race in one synchronous transaction. Pause, stale entry, revoked material, already answered question, or wrong generation refuses new consumption. `workflow_controls` shares one per-run key space for controls and answers: same key/parameters returns its receipt, changed parameters conflict, and reading an old receipt after cancellation never resumes execution.
 
-`ImWorkflows` 只解析适配器传入的完整原始 `/workflow-question` 与 `/workflow-answer` 命令；核实原平台、当前拥有者、账号、chat、入口代次及 externalId 前缀。`im_workflow` 入站事件直接终结，不进入 main 队列或模型；回答回执走原 `inbound_event` 槽。初始问题通知用独立 `workflow_question` 来源和运行/步骤/问题版本键，发送前复核仍待答、当前来源和依赖资料；failed/effect_unknown 留待答事实，限流沿原操作延后。工具批准仍走原 ApprovalGate，消费时同时复核工作流资格与 IM 绑定，业务回答从不改变审批。
+`ask` may specify at most 20 distinct string choices and bounded basic JSON Schema. Question, constraints, source, answer, step completion, request receipt, and optional IM receipt commit atomically or all roll back. Control accepts IDs/generations/versions/key/JSON answer, not caller-supplied authorization source. Question/answer text is paged by UTF-8 bytes.
 
-只有整项脚本 idle、没有待交付结果或可执行工作、活动 Agent 全部纯等人工问题/工具审批才停计。自动审查 in_progress 仍是活动工作；同 Task 另有未出结果且不属于 pending 审批的工具也继续计费。审批或回答事件立即重估，不以 awaiting_confirmation 一列冒充整项人工等待。
+`ImWorkflows` parses only complete original `/workflow-question` and `/workflow-answer` strings from adapters, verifying original platform, current owner, account/chat, entry generation, and external-ID prefix. `im_workflow` input ends directly, never entering main's queue/model. Answer receipts use the original `inbound_event` slot. Initial question notifications have independent `workflow_question` provenance and run/step/question-version keys; before send, recheck still-pending status, source, and materials. Failed/unknown sends retain the question; throttling delays the same operation. ApprovalGate still owns tool approval and rechecks workflow eligibility/IM binding at consumption. A business answer never changes approval.
 
-首次运行终态固定 `terminalVersion`，停止收尾后保存一次完整覆盖清单和有界结果预览，再按 `workflow-final:<运行>:<终态代次>` 登记唯一汇总任务。汇总和运行的绑定在入队事务内写入，不能凭用户可填的 request_id 前缀认可信身份。dev/main/scheduled 共用原会话 FIFO，汇总没有工具、不再发起工作流；每次模型请求重核运行和全部步骤的资料。dev 终态进入编排器结果登记与冷启动补记；仅剩汇总任务的 backend_restart 队列可自动恢复，人工暂停及混有普通排队输入的队列仍保留。
+Stop active-time accounting only when the whole script is idle, no result awaits delivery or executable work remains, and all active agents are purely waiting for human questions/approvals. Auto-review in progress still counts. Another unresolved tool on the same task also counts unless it belongs to a pending approval. Approval/answer events immediately reevaluate; one `awaiting_confirmation` column cannot prove whole-run human waiting.
 
-main 汇总不带普通 sourceEventId；结果事务沿原 IM 事件和 `<原事件>#workflow-final:<运行>:<终态代次>` 登记一份 owner_reply。宿主终态、覆盖、脚本停止三态、已启动执行的停止核实数量、未启动数量及失败项位于外发文本最前，模型长摘要不能挤掉这些事实。本轮终态事实取代源会话中的启动/中途旧状态；停止已核实不等于写入效果已知，原效果未知警告继续保留。`delivery.status=reported` 表示汇总结果及适用的 outbox 登记已完成，不声称平台发送成功；真实发送状态仍由 notification_ops 持有。入口或资料失效保存 undelivered 原因，不改发；已有 failed/effect_unknown 操作不换键重发。取消报告只用宿主取消及停止事实，外部效果不回滚。
+### Original final-summary path
 
-定时来源先等名下全部工作流、实际执行与整项汇总，再由原 schedule_run 路径回报。整体状态取工作流最终状态及非工作流任务，已被安全重试恢复的旧尝试不污染整项结论；步骤不再要求普通 wake。计划取消级联运行，即使执行器未装配也保存取消意图；逐项读取最新运行版本，避免前一运行停止收尾让后一快照过期。步骤取消自身所属计划先提交意图、异步停止，使当前工具能返回；源失效拦住下一模型请求抢先写 interrupted 时，保留已经提交的任务终态，同时记录运行取消、cancelRequested 和真实停止结论。
+The first terminal transition fixes `terminalVersion`. After stop settlement, save the complete coverage list and bounded result preview, then register one summary under `workflow-final:<run>:<terminalVersion>`. Run/task binding is written in the enqueue transaction; a user-controlled request-key prefix proves no trusted identity. Dev/main/scheduled summaries share original-session FIFO, have no tools, and cannot start workflows. Every model request rechecks run/all-step materials. Dev terminal results enter orchestrator registration with cold-start completion; only backend-restart queues containing summaries alone may auto-resume, not manually paused queues or queues mixed with ordinary input.
 
-schema 为 38，协议为 21。沿既有严格版本策略拒绝旧库，不迁移或回填运行授权；已保存资料需留原档案并以匹配代码查阅。命名定义与完整 CLI/TUI 发起/控制由[后续交付](../../../../.scratch/agent-workflow/issues/06-library-and-ui.md)持有。
+Main's summary lacks ordinary `sourceEventId`. Its result transaction registers one `owner_reply` against the original IM event and `<event>#workflow-final:<run>:<terminalVersion>`. Host terminal status, coverage, script-stop three-state facts, verified counts for started execution, unstarted counts, and failures precede model prose so a long summary cannot displace them. Final facts replace stale start/progress status in the source conversation. Verified stop never resolves unknown write effects; retain those warnings.
 
-## 既有笔记审计
+`delivery.status=reported` means summary result and applicable outbox registration completed, not successful platform delivery; `notification_ops` owns sending. Invalid entry/material records an undelivered reason without retargeting. Failed/unknown operations never get a new key for automatic resend. Cancellation reports contain host cancel/stop facts and do not roll back external effects. Current parent-claim handoff follows the linked wait/report decision while retaining these provenance/outbox distinctions.
 
-2026-10-14 拥有者确认[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)：拟让活动等待父轮认领结果并继续工作，以原独立汇总作为后备，同时隐藏内部提示的用户展示；唯一报告、原来源与未知发送不重试仍有效。[内部回报展示](2026-10-14-internal-report-visibility.md)已落地可信隐藏；等待与报告交接尚未实施，本篇当前送达事实保留。
+Scheduled sources wait for all workflows, actual execution, and whole-run summaries before original `schedule_run` reporting. Aggregate state uses workflow final records and non-workflow tasks; old attempts recovered by safe retry do not contaminate the conclusion. Steps no longer require ordinary wakes. Plan cancellation cascades to runs and records intent even without an executor, rereading each current run version so earlier cleanup cannot stale later snapshots. A step canceling its own plan commits intent then stops asynchronously so the tool can return. If source invalidation makes the next model request write interrupted first, preserve that committed task terminal state while recording run cancellation, `cancelRequested`, and real stop outcome.
 
-[工作流提案](../../implemented/feature/2026-10-12-agent-workflows.md)部分落实，本篇持有人工等待与最终回报，定义库和联合验收仍由提案持有。[执行基础](../architecture/2026-10-13-workflow-runtime-and-store.md)与[真实步骤](../architecture/2026-10-13-workflow-step-capabilities.md)部分重叠，只同步版本、入口现状与本篇链接。[普通 IM 回报](2026-10-02-im-approval-and-final-report.md)、[通用调度](2026-10-12-generic-scheduled-tasks.md)与[公共 outbox](../architecture/2026-09-24-scheduler-outbox.md)部分扩展，保留普通行为和未知发送规则。没有整篇吸收、删除或决定翻转。
+The original change used schema 38/protocol 21; these are historical versions. Exact-version refusal retained old profiles for matching code, without migrating/backfilling run authority. [Workflow library/controls](2026-10-13-workflow-library-and-controls.md) owns named definitions and full CLI/TUI initiation/control; original delivery provenance was `.scratch/agent-workflow/issues/06-library-and-ui.md`.
 
-## 备选方案
+## Alternatives considered
 
-- 将回答复用审批决定：沿已有 waiter 实现较短；业务选择会获得工具批准语义，因此问题、回执与通知独立归属，只复用公共 outbox。
-- 每条进度都要求当前 run.version 回答：可以直接乐观锁；独立分支和脚本单元收尾会使刚发出的命令过期，因此固定问题建立代次，在消费事务内核实活动状态与当前来源。
-- 用最终请求键前缀识别唤醒：查询最简单；普通拥有者提交也可填相同前缀，因此按持久 taskId 绑定识别，登记事务复核全部来源和固定正文。
-- 让最终汇总继承 main 全部工具：可让模型补做缺漏；整项终态汇报会成为新业务或外发授权，因此本轮只归纳固定事实，宿主持有唯一发送路径。
-- 定时收尾扫描全部历史 Task 判断失败：无需单独看工作流；安全重试已恢复的旧失败尝试会污染最终状态，因此工作流按其完整最终记录判定，历史尝试继续保留可查。
+- Reuse approval decisions for answers: shorter waiter reuse, but business choices would acquire tool-approval semantics. Separate questions/receipts/notifications and reuse only outbox.
+- Require current run version on every answer: simple optimistic locking, but parallel branches/script cleanup invalidate freshly displayed commands. Pin question generation and check live eligibility transactionally.
+- Recognize summary identity by request prefix: simplest lookup, but owners can submit the same prefix. Use durable task binding and transactional source/fixed-body checks.
+- Give final summaries all main tools: could fill missing work, but terminal reporting would grant new business/sending authority. Summarize fixed facts with one host-owned send path.
+- Derive scheduled failure from every historical task: avoids workflow-aware settlement, but safely retried old failures poison aggregate status. Use complete workflow final records and keep attempts inspectable.
 
-## 后果
+## Consequences
 
-人工问题和工具审批可以并存，日常聊天继续，整项最终回报可跨重启补记且不会重发未知效果。代价是固定问题代次、终态代次、可信汇总绑定及两阶段送达事实；reported 与 sent 必须分别解释。记录保存完整覆盖清单，平台和模型输入的正文预览有界，长报告仍需查询运行记录；未核实停止保留占用，不能靠取消意图宣称执行已退出。
+Human questions and tool approvals coexist without blocking ordinary chat. Final reporting can recover registration after restart without resending uncertain effects. Costs include fixed question/terminal generations, trusted summary bindings, and separate reported/sent facts. Full coverage is retained, but model/platform previews are bounded, so long reports require run queries. Unverified stop retains occupancy; cancellation intent does not prove execution exited.
 
-离线证据使用真实 SQLite、控制面、Driver、MCP 请求和两平台适配器，模型与 IM 服务为本地替身；具体命令与审查见[交付记录](../../../../.scratch/agent-workflow/issues/05-owner-input-and-delivery.md)。替身不证明真实模型、真实 IM 或完整产品体验，这些由联合验收持有。
+[Workflow foundations](../architecture/2026-10-13-workflow-runtime-and-store.md), [real steps](../architecture/2026-10-13-workflow-step-capabilities.md), [ordinary IM replies](2026-10-02-im-approval-and-final-report.md), [scheduling](2026-10-12-generic-scheduled-tasks.md), and [outbox](../architecture/2026-09-24-scheduler-outbox.md) retain their independent ordinary-path rules. [The workflow decision](2026-10-12-agent-workflows.md) and [joint acceptance](../testing/2026-10-13-workflow-joint-acceptance.md) own wider composition. The original audit found partial overlap, no whole-note replacement.
 
-相关未实施方案：[普通会话持久提问](../../proposed/feature/2026-10-21-persistent-owner-questions.md)复用回答幂等与来源原则，不复用run/step问题身份或改变本篇工作流ask。
+Historical offline tests used real SQLite, control, Driver, MCP requests, and both adapters with local model/IM substitutes. Commands/review were held in retired `.scratch/agent-workflow/issues/05-owner-input-and-delivery.md` (offline provenance). They do not prove real models, real IM, or complete product experience. [Persistent questions](../../proposed/feature/2026-10-21-persistent-owner-questions.md) shares answer-idempotency/source principles; implemented ordinary [Coding](2026-10-21-coding-owner-questions.md) and [Personal](2026-10-21-personal-owner-questions.md) questions use separate identity rather than workflow run/step questions.

@@ -1,3 +1,0 @@
-{"removed": "/tmp/r38-linux-JgNUHm", "existsAfter": false, "preservedDependencies": ["/opt/ruukoto/node_modules", "/tmp/ruukoto-agent-wait-20261014-root/node_modules"]}
-Filesystem     1K-blocks     Used Available Use% Mounted on
-/dev/vda2       41168220 38405392    964136  98% /

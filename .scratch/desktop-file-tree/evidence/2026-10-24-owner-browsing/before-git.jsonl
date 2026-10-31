@@ -1,5 +1,0 @@
-{"label":"git-full-0","ms":706.789,"breakdown":{"workspace-git:protect":{"count":2,"totalMs":684.624},"workspace-git:scanMetadata":{"count":2,"totalMs":1.653},"workspace-git:revisionState":{"count":2,"totalMs":14.106}},"summary":{"commits":1,"hasMore":false}}
-{"label":"git-full-1","ms":622.202,"breakdown":{"workspace-git:protect":{"count":2,"totalMs":576.094},"workspace-git:scanMetadata":{"count":2,"totalMs":1.539},"workspace-git:revisionState":{"count":2,"totalMs":35.865}},"summary":{"commits":1,"hasMore":false}}
-{"label":"git-full-2","ms":550.61,"breakdown":{"workspace-git:protect":{"count":2,"totalMs":530.701},"workspace-git:scanMetadata":{"count":2,"totalMs":1.182},"workspace-git:revisionState":{"count":2,"totalMs":13.162}},"summary":{"commits":1,"hasMore":false}}
-{"label":"git-no-protection-control","ms":62.557,"breakdown":{"workspace-git:protect":{"count":2,"totalMs":0.079},"workspace-git:scanMetadata":{"count":2,"totalMs":1.392},"workspace-git:revisionState":{"count":2,"totalMs":51.431}},"summary":{"commits":1,"hasMore":false}}
-{"instrumentedCopies":"/tmp/ruukoto-desktop-attribution-XfzQQl"}

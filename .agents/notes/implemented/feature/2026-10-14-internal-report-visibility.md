@@ -1,34 +1,34 @@
-# Agent Note: 内部工作流回报按可信归属隐藏输入展示
+# Agent Note: Hide internal report inputs using trusted ownership
 
 Status: implemented
 
-## 问题
+## Problem
 
-宿主最终回报经普通 `Task.input` 与 `sdk.prompt` 写为 user 消息，普通聊天、输入框 ↑ 历史与置顶要求把它当作拥有者输入。只在任务详情上隐藏会泄漏先到的历史页或单条补读；按正文或请求键判断又会隐藏真正的同文用户输入。
+Host final reports entered Task.input/sdk.prompt as user messages and appeared as owner input in chat, up-arrow history and pinned requirements. Hiding only task details leaked earlier history pages/single-entry reads. Body/request-key heuristics could hide genuine matching user input.
 
-## 决定
+## Decision
 
-Runtime 从 `getWorkflowDeliveryRun` 的持久任务绑定派生 `TaskView.inputPurpose`，取值 `user` 或 `internal_report`，不新增存储身份列。握手、任务详情、分页、请求核实以及提交/继续/模式切换应答使用同一派生分类；无正文的任务事件不承担输入用途判定。
+Runtime derives `TaskView.inputPurpose` (`user` or `internal_report`) from durable delivery/task bindings, without another stored identity column. Workflow delivery binding supplies the original classification; current report-fallback bindings use the same trusted rule. Handshake, details, pages, request verification and submit/continue/mode responses share it. Bodyless task events do not classify purpose.
 
-core 在同一次 JSONL 解析中按 `ruukoto_task_start/end` 给历史消息附原 `taskId`。Runtime 核实任务属于当前会话或持久的 `branchSource.taskIds`，再派生用途；首屏、分页及单条补读均在返回前完成。中断缺结束标记可由下一开始标记接替；标记 taskId 无效或结束标记不匹配仍报 `history_corrupt`。
+Core associates original taskId during the same JSONL parse using ruukoto_task_start/end. Runtime verifies ownership in the current session or durable branchSource.taskIds before classifying first pages, pagination and single-entry reads. The next start marker may replace an interrupted missing end; invalid IDs or mismatched end markers are history_corrupt.
 
-EventFlow 在建立 user 展示条目前统一过滤 `internal_report`，输入历史补种和置顶要求只取这份可见投影。assistant 最终总结、任务状态与诊断原文继续保留。无标记旧消息按普通展示；缺任务、跨会话关联及已知内部任务条目缺标记时，历史视图带 `taskAssociationError`，TUI 给可重建提示并保留普通正文；有明确关联错误的消息保持独立历史行，后到任务引用与事件不再将它们归并隐藏。读取不补造持久事件、不改写 JSONL。
+EventFlow filters internal_report before creating user-display entries. Input-history seeding/pinned requirements use that visible projection; assistant summaries, task status and raw diagnostics remain. Unmarked old messages display normally. Missing tasks, cross-session associations or known internal entries without markers carry taskAssociationError; TUI explains reconstruction and retains ordinary body text. Explicitly invalid associations remain independent history rows; later task/events cannot merge/hide them. Reads neither invent events nor rewrite JSONL.
 
-协议为 23，旧客户端明确拒绝；schema 不变。模型输入、上下文分组、压缩、搜索和诊断正文沿原路径，分类不参与执行授权或资料资格。
+This introduced protocol 23, not a schema change. Model input, context grouping, compaction, search and diagnostic bodies retain their original paths. Display classification never grants execution/data access.
 
-## 既有笔记审计
+## Related decisions
 
-[等待与报告归属方案](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)部分落地，本篇只持有输入展示，等待、认领与唯一报告交接仍待实施。[工作流业务回答与最终送达](2026-10-13-workflow-owner-input-and-delivery.md)仍持有独立汇总身份及来源复核，本篇复用它的可信绑定。[完整历史](../architecture/2026-09-19-preserve-session-history.md)与[独立历史分支](2026-10-11-branch-session-snapshot.md)继续有效，本篇复用原标记及已核实来源；无笔记被完全吸收或删除。
+[Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) owns waiting, claims and unique report delivery separately. [Trusted workflow answers/delivery](2026-10-13-workflow-owner-input-and-delivery.md) supplies durable summary identity/source checks. [Full history](../architecture/2026-09-19-preserve-session-history.md) and [branch snapshots](2026-10-11-branch-session-snapshot.md) retain original markers and verified ancestry.
 
-## 备选方案
+## Alternatives considered
 
-- 匹配标题或请求键前缀：改动最少；用户可以提交同文和同前缀，不能区分真实来源。
-- 只在任务详情隐藏：复用已有任务输入；历史页和单条补读先到时会闪现并污染 ↑ 历史，因此历史响应必须自带分类。
-- 改为 SDK `display:false` custom_message：SDK 支持隐藏；历史读取、检索和上下文分组尚未完整支持，会扩大存储改动，本次保留普通消息原文。
-- 新增任务用途存储列：查询直接；已有持久汇总绑定已经持有身份，重复列会增加一致性维护。
+- Matching titles/key prefixes is smallest but cannot distinguish identical owner-authored input.
+- Hiding task details alone leaks history-first arrivals into chat/up-arrow history.
+- SDK display:false custom messages support hiding but expand storage/history/search/context support beyond this change.
+- A stored purpose column is direct but duplicates the existing durable binding and adds consistency work.
 
-## 后果
+## Consequences
 
-普通聊天不再把内部回报当作用户要求，模型与诊断仍能追溯原文；代价是读取时核实任务及来源，线上客户端和后台需要一同升级。无法核实的记录不会被猜测隐藏，异常来源需按诊断核实。没有任务引用的无标记旧消息无法推断用途，继续普通展示。
+Chat no longer treats internal reports as owner requirements while model/diagnostic provenance stays available. Reads pay ownership checks and clients/backends must match. Unverifiable input is not guessed hidden; unmarked old messages without task references stay ordinary.
 
-`test/11-history-read.test.ts` 覆盖原任务关联及标记错误；13/14 覆盖实时、补读先到、重连、分页、↑ 与置顶；115 用真实 Driver 和本地模型服务证明完整请求、同文用户输入、连续分支与 JSONL 不变。真实模型、真实 IM 与拥有者体验仍由联合验收持有；本篇不宣称它们通过。
+`test/11-history-read.test.ts` covers associations/marker failures; tests 13/14 cover live/reread-first/reconnect/pagination/input/pins; test 115 uses real Driver and local model service for full requests, identical user text, repeated branches and unchanged JSONL. Real model/IM/owner experience remain joint external acceptance, not claimed here.

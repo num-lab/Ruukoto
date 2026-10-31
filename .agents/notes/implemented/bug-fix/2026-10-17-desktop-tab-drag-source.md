@@ -1,25 +1,23 @@
-# Agent Note: 拖动源标签的显示周期
+# Agent Note: Drag-source tab visibility
 
 Status: implemented
 
-## 问题
+## Problem
 
-Tab 拖出列表后清空目标槽位，源标签提前可见；其回程与相邻项的避让动画交叉，出现重叠。
+Leaving the tab list cleared the target slot and revealed the source tab too early. Its return animation overlapped neighboring tabs moving out of the way.
 
-## 决定
+## Decision
 
-源标签首次进入拖放预览后保持隐藏，直到 drop／dragend 或所属组重置；离开列表只撤回目标避让。Demo 与 Desktop 使用相同语义，仍由原生拖放持有拖影。 需求与验证入口见[工单20](../../../../.scratch/desktop-shadcn/issues/20-desktop-interaction-fixes.md)。
+After first entering a drop preview, the source stays hidden until drop, dragend, or a reset of its group. Leaving the list only removes the target displacement. Demo and Desktop share this behavior; native drag and drop still owns the drag image.
 
-## 既有决定
+This extends the lifecycle rules in the [Desktop migration](../architecture/2026-10-17-desktop-demo-v4.md), without changing its other decisions. The original requirement and evidence were recorded in `.scratch/desktop-shadcn/issues/20-desktop-interaction-fixes.md`, retained in the offline archive.
 
-检索 Desktop、Tab、消息渲染、文件预览、产物、会话默认设置的 implemented／proposed／rejected；与[既有迁移](../architecture/2026-10-17-desktop-demo-v4.md)部分重叠，本篇补充对应生命周期与读取／创建语义，其余迁移约定继续适用。其他命中无关。
+## Alternatives considered
 
-## 备选方案
+Revealing the source immediately on leaving the list is simpler, but its return crosses neighboring tabs. Replacing native drag and drop with pointer handling would give full control of the drag image, but the lifecycle fix resolves the reproduced overlap without that larger change.
 
-离开列表立即显示源项最直接，但回程会穿过相邻项；重写指针拖放可完全控制拖影，但已有生命周期修正足以消除已复现重叠，不扩大实现。
+## Consequences
 
-## 后果
+Real hook-event replay covers leaving, reentry, cancellation, drop, and group reset. It proves the DOM source lifecycle, not the appearance of the native drag image.
 
-真实 hook 事件重放覆盖离开、重进、取消、drop 和组重置；该用例证明 DOM 源项生命周期，不替代原生拖影截图。
-
-拖动结束后原位置的hover残留另由[hover资格](2026-10-17-desktop-tab-hover.md)处理；本篇的源显示周期继续适用。
+Residual hover at the old position after a drag is handled separately by [hover eligibility](2026-10-17-desktop-tab-hover.md); this visibility lifecycle remains in force.

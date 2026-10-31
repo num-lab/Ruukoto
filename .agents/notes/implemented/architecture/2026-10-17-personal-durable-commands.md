@@ -1,37 +1,39 @@
-# Agent Note: 个人命令沿原工作恢复并核实外部事实
+# Agent Note: Personal commands recover under original work and verify external facts
 
 Status: implemented
 
-## 问题
+## Problem
 
-[命令宿主](2026-10-17-personal-command-execution.md)能保存完整双流、回执并按原引用停止，但不知道工作来源、权限和单工作占用。直接挂到模型工具会在取消、进程重启或结果落盘失败后重复执行，也可能通过另一成员或服务工具绕过未知暂停。
+The [command host](2026-10-17-personal-command-execution.md) saves complete stdout/stderr, receipts and original-reference stopping, but knows nothing about work source, permissions or single-work occupancy. Direct model-tool wiring could repeat execution after cancellation, restart or failed result persistence, or bypass an unknown-effect pause through another member/service tool.
 
-## 决定
+## Decision
 
-受限命令仅提供给长期子会话，原 WorkTask 持有独立 durable 命令 Task。任一原执行尚未核实停止时，档案共享命令目录拒绝其他来源的新命令；纯分析与聊天继续。工具接纳与 Task、执行引用及不可改 entry 同 commit，绑定原 tool/generation、工作输入、映射后的全部拥有者来源、权限与入口。可信目录由[停机配置](2026-10-17-personal-command-configuration.md)钉定，工具只接收命令，不提供路径授权、执行身份或模式参数。请求确认与自动审查使用相同原生边界，不联网；完全访问命令在准入前拒绝，等待独立持久停止方案，不降格为受限执行。
+Restricted commands are supplied only to long-lived child conversations. The original WorkTask owns an independent durable command Task. While any original execution's stopping remains unverified, the profile's shared command directory rejects new commands from other sources; pure analysis/chat continues. Tool admission, Task, execution reference and immutable entry commit together, binding original tool/generation, work input, all mapped owner sources, permissions and entry. [Stopped configuration](2026-10-17-personal-command-configuration.md) pins the trusted directory. The tool accepts command text, not path grants, execution identity or mode parameters. Confirm/auto-review use the same native restricted boundary without network access. The initial slice rejected full access before admission rather than silently restricting it; [full-access commands](2026-10-17-personal-full-access-commands.md) now supersedes that limitation.
 
-prepare 后保存完整 spec/input、预期指纹和不可改开始 entry，与恢复阶段同 commit 后才派发。只有当前 invocation 能 launch；恢复只查原回执、核实预期指纹并停止原引用。严格停止同时要求原私有请求及原 native launch 认领，认领丢失、指纹不符或只有 stop 先手时不作原退出证明，不新建替代认领。回执表示运行返回，不把非零或 stderr 解释为未执行或业务健康。没有回执保守保持未知；停止未核实同样暂停。人工效果说明不可覆盖且保留 entry，与原停止证明分别保存，两者齐全才解除未知暂停，不重发命令。模型结果的 verifiedEffect 与 stopped=true 表明双事实已齐，原 effect_unknown 保留中断历史；工具及报告提示不再要求重复核实，输出捕获不完整也不能覆盖原人工核实。run_command 与工作查询复用同一纯结果投影，requiresVerification 直接使用原未知门禁判定；仅人工效果与停止齐全才说双事实已齐，运行返回仍不证明业务成功。查询不只转述历史子回答。
+After prepare, complete spec/input, expected fingerprint and immutable start entry commit with recovery phase before dispatch. Only the current invocation may launch. Recovery only reads the original receipt, verifies its expected fingerprint and stops the original reference. Strict stopping needs both original private request and original native launch claim. Missing claims, fingerprint mismatch or a stop-first claim cannot prove original exit and cannot create a replacement launch claim. Receipts prove execution returned; nonzero exit/stderr does not prove non-execution or business health. No receipt conservatively remains unknown; unverified stopping also pauses. Immutable human effect statements retain their entry separately from original stop proof. Both facts must be complete to clear the pause; the command never resends.
 
-工作正常收尾、取消入口及最终释放事务均检查命令事实；异常终态不释放未知占用。跨成员原输入、委托说明和追加来源共用暂停门禁，涵盖子模型、续派、追加、服务请求/消费及固定检查。报告观察原命令 document，暂停恢复核对不可改命令接纳。主聊天及独立来源继续运行。原命令恢复和停止只核实原关系，不重新走活动工作门禁，避免被自己的未知事实阻塞。
+Model-result verifiedEffect plus stopped=true reports both facts complete while original effect_unknown retains interruption history. Tool/report guidance does not demand repeat verification; incomplete output capture cannot overwrite human verification. run_command and work queries use the same pure result projection. requiresVerification directly reflects the original unknown-state gate. Only human effect verification plus stopping establishes both facts; return still does not prove business success. Queries do not merely repeat historical child answers.
 
-Harness 恢复前双向核对配置、Task、document、接纳、原模型工具、执行意图及工作来源，空闲旧档案原子增加主子扩展，未决旧工作拒绝首次启用。CLI 通过本机认证查询命令、分页原字节并核实效果和停止；两平台 `/命令` 沿已发送菜单提供同一原操作闭环，IM展示UTF-8预览，原字节仍从本机保真读取，模型不能解除暂停。菜单固定原工作入口，效果证据记录原控制收件；停止任务固定原收件并在执行/abort核实前检查入口活性，失活只终结任务不外调。重复点击可引用同一在途停止任务，每个任务保留唯一原控制依据；恢复双向核对菜单、效果actor、原生停止任务及接纳。主会话的 `personal-owner-controls` 标记使旧程序拒绝忽略新控制语义。双流每页 3072 字节，以 base64 保真；未知输出明确是片段，坏输出仍可查看命令事实并登记人工证据。
+Normal work cleanup, cancellation and final release transactions all check command facts. Abnormal terminal state cannot release unknown occupancy. Original input, delegation instructions and additional sources share a pause gate across members, covering child model calls, continuation, append, service request/consumption and fixed checks. Reports observe the original command document; pause recovery verifies immutable command admission. Main chat and independent sources continue. Original command recovery/stopping verifies original relationships without re-entering active-work gates that its own unknown state would block.
 
-本篇关于完全访问尚未接通的限制由[完全访问命令](2026-10-17-personal-full-access-commands.md)取代；受限实现、既有宿主证据与停止协议的决定仍适用。
+Before Harness resumes, bidirectionally verify configuration, Task, document, admission, original model tool, execution intent and work source. Idle old profiles atomically gain main/child extensions; pending old work rejects first activation. Locally authenticated CLI queries commands, pages original bytes and verifies effect/stopping. Both IM platforms' `/命令` menus complete the same original-operation loop. IM shows UTF-8 previews; local reads preserve original bytes. Models cannot clear pauses. Menus pin the original work entry; effect evidence records the original control receipt. Stop Tasks pin their original receipt and check entry liveness before execution/abort verification; inactive entries end the Task without external calls. Repeated clicks may reference the same in-flight stop Task; each Task retains one original control basis. Recovery checks menus, effect actor, native stop Task and admission bidirectionally. Main's personal-owner-controls marker makes old code reject unrecognized control semantics. Stream pages contain at most 3072 original bytes in base64. Unknown output is explicitly partial; damaged output still permits fact inspection and human evidence recording.
 
-## 既有笔记审计
+## Related decisions
 
-检索个人命令、durable、未知效果、来源暂停及服务取消。迁移总提案、命令宿主、worker、原生持久身份、后台工作、子服务和委托报告各持有独立决定，部分重叠并互链；本篇接续命令宿主的 durable 调用方，不替代其 OS 回执契约。后台 Bash 生命周期提案面向共享长期终端，不适用于单次个人命令。没有完全吸收或失效提案。
+The original audit searched Personal commands, durable, unknown effects, source pauses and service cancellation. Migration, command host/worker, native persistent identity, background work, child services and reports retain separate decisions. This note supplies the command host's durable caller, not a replacement OS-receipt contract. The background Bash proposal concerns a shared long-lived terminal, not one-shot Personal commands. No note was wholly absorbed or invalidated.
 
-## 备选方案
+[Personal conversation background processes](../feature/2026-10-21-personal-background-processes.md) separately admits and owns cross-turn execution; it does not extend run_command lifetime. Background starting and ordinary command prepare/start share transactional directory claims.
 
-- 把执行归子工具持有：生命周期最直接，但工具取消会结束等待，不能承担未知效果和原工作占用；使用同会话原生 owned Task。
-- 仅在模型提示禁止重试：实现少，但模型可换参数、成员或服务工具；暂停在宿主全部相关准入与释放处执行。
-- 恢复时重新 prepare 并启动：适用于纯计算，但任意命令可能已写入外部效果；保存开始意图后只核实原引用。
-- IM只提示改用本机命令管理：接线最少，但无法由原入口完成未知核实；复用原操作及停止任务，避免另建命令执行状态。
-- 直接沿完全访问 local launcher：复用现有启动账户执行，但内存进程组不足以跨后台强杀证明原执行停止；本片显式拒绝，后续独立补齐。
+## Alternatives considered
 
-## 后果
+- Let the child tool own execution: direct lifecycle, but cancellation ends waiting before unknown effects/original-work occupancy can be handled. Use a native owned Task in the same conversation.
+- Forbid retries only in prompts: little code, but models can change arguments, members or service tools. Enforce pausing at all relevant host admissions/releases.
+- Prepare and launch again on recovery: valid for pure computation, not arbitrary commands that may already have effects. After start intent, verify only the original reference.
+- Tell IM users to switch to local management: simplest wiring, but original-entry unknown verification remains incomplete. Reuse original operations/stop Tasks without another execution state machine.
+- Use full-access local launcher directly: existing account execution, but an in-memory process group cannot prove stopping across backend SIGKILL. The initial slice rejected it pending independent persistent stopping support.
 
-沿 durable 原生 Task 等待和取消，不增加平行运行状态机。代价是外部文件和数据库仍非原子；保存执行意图后、外部请求/launch 认领写入前崩溃，或原认领丢失后，会保守保留效果及停止未核实；不能以新 stop 先手替代原证明，prepare 到意图提交前仍可能遗留未派发临时目录。原机器、TMPDIR、证据及目录身份须保持，缺失时保留现场。真实 Linux、模型、IM 与产品体验的证据见[工单](../../../../.scratch/personal-pi-durable/issues/25-durable-commands.md)，完整迁移不由本片替代。
+## Consequences
 
-相关能力：[个人会话后台](../feature/2026-10-21-personal-background-processes.md)另行接纳并持有跨轮执行，不延长本篇run_command寿命；后台starting与普通命令prepare/start共用事务目录认领。
+Native durable Tasks own waiting/cancellation without a parallel runtime state machine. External files/database are still not atomic: a crash after execution intent but before external request/launch claims, or lost original claims, conservatively retains unknown effect/stopping. A new stop-first claim cannot substitute for original proof. Crashes between prepare and intent commit may leave undispatched temporary directories. Preserve the original machine, TMPDIR, evidence and directory identities; missing data retains the scene.
+
+Original real-Linux, model, IM and product evidence is offline at `.scratch/personal-pi-durable/issues/25-durable-commands.md`. This slice does not establish complete migration acceptance.

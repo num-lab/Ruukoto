@@ -1,6 +1,0 @@
-{
-  "packages/runtime/src/parent-delivery.ts": true,
-  "test/115-workflow-final-delivery.test.ts": true,
-  "scripts/test-app.mjs": true,
-  "test/124-test-app-runner.test.ts": true
-}

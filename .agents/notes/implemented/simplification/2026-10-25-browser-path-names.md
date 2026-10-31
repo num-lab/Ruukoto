@@ -1,23 +1,21 @@
-# Agent Note: 本机文档预览删除路径名称黑名单
+# Agent Note: Remove filename blacklists from local document preview
 
 Status: implemented
 
-## 问题
+## Problem
 
-本机文档预览按路径名称拒绝 `.env*`、`.git`、`.ssh` 等文件或目录，既阻止显式打开，也阻止页面读取相对资源。拥有者于 2026-10-25 确认这些敏感性判断不属于桌面浏览器预览的职责，要求删除。
+Local preview rejected names such as `.env*`, `.git` and `.ssh` both for explicit opening and relative resources. On 2026-10-25 the owner confirmed that classifying sensitive names is not this previewer's responsibility and requested removal.
 
-## 决定
+## Decision
 
-删除名称黑名单，普通文件的直接打开与资源读取采用相同约束。目录范围、链接、userData、格式、读取预算与网页隔离继续沿用；没有新增开关或审批。页面脚本能够读取预览目录内原先因名称被拒绝的文件，拥有者在了解此影响后确认删除。
+Delete the name blacklist. Direct regular-file opens and resource reads share the same remaining constraints: directory capability root, links, userData protection, formats, read budgets and page isolation. Add no option or approval. The owner explicitly accepted that page scripts can now read formerly name-blocked files inside the preview directory.
 
-## 既有决定
+This partly supersedes [local-document capabilities](../feature/2026-10-17-desktop-local-browser.md). Terminal, backend browser, present and preview-access decisions do not use this name classification. Historical implementation/verification remains in the offline browser-path-names work item.
 
-按本机文档、本地预览与 browser-documents 检索 implemented／proposed，无 rejected 目录。本篇部分取代[本机文档能力](../feature/2026-10-17-desktop-local-browser.md)的路径名称黑名单决定；终端、后台浏览器、present 与其预览权限的命中不涉及此名称判断，保持原决定。实施和验证见[任务记录](../../../../.scratch/code-simplification/issues/01-browser-path-names.md)。
+## Alternatives considered
 
-## 备选方案
+Keeping/narrowing the blacklist blocks some common credential names, but still makes preview maintain sensitive-name classifications and falsely reject valid paths, contrary to the approved responsibility.
 
-保留或收窄黑名单可以继续挡住一些常见凭据，但仍要求预览功能维护敏感名称分类，也会误拦截正常路径，不符合拥有者确认的职责范围。
+## Consequences
 
-## 后果
-
-`.env.local`、`.git/config` 和 `.environment/index.html` 等路径可按普通文件读取。黑名单不再减少目录内秘密被页面脚本读取或外传的可能；预览能力仍只覆盖选中文档的真实父目录及子目录，不提供任意宿主文件访问。
+`.env.local`, `.git/config` and `.environment/index.html` can be read as ordinary files. The blacklist no longer reduces within-directory secrets being read/exfiltrated by page scripts. The capability still covers only the selected document's real parent and descendants, never arbitrary host files.

@@ -1,43 +1,33 @@
-# Agent Note: 打开会话时已收起 trace 不再闪开
+# Agent Note: Do not flash collapsed traces open during history recovery
 
 Status: implemented
 
-[完成后的执行记录收起](../feature/2026-10-18-completed-trace.md)的收起条件与动画不变；本篇修正恢复顺序让它在历史页首次可见时就成立。
+[Completed-trace collapse](../feature/2026-10-18-completed-trace.md) retains its conditions/animation. This note makes those conditions true before a recovered history page first becomes visible.
 
-## 问题
+## Problem
 
-打开会话时，之前对话里已收起的执行记录会先展开再收起；重新打开已有标签页正常，完全重启应用后必现。历史页装入后立刻渲染，而 `completed` 的判断依赖三处尚未就绪的事实：任务状态、事件流补读与最终正文补读。
+Previously collapsed execution records briefly opened then collapsed after cold app restart, while reopening an already loaded tab worked. History rendered before three completion facts were ready:
 
-- 快照有界：每个会话只带近期结束的任务，更早的只能经 `list_tasks` 取。旧任务第一次渲染时 `view.tasks` 里没有它，`conversationSections` 判定不到 `completed`，trace 以展开态挂载；状态随后到达，`open` 转 false，播放收起动画。
-- 事件补读按 100 条分页。最终 `task.output_entry` 在后面的页时才到，前一页到达后的那次重绘里，同任务最后条目仍是流式片段或中间回复，`completed` 同样不成立。
-- 截断正文的补读会登记 `pendingEntries`，`historyReady` 因此为 false，也让已收起的 trace 暂时展开；补读完成后再次收起。
+- Bounded snapshots include only recently completed tasks. Older task state arrives through list_tasks; without it, conversationSections cannot mark completed and mounts an open trace before animating it closed.
+- Events recover in pages of 100. If task.output_entry arrives later, interim repaint sees a streaming/intermediate last entry and still cannot mark completed.
+- Reading truncated bodies used shared pendingEntries, making historyReady false even for known entries and reopening their traces until completion.
 
-三者都发生在历史页可见之后，所以每次冷启动打开历史较长的会话都会闪一次。热重开不经过恢复，因此不闪。
+All three intermediate states occurred after history became visible; warm reopening avoided recovery entirely.
 
-## 决定
+## Decision
 
-两件事一起改。
+Recover task states for the history window before installing the history page, then restore events. HistoryRecovery.readTasks owns list_tasks paging/upsertTask and returns relevant tasks, or null on a generation change to abandon recovery. installHistoryPage follows state installation. If current-generation state loading fails, still install the history page before throwing, retaining visible-history/readError degradation. HistoryRecovery.restoreTask restores events/tool details for the returned task set.
 
-恢复顺序改为先取历史窗口内任务的状态，再装历史页，最后补事件流：
+Coalesce recovery repaint into one update. loadHistory wraps the whole process in settle counting; mark() only sets dirty while nested, and outer completion calls changed() once. The first visible page therefore has the final task/event/body projection. CodeState's internal updates use mark(); external collaborators such as approval, writes, and inspector still call changed directly.
 
-- `HistoryRecovery.readTasks` 负责 `list_tasks` 分页与 `upsertTask`，返回相关任务集合；代次变化返回 `null` 让整个恢复放弃。
-- `installHistoryPage` 在状态装入之后。当前代次的状态读取失败时仍先装历史页再抛错，保留「历史可见、错误进 `readError`」的降级。
-- 事件流补读与工具详情由 `HistoryRecovery.restoreTask` 恢复，客户端遍历上一步返回的任务集合。
+HistoryRecovery.loadEntry does not add an entry already present in the history page to shared pendingEntries. It only completes known text; entry identity and whether it is the final body are already known. Truly missing entries, including live task.output_entry and outputs beyond truncated pages, still register and keep traces open until final body is established.
 
-恢复窗口内的重绘合并为一次：`loadHistory` 用 `settle` 计数包住整个恢复过程，期间所有 `mark()` 只置脏标记，最外层结束后才调用一次 `changed()`。历史页因此只在最终投影（任务状态、事件分页、正文补读全部到位）时首次可见，中间态不会交给界面。`CodeState` 内部的重绘统一走 `mark()`，外部协作者（审批、写入、检查器）仍直接调用 `changed()`。
+[Shared history recovery](../architecture/2026-10-23-shared-history-recovery.md) owns common reads/missing-body facts. State-first ordering, coalesced repaint, and collapse rules remain here.
 
-`HistoryRecovery.loadEntry` 对历史页里已存在的条目不登记共享的 `pendingEntries`，Desktop 的 `historyReady` 读取该事实：它只是补全正文，条目身份已经可见，最后一条正文是不是它并不受补读影响。真正不在历史页里的条目（直播 `task.output_entry`、截断页面未覆盖的输出）仍然登记，守住「最终正文未确认前保持展开」。
+## Alternatives considered
 
-共同读取与缺失正文事实的归属见[双端共用会话历史恢复](../architecture/2026-10-23-shared-history-recovery.md)，本篇的状态先行、合并重绘与收起规则保持。
+Deferring installation until all reads complete lengthens a blank first screen; the chosen order installs after state loading and preserves error degradation, while repaint batching hides successful intermediate projections. State-first alone is insufficient because event pages and missing-body reads still expose open traces. Teaching historyReady to distinguish every missing kind is more indirect and misses live paths; classify at loadEntry. Hiding traces on the first frame or disabling animation hides the symptom, not recovery state. Unbounded snapshots violate the established limit and slow every reconnect.
 
-## 备选方案
+## Consequences
 
-- **等补读全部完成再装历史页**：首屏会长时间空白，长会话更明显；只前置状态查询的代价是旧的 `read_history` 与 `list_tasks` 串行，换来首次可见即正确。
-- **只前置任务状态、保留中间重绘**：探针证明不够，事件分页之间与窗口外正文补读期间仍会把展开态画出来；合并重绘才能覆盖全部中间态。
-- **改 `historyReady` 只看缺失条目**：判断要区分「页内截断」与「页外缺失」，比在 `loadEntry` 登记处按事实区分更绕，也会漏掉直播路径。
-- **首帧不渲染 trace 或禁用动画**：掩盖症状，仍会在历史页出现后闪；且让加载态与已加载态割裂。
-- **让快照携带全部任务**：违反有界快照的既定决定，长历史会话会拖慢每次重连。
-
-## 后果
-
-冷启动打开会话时 trace 从第一次可见起就是收起态，收起动画只在任务真正完成或用户手动收起时播放。代价是打开历史会话要等状态查询与事件补读都完成才显示消息，首屏比逐段出现更晚；恢复期间界面不反馈中间进度。状态读取失败时仍是历史先出、错误后报。直播补读不受影响：新 `output_entry` 不在历史页里，照旧阻止自动收起，直到正文落定。回归见 `test/desktop-trace-hydration.test.ts` 的冷启动用例与 `test/desktop-tool-activity.test.ts` 的两条用例，分别锁住恢复只交最终投影、首次可见即 `completed` 与页内条目补全不改 `historyReady`。
+Cold-open traces are collapsed on first visibility. Collapse animation belongs only to real completion or user action. Messages appear later because recovery waits for task/event/body facts, with no intermediate progress UI. State-load failure still exposes history and reports error. Live missing output entries continue preventing automatic collapse until their body settles. `test/desktop-trace-hydration.test.ts` and two desktop-tool-activity cases protect final-only projection, initially completed traces, and known-entry body completion not changing historyReady.

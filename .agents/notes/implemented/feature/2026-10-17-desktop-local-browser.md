@@ -1,33 +1,29 @@
-# Agent Note: 桌面浏览器的本机文档能力
+# Agent Note: Desktop browser access to local documents
 
 Status: implemented
 
-MyGo 本机文档的展示载体随[右栏浏览器决定](2026-10-29-mygo-agent-browser.md)使用原生页面；本篇能力根与拥有者入口保持。
+MyGo uses a native page under the later [inspector browser decision](2026-10-29-mygo-agent-browser.md); capability roots and the owner entry remain. [Local-preview responsibility](../simplification/2026-10-25-browser-path-names.md) supersedes path-name blacklists, not the other guarantees below.
 
-路径名称黑名单由[本机预览职责调整](../simplification/2026-10-25-browser-path-names.md)取代，其余决定继续适用。
+## Problem
 
-## 问题
+The owner requested opening local `file://` documents. Allowing the URL alone cannot make an HTTP/mygo iframe read local files. Enabling native file access or relaxing webSecurity would also broaden remote-page permissions.
 
-拥有者要求内置浏览器打开本机 file:// 文档。直接放宽 URL 无法让 HTTP／mygo 顶层的 iframe 读取本机文件，放开原生 file 或 webSecurity 又会扩张远端网页的权限。
+## Decision
 
-## 决定
+Shared DesktopHost handles `desktop_browser_open`/release before backend connectivity and PA allowlisting, so local preview works offline. Reuse generic requests and top-level IPC identity; add no Go/preload RPC, control protocol or backend arbitrary-path read. Each document gets a temporary HTTP origin bound only to 127.0.0.1 and a 256-bit random path token. The iframe uses that address while the bar/history retains the original file URL. Concurrent documents have distinct origins; reused ports after closure still require the new token.
 
-共用 DesktopHost 先于后台连接与 PA 白名单处理 desktop_browser_open／release，本地预览不依赖后台在线。沿用 generic request 和原顶层 IPC 身份，不增加 Go／preload RPC、控制协议或后台任意路径读取。每份文档建立仅监听 127.0.0.1 的临时 HTTP origin 与 256 bit 随机路径令牌，iframe 使用替代地址，地址栏和历史保留原 file URL；并存文档 origin 不同，端口关闭后可能复用，授权依赖新令牌。
+The capability root is the selected document's real parent. Relative styles/images/scripts/data in that directory/descendants can load. There is no directory listing; reject escapes, links and application userData. Name-based metadata restrictions were subsequently removed by the linked responsibility decision. Regular reads verify directory chains, open handles and pre/post identity. Entry HTML is the opening snapshot; resources load on request, and address-bar refresh recaptures it. Limits are 8 MiB/file, 32 MiB and 256 requests/capability, eight capabilities and sixteen concurrent resource reads. Exhaustion fails explicitly and can be refreshed. Ordinary local HTML retains CDN/network access.
 
-能力根为所选文档的真实父目录，同目录和子目录的相对样式、图片、脚本与数据可读取；不提供目录列表，拒绝越界、链接、敏感元数据与应用 userData。普通文件读取核对目录链、打开句柄和读取前后身份；入口 HTML 使用打开时快照，资源在请求时读取，刷新地址栏重新捕获。每文件最多8MiB，每能力累计32MiB、256个请求，至多8份能力和16个并发资源读取；超出后明确失败并可刷新。普通本地 HTML 保留 CDN 和联网能力。
+The iframe retains `allow-scripts allow-forms`, never `allow-same-origin`. Module/fetch requests use `ACAO:null` only on valid-token routes, no credentialed CORS; ordinary remote Origins fail. A null origin does not authenticate a particular frame. The token authorizes the directory: opened local scripts and externally loaded scripts can use/transfer it. This is not exfiltration-resistant execution of hostile local JavaScript. Responses have no referrer/cache, use nosniff and the same sandbox CSP. Do not log tokens or relax device/download/popup/Node/IPC isolation.
 
-iframe 继续使用 allow-scripts allow-forms，不增加 allow-same-origin。模块与 fetch 使用有效令牌路由上的 ACAO:null，不允许带凭据的 CORS，普通远端 Origin 拒绝；null来源并不认证某个 frame。令牌只是同目录的能力，已打开的本地脚本与其加载的外部脚本可使用或转交能力，不承诺抵御恶意本地 JS 的防泄密执行。响应无 referrer、无缓存、nosniff，并使用同样的 sandbox CSP；不记录令牌，不改变设备、下载、弹窗、Node 或 IPC 的隔离。
+Controlled navigation, refresh, back/forward, tab close and unmount revoke old capabilities; late opens are released immediately. Host.close waits for creation/reads and cleans listeners. Opaque-frame internal navigation cannot be observed reliably, so immediate revocation/history tracking for every internal navigation is not promised. Disconnected release cannot be confirmed; host exit provides final cleanup. Plain Web Demo only models URLs/display and explains that file display needs the desktop host, never arbitrary local reads.
 
-受控地址栏导航、刷新、前进后退、关闭标签与组件卸载撤销旧能力，迟到的打开结果立即释放；Host.close 等待创建与读取完成并清理 listener。opaque iframe 内部自行导航无法可靠感知，因此不承诺任意内部导航即时撤销或加入地址栏历史。传输断开后无法确认某次 release，最终回收由宿主退出负责。普通 Web Demo 仅同步 URL 与展示，file 显示需要桌面宿主，不尝试任意读取本机。
+This supplements [inspector preview](2026-10-16-demo-inspector-tools.md), [Desktop migration](../architecture/2026-10-16-desktop-current-demo.md), [MyGo host](../architecture/2026-10-17-desktop-mygo-experiment.md) and [desktop proposal](../../proposed/architecture/2026-10-15-desktop-client.md) while retaining their read/IPC/isolation rules. Historical browser-activity handoff remains offline.
 
-## 既有决定
+## Alternatives considered
 
-按 file、iframe、本地预览和内置浏览器检索 implemented／proposed；没有 rejected 目录。与[Demo工具预览](2026-10-16-demo-inspector-tools.md)、[当前迁移](../architecture/2026-10-16-desktop-current-demo.md)、[MyGo宿主](../architecture/2026-10-17-desktop-mygo-experiment.md)和[桌面提案](../../proposed/architecture/2026-10-15-desktop-client.md)部分重叠：本篇补充拥有者新授权的本机文档能力，其余读取、IPC与隔离约定沿用；其他命中属于后台浏览器、权限或文字规范，与本机展示无关。现行交接见[工单24](../../../../.scratch/desktop-shadcn/issues/24-browser-activity.md)。
+Adding file to the parser/CSP is smallest but still may fail iframe loading in either engine and lacks a resource root. Native WebViews can read directories, but at this stage MyGo React could not embed Content WebViews without geometry/overlay management. Separate custom protocols avoid ports but add adapters, shared-origin and CORS differences. Shared Node loopback service keeps one capability implementation across hosts.
 
-## 备选方案
+## Consequences
 
-直接把 file 加到 parser 和 CSP 最小，但两种浏览器引擎仍可能拒绝 iframe 加载，也不能提供所需资源边界。独立原生 WebView 可以加载本机目录，但 MyGo 当前 React 窗口不能直接加入原生 Content WebView，且要新增坐标与浮层管理。两端自定义协议避免监听端口，但新增适配、共享来源及 CORS 差异；共用 Node loopback 服务保持两端同一能力实现。
-
-## 后果
-
-本机 HTML 能真实渲染相对资源，未新增写入／执行宿主文件的接口。能力根外的资源与敏感配置不加载，格式与预算不足会显示失败；独立浏览器验证 module／fetch 与原生宿主验收分别记证据，HTTP读取测试不能替代 WKWebView／Chromium 的实际显示。
+Local HTML can render relative resources without host write/execute APIs. Out-of-root resources and application data do not load; unsupported formats or exhausted budgets fail visibly. HTTP read tests do not prove WKWebView/Chromium display: module/fetch browser checks and native-host acceptance remain separate evidence.

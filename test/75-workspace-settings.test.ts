@@ -22,8 +22,8 @@
  * 5. store 层：updateProjectSettings 同值保存幂等（不递增版本、不产生事件），
  *    改动保存递增并发事件。
  *
- * 本文件只做离线进程级断言（模型打桩，进程/文件/socket/SQLite 真实）；真实环境
- * 验证记录见 .scratch/agent-direction/smoke-06-workspace-settings.mts 与工单 Comments。
+ * These offline assertions stub the model but use real processes, files, sockets and SQLite.
+ * Historical bin acceptance and ticket comments remain in the offline agent-direction archive.
  */
 
 import { test } from "node:test";

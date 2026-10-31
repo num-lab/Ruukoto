@@ -1,28 +1,25 @@
-# Agent Note: Git 历史滚动自动续页
+# Agent Note: Automatically page Git history while scrolling
 
 Status: implemented
 
-## 问题
+## Problem
 
-Git graph 已支持完整历史分页，但需要反复点击加载更多，打断连续浏览。
+Git graph already paged through complete history, but repeatedly clicking Load more interrupted continuous browsing.
 
-## 决定
+## Decision
 
-在提交历史滚动容器末尾放置观察点，以该容器为 IntersectionObserver root，底部提前224px触发下一页。每次观察至多请求一次，加载状态或cursor改变后重新观察；追加后观察点仍在范围内就继续，直到移出范围或到末尾。回调保持最新，普通重渲染不重建观察；cleanup后迟到通知无效。
+Place a sentinel at the end of the commit scroller. Its IntersectionObserver uses that scroller as root and requests the next page 224px before the bottom. Each observation requests at most once; loading-state or cursor changes rearm it. If the sentinel remains in range after appending, continue until it leaves range or history ends. Callbacks remain current without recreating observations on ordinary rerenders. Notifications after cleanup are ignored.
 
-仅当前Git面板展开且在线、有下一页、未刷新／追加、无错误时观察。切换工作区／实例按key隔离，切走标签卸载。加载中显示状态文本，追加失败保留历史并显示错误和重试，刷新失败沿用刷新按钮；两种错误均暂停自动请求，避免失败循环。Demo只有完整静态样例，无分页按钮，无需模拟后台。
+Observe only when the current Git panel is expanded and online, has a next page, is neither refreshing nor appending, and has no error. Workspace and instance keys isolate state; switching tabs unmounts it. Loading has status text. Append failure preserves history and offers an error and retry; refresh failure retains the refresh button. Either error suspends automatic requests to avoid a failure loop. Demo has complete static samples and no pagination button or simulated backend.
 
-本篇取代[Git历史分页](2026-10-17-desktop-git-history-pages.md)的点击触发决定，继续复用其页容量、游标、修订核实、请求去重与迟到响应隔离，不改变协议或后台预算。检索自动加载、懒加载、Git历史与IntersectionObserver：该分页笔记部分重叠，其余无对应决定。
+This replaces the click trigger in [Git-history paging](2026-10-17-desktop-git-history-pages.md), retaining page size, cursors, revision checks, deduplication, and late-response isolation. Protocol and backend budgets do not change.
 
-## 备选方案
+## Alternatives considered
 
-滚动事件也能判断剩余距离，但需要另外处理首次不足一屏和内容尺寸改变；观察容器末尾由平台统一处理。保留正常加载按钮便于手动控制，但拥有者明确要求自动续页；只保留失败时的重试操作。一次读取全部历史减少交互状态，却绕过现有输出与时间预算，不采用。
+Scroll events can measure remaining distance but need additional handling for an initially short viewport and content-size changes. Observing the end delegates both to the platform. A normal Load more button gives manual control but contradicts the owner's automatic-paging request; manual retry remains for errors. Reading all history at once bypasses existing output and time budgets.
 
-## 后果
+## Consequences
 
-滚动可以连续浏览，错误与隐藏状态不会循环请求；巨大历史仍逐页累计DOM，当前改动不提供虚拟列表或帧率保证。组件effect回归覆盖交叉、重复通知、追加、错误、隐藏、刷新及卸载；真实浏览器与原生验证范围见[工单22](../../../../.scratch/desktop-shadcn/issues/22-git-lazy-loading.md)。
+History browsing is continuous without request loops on errors or hidden panels. This change alone accumulates DOM page by page and promises neither virtualization nor frame rate. Component-effect regressions cover intersection, duplicate notifications, append, errors, hiding, refresh, and unmount. Historical browser and native verification scope is in the offline copy of `.scratch/desktop-shadcn/issues/22-git-lazy-loading.md`.
 
-## 后续决定
-
-[执行阶段连续反馈与reasoning批次](../bug-fix/2026-10-17-desktop-execution-activity.md)取代本篇相关展示决定；工具详情、安全身份、错误与续页生命周期仍沿用本篇。
-- 渲染窗口化由[Git graph 行窗口化](2026-10-18-desktop-git-graph-windowing.md)持有；本篇的触发、暂停与去重规则继续适用。
+Later [execution-activity feedback](../bug-fix/2026-10-17-desktop-execution-activity.md) changes related presentation without replacing tool details, identity, errors, or paging lifecycle. [Git-graph windowing](2026-10-18-desktop-git-graph-windowing.md) owns row virtualization; triggers, suspension, and deduplication remain here.

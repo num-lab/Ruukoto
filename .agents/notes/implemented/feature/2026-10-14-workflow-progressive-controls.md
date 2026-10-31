@@ -1,33 +1,31 @@
-# Agent Note: 工作流侧栏承担逐层操作
+# Agent Note: Progressive workflow controls in a persistent sidebar
 
 Status: implemented
 
-## 问题
+## Problem
 
-`/workflow` 当前显示运行 ID 并引导输入更长命令，详情窗口隐藏聊天；问题回答还要求复制问题代次、版本和请求键。拥有者难以从运行列表判断对象与状态，也无法一边观察工作流一边聊天。已有工程测试证明协议可用，没有证明交互满足这次需求。
+The old workflow window showed run IDs and longer commands, hid chat, and asked owners to copy question generations, revisions and request keys. It was difficult to identify runs or observe while chatting. Protocol tests did not prove this interaction usable.
 
-## 决定
+## Decision
 
-按[已确认规格](../../../../.scratch/agent-workflow/experience-spec.md)建立常驻侧栏，列表→详情→动作逐层进入，默认当前会话活动运行与最近结果，另有历史和定义启动入口。宽屏保留聊天、可切焦点，窄屏退为独立窗口；关闭客户端不取消运行。复用列表与输入组件，不建设工作流脚本编辑器。
+The owner-approved experience specification introduced a persistent list-to-detail-to-action sidebar, defaulting to active runs/recent results in the current session, with history and named-definition start entries. Wide layouts retain chat and focus switching; narrow layouts use a separate window. Client closure never cancels execution. Reuse list/input primitives, not a workflow editor.
 
-启动时固定名称与简短说明，查询提供含毫秒的时间和实例内稳定展示序号；临时脚本由模型提供名称，旧无名记录明确回退。状态图标始终带文字，区分部分失败、人工等待、暂停、取消与停止核实；最终回报状态另列。内部标识只在诊断详情可查，不作为常规输入。
+Starts fix a name/brief description. Queries provide millisecond timestamps and instance-stable display sequence numbers. Models name temporary scripts; old unnamed records use an explicit fallback. Icons always have text, distinguishing partial failure, owner waiting, pause, cancellation and stop verification; final delivery status is separate. Internal IDs remain diagnostic detail, not ordinary input.
 
-程序在发送前保存稳定请求键、版本及业务参数；未知提交先查询，明确未接收才可按原键重试，不换键赌未执行。可读问题和选项承载恢复核实，不删除原安全要求。所有运行事实以后台查询为准，客户端只保留导航及未决操作。
+Before sending, persist stable request key, revision and business parameters. Unknown submissions are queried first; only confirmed nonacceptance allows same-key retry. Never gamble with a new key. Readable questions/options support recovery without deleting safety checks. Backend queries own run facts; clients retain navigation/unsettled operations only.
 
-## 既有笔记审计
+This supersedes text-window/user-entered-key choices in [definitions/controls](2026-10-13-workflow-library-and-controls.md), retaining named versions, authorization, paging, idempotency and unknown effects. [Trusted owner answers](2026-10-13-workflow-owner-input-and-delivery.md) retains source/question-generation checks. [Progressive interaction](../process/2026-10-14-progressive-human-interaction.md) owns the general rule. Original specification/handoffs remain in offline workflow experience records.
 
-本篇部分取代[定义与可信入口](../../implemented/feature/2026-10-13-workflow-library-and-controls.md)中 TUI 文本窗口和用户显式请求键的选择；命名版本、授权、分页、幂等与未知效果处理继续成立。旧篇保留决定并添加后继链接。[可信业务回答](../../implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md)的来源/问题代次仍由后台核实。[全局交互原则](../../implemented/process/2026-10-14-progressive-human-interaction.md)持有常驻规则，本篇持有工作流实现选择。其余命中是普通委派或存储机制；无完全吸收或删除。
+## Alternatives considered
 
-## 备选方案
+- Aliases/autocomplete reuse text controls but still teach command language and hide chat.
+- A graph editor provides authoring but exceeds managing runs/starting definitions; file/Agent editing already handles scripts.
+- Simultaneous TUI/IM redesign improves consistency but needs distinct mechanisms; the owner approved TUI first.
 
-- 保留文本窗口、补短别名或自动补全：复用程度最高；仍把命令语言交给人，且打开时遮住聊天，不满足常驻观察和逐层选择。
-- 新建完整流程图编辑器：可直接编辑编排结构；用户要求管理已有运行与命名定义启动，编辑器扩大范围，文件/Agent 编辑已覆盖脚本编写。
-- TUI 与 IM 同时重做：入口一致性更强；两平台需要不同交互机制，拥有者确认本次 TUI、IM 后续。
+## Consequences
 
-## 后果
+Wide/narrow layouts share navigation. Names/times/descriptions and read-only sequence numbers distinguish same-name/same-millisecond runs; active work is not lost among recent results. Stop/effect-unknown/report states remain separate, with summaries over all executions, not only the latest hundred details. Selection outside the current page is queried and retained explicitly. Existing workflow_controls receipts resolve submissions; no extra state database/notifier is added. Confirmed acceptance consumes the original confirmation; stale revisions return to current details, avoiding duplicate actions.
 
-共享 TUI 的宽屏侧栏保留聊天空间，窄屏切换同一导航；标题、时间及显式说明帮助区分同名运行，全部活动不会被近期结果淹没。运行状态和停止、效果未知、回报分别展示；停止与效果摘要基于全部执行，不受最近百项明细截断影响。选择移出当前页时查询原运行并保留为明确标注的选中项；同毫秒同名运行通过只读展示序号区分，内部 ID 仍留在诊断详情。客户端只保存导航和原提交，接收事实仍由后台持有；原回执经现有 `workflow_controls` 查询，不另建运行状态库或通知器。核实接收后消费原确认层，过期版本退到最新详情，避免重复确认生成第二个动作。
+Display/start/pending fields form a cross-package contract. Temporary scripts require short titles; named definitions keep selected names, not descriptions inferred from parameters. The original schema 41/protocol 25 transition strictly rejected old archives/clients. Imports in either direction still reject sources with workflow execution records; display fields do not bypass this. JSON inputs may remain complex, preserving original text and parse positions; durable question choices/constraints remain backend-validated.
 
-代价是启动参数、展示投影与未决记录形成跨包契约。临时脚本必填短标题，命名定义固定所选名称，说明不从业务参数推导；schema 41/协议 25 继续严格拒绝旧档案及客户端，不迁移旧会话。两方向实例导入沿现行策略拒绝包含工作流执行记录的源实例，新展示字段不能绕过该约束。JSON 参数仍可能复杂；输入保留原文并报告解析位置，业务选项与约束来自持久问题，后端仍作最终校验。
-
-[实施工单](../../../../.scratch/agent-workflow/issues/08-workflow-sidebar.md)持有键盘、长列表/日志、缩放、状态与故障恢复的检查和独立审查证据；拥有者可读性与聊天共存体验交该工单及[联合验收](../../../../.scratch/agent-workflow/issues/11-experience-acceptance.md)，离线和 PTY 结果不代替人工体验。
+Historical keyboard, long-list/log, resize, state/recovery and independent review records remain in offline sidebar/joint-acceptance tasks. Offline/PTY checks are not substitutes for owner readability/chat-coexistence acceptance.

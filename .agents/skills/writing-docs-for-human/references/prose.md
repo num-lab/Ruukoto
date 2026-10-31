@@ -1,63 +1,19 @@
-# docs 行文规范与自检指引
+# Writing For Human Readers
 
-> 本文是 `SKILL.md`「人类视角的写作准则」的深入展开。撰写或改写 `docs/` 下任意文档时对照执行。
+Readers build a model from overview to detail. Start with a concise role statement and topology, then explain interactions and state. A list of ten tables or a chain of internal null checks is not an introduction.
 
-## 1. 面向人类读者的心智设计
+## Concept Or Implementation?
 
-人类阅读文档的方式是**由粗到细、由浅入深、模式识别**。文档写作必须符合人类的心智模式：
+Document domain concepts, collaboration and core guarantees: what a work delegation means, which module owns execution, or how an idempotency key prevents duplicate acceptance. Leave local variables, private helper chains, exhaustive exceptions and schema-column lists in code. Keep protocol details only where callers need them.
 
-### 1.1 建立全局心智，而非平铺技术事实
+Explain the standard workflow first. Gather relevant limits and failures under the owning section; a repeated list of things the system does not do obscures what it does. Preserve necessary safety facts without turning each sentence into a disclaimer.
 
-- **好写法**：先用一句话和拓扑图交代：“Runtime 是后台的编排中枢，负责把会话输入转为串行任务队列，并驱动模型与工具。”然后再分步展开队列管理与委派机制。
-- **坏写法**：一上来就列出 10 个数据表名，然后写长达三页纸的“A表与B表联合查询，若C为NULL则D拒绝，当E发生时同事务写入F”。
+## Layout
 
-### 1.2 区分“意图契约”与“实现琐碎”
+Use tables for interfaces and comparisons, Mermaid for core interactions or transitions, and short paragraphs or lists for distinct facts. A diagram should clarify the system, not copy every function call. Use selective emphasis and occasional callouts for information that changes a reader's next action.
 
-- **应该写进文档**：
-  - 核心概念的定义（如什么是工作委托 `work_delegation`，什么是执行画像 `executionProfile`）。
-  - 模块间的交互契约（谁调用谁、传递的核心意图、事件发布）。
-  - 系统的核心保证（如“幂等性以 (sessionId, requestId) 为唯一键”、“任务终态在单事务内完成收尾”）。
-- **应该留在代码或注释里**：
-  - 具体的局部变量名、内部私有 helper 函数的调用层次。
-  - 每个异常分支的穷举式文字复述（如“如果类型不为 X 抛出 ErrA，如果长度为 0 抛出 ErrB，如果格式为 Y 抛出 ErrC”）。
-  - 数据库字段的机械枚举（代码里的 schema 和 DTO 已经写得清清楚楚，文档应汇总核心实体模型）。
+One physical line per paragraph is a source-format rule, not an excuse for a wall of text. Break independent ideas into separate paragraphs.
 
-### 1.3 避免病态的“防杠式”过度防御
+## Vocabulary And Review
 
-过往文档常见通篇充斥着这种句式：“不负责A，不改写B，不自动C，坏旧D仍拒绝，不能作为E的凭证……”。这种语言不仅极其枯燥难读，而且让读者完全看不出原本功能是什么。
-
-- **纠正法则**：先清晰说明“它做什么”与“标准工作流”，再在「不变量与边界」章节归纳 3~5 条真正关键的底线原则。
-
-## 2. 版式美学与视觉节奏
-
-良好的排版能将文档的可读性提升数倍：
-
-### 2.1 结构化元素优于纯文字流
-
-- **接口与协议**：必须使用 Markdown 表格，列出 `接口/入口 | 调用方 | 职责与说明`。
-- **概念与状态对比**：使用对比表格展示不同角色、不同模式、不同环境的异同。
-- **核心流程**：使用 Mermaid 流程图（`sequenceDiagram` 或 `flowchart TD`）呈现参与者与核心交互，不要用大段文字描述“谁给谁发了什么，接着谁又调用了谁”。
-- **要点归纳**：使用带有前缀加粗的无序列表（如 `- **幂等保证**：...`）。
-
-### 2.2 视觉降噪与呼吸感
-
-- 避免一个自然段超过 4~5 行。合理拆分为精炼的短段落或列表。
-- 段首关键概念使用加粗，帮助读者在快速滚动页面时准确捕获核心术语。
-- 当有重要注意点、安全边界或使用技巧时，使用引用块强调，提升视觉跳跃感。
-
-## 3. 术语与命名一致性
-
-- 领域术语严格遵循根目录 `CONTEXT.md`。
-- 系统核心组件名（如 `Runtime`、`Driver`、`SubAgent`、`Store`）原样保留并适度加粗或用行内代码标识。
-- 状态名称、事件名称原样保留（如 `queued`、`running`、`completed`、`task.started`），方便读者在代码库中检索。
-- 代码相对路径采用仓库相对格式（如 `packages/agent/src/skills.ts`）。
-
-## 4. 常见问题对照与去臃肿清单
-
-| 常见臃肿与不良模式 | 优化改造方向 |
-|---|---|
-| 密密麻麻的一整页纯文字，没有表格和图示 | 梳理核心接口为表格，用 Mermaid 画出时序图或状态机，文字做结构化拆分 |
-| 把数十个数据库列名和枚举值用长难句拼在一起 | 提炼为数据实体卡片或简洁的数据表结构，说明实体关系和核心状态 |
-| 操作手册中大篇幅讲解内部 JSON-RPC 协议编码与锁竞争细节 | 将协议实现细节下沉到模块文档，操作手册仅保留命令、参数与配置示例 |
-| 每一章都反复机械强调“旧版本拒绝、不迁移、不改写” | 在开篇或不变量章节统一明确边界原则，正文聚焦当前工作方式 |
-| 通篇只讲不能做什么，读者读完不知道怎么用 | 强化正面指导（Quick Start、常用步骤、标准配置），负面约束收拢至边界节 |
+Follow `CONTEXT.md`; retain exact states, event names and code symbols so readers can search them. Use repository-relative paths inside documents. Before finishing, ask whether the normal operation is clear, essential limits appear once in the right place, and deeper implementation detail is linked rather than repeated.

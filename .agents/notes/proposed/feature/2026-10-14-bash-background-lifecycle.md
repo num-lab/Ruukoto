@@ -1,57 +1,51 @@
-# Agent Note: 后台执行的生命周期独立于单次 bash 调用
+# Agent Note: Give background executions a lifecycle independent of a bash call
 
 Status: proposed
 
-拥有者2026-10-21确认两端规划、先Coding；后台跨消息保留；首版先停后台再改同目录代码，保留现有占用规则。Coding 已由[会话后台决定](../../implemented/feature/2026-10-21-coding-background-processes.md)部分落实；个人 durable 接入仍保留本提案。共享契约与交接见[规格](../../../../.scratch/agent-tool-completion/spec.md#3-后台进程)和[工单](../../../../.scratch/agent-tool-completion/issues/03-coding-background-processes.md)。
+The owner confirmed both-product planning on 2026-10-21, Code first, survival across messages, and stop-before-edit in the same directory. [Code backgrounds](../../implemented/feature/2026-10-21-coding-background-processes.md) and [personal backgrounds](../../implemented/feature/2026-10-21-personal-background-processes.md) now own their implementations. This retained proposal records the original cross-product tradeoffs and acceptance objectives, not a claim that personal integration is still unimplemented or that all real-environment acceptance has passed.
 
-## 问题
+## Problem
 
-Agent 启动开发服务器、文件监听或测试依赖服务后，需要继续调用浏览器、检查日志或执行其他命令。当前工具 worker 在主 Shell 结束后回收整组，`nohup … &` 启动的 HTTP 服务只能在同一次 bash 内访问，后续工具调用连接拒绝。[真实会话诊断](../../../../.scratch/agent-browser/evidence/owner-session-diagnosis.md)已通过真实 worker 和隔离浏览器复现；补工具说明能解释限制，但不能提供这些执行能力。
+After starting a dev server/watcher/test dependency, an Agent needs later browser/log/command calls. The original worker reclaimed the entire group when the main shell finished, so a nohup background HTTP server was reachable only inside that bash call. Real worker plus isolated browser reproduced the gap; tool documentation can explain it but cannot supply the missing execution capability.
 
-当前 bash 接口只有 command / timeout 与最终结果，没有运行句柄、日志查询或继续执行接口。Driver 在任务自然结束时也停止 worker，因此仅放宽单次命令收尾，只能支持同一任务中的后续操作，不能跨拥有者消息保留开发服务。
+Bash originally returned only command/timeout/final result, with no durable handle/log/continuation. Driver also stopped the worker at natural task completion. Relaxing command cleanup alone would help same-task calls but still fail the confirmed across-message lifetime.
 
-## 方案
+## Proposal
 
-将命令调用完成与后台执行停止分开，新增显式process_start/status/output/stop；保留普通bash前台语义。后台使用独立执行单元，由会话持有，启动Task/op和原授权仍可查，交接成功后普通轮次结束不停止。只延后到任务结束的最小修正不能达到已经确认的跨消息目标，因此不作为最终交付。具体schema、预算、状态与失败指引在共享规格持有，不在本篇重复。
+Separate command return from background stopping with explicit process_start/status/output/stop, preserving foreground bash semantics. A separate session-owned execution unit retains its starting Task/op/authority and survives normal turn completion after successful handoff. A task-lifetime-only patch is not final delivery. Product-specific implemented notes own current schema/budgets/states; this proposal retains shared constraints.
 
-首版限完全访问真实拥有者主会话。受限原生边界不开放一般网络，不能承诺受限开发服务预览。后台持独立目录占用，其他轮次先走内部对话阶段，仅能观测、停止、提问及在有效完全访问来源下浏览；普通写入和同目录委派先停后台。agent_wait只释放当前Task的临时执行，不释放会话后台占用。这一选择保住现有单写入者，不默认给同会话开例外。
+Limit the first version to genuine full-access owner main sessions. Restricted native execution does not allow general networking and cannot promise restricted dev-server previews. Background execution owns independent directory occupancy. Other turns begin in an internal conversation stage allowing observation/stop/questions and browser use only with valid full-access provenance. Ordinary writes/same-directory delegation require stopping the background first. agent_wait releases only the current Task's temporary unit, never session-background occupancy. Same-session work is not an exception to one writer.
 
-启动先持久登记，在串行工具边界核实原临时worker停止，再将原Task占用无空窗转给独立执行，同时保存参考快照并使当前轮进入观测阶段，最后才允许一次launch；不能等待下轮才收窄工具。新轮准入从该记录恢复参考，不依赖曾调用agent_wait。交接成功才返回，取消、关闭与交接由宿主仲裁；无法核实启动或停止时不能把占用转回后继续写入。
+Persist registration first. At a serial tool boundary verify the original temporary worker stopped, transfer original Task occupancy to the independent unit without a gap, save the reference snapshot, and immediately narrow the current turn to observation before permitting one launch. New-turn admission restores from that record, without requiring a prior agent_wait. Return only after successful handoff. Host arbitrates cancellation/close/handoff; unverifiable start/stop must not transfer occupancy back and allow writes.
 
-重启只停止、核实原执行，不重新执行命令；Linux复用原scope/invocation身份，macOS须补现有监督器的持久唯一身份与停止回执，裸PID/PGID不能作为恢复后发信号的依据。默认模式变化不改原授权，实际入口或授权撤销则收回对应后台；停止未核实持续保留目录占用及可见记录。
+Restart only stops/verifies the original execution, never reruns its command. Linux uses original scope/invocation identity; macOS needs persistent unique supervisor identity/stop receipts. Bare PID/PGID is not sufficient post-restart signaling authority. Default-mode changes do not rewrite original authority; actual entry invalidation or authority revocation reclaims its background. Unverified stopping retains visible records and directory occupancy.
 
-窗口关闭、退出TUI及存档仍不停止会话工作；首版提供显式“结束本会话后台”动作，先登记停止屏障，阻止旧已接纳启动越过关闭，核实全部执行停止后报告，保留会话与历史。应用后台关闭同样收齐执行；状态和日志不能代替业务效果核实。
+Window close/TUI exit/archive do not stop session work. Provide explicit End This Session's Backgrounds: persist a stop barrier blocking already-admitted old starts, verify all units stopped, then report while retaining session/history. Application-backend shutdown likewise gathers its executions. Status/logs/exit codes do not establish business effects.
 
-后台继承stdout/stderr会使当前child.close等待管道关闭，因此后台执行拥有独立管道和有界日志，不从当前worker中摘出Shell后代。日志与启动结果分别保留来源，进入模型的片段从历史及证据可重建；磁盘写失败、预算耗尽或停止证据缺失都不能静默报告完成。
+Inherited stdout/stderr keeps child.close waiting for pipe closure, so independent backgrounds need their own pipes/bounded logs rather than detached descendants of the current worker. Logs/start results retain separate provenance, and model-visible fragments remain reconstructible from history/evidence. Disk-write failure, exhausted budgets, or missing stop proof cannot silently become completion.
 
-个人端按统一语义另建durable记录，复用低层执行身份、输出及停止能力，不复用旧Task Store。后台starting、普通命令prepare/start和文件写批准消费共用事务目录claim，双向阻止在途与后续写入；停止或观察未核实保留认领。其主会话启动是新增显式能力，只沿真实完全访问拥有者来源；子工作、定时及汇总不取得自由Shell。两端都不建设通用服务管理平台，完全访问仍不承诺收回主动脱离管理的进程或外部服务。
+Personal uses separate durable records, reusing low-level execution identity/output/stop rather than old Task Store. Background starting, ordinary command prepare/start, and file-write approval consumption share transactional directory claims, blocking both already-in-flight and later conflicting writes. Unknown stop/observation preserves claims. Main-session launch is an explicit new ability only for genuine full-access owner provenance; children/schedules/summaries gain no arbitrary shell. Neither product becomes a generic service manager. Full access does not promise reclamation of processes deliberately escaping supervision or external services.
 
-## 既有笔记审计
+Related [worker](../../implemented/architecture/2026-09-20-tool-worker-per-task-container.md), [full access](../../implemented/feature/2026-10-12-full-access-current-account.md), and [unverified stop](../../implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md) decisions retain execution/authority/stop rules. [Browser](../../implemented/feature/2026-10-14-agent-browser.md) owns its own cross-turn process; this proposal concerns services it visits. [Wait/report](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md) retains Task resource yield/reacquire; [personal commands](../../implemented/architecture/2026-10-17-personal-durable-commands.md) retains run_command cleanup. The original audit found no fully absorbed old proposal.
 
-[个人会话后台决定](../../implemented/feature/2026-10-21-personal-background-processes.md)持有个人durable实现与共享目录认领，最终真实环境验收仍由工单记录；本篇保留最初跨产品取舍与验收目标。
+## Alternatives considered
 
-按 bash、Shell、后台进程、执行句柄与停止归属检索 proposed / implemented；rejected 目录不存在，未发现同主题提案或可完全吸收的旧篇。
+- Keep per-command reclamation with clearer docs: short scope/simple cleanup and fewer unsupported attempts, but no later access to dev servers/watchers/test services.
+- Delete only normal-return cleanup: smallest patch and redirected-output services could survive, but inherited pipes, reused process identity, and task-terminal cleanup remain unresolved.
+- Ask the owner to run a persistent external terminal: workable for local acceptance, but requiring intervention for each preview is not Agent autonomy. Nohup/double-fork/setsid are not product lifecycle escape hatches.
+- Keep processes only until Task end: confines changes to worker/Driver with fewer session records, but fails approved cross-message survival.
+- Share background/foreground occupancy inside a session: enables hot reload, but arbitrary shells may both write and existing rules cannot prove one writer. The owner chose stop-before-edit, not a new read-only-server sandbox.
 
-- [工具工作进程](../../implemented/architecture/2026-09-20-tool-worker-per-task-container.md)、[完全访问](../../implemented/feature/2026-10-12-full-access-current-account.md)和[停止未核实保留](../../implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md)：部分重叠，保留其执行边界、授权与停止核实；本篇提出正常命令返回后的存活时点，互链但不改写已交付决定。
-- [浏览器](../../implemented/feature/2026-10-14-agent-browser.md)：部分重叠，浏览器持有自己的跨轮进程；本篇处理浏览器所访问的本地服务归属，互链且保留浏览器生命周期和未知结果规则。
-- [等待与报告](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md)：部分重叠，保留当前Task让出/重取资源，明确会话后台不能随之释放；[个人命令归属](../../implemented/architecture/2026-10-17-personal-durable-commands.md)部分重叠，保留原run_command收尾规则，新后台另行接纳。终端与后台分离、Plan、SubAgent工作副本、GitHub评审及服务白名单的其他命中归为无关，不改变各自规则。没有完全吸收或新增过时提案。
+## Acceptance criteria
 
-## 备选方案
+- A real independent synthetic HTTP server remains browser-accessible after process_start, natural model-turn completion, and the next owner turn; directory writes become eligible only after explicit verified stop.
+- Inherited stdout/stderr does not block tool return; output is bounded and tied to original execution. Main-PID exit is not whole-unit stop proof, and exit code is not business success.
+- Start/handoff/cancel/close races, real authority revocation, log budget, and application shutdown cover owned executions. Recovery does not relaunch and unverified state retains occupancy.
+- Identity mismatch/PID or PGID reuse never signals an unrelated process. macOS/Linux each need real background/stop evidence; offline substitutes cannot establish platform reclamation.
+- New same-directory tasks, agent_wait, and child work cannot drop background occupancy or deadlock indefinitely. Default-mode change/window close/archive cannot masquerade as stop. Personal durable/original-entry recovery requires its own evidence, not Code's pass.
 
-- 保留每条命令结束即回收，并补清工具说明：执行范围短、清理直接，模型也能避开不支持的调用；但开发服务器、watch 与临时测试服务仍不能供后续工具访问，不能解决已复现的能力缺口。
-- 只删除正常返回处的回收调用：改动最小，输出已重定向的后台服务可以继续运行；但没有解决继承输出管道造成的等待、进程身份复用与任务终态清理，不能作为完整修正。
-- 由拥有者在外部终端持续运行服务：生命周期直观，是当前本地网页验收的可用办法；但每个预览都需要拥有者介入，不能替代 Agent 自主执行。`nohup`、双重 fork 或 `setsid` 也不作为规避停止归属的产品接口。
-- 只保留到当前Task结束：改动局限在worker/Driver，减少会话记录；不能满足拥有者确认的跨消息存活，因此不作为最终方案。
-- 同会话后台与前台共用写占用：可在开发服务器运行时热更新源码；任意Shell仍可能同时改目录，无法沿现有规则证明单写入者。拥有者确认首版先停后改，选择独立占用，不引入只读服务器专用沙箱。
+## Risks
 
-## 验收标准
+Backgrounds extend resource/port/directory occupancy, and the first version cannot edit that directory while they live. Persistent platform identity, launch handoff, stop barriers, and log storage add maintenance. Real macOS/Linux evidence is required for delivery; implementation and acceptance statuses remain with their respective decisions/evidence rather than inferred from this proposal. Future hot reload needs explicit write-range design/proof, not a same-session occupancy bypass.
 
-- 真实独立执行启动合成HTTP服务，process_start返回后可browser访问，模型轮次自然结束及下一拥有者轮仍可查询；显式停止后才重新取得目录写资格。
-- 后台继承stdout/stderr不阻塞工具返回，输出按原执行保存且预算有界；主PID退出不代替整个执行停止，退出码不证明业务成功。
-- 启动/交接/取消/关闭竞争、实际授权撤销、日志预算及应用关闭覆盖归属执行；恢复不重放启动，核实失败保留占用。
-- 进程身份不符或 PID/PGID 复用时不向无关进程发信号；macOS / Linux 各用真实进程验证普通后台服务和停止路径，离线替身不代替平台回收证据。
-- 同目录新任务、agent_wait及子工作不能放掉后台占用或无限互等；默认模式变化、窗口关闭与存档不冒充实际停止。个人durable记录和原入口恢复另验，不借Coding测试声称通过。
-
-## 风险
-
-后台服务会延长资源、端口和目录占用；首版不能一边存活一边修改同目录源码。平台唯一身份、启动交接、停止屏障和日志落盘增加维护成本，未完成macOS/Linux真实验证不能交付。当前实现及工程验收保持原状态，本篇没有落地执行行为；以后确需热更新才单独设计并证明写入范围，不能用同会话例外绕过占用。
+Original diagnosis/spec/issue material under `.scratch/agent-browser/` and `.scratch/agent-tool-completion/` is offline provenance. Current implemented decisions above replace those removed task paths as the maintained source for behavior; this proposal does not itself certify external acceptance.

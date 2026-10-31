@@ -1,29 +1,29 @@
-# Agent Note: 工具平铺与完成后的执行记录收起
+# Agent Note: Flat tool rows and collapsed completed execution records
 
 Status: implemented
 
-流式思考的内部滚动跟随和文件预览全文由[完整分块传输](2026-10-18-complete-reasoning-and-preview.md)补充；六行高度、partial事实与完成后折叠规则不变。
+[Complete chunked transfer](2026-10-18-complete-reasoning-and-preview.md) adds internal streaming-reasoning follow and full file previews; the six-line viewport, partial-content facts and completion-collapse rules remain.
 
-## 问题
+## Problem
 
-工具摘要分组把单条调用再藏一层，长 reasoning 占满消息区；Read 快照的常驻说明使用整块空态布局，挤走真正文件。拥有者要求去掉这些干扰，在任务完成后收起最终回复之前的 trace。
+Tool summary groups hid each call behind another expansion; long reasoning filled the conversation; a permanent captured-version notice displaced file content. The owner requested removing these distractions and collapsing trace before the final reply when execution completes.
 
-## 决定
+## Decision
 
-Desktop 与可变 Demo 直接按原顺序展示 Thought 和每条工具，取消工具摘要的折叠层；保留 Read 路径入口、单条详情、错误、参数和结果分页。成功行按动作使用 Brain／Bot／文件／编辑／新建文件／终端／搜索图标，摘要用执行清单；失败、未知效果和进行中状态继续优先显示原状态图标。运行阶段仍按实际批次识别模型思考与工具执行；模型阶段保留 Thinking，工具阶段直接展示调用行，不显示 Working 标题，批次不再是可见分组。已有 reasoning 的所有展示位置最多6行视觉高度，超出内部滚动，原文、换行、选择与键盘访问保留。
+Desktop and mutable Demo render Thought and each tool in original order without a tool-summary collapsing layer. Keep Read links, per-call details, errors, arguments and result pagination. Successful actions use Brain/Bot/file/edit/new-file/terminal/search icons and checklist summaries; error, unknown-effect and running status icons take precedence. Actual batches still determine model/tool phase. Model phases keep Thinking; tool phases show calls directly without a Working heading or visible batch group. All existing reasoning displays have at most six visual lines with internal scrolling, retaining text, line breaks, selection and keyboard access.
 
-执行记录从运行时起就由同一个 TraceCollapsible 承载，折叠摘要显示 Worked for 加任务实际开始到结束的耗时，缺失有效时间时仅显示 Worked；尚无结果的调用继续显示对应进行中动作，不另标“等待结果”。任务 completed 且同任务最后语义条目为已确认 entryId、非 streaming 的非空 assistant 时，默认收起最终回复前的记录。同一最终 entryId 的全部正文片段留在外面。同任务存在尚未成功补读的输出条目、缺少确认、最终消息后还有工具或 thinking、任务失败／取消／中断或有待审批时不自动收起。折叠状态只在前端内存保存，可手动重开；不改后台事件、JSONL 或 provider 输入。
+One TraceCollapsible owns an execution record from the start. The closed summary shows `Worked for` with actual task start/end duration, or `Worked` if valid times are absent. Calls without results retain their running action rather than another waiting label. Automatically collapse pre-final records only when the task is completed and its last semantic entry is a confirmed `entryId`, nonstreaming, nonempty assistant. All body fragments of that final entry remain outside. Pending output rereads, unconfirmed final text, later tools/thinking, failed/canceled/interrupted tasks or pending approvals prevent automatic collapse. Store expansion only in frontend memory with manual reopening; backend events, JSONL and provider input do not change.
 
-记录按现有时间顺序连续分段，不按 taskId 聚拢重排；排队的用户消息与其他任务是分段边界。中间 assistant 进度正文随其所在执行段收起，用户消息和审批卡始终在外面。容器键使用任务与前置边界，阶段变化只改变 open，复用已有180ms Radix Presence 开合与减弱动画，不另加计时器、测高或滚动控制器。
+Split records into contiguous chronological segments; never regroup by taskId across queued user inputs or other tasks. Intermediate assistant progress collapses with its segment, while user messages/approvals remain outside. Keys combine task and preceding boundary; phase changes only alter `open`. Reuse 180 ms Radix Presence and reduced motion, adding no timer, height measurement or scroll controller.
 
-Read 捕获快照直接展示文件，删除“Read 时捕获的版本”常驻说明；部分捕获或显示截断时保留紧凑提示，不能把不完整内容伪装成完整文件。读取身份和范围不变。
+Captured Read previews show files directly without a permanent captured-version notice. Partial capture/display truncation retains a compact notice; incomplete content never masquerades as complete. Read identity/scope remain unchanged.
 
-本篇部分取代[reasoning 工具批次](../bug-fix/2026-10-17-desktop-execution-activity.md)、[Demo 工具 Trace](2026-10-16-demo-trace-tools.md)与[正式 Trace 迁移](../architecture/2026-10-16-desktop-trace-migration.md)的展示层级决定，其余实际阶段、详情、错误、恢复与来源约束仍沿用。检索上述笔记及[Read 快照](2026-10-17-desktop-read-snapshot.md)，均为部分重叠并保留独立机制，不归档；冻结 Demo 不修改，新增样式以单独覆盖文件保存。
+This partly supersedes presentation in [reasoning batches](../bug-fix/2026-10-17-desktop-execution-activity.md), [Demo Trace](2026-10-16-demo-trace-tools.md) and [production Trace migration](../architecture/2026-10-16-desktop-trace-migration.md), retaining real phases, details, errors, recovery and sources. [Read snapshots](2026-10-17-desktop-read-snapshot.md) retain their independent capture contract. Frozen demo styles remain untouched; new styling lives in overrides.
 
-## 备选方案
+## Alternatives considered
 
-每轮工具保留摘要组能压缩历史，但增加本轮明确取消的展开层级。只在完成后才新建折叠容器代码更少，却无法播放收起动画。按 taskId 一次汇聚全部记录便于单次折叠，却会移动提前排队的用户输入。仅凭 completed 折叠无需等待历史补读，却可能把最后一个中间回复误认成最终回复；采用已确认正文的保守条件。
+Tool summary groups compact history but add the expansion layer the owner removed. Creating a collapsible only after completion is smaller but cannot animate closing. Regrouping by taskId simplifies one collapse but moves queued input. Collapsing solely on `completed` avoids waiting for rereads but can mistake an intermediate reply for the final one; require confirmed final content.
 
-## 后果
+## Consequences
 
-运行中调用和历史展开后的调用更直观，长 reasoning 不再持续增高页面；完成后每个连续执行段各保留一个 Trace 入口。最终正文未确认前保持展开；不明任务归属不猜测，补读按任务阻止自动收起，新任务加载或失败不重开旧任务；恢复后依权威记录重新计算。reasoning 仍只有现有 Driver 记录的8KiB尾部，不生成或补造内部推理。窄回归、浏览器生命周期与未覆盖的原生体验由[工单25](../../../../.scratch/desktop-shadcn/issues/25-flat-completed-trace.md)记录。
+Running/open historical calls are direct, reasoning stops growing the outer page, and each completed continuous segment retains one Trace entry. Unknown task ownership is not guessed. Pending rereads block that task's collapse; loading/failure of a new task does not reopen old tasks. Recovery recalculates from authoritative records. The original Driver exposed only an 8 KiB reasoning tail, subsequently extended by chunked transfer; never fabricate internal reasoning. Historical narrow regressions, browser lifecycle and native-experience gaps remain in the offline flat-completed-trace work item.

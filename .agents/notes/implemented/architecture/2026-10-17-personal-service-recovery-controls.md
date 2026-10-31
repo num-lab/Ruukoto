@@ -1,35 +1,27 @@
-# Agent Note: 拥有者分别核实服务效果与原写操作停止
+# Agent Note: Verify service effects and original write execution separately
 
 Status: implemented
 
-## 问题
+## Problem
 
-[服务操作](2026-10-17-personal-service-operations.md)已保存未知效果与原启动器身份，但效果确认和停止重核只有可信 API。拥有者无法从现有 CLI 或 Telegram 管理暂停；直接下放子写工具会先增加可产生未知效果的入口，而恢复仍需人工调用内部 API。[固定检查控制](2026-10-17-personal-inspection-stop-controls.md)只证明只读检查退出，不能代替服务写操作的证明。
+[Service operations](2026-10-17-personal-service-operations.md) retained unknown effects and original launcher identity, but only trusted APIs could confirm effects or recheck stop. Owners lacked CLI/Telegram recovery controls. Adding child writes first would create more unknown-effect sources while still requiring manual internal APIs. [Inspection stop controls](2026-10-17-personal-inspection-stop-controls.md) prove read-only inspection exit, not service-write exit.
 
-## 决定
+## Decision
 
-本机认证菜单与 Telegram `/服务核实` 提供原操作查询、一次性效果核实及写操作停止重核。服务请求仍由可信宿主发起；没有新模型工具、服务操作或授权来源。人工说明保留已生效/未生效及最多 8192 字符证据，不覆盖原未知结果，也不恢复失效长期授权。已保存说明每页 1200 字符，内部引用由程序管理。
+Authenticated local menus and Telegram's `/服务核实` provide original-operation query, one-time effect verification, and write-stop recheck. Trusted host callers still initiate service writes; no model tool, service operation, or authority source is added. Owner evidence records took-effect/did-not-take-effect with at most 8192 characters, without overwriting the original unknown result or restoring stale standing authority. Saved evidence pages use 1200 characters; the program owns internal references.
 
-Telegram 只管理原 bot、owner、代次，选择与效果确认来自已送达宿主菜单。直接回复确认菜单提交证据，决定、原操作引用与收件同事务保存；恢复双向核实菜单、效果、原文与操作回链。平台重投复用原收件，已保存核实不可覆盖。本机可信入口可核实旧代次操作；应答丢失后查询原事实。
+Telegram manages only original bot/owner/generation and accepts choices/effect confirmation from delivered host menus. Direct replies to the confirmation menu submit evidence. Decision, original-operation reference, and input share a transaction. Recovery verifies bidirectional menu/effect/original-text/operation links. Redelivery reuses input; saved verification cannot be overwritten. Local trusted controls may verify old-generation operations and query original facts after a lost reply.
 
-停止请求与收件同事务登记独立 background Task，接纳和执行均要求原服务操作已消费且效果未知、当前不是仍执行中的 started，也没有未核实审批前检查。Task 固定原 requestId/TaskId、hostOpId 和机器，执行前复核入口；外调只使用 stop-op，结果提交核对原执行身份。启动器与命令单元退出仍以既有协议为准，不从人工说明或 Task 结束推断停止。后台恢复只重核同一原身份，失败不循环重核，刷新可见最近 Task 的状态和错误码。
+A stop request and input transaction registers an independent background Task. Acceptance and execution both require the original service operation to be consumed and effect_unknown, not still started/executing, and no unresolved preapproval inspection. Task pins original requestId/TaskId, hostOpId, and machine and rechecks entry before execution. External calls use only stop-op; result commit validates original execution identity. Existing launcher/command-unit protocol proves exit, not owner testimony or Task termination. Recovery rechecks only that identity; failure does not loop. Refresh exposes latest Task state/error code.
 
-主会话持久登记独立控制扩展，旧程序因缺扩展拒绝恢复。新版本核对停止 Task 的版本、原操作、执行身份及可选收件回链后才调度。查询与控制不占用主模型；效果及停止均核实后，既有服务工作和报告等待才可收尾。
+Main durably registers a separate controls extension, causing older programs to reject recovery. New code validates stop Task version, operation, execution identity, and optional input backlinks before scheduling. Query/control use no main-model occupancy. Existing service work/report waits complete only after both effect and stop are verified.
 
-## 既有笔记审计
+This supplements service operations, Telegram authority, and inspection ownership without changing helper, MCP, command, or notification protocols. [Child service operations](2026-10-17-personal-subagent-service-operations.md) later adds controlled restart under WorkTask authority/cancellation/unknown-effect rules; other boundaries remain.
 
-按服务、未知效果、停止重核、拥有者控制检索 active notes；迁移提案、服务操作、Telegram 权限、检查归属与固定检查控制部分重叠，保留并互链。共享 helper、MCP、命令执行与通知的命中各有独立消费者，本片不改变其协议或效果归属。没有完全吸收或失效提案。
+## Alternatives considered
 
-## 后续服务写入
+Opening child writes first advances capability but adds provenance, per-call authority, whole-request cancellation, and reporting before a usable recovery path. Waiting for recheckStop inside HTTP/Telegram acceptance is shorter but exceeds local request limits and blocks incoming transactions. Reusing inspection-stop proof confuses read-only process groups with write launchers/command units; share interaction patterns, not identities or evidence.
 
-子会话不下放服务写工具的部分由[子服务工作](2026-10-17-personal-subagent-service-operations.md)取代：受控 restart 沿原 WorkTask 权限、取消和未知效果收尾；独立宿主操作与其他工具的原边界继续适用。
+## Consequences
 
-## 备选方案
-
-- 直接开放子写工具：能够继续总方案的工具装配，但同时增加子工作来源、逐次权限、整项取消和报告等待契约；先补既定恢复入口，使下一切片有可用的人工恢复路径。
-- 在 HTTP/Telegram 接纳中直接等待 recheckStop：复用最短，但 helper 最长等待超过本机请求时限，还会占住平台收件事务；独立原生 Task 让登记与执行分开且可恢复。
-- 复用固定检查重核：已有完整选择流程，但只读检查与写入启动器/命令单元的证明不同，误用会让退出事实串线；共用控制模式，保持各自身份与门禁。
-
-## 后果
-
-拥有者可从产品入口处理暂停，仍须自行独立核实实际服务效果；系统无法替代这份证据。代价是新增控制 Task 和收件回链检查，保守停止证明仍可能长期不成立。新入口不会强制释放、撤回已提交 systemd 作业或重发 restart；子写工具、真实平台/systemd 与完整迁移继续由[总工单](../../../../.scratch/personal-pi-durable/issues/01-migration-plan.md)推进。工程及产品证据见[实施记录](../../../../.scratch/personal-pi-durable/issues/20-service-recovery-controls.md)。
+Owners can recover paused work through product entry points but must independently verify real service effects; the system cannot supply that testimony. New control Tasks and input backlinks cost maintenance, and conservative stop proof may remain unavailable indefinitely. There is no forced release, withdrawal of committed systemd jobs, or replayed restart. Historical overall/implementation evidence is in the offline copies of `.scratch/personal-pi-durable/issues/01-migration-plan.md` and `20-service-recovery-controls.md`; real systemd/platform and full migration retain separate acceptance.

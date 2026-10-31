@@ -1,36 +1,36 @@
-# Agent Note: Code MCP 设置保留原配置来源并先限定凭据用途
+# Agent Note: Code MCP settings preserve source identity and scope credentials on creation
 
 Status: implemented
 
-工作区和旧项目来源管理由[实例 MCP 方案](../../implemented/simplification/2026-10-24-code-instance-mcp.md)取代；本篇保留被取代的原决定，首次限用途、服务身份、条件版本与原实例核实继续成立。
+[Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) supersedes workspace/legacy-project source management. This note retains the original decision and still-applicable credential scoping, service identity, conditional revisions and original-instance verification.
 
-## 问题
+## Problem
 
-工作区可以组织多个旧项目的会话，但 MCP 配置和凭据仍属于原项目。桌面从工作区猜一个项目会写错同名服务。通用凭据先保存、配置成功后才收窄范围，还会在配置冲突或取消时留下可被通用 HTTP 使用的秘密。
+Workspace organization can include sessions from several legacy projects while MCP configuration/credentials remain with original projects. Guessing a project can overwrite the wrong same-named service. Saving a general credential before later narrowing it can leave broadly usable secrets after conflict/cancellation.
 
-## 决定
+## Decision
 
-后台分页列出工作区自身及组织归属会话的原项目，返回名称和服务数量；当前来源只有确实属于该工作区才置前，页面按名称选择，写入仍使用原项目。没有会话时默认工作区自身。服务身份和条件版本从读取结果取得；桌面更新同时提交原 service_id，在配置事务内拒绝已删除或同名重建的服务，原编辑不自动转成新增；新服务用期望版本零保存为禁用草稿，不为发现临时启用。
+The original backend paged workspace/original-session projects with names and service counts, preferring current source only when truly part of that workspace. Empty workspaces defaulted to themselves. Writes used original projects, service identity and read revisions. Updates supplied original service_id, rejecting deleted/recreated names transactionally rather than turning edits into creates. New services saved disabled with expected revision zero, never enabled temporarily for discovery. Instance MCP later replaces that source-selection model.
 
-桌面只开放 MCP 专用凭据创建和移除入口。创建即写入 `scope={projectId,operations:['mcp']}`，使用已解析端点的实际 host、authorization 头和 mcp 用途，不允许覆盖同名凭据。列表只含元数据及服务引用；来源过滤保留兼容的既有凭据。移除只接受本来源的 MCP 专用凭据，仍有任何服务引用时拒绝。凭据和服务配置是两次写入，不宣称原子；服务保存失败或取消后留下的凭据仍受限且可显式清理。
+Desktop exposes only MCP-specific credential creation/removal. Initial storage originally used `scope={projectId,operations:['mcp']}` and the applicable source, with resolved endpoint host, authorization header and MCP purpose; same-name replacement is forbidden. Lists contain metadata/references only and retain compatible existing credentials. Removal requires matching MCP-only scope and zero references. Credential and service writes are separate, not atomic; failed/canceled service saves leave restricted credentials available for explicit cleanup.
 
-更新先求实际凭据引用，再核对存在、主机、用途、请求头和范围；省略引用表示保留，null 才清除。发送时再次核对用途与请求头，失效引用不会降为匿名。启停的配置变更与事件在同一事务内完成。
+Updates first resolve the effective credential reference, then check existence, host, purpose, header and scope. Omission retains the reference; null clears it. Sending rechecks purpose/header and never falls back to anonymous on invalid references. Enable/disable configuration and its event share a transaction.
 
-普通HTTP的`mcp_check`复用已有初始化与工具发现，允许检查禁用服务，不调用业务工具。页面以逐工具选择维护允许列表；新允许项默认副作用不明，读写类别由拥有者声明，远端只读注解不成为本地授权。检查错误收口为固定行动指引，不回显远端可能反射的令牌。[Cua管理](../../implemented/architecture/2026-10-23-cua-official-mcp.md)使用固定工具分类、静态清单和宿主授权预检，接受新观察与逐服务暂停另由其持有。
+HTTP `mcp_check` reuses initialization/discovery, including disabled services, without business-tool calls. Owners choose allowed tools individually and classify effects; new tools default to unknown effects, and remote read-only annotations never grant local permission. Check errors use fixed actionable text rather than potentially token-reflecting remote bodies. [Cua management](../architecture/2026-10-23-cua-official-mcp.md) owns fixed classification/manifests, host prechecks, observation acceptance and per-service pause.
 
-页面沿设置容器保管原实例、工作区、来源、草稿与提交关联；切范围经过已有导航保护。秘密只在提交局部参数中传给宿主，输入随提交、放弃、断线和换代清空。冲突保留草稿并读回当前值；丢答禁止重发，通过原实例和来源只读核实，查询失败继续待核实。禁用只约束后台后续调用，不承诺撤销已经发出的远端调用。
+The settings container binds instance/source/draft/submission and guards navigation. Secrets exist only in local submit parameters and clear on submit, discard, disconnect or generation change. Conflicts preserve drafts and reread current values. Lost responses never auto-resend: verify read-only against original instance/source; failed verification remains unresolved. Disabling only affects later calls, not already emitted remote work.
 
-## 既有笔记审计
+## Related decisions
 
-按 MCP、desktop、credentials、工作区组织归属检索 proposed／implemented／rejected。[设置管理提案](../../proposed/feature/2026-10-21-desktop-settings-management.md)在 Code MCP 范围部分落地，其余管理能力仍保留；[设置容器](2026-10-21-desktop-settings-shell.md)继续持有导航约定；[MCP 客户端](../../implemented/architecture/2026-09-23-mcp-client.md)、[写工具审批](2026-09-23-mcp-write-tools-approval.md)和[传输复用](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md)继续持有运行时与授权规则。本篇补充桌面管理与首次凭据写入，不改变其批准消费语义。
+This implements the Code MCP slice of the [settings proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md). [Settings container](2026-10-21-desktop-settings-shell.md), [MCP client](../architecture/2026-09-23-mcp-client.md), [write approvals](2026-09-23-mcp-write-tools-approval.md) and [transport reuse](../architecture/2026-10-17-mcp-transport-reuse.md) retain navigation/runtime/approval-consumption rules.
 
-## 备选方案
+## Alternatives considered
 
-- 工作区只管理自身项目可以减少选择，但会漏掉已组织到这里的旧会话配置；保留独立来源选择。
-- 复用通用凭据写入再由服务配置收窄，可以少一个入口，但配置失败或取消留下的秘密过于宽泛；采用首次落盘即限定范围的专用入口。
-- 首次配置前直接检查未保存表单可以少一次保存，但需要新发现协议与秘密传递路径；已有检查支持禁用服务，先保存禁用草稿即可。
-- 删除服务时自动清理凭据能少一次操作，但同一凭据可能被其他服务引用；分开显示引用与显式清理，由后台再次拒绝仍被引用的凭据。
+- Managing only the workspace project is smaller but originally missed organized legacy sessions; explicit source selection preserved ownership until instance migration.
+- Saving general credentials then narrowing uses fewer operations but leaves excessive permissions after failure/cancel. Scope the first write.
+- Checking unsaved forms avoids one save but creates another discovery/secret route; disabled saved drafts already work.
+- Auto-deleting credentials with a service saves a step but can break other references. Show references and require explicit backend-checked cleanup.
 
-## 后果
+## Consequences
 
-Code 设置在没有打开会话时也能管理 MCP，旧会话来源不会因组织映射而串写。凭据创建与服务保存仍可能部分成功，但秘密始终受限，页面给出核实与清理入口。回归使用真实本机控制面与隔离回环 MCP；模拟发现不代表真实 HTTPS 服务、双外壳体验或业务工具授权已验收。
+Code MCP management works without an open session and does not infer ownership from display organization. Partial credential/service success remains visible without broadening secrets. Real local control-plane and isolated loopback MCP tests cover management; mocked discovery proves neither real HTTPS interoperability nor two-shell experience/business authorization acceptance.

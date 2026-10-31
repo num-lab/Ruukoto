@@ -1,1 +1,0 @@
-uid=1003(eitrous) gid=1003(eitrous) groups=1003(eitrous),27(sudo),100(users),987(ruukoto-backend),988(docker)

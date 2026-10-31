@@ -1,40 +1,40 @@
-# Agent Note: 普通委派与工作流共用可信来源能力
+# Agent Note: Ordinary delegation and workflows share trusted source capabilities
 
 Status: implemented
 
-部分取代：[当前工作区快照与子增量](2026-10-15-current-workspace-snapshots.md)持有实际内容基线、捕获零写入与宿主准备、完整文件冲突及坏基线隔离；本篇其他独立决定继续适用。
+[Current-workspace snapshots and child deltas](2026-10-15-current-workspace-snapshots.md) partly supersedes this note for actual-content baselines, zero-write capture/host preparation, whole-file conflicts and corrupt-baseline isolation. Other decisions here remain. These shared-runtime mechanisms do not imply that the [current durable Personal assembly](../simplification/2026-10-18-personal-product-entry.md) still uses the old Personal runtime.
 
-## 问题
+## Problem
 
-角色定义已固定，但普通子代理仍只有分析/修改白名单，工作流独占个人业务与技能接线；放开工具名不能证明真实来源身份，也会遗漏撤销和批准后的宿主写入。完整目标由[可配置角色决定](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)持有，本篇只持有来源、实际工具、权限与上下文接线。
+Role definitions were pinned, but ordinary SubAgents still had analyze/modify allowlists while workflows alone received Personal business tools and skills. Enabling tool names does not establish actual source identity and can miss revocation or post-approval host writes. [Configurable roles](2026-10-14-configurable-subagent-roles.md) owns the complete goal; this note owns source, effective tools, permissions and context wiring.
 
-## 决定
+## Decision
 
-每次普通委派与真实工作流步骤在可执行 Task 登记前固定 `SubAgentExecutionSnapshot`，放在 `tasks.read_scope.execution`：可信来源、角色摘要、有效访问模式、来源保护、实际工具、MCP 发现签名与完整摘要。来源沿已有 WorkflowSource 保存真实 Task/Session、项目、权限版本、入口目标/代次、资料授权 ID、配置摘要及工作区身份。登记后父任务自然完成不撤销授权；后续配置、来源权限、资料撤销与目录替换阻断发送、调用及批准消费。恢复不能从当前配置补造缺失记录，身份复用也不能用新来源洗掉旧上下文的失效配置。
+Each ordinary delegation and real workflow step pins a SubAgentExecutionSnapshot in `tasks.read_scope.execution` before registering an executable Task. It contains trusted source, role digest, effective access mode, source protection, effective tools, MCP discovery signature and complete digest. Existing WorkflowSource stores actual Task/Session, project, permission version, entry target/generation, material grant IDs, configuration digest and workspace identity. Natural parent-task completion does not revoke registered authorization. Later configuration/source-permission changes, material revocation or directory replacement block sending, calls and approval consumption. Recovery cannot fabricate missing records from current configuration; identity reuse cannot wash away invalid configuration attached to old context with a new source.
 
-省略角色工具继承实际可委派集合；显式工具逐项预检，未知工具、产品不支持、宿主限制、MCP 缺失和发现失败明确报原因，不能静默删减。实际装配、SDK 签名、激活、发送前与调用门读同一钉定工具集合。main 的受控编码委派提供基础 read/edit/write/bash/read_artifact 与配置的 MCP，主会话自身类别不改变；个人业务通过来源资格核实，Task/Session、审批、回执和效果仍属于真实子任务。工作流不取得普通工作内消息或下级委派资格，三个共享名额及取消、停止与结果语义继续沿原归属。
+Omitted role tools inherit the actually delegable set. Explicit tools are preflighted individually: unknown tools, unsupported products, host restrictions, missing MCP or failed discovery produce specific errors, not silent filtering. Assembly, SDK signature, activation, pre-send checks and call gates read the same pinned set. Main's controlled coding delegation supplies read/edit/write/bash/read_artifact and configured MCP without changing the main session's category. Personal business tools verify source eligibility, while Task/Session, approvals, receipts and effects belong to the actual child task. Workflows gain neither ordinary work messages nor further delegation; shared three-slot limits, cancellation, stopping and results retain their owners.
 
-角色模式只能沿 full_access → auto-review/confirm、auto-review → confirm 收紧。protect_source 拒绝完全访问、原地目标及来源重叠工作目录，执行要求原生沙箱；来源与附加资料不取得写权限。批准后的宿主文件写入同样拒绝来源路径与多硬链接，检查产物仍可留在独立目录。工作流冻结验证保持固定 confirm 与保护，角色覆盖不能解除宿主约束；目标捕获和副本增量由[当前工作区快照](2026-10-15-current-workspace-snapshots.md)持有，本篇只规定来源能力与权限。
+Role mode may tighten only from full_access to auto-review/confirm or from auto-review to confirm. protect_source rejects full access, in-place targets and work directories overlapping the source; execution requires a native sandbox. Source and additional materials receive no write access. Post-approval host file writes also reject source paths and multiple hard links, while check artifacts may remain in the separate directory. Workflow frozen verification fixes confirm and protection; role overrides cannot remove host constraints. [Current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) owns target capture/copy deltas.
 
-无目标普通委派可只提供 request/key，在独立目录使用 shell，资料集合默认为空；既有修改入口仍要求显式目标。两入口沿可信来源装配适用项目指令与技能目录，项目无 rootDir 时也沿来源工作区解析；指令产物、选择记录、技能 JSONL 和 prompt 快照可重建，不自动复制父聊天、个人记忆或 Jev 输入。普通 memory_list/read 的读取 ID 同事务落 readMemories 与 task.memory_accessed，复用前后的所有历史来源和已读记忆均复核；缺字段、未知引用或读取记录丢失不当作空集通过。内部对话阶段只沿已保存参考快照，不现场加载配置。
+Target-less ordinary delegation needs only request/key, can use shell in a separate directory and defaults to no materials; the existing modification entry still requires an explicit target. Both entries assemble applicable project instructions and skill catalogs from trusted source, resolving through the source workspace even without project rootDir. Instruction artifacts, selection records, skill JSONL and prompt snapshots are reconstructable. They do not copy parent chat, Personal memory or Jev input automatically. Ordinary memory_list/read records accessed IDs in readMemories and task.memory_accessed in the same transaction. Reuse revalidates all historical sources and read memories; missing fields, unknown references or lost read records are not empty sets. Internal dialogue uses saved reference snapshots without live configuration loading.
 
-继续和身份复用重新固定本次来源；消息唤起沿接收方本工作最近执行快照与固定角色，并取消息来源模式和原实际模式的收紧交集，不能借另一个 SubAgent 或新的 full_access 消息扩大能力。待投递来源失效留下明确未投递结果。两方向导入保留并校验内联快照和完整来源引用，不能把缺来源的归档导成可运行身份。当前 schema 沿严格版本策略拒绝旧档案，不回填授权。
+Continuation/reuse pins the source for this execution again. Message wakeups use the receiver's latest execution snapshot in the same work and its pinned role, intersecting message-source mode with original effective mode by tightening. Another SubAgent or a new full_access message cannot enlarge capabilities. Invalid pending-delivery sources retain an explicit undelivered result. Both import directions preserve and validate inline snapshots and complete source references; source-less archives cannot become runnable identities. Strict schema versions reject old profiles without backfilling authorization.
 
-普通结果、工作内消息与等待在装配、发送、消费和结果唤醒前共用来源复核：逐条核实截至目标 Task 的同子会话历史、真实工作归属、固定角色、完整执行快照、权限收紧与已读取资料和记忆。已登记报告只用冻结的 dependencyTaskIds，并核实它与目标当时的历史一致；身份后续复用不扩大旧结果依赖。首次等待沿本工作最早真实执行行的来源，既有等待也须与该原记录一致，缺失不按当前配置或授权补造。坏记录保留原 Task、结果、尝试和字节，拒绝送达；定时运行把来源失效登记为收尾失败，不因没有唤醒而无限等待。
+Ordinary results, work messages and waits share source verification at assembly, sending, consumption and result wakeup. It checks same-child-session history through the target Task, actual work ownership, pinned role, complete execution snapshot, permission tightening and accessed materials/memories. Registered reports use only frozen dependencyTaskIds and verify agreement with history at the target time; later identity reuse cannot expand old result dependencies. First wait uses the source of the earliest actual execution in this work; existing waits must match that record too. Missing data is not recreated from current configuration/authorization. Corrupt records retain original Tasks, results, attempts and bytes but reject delivery. Scheduled runs record source invalidation as finalization failure rather than waiting forever without a wakeup.
 
-GitHub hostReview 仍由可信入口允许已完成的 confirm 接收任务，沿宿主固定定义、read/read_artifact 与只读 MCP、禁消息和不可普通复用规则执行；用户 general/reviewer 覆盖不影响该用途，不套工作流活动来源前提。
+GitHub hostReview still permits the trusted entry's completed confirm reception task, using the host-fixed definition, read/read_artifact, read-only MCP, no messaging and no ordinary reuse. User general/reviewer overrides do not affect this purpose, and workflow active-source requirements do not apply to it.
 
-## 既有笔记审计
+## Related decisions
 
-[完整角色决定](../../implemented/architecture/2026-10-14-configurable-subagent-roles.md)与[定义快照](2026-10-14-subagent-role-snapshots.md)部分重叠，整体边界由原篇持有，定义、版本与目标接口分别由关联笔记持有；[工作委托](2026-10-03-work-delegation-subagent-task.md)和[工作流步骤能力](2026-10-13-workflow-step-capabilities.md)的分离白名单及不注入项目指令/技能决定被本篇部分取代，生命周期、幂等、冻结成果和停止规则保留。[原生沙箱](2026-10-12-personal-native-sandbox.md)、[显式访问模式](../feature/2026-09-19-explicit-access-modes.md)、资料授权、MCP、服务与调度决定保留；未触及归档，无完全吸收或删除。
+The [overall role choice](2026-10-14-configurable-subagent-roles.md) and [definition snapshots](2026-10-14-subagent-role-snapshots.md) retain overall boundaries, loading/versioning and related target interfaces. This partly supersedes separate allowlists and omitted project-instruction/skill injection in [work delegation](2026-10-03-work-delegation-subagent-task.md) and [workflow steps](2026-10-13-workflow-step-capabilities.md), while preserving lifecycle, idempotency, frozen results and stopping. [Native sandbox](2026-10-12-personal-native-sandbox.md), [explicit modes](../feature/2026-09-19-explicit-access-modes.md), material grants, MCP, service and scheduling decisions remain. No sealed archives were touched; no note was wholly absorbed or deleted.
 
-## 备选方案
+## Alternatives considered
 
-- 只给普通分析白名单增加 bash，改动最少；没有可信业务来源、启动工具预检和批准后保护，不能满足已确认要求。
-- 把子 Task 当作 main 执行，能复用业务工具身份检查；会把审批、效果与入口身份归到父任务，破坏真实执行归属，所以保存来源并独立复核。
-- 为来源新建另一套授权存储，结构可以按委派定制；工作流已有完整来源机制，因此复用其字段和复核，并将每次结果内联保存于既有任务 JSON。
-- 消息时重新读取父配置和角色，能立即取得新能力；接收方保留旧上下文且发送者可能是另一个子代理，因此只收紧已保存快照。
+- Add bash to ordinary analysis: smallest patch, but lacks trusted business source, startup tool preflight and post-approval protection.
+- Treat a child Task as main: reuses business-tool identity checks, but attributes approvals, effects and entry identity to the parent rather than actual execution. Persist and independently verify the source.
+- Add a new source-authorization store: delegation-specific structure is possible, but workflows already provide the full mechanism. Reuse fields/checks and inline each snapshot in existing task JSON.
+- Reload parent configuration/roles on messages: immediately exposes new capabilities, but the receiver has old context and the sender may be another child. Only tighten saved snapshots.
 
-## 后果
+## Consequences
 
-普通与工作流同源基础能力一致，显式缺工具不会留下可运行执行，真实子任务的身份与审批归属可核实。代价是启动需重复 MCP 发现并核实固定签名，来源配置失效时必须停止并保留已有结果；真实平台、模型与双平台目标隔离联合验收仍由[验收工单](../../../../.scratch/subagent-roles/issues/05-acceptance.md)持有，目标快照与接口升级分别由 03、04 工程记录持有。
+Same-source ordinary and workflow execution have consistent base capabilities. Explicit missing tools leave no runnable execution; actual child identity and approval ownership remain verifiable. Startup pays for repeated MCP discovery and pinned-signature checks. Invalid source configuration requires stopping while retaining existing results. Target snapshots/interface upgrades belong to original engineering records 03/04; real platforms, models and combined dual-platform isolation remain acceptance requirements in the offline `.scratch/subagent-roles/issues/05-acceptance.md`.

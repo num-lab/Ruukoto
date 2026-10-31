@@ -1,50 +1,50 @@
-# Agent Note: 个人委托显式封组并固定最终回报
+# Agent Note: Personal delegations seal explicitly and pin one final report
 
 Status: implemented
 
-报告的主会话接纳及外发认领通过[IM 平台短互斥](2026-10-25-personal-im-updates.md)选择原配置和固定句柄，不捕获启动时 QQ API。
+Main-conversation admission and send claims use the [short IM platform mutex](2026-10-25-personal-im-updates.md) to select original configuration/fixed handles, not a QQ API captured at startup.
 
-## 问题
+## Problem
 
-[分析委托](../../implemented/architecture/2026-10-17-personal-analysis-delegations.md)保存跨轮成员，但成员空闲不能证明主 Agent 已完成整项安排。缺少汇总与原入口回报，拥有者仍须逐项询问；把最新主聊天回答当报告还会串线。主会话只有一个活动轮次，未知效果不能在 provider 内等待而阻塞其他聊天。
+[Analysis delegations](2026-10-17-personal-analysis-delegations.md) retain cross-turn members, but idle members do not prove main finished arranging the work. Without summarization/original-entry delivery, the owner must ask about each member. Using the latest main answer can cross-wire reports. Main has only one active turn, so waiting inside a provider on unknown effects would block unrelated chat.
 
-## 决定
+## Decision
 
-主 Agent 用 report 显式完成分析安排，宿主同事务登记唯一报告 Task 与不可改写接纳证据。登记只核实原拥有者输入、原入口有效和未取消，成员仍活动或原效果待核实时也能先封组；效果就绪由后台报告 Task 等待，不在登记前拒绝。报告引用也是封组事实，共用委派和追加入口都拒绝新成员/说明。Task 原生等待全部成员，正常停止后的失败结果也如实进入汇总；停止未核实不生成报告。取消保留成员与报告事实，不关闭身份，不中止整个主会话。
+Main calls report to finish arranging analysis explicitly. The host transactionally registers one report Task and immutable admission evidence. Registration checks original owner input, active original entry and no cancellation, but permits sealing while members run or effects await verification. The background report Task waits for effect readiness; registration does not reject first. The report reference is also the sealing fact, and shared delegate/append entries reject new members/instructions. Native Task waiting joins every member. Failed results after verified normal stopping still enter the summary honestly; unverified stopping prevents reporting. Cancellation preserves member/report facts, does not close identities and does not abort all of main.
 
-报告 Task 等待整组原说明与追加来源的服务效果及停止核实，再用固定正文、自定义 entry 与稳定键 admission 主会话。报告是参考输入，只能查询，不能提供拥有者变更授权。结果取对应 Submission.answer，报告正文与发送意图同 commit 固定。Telegram 固定首次拥有者入口和原消息；pending 领取先复核取消与换代，sending 后按原发送尝试记录 sent/failed/effect_unknown，不自动重发未知。完整报告可分页查询。
+The report Task waits for service effects and stopping across the group's original instructions/additions, then admits fixed text plus a custom entry to main under a stable key. It is reference input with query-only eligibility, never owner mutation authority. The answer comes from that Submission.answer. Report body and send intent commit together. Telegram pins the first owner entry/original message. Pending claim rechecks cancellation/generation; after sending begins, the original attempt records sent/failed/effect_unknown without automatically resending unknown outcomes. The complete report is pageable.
 
-原委托目标在汇总参考中编码为单行 JSON 字符串，当前已登记、已封组及宿主唯一回报的说明放在引用之后，避免原目标中的安排报告要求成为本轮末句动作。正文只交付本委托已核实的业务结果，不把再次登记、授权或发送状态列成待办；引用形态不增加权限，原只读门禁继续独立核实。已保存报告与已发送正文保持原文，不因新模板重新生成或重发。
+The original delegation goal is a one-line JSON string in the summary reference. Explanation that this is already registered/sealed and the host owns one delivery follows the quotation, so a goal's request to arrange reporting is not the turn's final action. The body delivers verified business results only; it does not make re-registration, reauthorization or send status a new to-do. Quoting adds no authority; read-only gates independently verify eligibility. Saved/sent bodies remain unchanged after template updates and are neither regenerated nor resent.
 
-主会话正常生成请求按唯一活动 Submission 的持久 entry kind 明示本轮是拥有者输入或宿主汇总参考。只有实际输入最后一条user与原拥有者entry的user消息逐对象一致时，才在技能展开后的同位置正文前后标明本轮拥有者范围；图片数组只新增首尾文字，原parts保留。原entry/收件不改写，投影随既有模型请求输入和payload留证。历史参考不改变后续拥有者输入身份，也不要求后续输入必须创建新工作；不匹配的合成user仅保留原来源事实，不冒充拥有者正文。该说明只加在宿主装配了personal系统section的主会话请求；原生压缩使用独立摘要提示，不能因同会话仍有活动拥有者输入而取得该身份。子/定时请求不加主会话说明，宿主权限核实保持独立。
+For ordinary main generation, the unique active Submission's persisted entry kind identifies owner input versus host summary reference. Only when the actual input's last user message matches the original owner-entry user message object-for-object does the host bracket that current owner content at the same position after skill expansion. Image arrays gain leading/trailing text while preserving original parts. Original entries/receipts remain unchanged; existing normalized-input/payload evidence records the projection. Historical references do not change later owner-input identity or force every later input to create new work. Nonmatching synthetic user messages retain source facts without impersonating owner text. This annotation applies only to main requests with the host-installed personal system section. Native compaction uses its own summary prompt and cannot gain owner identity merely because main still has an active owner input. Child/scheduled requests receive no main annotation. Host authorization remains independent.
 
-模型的 progress/delegations 只返回成员事实、活动及停止计数、取消和暂停事实，不返回报告发送状态或整组报告阶段。生成报告时，模型调用 report_result 只得到查询成员及结果的指引；普通拥有者轮次仍能查询已保存报告与发送状态。报告正文生成早于发送，生成时的 waiting/running 不是最终报告中的业务事实；宿主、CLI 与 IM 菜单继续读取完整真实状态。
+Model progress/delegations results expose member facts, active/stopped counts, cancellation and pauses, not report-delivery status or whole-report phase. During summary generation, report_result only directs the model to query members/results. Ordinary owner turns may query saved reports/delivery status. A report is generated before sending: its current waiting/running status is not a final business fact. Host, CLI and IM menus retain complete actual state.
 
-provider 两次记录边界检查活动报告的原生 Submission、输入正文/entry、取消、入口及整组未知效果。未知效果先持久保存本次模型尝试的暂停 entry，再在真实请求前拒绝；让 main 释放该轮供其他聊天使用。原报告 Task 观察服务 document 等待效果和停止核实，只有带暂停证据的 unanswered 尝试才递增持久尝试号，生成新的只读汇总输入；普通模型失败终止可查。每个尝试固定键恢复，所有尝试共用唯一外发身份。报告发送前再次发现未知时，同一 Task 等待，不领发送。
+Both provider-recording boundaries verify the active report's native Submission, input body/entry, cancellation, entry and group-wide unknown effects. Unknown effects first persist a pause entry for this model attempt, then reject before the actual request so main releases the turn for other chat. The report Task watches service documents for effect/stopping verification. Only an unanswered attempt with persisted pause evidence increments the durable attempt number and creates a new read-only summary input. Ordinary model failure terminates queryably. Each attempt recovers under its fixed key; all share one outgoing identity. Unknown effects discovered again before sending keep the same Task waiting without claiming a send.
 
-新增扩展名阻止旧程序恢复新档案。恢复核对封组工具的原拥有者输入、精确委托、接纳 entry、Task、各次报告输入和暂停 entry、回答及外发关系；不能猜测来源或忽略缺失引用。
+A new extension prevents old code recovering the new profile. Recovery verifies the sealing tool's original owner input, exact delegation, admission entry, Task, every report input/pause entry, answer and send relationships, without guessed sources or ignored missing references.
 
-## 既有笔记审计
+## Related decisions
 
-检索 durable、委托、汇总、最终回报及未知效果。[迁移提案](../../proposed/architecture/2026-10-17-personal-pi-durable.md)、[分析委托](../../implemented/architecture/2026-10-17-personal-analysis-delegations.md)、[模型工作](../../implemented/architecture/2026-10-17-personal-model-work.md)、[Telegram](../../implemented/architecture/2026-10-17-personal-telegram-entry.md)和[服务操作](../../implemented/architecture/2026-10-17-personal-service-operations.md)部分重叠，保留各自原语并互链。旧[IM 最终回报](../../implemented/feature/2026-10-02-im-approval-and-final-report.md)继续服务 Coding/旧个人底座；其否决模型宣告收尾是为了避免遗漏工具且由旧工作委托持有完整生命周期，新 durable 用显式宿主封组关闭所有接纳入口并等待全部已接纳成员。该取舍只适用于当前空工具分析，不代表已归属独立服务或未来通用工具。没有完全吸收或过时提案。
+The original audit searched durable, delegation, summary, final reports and unknown effects. [Migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md), [analysis delegation](2026-10-17-personal-analysis-delegations.md), [model work](2026-10-17-personal-model-work.md), [Telegram](2026-10-17-personal-telegram-entry.md) and [service operations](2026-10-17-personal-service-operations.md) retain their primitives. [Shared IM final reports](../feature/2026-10-02-im-approval-and-final-report.md) remains for Coding/old Personal: it rejected model-declared completion to avoid missing tools, with old work delegation owning the full lifecycle. Durable explicit host sealing closes every admission entry and joins all admitted members. This choice initially covered empty-tool analysis, not independent host services or unimplemented tools; later capability notes explicitly establish their work ownership. No note was wholly absorbed or obsolete.
 
-## 备选方案
+## Alternatives considered
 
-- 原输入回答完成或成员全空闲立即汇报：无需新增动作，但截断跨轮安排；显式封组后再等待全部成员。
-- 每项结果直接通知拥有者：已有明确结果，但没有主 Agent 整项汇总，不能冒充最终回报。
-- 在报告登记前要求所有来源效果已核实：复用变更准入检查，但正常命令的 started 占位也保留未核实状态，导致主 Agent 无法在运行中先封组；只拆分登记与汇总的资格，不放宽共享来源暂停或把恢复中的 started 当正常执行。
-- 未知效果在 provider 内等待：可重用同一模型输入，但堵住主会话；原报告 Task 等待，只有持久暂停证据允许新的安全模型尝试，外发身份保持唯一。
-- 原报告 Submission 无条件换键重试：能从 unanswered 恢复，但普通模型失败可能造成无界费用；仅明确未知暂停允许新尝试，普通失败可查终止。
-- 只在汇总参考中要求忽略发送状态：提示最少，但真实模型仍将工具中的自身 waiting/running 写入最终正文；从模型成员查询中移除该临时事实，不猜测未来发送结果或改写模型正文。
-- 在开头说明当前阶段，末尾裸拼原拥有者目标：保留原文较直接，但真实模型仍把原安排报告要求写成再次登记待办；目标引用与本轮动作分开，并把当前报告说明放在最后，不将该歧义视为已证明的唯一模型误述原因。
-- 只给未来汇总正文补结束标记：不能解决已提交失败参考被模型误当成后续拥有者输入的范围；保留原历史，由当前持久来源给出本轮事实，不重写或重新投递原消息。
-- 只在系统提示写本轮来源或最后user位置：真实同上下文复核仍只查询旧事，基本来源句的完整续轮继续把新输入误认成旧参考；就地界定当前正文后才转向新委派。该对照只证明有限模型行为，不能代替实际后台完成与原入口回报，也不据此推断provider内部曾合并消息。
-- 取消时 main.abort：能停止报告，但会取消无关聊天；只撤回该报告的排队输入，在途结果保留但不得创建后续发送。
+- Report when original input is answered/all members idle: no new action, but cuts off cross-turn arrangement. Seal explicitly, then join all members.
+- Notify for every result: each result is clear, but lacks main's whole-delegation summary and is not final delivery.
+- Require all effects verified before report registration: reuses mutation preflight, but even a normally running command's started reservation is unresolved and would prevent sealing during execution. Separate registration from summary eligibility without weakening source pauses or treating recovering started as normal execution.
+- Wait inside provider on unknown effects: reuses model input, but blocks main. Let the report Task wait; only durable pause evidence permits another safe model attempt, retaining one send identity.
+- Unconditionally retry unanswered report Submissions with new keys: restores progress, but ordinary model failures can cause unbounded cost. Only explicit unknown-effect pauses permit a new attempt.
+- Ask the summary prompt to ignore delivery status: minimal text, but real models included their own waiting/running tool state. Remove transient facts from model member queries, without predicting delivery or rewriting answers.
+- Put phase guidance first and append the raw owner goal last: direct quotation, but real models made reporting a new to-do. Separate goal reference/current action and end with current report guidance. This ambiguity is not proven to be the sole cause of misreporting.
+- Add only an end marker to future references: does not resolve old committed failed references mistaken for later owner input. Preserve history and state the current persisted source, without rewriting/redelivering messages.
+- State current source/last-user position only in system text: same-context model checks still queried old work and complete continuation still misidentified new input as old reference. Bracketing current text changed behavior toward new delegation. This is limited model evidence, not proof of actual backend completion/original-entry delivery or provider-side message merging.
+- Call main.abort on cancellation: stops reports, but cancels unrelated chat. Retract only that report's queued input; preserve in-flight results without later sending.
 
-## 验证
+## Verification
 
-多成员及全部已接纳说明收齐，失败不伪装成功；封组/接纳按事务顺序仲裁。汇总不串最新回答，取消/换代/停止未核实零后续发送；已开始发送保留真实效果，未知不重发。未知暂停跨重启恢复，效果与停止核实缺一时零请求，admission 后暂停只重做安全汇总且最终外发唯一。恢复坏关系在模型请求前拒绝，CLI/Telegram 可查报告及有界结果。
+Join all members/admitted instructions without turning failures into success. Transaction order arbitrates seal/admission races. Summaries do not use the latest unrelated answer. Cancellation, generation change and unverified stopping produce no later sends; already-started sends retain actual effects and unknown outcomes never resend. Unknown pauses recover across restart, with zero requests until both effect/stopping verification complete. A pause after admission repeats only safe summarization and retains one final send. Bad recovery relationships reject before model requests. CLI/Telegram can inspect reports/bounded results.
 
-## 后果
+## Consequences
 
-汇总结果沿原委托自动回报，主聊天继续；代价是封组接纳与安全模型尝试的恢复核验。平台发送与 durable 提交不能跨存储原子，结果丢失需人工核实；只读汇总恢复可能增加模型费用。显式封组依赖主 Agent 安排 report，未封组委托继续可查而不擅自汇报；真实模型的执行习惯及拥有者交互须独立验收。实际检查与缺口见[实施工单](../../../../.scratch/personal-pi-durable/issues/14-delegation-reports.md)。
+Delegation summaries automatically return to the original entry while main remains available. The cost is sealing admissions and recovery validation of safe model attempts. Platform sending and durable commits are not atomic; lost outcomes need human verification. Safe summary recovery may cost extra model calls. Explicit sealing depends on main arranging report; unsealed delegations remain queryable without unsolicited final reporting. Real-model habits and owner interaction need independent acceptance. Original checks/gaps are offline at `.scratch/personal-pi-durable/issues/14-delegation-reports.md`.

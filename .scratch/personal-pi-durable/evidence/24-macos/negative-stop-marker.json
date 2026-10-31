@@ -1,6 +1,0 @@
-{
-  "removed": "stop-requested check before receipt publication",
-  "expectedExit": 1,
-  "actualExit": 1,
-  "productionSourceUnchanged": true
-}

@@ -1,30 +1,28 @@
-# Agent Note: Demo 的等宽 Tab 与组内排序
+# Agent Note: Equal-width Demo tabs and within-group reordering
 
 Status: implemented
 
-## 问题
+## Problem
 
-两组顶部 tab 目前随标题改变宽度，顺序只能随打开时间变化。拥有者要求支持拖动并统一宽度。
+Both header tab groups sized themselves by title and ordered themselves by opening time. The owner requested uniform width and dragging.
 
-## 决定
+## Decision
 
-会话与右栏标签均固定180px，省略超长标题，保留已有横滚、叠加关闭与短分隔线。标题占满可用空间，使关闭键附近的渐隐保持在标签右端。
+Initially both groups use 180 px widths, ellipsized titles, existing horizontal scrolling, overlaid close buttons and short separators. Titles fill available width so close-button fades remain at the right edge. [Responsive equal widths](2026-10-17-demo-responsive-tab-width.md) supersedes the fixed 180 px rule, not the sorting/identity rules here.
 
-固定180px的宽度约定由[动态等宽](2026-10-17-demo-responsive-tab-width.md)取代；本篇其余排序、避让与身份约定继续适用。
+Native HTML drag/drop sorts within the originating group only. Verify source against page state and, for inspector tabs, the current session. Accept no external payload and no move across groups/targets. Keep the array/DOM order while dragging; calculate target from original layout/pointer position and translate neighbors as a preview. Keep the source until preview entry hides it, after native drag-image capture. The list accepts drops over vacancies, gaps and close buttons. Leaving the visible group/canceling restores preview; only drop commits, preventing moved hit targets from causing oscillation. Reduced motion moves immediately.
 
-原生 HTML 拖放只排序所在组，来源用本页状态核实；右栏同时核对当前会话，不接外部载荷、不把页面移入另一组或目标。拖动中保持原数组顺序，依据列表原始布局与指针位置计算目标，相邻标签整体以 transform 过渡避让；源节点保留，在首次进入拖放预览时才隐藏，确保原生拖影已捕获。列表接收空位、间隙与关闭键区域的落下；退出可见标签区或取消时恢复，松手才提交排序，避免移动后的标签反复触发换位。减弱动画时直接避让。数组排序不改会话和右栏对象身份；显式固定默认活动右页签，避免以末项回退的选择随排序改变。排序更新触发既有活动项显露。Alt+Shift+左右方向键提供同一操作，保留普通 Radix 箭头切换，恢复焦点并播报新位置。
+Sorting never changes session/inspector object identity. Pin the default active inspector explicitly instead of deriving it from the last array item. Sorting triggers existing selected-tab reveal. Alt+Shift+Left/Right performs the same reorder, restores focus and announces position; ordinary Radix arrow selection stays intact.
 
-历史检索：[页签布局](../../implemented/feature/2026-10-16-demo-header-model-menu.md)的关闭键、分隔与模型菜单约定继续适用；[主会话](../../implemented/feature/2026-10-17-demo-personal-main-tab.md)的固定 PA 与独立右栏状态不变。[右栏扩充](../../implemented/feature/2026-10-16-demo-inspector-tools.md)的文件、差异与浏览器对象不因排序重建。本轮只改可变demo，不改冻结稿或生产代码。
+[Header layout](2026-10-16-demo-header-model-menu.md) retains close/separator/model-menu rules; [PA main session](2026-10-17-demo-personal-main-tab.md) stays fixed with independent inspector state. [Inspector tools](2026-10-16-demo-inspector-tools.md) are not recreated by reordering. Only mutable-demo source changes, not frozen/production code.
 
-## 备选方案
+## Alternatives considered
 
-- 加拖放库能提供高级动画与拖出布局，但现有依赖无排序库，组内调序与预览可由浏览器原生事件和 CSS 位移完成；不为当前范围新增依赖。
-- dragover 时直接重排数组可直接反映落点，但取消需要回滚且移动后的命中位置容易反复改变；保留 DOM 顺序并预览偏移，直到 drop 再提交。
-- 按内容分配宽度可多显示短标题，但不符合统一宽度；固定宽度并保留横滚避免挤压标题与关闭操作。
-- 跨区域或跨窗口拖动可重新组织页面，但会改变会话归属与 PA 能力限制，超出本轮要求。
+- A drag/drop library offers richer animation/layout, but no installed sortable dependency exists and native events/CSS meet this scope.
+- Reordering on every dragover directly renders the target, but requires cancel rollback and creates unstable hit locations. Preview transforms until drop.
+- Content widths fit short titles but contradict uniform sizing; preserve scrolling and usable close controls.
+- Cross-region/window dragging reorganizes pages but changes session ownership and PA capabilities, outside scope.
 
-## 后果
+## Consequences
 
-两组标签实测等宽并可鼠标拖动及键盘排序，选择身份、草稿和页面保持，关闭按新顺序处理，取消与跨组拖动不改变顺序；明暗与溢出横滚可用。等宽排序的既有回归归[工单14](../../../../.scratch/desktop-shadcn/issues/14-tab-reorder.md)，实时避让的回归、环境与截图归[工单15](../../../../.scratch/desktop-shadcn/issues/15-tab-drag-preview.md)。
-
-原生拖放沿用浏览器拖影，不提供触屏专用手势或跨窗口布局；顺序只在当前页面内存中保存，刷新重置。真实 Desktop 迁移另做。
+Pointer and keyboard ordering retain selection identity, drafts and pages. Closing follows new order; cancel/cross-group drag leaves order unchanged. Themes and overflow work. Historical base reordering and live displacement evidence remain in offline demo work items 14/15. Native browser drag images remain; there are no touch-specific gestures or cross-window layout. Order is page-memory-only and resets on refresh. Desktop migration requires separate acceptance.

@@ -1,33 +1,27 @@
-# Agent Note: 面向人的操作采用渐进交互
+# Agent Note: Use progressive interaction for human operations
 
 Status: implemented
 
-相关未实施方案：[桌面设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)将产品、工作区、配置与停存启变为可选操作，ID、修订与请求关联由程序管理。
+The related [Desktop settings proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md) makes products, workspaces, configuration, and stop/save/start selectable while the program manages IDs, revisions, and request correlation.
 
-## 问题
+## Problem
 
-工作流查询与控制把运行 ID、版本、请求键和 JSON 命令模板直接展示给拥有者。功能可以调用，但用户必须记住命令结构并复制内部标识。2026-10-14 拥有者要求后续 UI/UX 避免这类操作，并确认作为全局原则，本次先落实工作流。
+Workflow queries and controls exposed run IDs, versions, request keys, and JSON command templates directly to the owner. Operations worked, but required remembering command syntax and copying internal identifiers. On 2026-10-14 the owner approved a global UI/UX principle, initially applied to workflows.
 
-## 决定
+## Decision
 
-设计或审查面向人的入口时，把一次复杂操作拆为选择对象、查看状态、选择动作和填写业务内容。内部 ID、版本、摘要与请求键由程序获取并管理，不要求用户记忆或手工复制；每层提供返回、当前状态、操作结果与可行的下一步。图标与颜色配文字，不单靠颜色表达状态。
+Design human entry points as selecting an object, inspecting state, choosing an action, and entering business content. The program obtains and manages internal IDs, versions, hashes, and request keys; people need not memorize or copy them. Each step provides a way back, current state, the result, and a viable next action. Pair icons/color with text rather than relying on color alone.
 
-本规则现在写入根 AGENTS.md，约束以后新增或改造的交互；已存在的入口按工单逐步落实，不声明全仓界面已经符合。工作流 TUI 由[08](../../../../.scratch/agent-workflow/issues/08-workflow-sidebar.md)承担，IM 由[12 后续单](../../../../.scratch/agent-workflow/issues/12-im-progressive-controls.md)登记。机器 CLI、API 和模型工具可以传递标识符；它们的参数不能直接成为人类操作教程。
+Root AGENTS.md applies this rule to new and modified interaction. Existing entry points are migrated through tracked work, not declared universally compliant. The original workflow-TUI and IM work was tracked in `.scratch/agent-workflow/issues/08-workflow-sidebar.md` and `12-im-progressive-controls.md`, now retained offline. Machine CLI, API, and model tools may carry identifiers; their raw parameters are not human operation tutorials.
 
-简化交互不减少身份、版本和幂等校验。应答未知、状态过期与恢复核实通过可读选择说明，程序保存足以继续核实的原请求；不能为了少一步而自动重发未知效果。
+Simpler interaction preserves identity, version, and idempotency checks. Readable choices explain unknown replies, stale state, and recovery. The program retains the original request needed for verification; it must not automatically replay an unknown effect merely to remove a step.
 
-## 既有笔记审计
+[Workflow definitions/entry](../feature/2026-10-13-workflow-library-and-controls.md) and [progressive controls](../feature/2026-10-14-workflow-progressive-controls.md) own product replacement. [Root conventions](2026-10-10-agents-md-conventions.md) owns placement of standing instructions. This principle does not supersede data, permissions, delegation, or scheduling mechanisms.
 
-已检索 proposed、implemented 的工作流、交互、等待和占用；rejected 目录不存在。[定义与入口](../../implemented/feature/2026-10-13-workflow-library-and-controls.md)部分重叠，新的[侧栏方案](../../implemented/feature/2026-10-14-workflow-progressive-controls.md)持有产品替代，不在本篇改写旧实现决定。[根指示常驻约定](2026-10-10-agents-md-conventions.md)持有规范入口分层，本篇只增加拥有者明确指定的设计准则。其他命中涉及数据、权限、委派和调度机制，不被本规则取代；无完全吸收或过时提案。
+## Alternatives considered
 
-## 备选方案
+Aliases or shorter IDs are inexpensive and faster for experts but still require understanding the command protocol. Migrating every entry point at once makes policy uniform but exceeds the owner's workflow-first scope. Keeping the principle only in chat/issues avoids a standing document but hides a global requirement from future designers. Root instructions therefore retain one rule and this link; feature issues hold implementations.
 
-- 只给命令加别名或缩短 ID：成本低，熟练用户更快；仍要求人理解命令参数与定位协议，不能满足逐步选择目标。
-- 一次改造全部入口：规范立即一致；拥有者明确选择本次工作流、其他入口后续，扩大本轮会混入未确认的平台交互设计。
-- 仅保存在聊天或工单：不增加常驻文档；未来设计者容易错过全局要求，因此根指示保留一条规则和本篇链接，具体方案放各功能工单。
+## Consequences
 
-## 后果
-
-以后设计与审查都有可执行的交互准则，内部协议复杂度由程序承担。代价是交互端须维护选择、版本和未决请求状态，恢复与去重不能依赖用户输入历史。已有界面的改造进度由工单表示，本篇 implemented 仅表示规范已生效，不表示侧栏或等待工具已交付。
-
-相关未实施方案：[结构化提问](../../proposed/feature/2026-10-21-persistent-owner-questions.md)把题目、选择和回答回执接入本篇的人类交互原则。
+Design/review gains an actionable principle and the program owns protocol complexity. Interaction clients must retain selection, version, and pending-request state; recovery/deduplication cannot depend on user input history. Implemented status means the principle is effective, not that every sidebar or wait tool has shipped. [Structured owner questions](../../proposed/feature/2026-10-21-persistent-owner-questions.md) applies the same principle to questions, choices, and answer receipts.

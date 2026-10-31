@@ -1,45 +1,43 @@
-# Agent Note: 个人浏览器与图片由 durable 持有归属
+# Agent Note: Let durable own personal browser and image provenance
 
 Status: implemented
 
-[Cua 接入](2026-10-23-cua-official-mcp.md)复用本篇图片记录与provider核实，电脑执行归属独立于浏览器管理器。
+[Cua](2026-10-23-cua-official-mcp.md) reuses image records/provider checks, with computer-execution ownership separate from BrowserManager. [MCP image results](2026-10-23-mcp-image-results.md) reuses this media chain, verifying Task before registering multiple images from one original tool; providers create no extra runtime state.
 
-[MCP图片结果](2026-10-23-mcp-image-results.md)复用本篇媒体链，同一原工具的多图先核实Task再批量登记，图片提供方不另建运行状态。
+## Problem
 
-## 问题
+Personal artifacts/permissions were durable, but old browser tools depended on legacy tasks/approvals/artifacts and image staging on SQLite inbound state. Reusing entire classes would restore a second runtime authority. Browser prelaunch facts, unknown webpage effects, and actual model images must be verifiable from the new profile.
 
-个人端的通用产物与权限已接入 durable，但共享浏览器工具依赖旧任务/审批/产物，旧图片暂存依赖旧 SQLite 入站账本；整类复用会重新引入旧运行权威。浏览器启动前的事实、未知网页写入和图片实际模型输入仍必须能从新档案核实。
+## Decision
 
-## 决定
+Reuse BrowserManager for process/CLI/attachment only, with persistence callbacks that can await durable commit. Personal extensions own bindings and native-tool admission/start/observation/recovery. Browsers require full-access provenance from the owner main or explicitly authorized independent schedules, never children/restricted sources. Cancel/crash stops and verifies original execution without restoring pages or resending actions. Page effects and process stop are separate facts; unknowns enter existing provenance pause/report waiting.
 
-BrowserManager 只复用进程、CLI 与附接管理，持久回调可等待 durable 提交；个人绑定与原生工具接纳、开始、观察和恢复由个人 extensions 持有。浏览器要求完全访问来源，主拥有者及下文独立定时来源可用，子 Agent 和受限来源不开放。取消/崩溃只停止并核实旧执行，不恢复页面或重发动作；网页效果与进程停止是两个事实，未知并入既有来源暂停和报告等待。
+Images use private immutable artifacts; durable stores received/rejected/bound references, not credential-bearing download sources. Inputs keep typed image references. Immediately before provider send, verify provenance/bytes/model capability and restore vision blocks; input/actual-payload evidence retains reconstructible references. Text/pages/model output cannot forge host bindings. Image-bearing text never enters approval-control parsing.
 
-图片使用已有私有不可变产物，durable 保存接收、拒绝和绑定引用；网络下载来源不作为凭据落盘。输入保留类型化图片引用，在底层 provider 发送前核实归属、字节和模型能力并恢复视觉块，输入/实际 payload 证据仍保存可重建的引用。文字、网页或模型结果不能伪造宿主图片绑定。含图文本不进入审批控制解析。
+[Scheduled work](2026-10-18-personal-durable-scheduled-work.md) explicitly extends full-access browser use to independent scheduled sessions, each with its own binding/pause/stop/captures. Do not copy the main browser binding. Children remain ineligible. Paused schedules may query/stop/cancel, not replay page actions.
 
-### 既有决定检索
+[Browser](../feature/2026-10-14-agent-browser.md), [inbound images](2026-10-07-inbound-image-staging.md), [image reads](../bug-fix/2026-10-12-read-images.md), and [personal tools](2026-10-17-personal-tools-access-artifacts.md) retain identity/media-limit/artifact/permission rules. This note owns durable assembly, not Coding storage migration; the original audit found no same-topic proposal to discard.
 
-[浏览器](../../implemented/feature/2026-10-14-agent-browser.md)、[入站图片](../../implemented/architecture/2026-10-07-inbound-image-staging.md)、[读取图片](../../implemented/bug-fix/2026-10-12-read-images.md)与[个人通用工具](../../implemented/architecture/2026-10-17-personal-tools-access-artifacts.md)部分重叠，继续持有现行身份、媒体限额、产物及权限规则；本篇只定义 durable 装配。迁移总提案继续持有产品取舍，本次不取代 Coding 的旧持久格式。未发现需废弃的同题提案。
+### Provenance and provider checks
 
-[定时工作](2026-10-18-personal-durable-scheduled-work.md)将完全访问浏览器扩到真实独立定时来源，每会话持有独立绑定、暂停与停止事实，截图归实际会话。主会话绑定不复制给定时会话，子 Agent 仍不开放浏览器；定时暂停只查询、停止或取消，不重发页面动作。
+Local admission pins authority for tools/derived work; a later default-mode selector cannot expand old queues. Filter browser definitions before provider send by actual root provenance, and recheck at execution. Artifact reads are independent of configured data directories, but a child still reads only its own artifacts. Insufficient vision capability produces fixed inbound feedback or a textual screenshot/local-image tool error; provider still rejects unknown/missing/modified images.
 
-## 备选方案
+A delegation report is internal read-only reference input, not owner input. Browser eligibility identifies that entry kind and omits browser tools without sending it to an owner-only permission parser. Its own provider checks still verify original Task/input/member stopping/pause. Missing/unknown provenance fails. Treating a report as owner input would fail before report request evidence; inheriting the original owner's browser tools would turn a reference into new action authority. Remove only the browser definition.
 
-直接接旧 Browser 工具和 InboundMediaStore 可省包装代码，但会带回旧 Task/Store 与运行事实，违反迁移的唯一运行权威，因此只复用无状态校验和进程管理。把图片 base64 直接提交给 durable 最贴近原生输入，却使同一图片随历史及请求重复落盘；采用稳定产物引用和最终发送恢复。同步排队持久回调可少改共享方法，但每处进程启动前都需要可靠等待，隐式 flush 容易遗漏，因此让持久保存显式可等待。
+Restore image bytes only just before provider send. Snapshot rewriting handles known image fields, not arbitrary JSON tool parameters. Equal-byte images with different origins retain mapping facts so deduplication cannot hide provenance. Inbound text retains artifact references; pi's text compaction summary is not vision detail, and original history remains. Commit invalidation before cleaning 24-hour unbound files. A completed download lacking a committed ready record recovers from original bytes without downloading again.
 
-## 后果
+Responses-native tool images occur in function_call_output.output arrays, unlike ordinary message content. Snapshot parsing covers that actual location with the same byte/MIME/exact-count verification. Traverse only known image positions, never recursively interpret parameter JSON/output strings. Ignoring tool output undercounts valid screenshots and blocks requests; weakening total-count comparison would hide deleted/duplicate images, so expand known-position coverage instead.
 
-浏览器和图片复用已有独立实现，新端没有旧 Store/Runtime 运行权威。共享浏览器持久回调变为可等待，但 Coding 仍使用原同步事务回调，pause 调用方等待保存。个人未知动作会关闭原浏览器，可能丢页面现场，网页实际效果继续未知；进程停止与效果说明分别核实，原动作不重发。绑定/配置/接纳/开始/观察/暂停/核实和后台停止任务均有历史反链，删除索引不能解除原未知占用。
+## Alternatives considered
 
-本机接纳固定权限，工具和派生工作共同使用原快照，新增默认模式入口不能让旧队列扩权。浏览器定义在provider前按实际主来源筛选，调用时再次核实；读取产物独立于资料目录配置，但子会话仍只读本子会话产物。图片模型能力不足时，入站给固定回执，截图/本地读图给文本工具错误，provider仍拦截未知、缺失或变造图片。
+- Reuse old browser tools/InboundMediaStore: less adapter code, but restores old Task/Store facts contrary to one runtime authority. Reuse only stateless validation/process management.
+- Submit base64 directly to durable: closest to native inputs, but repeats identical image bytes in history/requests. Store stable artifact references and restore at send.
+- Queue synchronous persistence callbacks with an implicit flush: fewer shared-method changes, but each prelaunch point must reliably await persistence and can miss a flush. Make awaiting explicit.
 
-委托汇报是内部只读参考输入，浏览器资格筛选精确识别其entry种类并返回不可用，不交给只接受拥有者输入的权限解析。报告仍由自己的provider门禁核实原Task、输入、成员停止及暂停事实；缺失或未知来源继续拒绝。把汇报当拥有者解析会在报告请求证据落盘前中断，继承原拥有者浏览器资格则会把参考扩成新操作授权，因此只移除浏览器定义。
+## Consequences
 
-实际图片输入只在 provider 发送前恢复；快照按具体图片字段还原稳定引用，不把工具参数中的普通JSON误当图。同字节多来源保存映射事实，避免引用去重掩盖来源。入站文字提示保留产物引用，Pi压缩的文本摘要不冒充视觉细节，原历史保留。先提交失效再清理24小时未绑定文件；下载完整但ready未提交时按原字节恢复，不重下。
+Personal browser/media reuse independent implementations without old Runtime/Store authority. Shared persistence callbacks can await; Code retains its synchronous transaction callback and pause callers await persistence. Unknown personal actions close the old browser and may lose page evidence, without proving external effects or resending. Binding/configuration/admission/start/observation/pause/verification/backend-stop tasks have history reverse links; deleting an index cannot release an unknown claim.
 
-Responses 原生工具结果中的图片位于 function_call_output.output 数组，快照与普通消息的 content 分开按实际传输形态读取，复用相同的字节、MIME和精确计数核对。只遍历已知图片位置，不递归解释工具参数或输出字符串；忽略工具 output 会在合法截图后漏计并阻止请求，放宽图片总数比较则会隐藏删图或重复图，因此保留严格比较并补齐该原生位置。
+Private byte files and durable commits are not atomic: bytes saved without a reference may remain as private residue. Bound images are retained and no whole-profile disk quota was added. No arbitrary platform file broadcast, automatic model switching, or child access to host browser was introduced.
 
-私有字节文件与 durable 不跨存储原子，保存字节后丢引用会留下私有文件；已绑定图片保留，未设置全档案磁盘配额。没有提供任意平台文件群发或自动换模型，也不开放宿主浏览器给子工作。三种API传输及真实浏览器工程证据与真实视觉模型/IM验收分开，缺前提的项保持待验。
-
-## 验证
-
-离线回归、真实macOS浏览器及SIGKILL/取消、独立审查与Linux检查由[工单证据](../../../../.scratch/personal-pi-durable/issues/30-browser-media.md)逐项持有。早期失败和后续修复分别保留，不将工具替身计为真实模型或平台通过。
+Historical offline regressions, real macOS browser/SIGKILL/cancel, independent review, and Linux checks lived in `.scratch/personal-pi-durable/issues/30-browser-media.md` and remain offline provenance, preserving initial failures separately from fixes. Three-API transport/real-browser engineering evidence is separate from real vision-model/IM acceptance; missing prerequisites leave those items unverified, not covered by tool substitutes.

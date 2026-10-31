@@ -1,79 +1,54 @@
-# Agent Note: 给 docs 与 notes 加纯文本结构门禁
+# Agent Note: Check documentation structure without coupling it to implementation
 
 Status: implemented
 
-## 问题
+[Development standards](2026-10-31-development-standards.md) supersedes local-tracker/Chinese-authority organization and recalibrates English resident budgets. Gate semantics remain; current scans include relocated `.agents/postmortem/` and the maintained frozen-baseline README. Historical counts/timings below describe this decision's introduction.
 
-文档同步此前只靠 `writing-docs-for-human` 的触发条件，没有任何可执行检查。它翻转的是[决策记录与人类文档分层](2026-10-09-split-agent-and-human-docs.md)时被否的一条：「给 docs 加相对链接测试 — 否：图解页那套门禁正是维护变重的原因，先只靠 skill 触发」。当时的判断有据：被删的 `test/67-visual-docs.test.ts` 把 `docs/visual/` 的 10 张 HTML 页与 `src/`、`deploy/` 的内容强绑定，每次改代码都要维护图解，且在独立检出上因引用未入库文件而失败。
+## Problem
 
-但那条判断留下三个真实缺口，本次盘点逐个复核过：
+Documentation synchronization relied only on writing-docs-for-human triggers. [Human/agent separation](2026-10-09-split-agent-and-human-docs.md) had rejected link tests because old test/67 tied ten visual HTML pages to source/deployment details and failed isolated checkouts on untracked references. That burden was real, but did not justify leaving purely structural failures unchecked.
 
-- **断链无人拦。** `.scratch/` 里有 7 处指向已删除 `docs/runtime.md` 的死链。更关键的是门禁本身的盲区：`.agents/notes/implemented/architecture/2026-09-26-lossy-context-compaction.md` 指向 `docs/modules/agent-context.md#上下文压缩`，而该文档按固定六节组织，从来没有这个标题——链接从未生效，也没人发现。
-- **`.agents/notes/` 对读者不友好。** 规则都写在 `maintain-notes` skill 的 `references/` 里，只有调用 skill 才看得到；直接走进目录的读者没有路标说明布局、封闭集与「一篇一个决定」。DSH 在 `.agents/notes/` 与每个 lifecycle 目录都放了 `README.md`／`AGENTS.md`。
-- **常驻文档没有篇幅上限。** 根 `AGENTS.md` 是常驻指示层，长起来会挤占上下文，而没有任何护栏。
+The audit found seven old scratch links to deleted docs/runtime.md and a compaction note linking agent-context.md to a heading that never existed. Notes readers had no directory guide unless they opened skill references. Resident instructions also had no size guard, despite consuming context on every task.
 
-## 决定
+## Decision
 
-新增 `npm run check:docs`，由四道纯文本结构门禁组成，接进 `check:static`（实测总耗时 1.25 秒）：
+`npm run check:docs` runs four text-structure checks inside check:static:
 
-- **`verify-md-links`**：相对链接、图片与引用定义的目标必须存在；指向 Markdown 的 `#锚点` 必须命中真实标题 slug 或显式 `<a id>`。外部 URL、根绝对路径与模板占位符（`<…>`、含省略号的示范路径）不判。
-- **`verify-doc-refs`**：`src/`、`bin/`、`scripts/` 注释里引用的 docs 与 notes 路径必须存在。
-- **`verify-doc-budgets`**：按 manifest 的字符上限校验 8 份常驻文档。
-- **`verify-md-wrap`**：prose 段落一段一物理行。
+- verify-md-links checks relative links/images/reference definitions for existing targets and Markdown fragments for heading slugs/explicit anchor IDs. External/root-absolute URLs and template example paths are excluded.
+- verify-doc-refs extracts Markdown documentation-path tokens from source files and checks existence, not source semantics. It is a textual scan, not a requirement to compile examples or prove the referenced explanation correct.
+- verify-doc-budgets compares manifest-listed resident documents against nonwhitespace-character ceilings.
+- verify-md-wrap requires one physical line per prose paragraph.
 
-### 与代码解耦是这次能成立的关键
+These checks do not encode how runtime code ought to work. A source edit only fails them when it changes a checked path/reference or structural fact, unlike the removed visual-doc assertions. Documentation correctness still needs semantic review.
 
-四道门禁都**不读 `src/` 的内容**，只做 Markdown 与路径的结构检查。`verify-doc-refs` 读源码，但只提取注释里的路径令牌再 `existsSync`，不理解代码语义。因此改代码不会让它们变红——这正是 `test/67` 被删的原因，也是本次翻转旧决定的依据。
+`scripts/markdown-scan.ts` shares mdast-util-from-markdown/mdast-util-gfm parsing, traversal, heading slug/anchor caching, multiline-paragraph detection, and glob collection. Scan scope covers root docs, docs, active notes, skills, deployment Markdown, verification READMEs, and governance-added postmortem/baseline entrances; exclude sealed note archives/node_modules. Current verify-doc-refs walks packages/apps/scripts and recognizes docs plus notes/postmortem Markdown paths. Source-layout names and scan additions should follow the actual scripts, not the original single-package src/bin description.
 
-### 共享扫描器
+Heading slugs lowercase, remove characters outside letters/numbers/underscore/space/hyphen, then replace spaces. At introduction, comparison against github-slugger covered all 576 headings, including Chinese, with zero differences. This supported using the small existing algorithm without another dependency; it is not proof against future GitHub changes.
 
-`scripts/markdown-scan.ts` 提供解析（`mdast-util-from-markdown` + `mdast-util-gfm`）、遍历、标题 slug、文档锚点集（带缓存）、跨行段落检测与 glob 收集。四道门禁共用，扫描范围一致：根文档、`docs/`、`.agents/notes/`、`.agents/skills/`、`deploy/`、`verification/**/README.md`，排除 `archived/` 与 `node_modules/`。
+### Character budgets and one-time wrapping
 
-标题 slug 用 GitHub 的算法手写（转小写，去掉字母、数字、下划线、空格与连字符之外的字符，空格转连字符）。**已对照 `github-slugger` 全量验证：576 个标题零差异**，含中文标题，因此不必新增该依赖。
+Use nonwhitespace characters, not wc -w. The original Chinese architecture document had 316 words but 3957 nonwhitespace characters; CONTEXT had 422 versus 9160. Word counts barely tracked prose growth. Keep ceilings in scripts/doc-budgets.manifest.json for resident/structural documents, not every growing reference manual. English migration retains the metric and adjusts justified ceilings; historical eight-document membership is not fixed forever.
 
-### 篇幅单位用字符数
+The initial wrapper found 214 violations in 15 files, including channels 75, CONTEXT 56, development 20, and release acceptance 19. An mdast-range script merged 212 in 13 files, skipped hard-break nodes, reparsed, and asserted each paragraph's nonwhitespace sequence unchanged. Two blockquotes needed manual merging because automated replacement would consume their `>` markers. Preserve those safeguards, not a promise that all prose rewrites are whitespace-only.
 
-DSH 的 `verify-doc-budgets` 用 `wc -w`。本仓库文档是中文，实测 `docs/architecture.md` 316 词对应 3957 个非空白字符、`CONTEXT.md` 422 词对应 9160 个，词数几乎不随正文增长。改用**非空白字符数**（中文语境的「字数」）。上限见 `scripts/doc-budgets.manifest.json`，只覆盖常驻与结构性文档，不含 `docs/usage.md` 等随功能增长的参考手册。
+Notes gained a reader README for layout/closed categories/format/search/ownership, a directory AGENTS for one decision per note/prewrite audit/frozen archives/status alignment, and an implemented AGENTS for fact synchronization versus changed decisions. Current placement follows the governance migration rather than preserving obsolete instruction duplicates.
 
-### 一次性重排
+## Alternatives considered
 
-`verify-md-wrap` 初始有 **214 处**违规，分布在 15 个文件（`docs/modules/channels.md` 75、`CONTEXT.md` 56、`docs/development.md` 20、`docs/release-acceptance.md` 19 等）。用一次性脚本按 mdast 段落源范围合并，并加两道保护：含硬换行（`break` 节点）的段落跳过，改写后重新解析并断言每段的**非空白字符序列**逐一相同。13 个文件、212 处自动改写；2 处引用块段落因 `>` 标记会被吞掉而中止，手工合并。
+- Keep skill-only checks: zero tooling, but broken targets/never-valid anchors already escaped repeatedly. Mechanical structure is worth checking.
+- Copy DSH doc-typecheck: compiles fenced TypeScript, but its workspace paths/project references did not fit the then-single-package repo; transplant cost outweighed value.
+- Require JSDoc on every export: useful coverage discipline, but the audit found 179/298 documented functions (60%); nearly 120 additions needed a separate evaluation, not an abrupt gate.
+- Use wc -w for upstream consistency: misleading for Chinese (CONTEXT differed by about 22 times). Retain character measurement even after English migration.
+- Add github-slugger: less handwritten logic/algorithm risk, but the tiny implementation matched every observed heading. Revisit actual divergence rather than add a zero-difference dependency.
+- Skip wrapping: avoids 214 edits, but one-paragraph/one-line was already the repo convention and otherwise drifts.
+- Rewrite all violations blindly: fast, but hard breaks/blockquotes can be damaged; actual refusal of two blockquotes validated the guarded approach.
+- Set ceilings barely above current size: immediate growth pressure, but ceilings are guards, not reduction targets. Originally allow roughly 9-10% headroom; [resident-depth revision](2026-10-12-agents-md-resident-depth.md) later raised AGENTS from 2800 to 4300 with about 5% rounded headroom and a simultaneous rewrite.
+- Check code/document semantic agreement mechanically: broader apparent coverage, but degrades into expensive keyword false positives. Keep human-doc triggers and independent semantic review.
 
-### notes 路标
+## Consequences
 
-新增 `.agents/notes/README.md`（面向读者：布局、封闭集、文件形态、怎么找、与其他层的关系）、`.agents/notes/AGENTS.md`（一篇一个决定、写前审查、归档冻结、`Status:` 与目录一致）与 `.agents/notes/implemented/AGENTS.md`（同步事实但不改写决定、何时归档）。
+Historical check:docs took 1.25 seconds, raising static checks from roughly 8 to 9.3 seconds, while catching broken targets/anchors and bounding resident prose. The initial whitespace-only migration preserved content, tables, code blocks, and AST except separately identified preexisting edits. Current semantic English rewrites need their own review and must not borrow that whitespace proof.
 
-## 备选方案
+Unbudgeted usage/release/module references may still grow; forcing them into resident ceilings would compress content that needs space. Gates do not detect obsolete behavior or missing explanations. Slug drift may create anchor false positives. Source-reference checking only recognizes its specific Markdown path forms, not arbitrary relative/extensionless references. Added development dependencies were mdast-util-from-markdown, mdast-util-gfm, micromark-extension-gfm, and @types/mdast.
 
-- **保持无门禁，只靠 skill** — 零维护。否：本次盘点已发现两处真实且无人察觉的缺陷（死链与失效锚点）；靠人记触发条件正是它们长期存在的原因。
-- **原样照搬 DSH 的 `doc-typecheck`** — 让 ` ```ts ` 代码块参与编译。否：它依赖 DSH 的 workspace `paths` 与 `tsc -b` 项目引用，本仓库单包结构下收益远小于移植成本。
-- **`verify-export-jsdoc`（导出必须有 JSDoc）** — DSH 价值最高的一道。否：本仓库实测导出函数 JSDoc 覆盖 179/298（60%），无门禁；一次性补齐近 120 处导出注释是独立批次，且会把 60% 的既有事实突变。留待单独评估。
-- **预算改用 `wc -w` 与 DSH 一致** — 便于对照上游。否：中文词数不随正文增长，`CONTEXT.md` 的词数与字符数相差 22 倍，词数上限形同虚设。
-- **引入 `github-slugger` 依赖** — 少写 3 行、少担算法风险。否：手写算法已对 576 个标题全量验证零差异，不值得为零差异新增依赖。
-- **`verify-md-wrap` 不做，只留链接与预算** — 少改 214 处。否：一段一物理行是本仓库既有的书写习惯（`AGENTS.md` 与多数文档已是），门禁只是把既有习惯固定下来；不做就会持续漂移。
-- **重排用脚本一次改完全部 214 处** — 最快。否：含硬换行的段落与引用块会被改坏；两处引用块确实需要手工处理，脚本的保护机制证明了这一点。
-- **把预算上限一次压到接近现状** — 立刻防膨胀。否：上限是护栏不是缩减目标；留约 9%~10% 余量，超限时先搬运再压缩。这条判据在[抬高超限并改写为一句一规则](2026-10-12-agents-md-resident-depth.md)中执行过一次：`AGENTS.md` 上限从 2800 提到 4300（按 5% 余量取整），Rewrite 与抬升在同一改动里完成。
-- **给 docs 加内容一致性检查** — 门禁覆盖更全。否：内容与代码是否一致是语义判断，机械检查会退化成关键词扫描，误报比漏报更贵；仍靠 `writing-docs-for-human` 的触发条件。
-
-## 后果
-
-需求符合性与文档语义的独立复核见[开发流程](2026-10-12-agentic-development-workflow.md)；本篇的机械门禁不作为任务完成的证明。
-
-`check:static` 从约 8 秒增至约 9.3 秒，换来：断链与失效锚点在提交前被拦（已实测两类负例都会红）、常驻文档有篇幅护栏、`.agents/notes/` 对直接走进来的读者可读。重排后全仓 Markdown 段落形态统一，diff 只影响空白。
-
-代价与遗留：
-
-- 214 处重排产生一次性 diff，涉及 13 个文件。已逐文件核验非空白内容不变、表格与代码块数量不变、AST 结构除既有无关改动外一致。
-- `docs/usage.md`、`docs/release-acceptance.md`、`docs/modules/*.md` 等随功能增长的文档**不在预算内**，仍可能无限增长。预算只覆盖常驻与结构性文档；把参考手册也纳入会迫使压缩本应有空间的内容。
-- 门禁只查结构，不查内容正确性。文档描述了过期行为、或漏掉了某个模块的新行为，四道门禁都不会红。
-- 手写的 slug 算法与 GitHub 当前行为一致，但 GitHub 若改算法不会被同步。影响面仅限锚点链接，失效时表现为误报。
-- `verify-doc-refs` 只认 `docs/` 与 `.agents/notes/` 前缀的 `.md` 路径；其他形式的文档引用（相对路径、不带扩展名）不在检查范围。
-- 新增依赖 `mdast-util-from-markdown`、`mdast-util-gfm`、`micromark-extension-gfm`、`@types/mdast`（devDependencies）。
-
-## 测试
-
-- 四道门禁各自通过，正常路径与负例均实测：`verify-md-links` 对坏锚点与坏目标分别报错并退出 1；`verify-doc-refs` 对注入的不存在路径报错并退出 1；`verify-doc-budgets` 超限退出 1、`--list` 恒退出 0。
-- 门禁在开发过程中真实拦下两处缺陷：本笔记引用的 `.agents/notes/README.md`（当时尚未创建）与一条失效锚点。
-- slug 算法对照 `github-slugger` 验证 576 个标题零差异。
-- 重排核验：非空白字符序列不变、`channels.md` 的 12 个代码块与 61 行表格数量不变、25 个标题不变、AST 结构对比仅 3 个含既有无关改动的文件有差异。
-- `npm run check:static` 与 `verify-notes` 通过。
+Historical positive/negative tests showed bad target/anchor/source reference and excess budget exiting 1, while budget --list exited 0. The gates caught an as-yet-uncreated notes README and another bad anchor during development. Slug comparison was 576/576; channels retained 12 code blocks, 61 table rows, and 25 headings. Nonwhitespace content was unchanged; AST differed only in three files with unrelated edits. check:static and verify-notes passed then. [Independent workflow review](2026-10-12-agentic-development-workflow.md) remains necessary: passing structural gates never proves task completion.

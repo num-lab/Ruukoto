@@ -1,41 +1,43 @@
-# Agent Note: 限定的长期服务授权替代重复人工决定
+# Agent Note: Replace repeated service decisions with narrowly scoped standing permissions
 
 Status: implemented
 
-原出处：ADR 0019「状态：阶段边界补充（2026-10-03，issue 10 交付）」
+Original source: ADR 0019, phase-boundary supplement dated 2026-10-03, issue 10 delivery.
 
-## 问题
+This records the original shared Personal runtime and its retained ledger rules. [The personal entry retirement](../simplification/2026-10-18-personal-product-entry.md) removed that runtime's service-tool assembly. Current durable Personal service grants follow [personal service operations](../architecture/2026-10-17-personal-service-operations.md), not the historical commands in this note. [Current-account full access](2026-10-12-full-access-current-account.md) also supersedes the original claim that every mode requires these approvals.
 
-固定 helper 提供的服务 root 能力在所有访问模式都需逐次人工审批，重复对同一白名单服务 restart 会重复要求拥有者决定。[两个产品](../architecture/2026-10-02-two-agent-products.md)要求具体操作和目标可保存可撤销的长期授权，同时不能把它扩大为任意 root 能力或跨任务复用单次批准。
+## Problem
 
-## 决定
+The fixed service helper originally required a fresh owner decision for every privileged operation, even repeated restarts of the same allowlisted service. [The product decision](../architecture/2026-10-02-two-agent-products.md) required revocable authorization for a specific target and action without granting arbitrary root access or reusing a one-shot approval across tasks.
 
-首版长期授权只允许原 Personal Agent main 从原 IM 入口，在本机对指定白名单服务执行固定 `restart`。范围固定 main 会话及原资料身份、原入口稳定 channel/account/chat/actor、原 NotifyTarget 配置代次、本机身份、规范单元、restart、策略和 unit 修订；不包含创建任务的 taskId/toolOpId 或请求时状态。共享主会话不让另一平台、TUI、调度、GitHub 或子任务消息继承授权。root 白名单仍是能力上限，执行账户权限与任务访问模式不改变，操作仍经过[服务管理 helper](../architecture/2026-10-03-service-management-helper.md)。
+## Decision
 
-授权存入后台保护核心库 `standing_permissions`，范围创建后不可修改，修改必须撤销再新建。按稳定入口与 main/本机/目标/动作约束最多一条未撤销授权，策略和配置修订仅用于使用资格核实；来源审批唯一。撤销与失效递增行版本并保留原因，同版本重复撤销幂等，旧代次失效后不会复活。数据不放入应用数据、记忆、指令、技能、grantedPaths 或 root 策略文件，不把旧单次批准或 full_access 转成授权。
+The first standing permission covered only `restart` of one local allowlisted service, requested by the old Personal main through its original IM entry. Its immutable scope bound main session and original data identity, stable channel/account/chat/actor, NotifyTarget configuration generation, machine identity, canonical unit, action, policy revision, and unit revision. It excluded task/tool-operation IDs and transient request state. A shared main session did not let another platform, TUI, schedule, GitHub event, or child message inherit it. The root allowlist remained the capability ceiling; the [service helper](../architecture/2026-10-03-service-management-helper.md) still performed the operation.
 
-拥有者只从原 IM 平台 pending 的服务 restart 审批创建：`/approve-standing <完整审批ID> <权限版本>` 同时表示批准本次与保存授权，范围来自原不可变审批，不接受新的目标或动作参数。创建核实活动 main/任务、原入站归属、权限版本、当前可信 actor/目标与部署修订；授权、决定、关联、审计、控制事件终态与回执同事务提交，成功才唤醒。当前操作关联新授权并在消费处重读，不能在授权撤销后继续使用这次长期批准。普通 `/approve` 仍只批准一次。
+Protected core storage held `standing_permissions`, not application data, memory, instructions, skills, `grantedPaths`, or root policy files. Scope changes required revoke-and-create. Stable entry/main/machine/target/action allowed at most one unrevoked grant; policy/configuration revisions determined eligibility at use, and the originating approval was unique. Revocation or invalidation incremented the row version and retained a reason; repeated revocation at the same version was idempotent, and old generations never revived. Neither old one-shot approvals nor full access implicitly created grants.
 
-`/service-grants [页码]`、`/service-grant <完整授权ID> [偏移]` 与 `/revoke-service-grant <完整授权ID> <授权版本>` 有界查询/撤销，复用[IM 控制消息](2026-10-02-im-approval-and-final-report.md)的原始全文解析、可信身份、来源幂等键、零模型/零普通任务和固定 outbox；自然语言、引用、转发、模型和子任务消息不能创建或扩大授权。查询/撤销可经当前可信稳定入口查看旧配置代次，但这不允许旧授权执行。入口停用后已认证控制面 `service_grant_list/get/revoke` 与 `ruukoto service-grant list/show/revoke` 可管理遗留，创建首版仅走原 IM 待审批，无自由范围 API。管理应答丢失先读原记录核实，不自动换键写入。
+Only the original IM entry could create one from a pending service-restart approval. Historical `/approve-standing <fullApprovalId> <permissionVersion>` approved that operation and saved its existing immutable scope; it accepted no new target/action. The host checked active main/task, inbound ownership, permission version, trusted actor/target, and deployment revision. Grant, decision, linkage, audit, terminal control-event state, and receipt committed together before wakeup. Consumption reread the grant so revocation could invalidate this first use too. Ordinary `/approve` stayed one-shot.
 
-每次 service_manage 先经 helper 检查真实目标与修订，宿主选择候选，模型不能提供授权 ID。命中精确有效范围时，宿主在同步事务重建并核实授权版本、范围、活动/取消状态、main、原 IM 固定身份与部署策略，为本次新 taskId/hostOpId/permissionVersion 创建独立已批准记录，再经过公共消费并登记授权使用。每次批准单次消费，长期授权本身不被消费；任务保持 running，不虚构等待、审批通知或拥有者刚批准事件，不启动自动审查，决定来源为 `standing_permission`。候选消费前失效则恢复人工，所有模式没有有效授权仍逐次审批；应用数据破坏性变更、通知外发、MCP 写操作等审批规则不变。
+Historical `/service-grants`, `/service-grant`, and `/revoke-service-grant` reused [IM control-message](2026-10-02-im-approval-and-final-report.md) whole-text parsing, trusted identity, source idempotency, no model/ordinary task, and fixed outbox. Natural language, quotations, forwards, models, and child messages could not create or widen grants. The current trusted stable entry could inspect/revoke old generations without making them executable. An authenticated control plane and `ruukoto service-grant` managed leftovers after entry disablement; neither provided an arbitrary-scope creation API. A lost management response required reading the original record before another write, not automatically changing the key.
 
-撤销先提交使尚未消费的放行失效；消费先提交表示操作开始，撤销只影响后续，不承诺取消 PID 1 已收到的作业。策略/unit 不匹配、IM 重绑、停用再启用、拥有者/账号或凭据代次变化使授权版本递增并失效；暂时离线不等同绑定变化，正常后台重启保留有效授权，但旧未消费批准仍失效。旧独立单次 `/approve` 不因另一长期授权撤销失效。
+### Per-operation use and races
 
-消费后只有可信请求前拒绝或确定命令结果可记已知结论；协议错误、ID 不符、捕获/落盘失败等无可信结果都记效果未知。`ToolOpLedger.markEffectUnknown` 同事务使同一 main/本机/单元/动作所有入口的有效长期授权失效、增版本，保存原因与操作 ID，覆盖异常、停止、后台恢复和结果写失败。即使换新操作 ID 或入口也不能自动重试；拥有者核实后才能重新明确授权，原未知记录保留。outbox 发送未知独立处理，不误撤销服务授权。helper 对 systemd-run 的启动异常仅 ENOENT/EACCES/ENOTDIR 可证明未派发，其余启动后异常/信号报可能已派发，不猜退出码。
+`service_manage` first checked the real target and revision through the helper. The host, never the model, selected a candidate grant. A synchronous transaction rebuilt and checked its exact scope/version, activity/cancellation, main, fixed IM provenance, and deployment policy; it then created a separate approved record for the new task/host-operation/permission version and used common one-shot consumption. The standing grant itself was not consumed. A task stayed running: no fictitious waiting state, approval notification, newly approved-by-owner event, or auto-review call. Decision provenance was `standing_permission`.
 
-## 验证
+An invalid candidate before consumption returned to manual approval. Originally all modes required manual approval without a valid grant; the later full-access decision changes that mode policy, not the one-shot ledger semantics. This feature did not widen destructive application-data, notification, or MCP-write permissions.
 
-[工单 10](../../../../.scratch/agent-direction/issues/10-standing-permissions.md)记录核心库 v22→v23 与控制协议 v10；旧批准来源保留、授权关联为空、不自动产生授权，旧历史仍可读。test/79 在双平台/helper 桩和真实 Runtime/SQLite 下 23/23，规定联检全过，`npm run typecheck` 与 test/67 通过，全量 `npm test` 862 项中 861 通过、1 真实模型门控跳过。
+Revocation committed first invalidated unconsumed uses; consumption committed first meant execution had begun, so revocation affected future uses and could not cancel a job already accepted by PID 1. Policy/unit changes, IM rebinding, disable/re-enable, owner/account changes, or credential-generation changes incremented and invalidated grants. Temporary disconnection was not rebinding; normal restart retained valid grants but invalidated old unconsumed approvals. Revoking a grant did not invalidate an unrelated independent one-shot approval.
 
-[smoke-10](../../../../.scratch/agent-direction/smoke-10-standing-permissions.mts) 在 `ssh tx` 使用真实 helper/sudoers/systemd/可控服务/隔离后台/CLI，模型和消息平台模拟，修复首轮缺陷后复跑两轮及最终代码一轮均 14/14。当前批准与下一独立任务各执行恰一次、taskId/hostOpId/批准记录各不同而同授权、查看/撤销 v1→v2 与重投幂等、失效后恢复审批零执行、真实杀掉在途 systemd-run 后效果未知且全入口授权失效、执行账户越界拒绝均有证据。真实 QQ/Telegram 平台与真实平台限流/重投放障未实测，不能从模拟结果推断。
+After consumption, only a trusted pre-request refusal or definite command result established a known outcome. Protocol mismatch, wrong ID, capture/persistence failure, or another untrusted result meant effect unknown. `ToolOpLedger.markEffectUnknown` atomically invalidated every active grant for the same main/machine/unit/action across entries, incrementing versions and retaining reason and operation ID. Exceptions, stopping, recovery, and result-write failure used the same rule. A new operation ID or another entry could not enable automatic retry; the owner had to verify and explicitly authorize again, while the unknown record remained. Outbox uncertainty was separate and did not revoke service grants. For `systemd-run`, only ENOENT/EACCES/ENOTDIR at startup proved no dispatch; other startup failures or signals were potentially dispatched, not guessed from exit codes.
 
-<!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->
+## Alternatives considered
 
-## 后果
+The original specifications, issue, and ticket draft recorded no independent alternatives. Do not manufacture retrospective tradeoffs; any broader actions or targets need a new decision. Offline provenance: `.scratch/agent-direction/issues/10-standing-permissions.md` and the original `smoke-10-standing-permissions.mts`.
 
-有效精确范围内的重复服务操作不再要求重复人工决定，使用和撤销仍有逐次可核查的版本、独立批准与审计。代价是每次执行都要重建范围并复核入口/目标修订，效果未知后必须恢复人工并由拥有者核实；授权不跨入口共享、不自动续期、不支持编辑或通配范围。原 `.scratch/` 规格、工单与 tickets-draft 未记录独立备选，不补造历史取舍；未来若扩展动作或目标，需要另记决定。[操作手册](../../../../docs/usage.md)描述当前命令与范围。
+## Consequences
 
-## 适用范围
+Exact-scope repeated operations avoided repeated human decisions while retaining per-use versions, independent approvals, and audit. Every use still had to reconstruct scope and verify target/entry revisions; uncertainty required owner verification and renewed authorization. Grants were neither cross-entry, editable, wildcard, nor automatically renewed.
 
-完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+Historical implementation evidence records core v22-to-v23 and control protocol v10: old approvals retained provenance with no grant link, no grants were synthesized, and old history stayed readable. Test/79 passed 23/23 with real Runtime/SQLite and platform/helper fixtures; required joint tests, typecheck, and test/67 passed. The full suite had 861 passes and one gated real-model skip among 862 cases.
+
+Original Linux smoke-10 used real helper/sudoers/systemd, a controlled service, isolated backend, and CLI with simulated model/messaging. After an initial fix, two reruns and a final-code run each passed 14/14. Evidence covered exactly one execution for the current and next task with distinct task/operation/approval IDs sharing one grant; v1-to-v2 revocation and redelivery idempotency; zero execution after invalidation; real in-flight `systemd-run` killing followed by effect unknown and all-entry invalidation; and execution-account boundary refusal. Real QQ/Telegram, platform throttling, and redelivery fault injection were not tested. This is historical evidence, not acceptance of the durable replacement.

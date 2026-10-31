@@ -1,9 +1,0 @@
-opened
-source done
-delegate done
-list done
-first note persisted exactly once: true
-rejected: work_note_invalid 追加说明的模型工具来源不符，已停止恢复；请保留档案。
-unrelated list tool accepted as append source: false
-missing call rejected: work_note_invalid
-reserved model note accepted without modelCall: false

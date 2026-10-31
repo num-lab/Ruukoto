@@ -1,43 +1,32 @@
-# Agent Note: 两个产品分别使用独立开发启动入口
+# Agent Note: Keep separate development launchers and profiles for both products
 
 Status: implemented
 
-部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)改用个人同一 durable CLI 与平台 watch；下述共享开发启动器、旧个人开发会话和模型导入只适用于 Coding 或原决定，个人开发不再接旧 Runtime/控制面。
+Original source: ADR 0017's development-entry supplement. [Personal product entry](../simplification/2026-10-18-personal-product-entry.md) replaces personal shared-Runtime assembly with durable CLI/Node watch. [Native execution](../architecture/2026-10-12-personal-native-sandbox.md) and [current-account full access](../feature/2026-10-12-full-access-current-account.md) supersede container/local defaults and dedicated execution accounts. Isolation, explicit imports, process ownership, and managed exit remain here.
 
-部分取代：[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)将个人开发入口默认接到 native；开发档案隔离、源码重载、进程归属和退出生命周期仍由本篇持有。
+## Problem
 
-原出处：ADR 0017「补充：两个产品的开发启动入口」
+Both products need independent source watching/reload/UI development. The old npm dev database was already marked ruukoto, so switching it to Code was correctly refused by product ownership. Development must also separate daily-instance paths, credentials, locks, control channels, and real IM consumption.
 
-## 问题
+## Decision
 
-两个产品需要独立的源码监听、重载与界面开发入口。既有 `npm run dev` 数据库已登记为 ruukoto，直接切到 Coding Agent 被产品归属拒绝；开发运行也必须与日常实例的路径、凭据、锁、控制面和真实消息消费分开。
+`npm run dev` starts personal development; `npm run dev -- --config` opens its configuration menu. `npm run code` starts Code and opens TUI, while `--config` opens its configuration center. Code-only `--desktop` uses Electron and conflicts with --config/positional workspace arguments. The development launcher does not accept --tui.
 
-## 决定
+Code's app `src/dev.ts` uses `packages/tui/src/dev.ts` for watching, reload, and processes. Its watcher covers packages/*/src and apps/*/src and starts the correct app bin. The original shared launchers used distinct `~/.ruukoto-dev/<repo>-<hash>/` and `~/.ruukoto-code-dev/<repo>-<hash>/` profiles, each with its own data/configuration/credentials/lock/control. They never silently migrated old personal development history or changed its product ID; Code model configuration is copied only with explicit --import-models. [Retained personal dev sessions](../feature/2026-10-05-ruukoto-keeps-dev-sessions.md) records the old shared-assembly rationale, not the current durable product's session model.
 
-`npm run dev` 启动 ruukoto 开发后台，`npm run dev -- --config` 打开其配置入口；`npm run code` 启动 ruukoto-code 开发后台并默认打开 TUI，`npm run code -- --config` 打开其配置中心。`npm run code -- --desktop` 使用 Electron 桌面前端，仅 Code 支持，与 --config 和位置工作区参数互斥。开发启动器不再接受 `--tui`。
+Code development fixes product identity, strips inherited daily paths/owner-token variables/execution-backend overrides, and disables real QQ/Telegram. Restricted execution follows native product capabilities and fails rather than falling back. Full access uses the launching account, not a specially configured execution account. Old personal local and Code container defaults are historical.
 
-两入口通过各 app 的 `src/dev.ts` 复用 `packages/tui/src/dev.ts` 的源码监听、重载和进程管理；监听范围为 `packages/*/src` 与 `apps/*/src`，子进程使用所属 app 的 bin，档案分别保存为 `~/.ruukoto-dev/<仓库>-<哈希>/` 与 `~/.ruukoto-code-dev/<仓库>-<哈希>/`，与日常[产品档案](../architecture/2026-10-02-two-agent-products.md)分开。保留已有 ruukoto 开发历史，不自动迁移；模型配置仅经已有 `--import-models` 显式复制。各档案拥有自己的数据、配置、凭据、锁与控制面，可以同时运行。ruukoto 开发实例保留普通开发会话的理由见[保留开发会话](../feature/2026-10-05-ruukoto-keeps-dev-sessions.md)。
+The launcher owns its backend: leaving TUI/configuration, Ctrl+C, or terminal closure stops that development process. Electron receives RUUKOTO_DESKTOP_MANAGED=1 and a new nonce for each frontend start, without login-shell execution. Electron-vite handles desktop rebuild/HMR including bundled view/control/core sources; the launcher restarts only the backend. Electron/electron-vite have separately managed process groups reclaimed on exit. The dev frontend never spawns another backend after reload failure. Daily Code TUI disconnect still leaves its backend running under [terminal separation](../architecture/2026-09-19-detach-terminal-from-task-runtime.md); do not apply that rule to managed dev exit.
 
-开发入口固定产品身份，清除继承的日常路径、拥有者令牌及受保护执行账户配置，并停用真实 QQ/Telegram。执行后端沿用 CLI 产品默认值：ruukoto 使用 local，ruukoto-code 使用 container；container 不可用时任务明确失败，不回退 local。完全访问所需的执行账户配置不在此次扩展范围，local 本身没有操作系统级隔离。
+Current personal dev fixes a checkout-hashed durable profile and ignores inherited directories. Its thin launcher supervises Node watch running foreground serve; --config opens the same personal menu without watching source, owning this run's backend, so source changes require exit/reopen. Exit/watch restart stops the original backend first. Enabled QQ/Telegram is refused without altering configuration/records. It no longer connects old Runtime/control or uses the shared launcher's session/model-import path.
 
-开发启动器管理后台：退出 TUI/配置中心、Ctrl+C 或关闭终端会停止本次开发进程。桌面前端使用启动器环境中的 RUUKOTO_DESKTOP_MANAGED=1 与每次前端启动的新 nonce，不执行登录 shell；桌面源码交 electron-vite 重建或 HMR，view/control/core 打入产物的源码也由它监听，启动器只重启后台。Electron 和 electron-vite 归独立进程组，退出统一清理。开发前端不自行拉起后台，防止源码重载失败派生未由启动器管理的进程；日常 ruukoto-code 的 TUI 退出后后台继续运行规则仍成立，见[后台与终端分离](../architecture/2026-09-19-detach-terminal-from-task-runtime.md)。
+## Alternatives considered
 
-## 验证
+- Reassign the existing dev profile to Code: preserves history/configuration conveniently, but its database is owned by ruukoto and product identity must not be bypassed. Keep old history and create an independent Code profile, with explicit model copying.
+- Let the dev frontend spawn a backend like daily TUI: reuses demand startup, but reload failure could create processes outside launcher ownership. It only connects to the launcher-managed backend.
 
-原实现提交 `c819db3adad75b8c0cf604b3fef3816334fa993f` 同步开发启动器、两个产品的开发入口和 package 入口和 test/32、test/71。test/32 覆盖入口参数、双档案、重载与受管退出；test/71 覆盖双产品环境清洗与日常目录/令牌/执行配置不继承。原 ADR 补充段和 `.scratch/` 没有独立登记该提交的运行命令结果，因此此处只记录可复查覆盖，不把它表述成历史测试已通过。开发启动方式与模型导入操作见[开发说明](../../../../docs/development.md#开发实例)。
+## Consequences
 
-## 备选方案
+Both products can run in development simultaneously without reassigning existing history, and one manager owns reload/exit per entry. Separate profiles cost separate maintenance; history migration is not a launcher feature. Restricted work needs native prerequisites; full access retains its explicit launch-account risks. Dev exit stops its backend, unlike ordinary daily-client disconnection.
 
-把已有开发档案直接切到 ruukoto-code 可以复用现有历史与配置，但原 ADR 记明数据库已有 ruukoto 产品归属，直接切换会被拒绝；因此新增独立 Coding Agent 开发档案，历史保留在原档案，模型配置显式复制。该取舍与[开发会话保留工单](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)记录的产品切换约束一致。
-
-开发前端自行拉起后台可复用日常 TUI 的按需启动机制，但原 ADR 明确记录源码重载失败后可能派生不受开发启动器管理的进程；因此开发前端只连接启动器管理的后台。
-
-## 后果
-
-两产品可同时开发，重载和退出有同一个管理者，既有开发历史不会被隐式改变产品身份。代价是两份开发资料分别维护，迁移历史不属于启动器功能；Coding Agent 开发任务要求 container 可用，完全访问仍需另外满足受保护执行配置。开发退出会停后台，使用者不能把日常产品的后台持续运行规则套用到开发入口。
-
-## 适用范围
-
-当前 Coding 的 code 沿产品能力声明默认 native；开发启动器清除继承的日常路径、拥有者令牌和 `RUUKOTO_EXECUTION_BACKEND` 覆盖，停用真实 QQ/Telegram，缺原生能力明确失败。完全访问使用启动账户，不要求专用执行入口。默认后端与部署前置归[个人 Agent 原生执行与 Docker worker 退役](../../implemented/architecture/2026-10-12-personal-native-sandbox.md)；Coding 的开发档案隔离、重载、进程归属、退出与模型显式导入规则保持。个人 dev 固定检出散列 durable 档案、忽略继承目录，默认由薄启动器托管 Node watch 前台 serve；`--config` 直接打开同菜单并拥有本次后台，不监听源码，源码变更退出重开。退出或 watch 重启先停止原后台。已启用 QQ/Telegram 时拒绝，原配置和记录不改。
-
-完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](../feature/2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+Original commit `c819db3adad75b8c0cf604b3fef3816334fa993f` changed shared/product/package entries plus test/32 and test/71. Test/32 covers arguments/profiles/reload/managed exit; test/71 covers environment cleaning and noninheritance of daily paths/tokens/execution configuration. Original ADR/task material recorded no separate executed command result for that commit, so these are inspectable coverage claims, not invented historical passes. Former `.scratch/agent-direction/issues/23-contract-legacy-roles.md` is offline provenance for product-switch constraints. Current operation belongs in [development documentation](../../../../docs/development.md).

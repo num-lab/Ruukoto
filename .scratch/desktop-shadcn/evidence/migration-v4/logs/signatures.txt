@@ -1,4 +1,0 @@
-codesign --verify --deep --strict dist/mygo/darwin-arm64/Ruukoto MyGo.app
-exit 0
-codesign --verify --deep --strict dist/mac-arm64/Ruukoto.app
-exit 0

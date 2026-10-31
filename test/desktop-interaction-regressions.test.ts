@@ -9,5 +9,5 @@ for (const [name, file] of [
   ["隐藏文件树的实际组件不产生目录读取", "hidden-files-repro.mjs"],
   ["消息渲染只读取一次有序 flow，不逐条重新排序", "render-repro.mts"],
 ]) test(name, () => {
-  execFileSync(process.execPath, [...(file.endsWith(".mts") ? ["--import", "tsx"] : []), `${root}.scratch/desktop-shadcn/evidence/interaction-fixes/${file}`, root], { cwd: root, stdio: "pipe", timeout: 15000 });
+  execFileSync(process.execPath, [...(file.endsWith(".mts") ? ["--import", "tsx"] : []), `${root}test/fixtures/desktop/${file}`, root], { cwd: root, stdio: "pipe", timeout: 15000 });
 });

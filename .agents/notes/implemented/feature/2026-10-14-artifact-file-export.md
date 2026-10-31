@@ -1,31 +1,27 @@
-# Agent Note: 完整产物导出复用控制面分页并在校验后替换目标
+# Agent Note: Export complete artifacts through verified paging
 
 Status: implemented
 
-## 问题
+## Problem
 
-控制面 `read_artifact` 每次最多返回 720 KiB，CLI 默认只输出 256 KiB 的单页。用 stdout 重定向容易把一张大截图截成部分文件，也会在下载中断前覆盖已有目标。图片产物已有不可变 MIME 与 SHA-256，导出应使用这些证据核实全量正文。
+Control-plane `read_artifact` returns at most 720KiB per page, while CLI stdout defaults to one 256KiB page. Redirecting stdout can truncate a large screenshot and overwrite an existing destination before an interrupted download finishes. Image artifacts already have immutable MIME/SHA-256 metadata suitable for full-content verification.
 
-## 决定
+## Decision
 
-两个产品共用的 `read-artifact --output <file>` 在同一已认证连接上从偏移 0 按 720 KiB 分页，只接收 `complete` 产物。首个响应核实任务与产物 ID、总字节数及图片哈希元数据；所有页面的元数据保持相同、base64 编码规范且页长符合剩余正文。图片还核实实际文件签名与完整 SHA-256；文本产物沿已有元数据核实页长与总字节数，不补造内容哈希。
+Shared `read-artifact --output <file>` reads from offset zero in 720KiB pages on one authenticated connection and accepts only complete artifacts. The first reply verifies task/artifact IDs, total bytes, and image hash metadata. Every page must keep metadata identical, use canonical base64, and have the length required by the remaining content. Images also verify actual file signature and full SHA-256. Text uses existing metadata, page lengths, and total bytes without inventing a hash.
 
-导出只写目标同目录的独占 0600 临时文件，完整读取和校验成功后关闭文件并原子重命名。失败保持原目标，正常错误退出清理临时文件；强杀可能留下受保护的临时文件，但不会把它当成导出目标。`--output` 与 `--offset` / `--length` 互斥；原有单页 stdout 切片继续允许查看 `partial`。
+Write only an exclusive 0600 temporary file beside the destination. After complete reading/verification, close and atomically rename it. Failure preserves the previous target; normal error cleanup removes the temporary file. A hard kill can leave a protected temporary file, never misidentified as the exported destination. `--output` is mutually exclusive with `--offset`/`--length`. Existing single-page stdout slices still accept partial artifacts.
 
-检索 tui、read_artifact、产物正文、图片与导出后，[agent-browser 决定](2026-10-14-agent-browser.md)与本决定部分重叠，本篇只落地其独立的文件取回能力，浏览器归属与动作由该篇持有。[读取图片](../bug-fix/2026-10-12-read-images.md)及[入站图片暂存](../architecture/2026-10-07-inbound-image-staging.md)继续持有视觉输入和图片落盘契约；本篇复用它们留下的 MIME 与哈希。[GitHub 退役归档](../simplification/2026-09-23-retire-github-module.md)持有服务端归档生成，与本篇客户端下载部分重叠；委派、worktree 与 GitHub 评审中的 `read_artifact` 命中限制模型的查询范围，与拥有者 CLI 导出无关。保留这些独立决定，不改其行为。
+[Agent browser](2026-10-14-agent-browser.md) retains browser ownership/actions; this note implements its independent file retrieval. [Image reads](../bug-fix/2026-10-12-read-images.md) and [inbound staging](../architecture/2026-10-07-inbound-image-staging.md) own visual input/persistence and supply MIME/hash. [GitHub retirement](../simplification/2026-09-23-retire-github-module.md) owns server-side archive generation. Model-query restrictions for delegation/worktrees/reviews do not change owner CLI export.
 
-## 备选方案
+## Alternatives considered
 
-增大控制面单页上限可以保持一次请求，但 base64 和 JSON 会越过现有 1 MiB 帧上限，并且仍无法容纳任意大的工具正文；复用分页更小且保留协议。
+Larger single pages would exceed the 1MiB frame after base64/JSON and still not fit arbitrarily large results. Paging preserves the protocol. Accumulating all pages in memory is easy but unbounded; writing directly destroys the original target on failure. Temporary-file paging holds only one page in memory. Making stdout complete by default changes slice semantics and still leaves a partial redirected target; explicit output preserves old callers and verified replacement.
 
-把所有页面先拼到内存再写目标容易实现，但大工具正文会增加内存占用，直接写目标还会破坏原文件。逐页写临时文件只保留单页内存，校验结束后再替换。
+## Consequences
 
-把 stdout 改为默认全量可让重定向直接取回，但改变现有单页与切片行为，下载中断仍会留下被截断的目标。显式 `--output` 保留旧调用并提供完成后的替换保证。
+Large images/results escape CLI single-page limits. Changed metadata, missing bytes, corrupt images, and read/write failures report explicitly. Choosing the path authorizes replacement; new target mode is 0600. Text lacks a preexisting content hash, so equal-length changes cannot be additionally proven absent. Artifact format/protocol stay unchanged, with no automatic retry or resume.
 
-## 后果
+## Verification
 
-大图片和工具正文不再受 CLI 单页限制，导出期间元数据变化、正文短缺、图片损坏与读写失败都明确报错。覆盖是拥有者通过目标路径选择的行为；新目标权限固定为 0600。文本产物没有既存内容哈希，无法额外证明等长正文未变化；本次不扩产物格式或协议，也不增加自动重试和断点续传。
-
-## 验证
-
-`test/29-cli-entry.test.ts` 经两个正式 bin 与真实 Runtime/ControlServer 导出合法的超过 720 KiB PNG，核对两个页面、完整字节、SHA-256 与 0600 权限；保留二进制切片，拒绝参数冲突、缺少目标路径与 `partial`。第二页的真实文件缺失、截短、数据库元数据变化和等长正文损坏均保留原目标并清理临时文件。
+`test/29-cli-entry.test.ts` uses both real bins with Runtime/ControlServer to export a valid PNG larger than 720KiB, checking two pages, bytes, SHA-256, and 0600. It retains binary slices and rejects conflicting options, missing output paths, and partial artifacts. Real second-page file loss, truncation, changed DB metadata, and equal-length corruption preserve the old destination and remove temporary files.

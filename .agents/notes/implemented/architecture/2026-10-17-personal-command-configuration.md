@@ -1,33 +1,27 @@
-# Agent Note: 个人受限命令固定独立目录与宿主环境
+# Agent Note: Pin a dedicated directory and host environment for Personal commands
 
 Status: implemented
 
-永久绑定与全部历史按当前配置核实的要求由[命令与服务配置版本](2026-10-25-personal-execution-configuration-versions.md)取代；本文其余权限、身份和部署边界继续适用。
+[Command/service configuration versions](2026-10-25-personal-execution-configuration-versions.md) supersedes permanent binding and validation of all history against current configuration. Other permission, identity, and deployment boundaries remain.
 
-运行时完全访问的保护树扫描由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)移除；冷配置启用、目录／机器／TMPDIR身份和受限执行规则继续适用。
+[Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) removes protected-tree scans from full-access runtime operations. Cold enablement, directory/machine/TMPDIR identity, and restricted execution rules remain.
 
-## 问题
+## Problem
 
-[单次命令宿主](2026-10-17-personal-command-execution.md)接收可信启动参数；个人 durable 档案尚无可供它使用的工作目录和持久配置。让模型提供目录或重启后重选目录会扩大授权，也无法核对原执行证据。
+The [single-command host](2026-10-17-personal-command-execution.md) accepts trusted launch inputs, but Personal durable profiles lacked a persistent command directory/configuration. Letting a model choose a path, or reselecting one after restart, would expand authority and prevent verification of original execution evidence.
 
-## 决定
+## Decision
 
-拥有者停机持锁选择既有专用目录，保存版本、realpath/dev/ino、本机 machineId 与真实 TMPDIR。配置在首次启用前核实 durable 业务格式及未决输入和任务，存在未决记录时拒绝保存；配置创建后不可变。读取及准备执行前复核原目录身份、机器与 TMPDIR，变化时保留档案并拒绝使用。
+With the backend stopped and profile locked, the owner chooses an existing dedicated directory. Configuration records a version, realpath/dev/ino, local machineId, and actual TMPDIR. First enablement validates durable business formats and unresolved inputs/tasks, refusing to save while any remain. The original configuration is immutable. Reads and execution preparation recheck its directory, machine, and TMPDIR identities; changes preserve the profile and reject use. Later versioned-configuration rules govern replacement without reinterpreting old work.
 
-个人命令固定使用自包含 worker 和空运行依赖，保护档案、服务源码、旧产品档案及已知凭据目录。复用共享保护根核实，拒绝授权目录包含保护根或位于保护根内。证据目录固定为档案中的 commands；档案仅放行这一精确私有普通子目录，拒绝链接与开放权限，重新持锁保留其 0700 权限，不递归改写证据。
+Personal commands use a self-contained worker with an empty runtime-dependency list. Profile data, service source, legacy product profiles, and known credential directories are protected. Shared protected-root validation rejects a granted directory inside or containing a protected root. Evidence goes only to the profile's exact `commands` directory, a private ordinary subdirectory. Symlinks and permissive modes are rejected; reacquiring the lock retains 0700 without recursively rewriting evidence.
 
-本篇关于完全访问尚未接通的限制由[完全访问命令](2026-10-17-personal-full-access-commands.md)取代；受限实现、既有宿主证据与停止协议的决定仍适用。
+[Full-access commands](2026-10-17-personal-full-access-commands.md) supersedes the original lack of full-access wiring, not restricted execution, existing host evidence, or stop protocol. [Host execution](2026-10-17-personal-command-execution.md) retains receipt/temp ownership, [service configuration](2026-10-17-personal-service-configuration.md) shares stopped/locked first enablement, and [the worker](2026-10-17-personal-command-worker.md) owns bundling and empty dependencies.
 
-## 既有笔记审计
+## Alternatives considered
 
-按个人命令、服务配置、TMPDIR 与保护根检索。[宿主证据](2026-10-17-personal-command-execution.md)部分重叠，保留原回执及临时目录职责；[服务配置](2026-10-17-personal-service-configuration.md)部分重叠，复用其停机持锁、首次启用和不可变保存方式；[worker](2026-10-17-personal-command-worker.md)继续持有自包含产物和空依赖的决定。没有完全吸收或失效提案。
+A model-supplied path is a small tool interface but cannot establish owner authority or stable recovery identity. Using the backend profile as cwd avoids separate configuration but lets commands write permissions, sessions, control credentials, and evidence. The original immutable-directory policy rejected offline directory switching because old work still bound the original directory/intent; later versioning explicitly replaces that restriction rather than silently rebinding history.
 
-## 备选方案
+## Consequences
 
-- 模型每次提供路径：工具参数最少，但不能提供拥有者授权，也无法稳定恢复原目录。
-- 使用后台档案作为命令目录：免去单独配置，但命令可写权限、会话、控制面凭据和证据，破坏宿主可信性。
-- 允许停机后换目录：操作灵活，但同一档案中的旧工作仍绑定原目录和执行意图；其他目录使用新的隔离档案。
-
-## 后果
-
-目录选择只发生一次，模型无需接触路径身份或权限版本；代价是恢复必须保留原目录、机器与 TMPDIR，迁机和目录更换需要新档案。配置不证明 Linux 隔离工具或服务部署可用，实际执行及未知效果仍由 durable 命令工作持有。完全访问命令与越界审批不由本配置提供。
+The model need not handle directory identities or permission versions. Recovery still requires the original directory, machine, and TMPDIR for the bound work. The original policy required a new profile for moving hosts/directories; later configuration-version decisions own supported replacements. Configuration alone proves neither Linux isolation nor service deployment. Durable command work still owns execution and unknown effects; this configuration does not itself provide full-access commands or out-of-scope approval.

@@ -1,131 +1,146 @@
-# Agent Note: 桌面客户端作为又一个控制面客户端
+# Agent Note: Desktop as another backend client
 
 Status: proposed
 
-正文图片占位与图片来源限制由[Markdown 直接显示图片](../../implemented/simplification/2026-10-25-desktop-markdown-images.md)取代，原始 HTML 禁令由[Markdown 渲染 HTML](../../implemented/simplification/2026-10-25-desktop-markdown-html.md)取代；脚本与进程隔离继续适用。
+This remains the overall desktop proposal and combined-acceptance record, not a claim that the desktop is unimplemented. Code, shared projection, approvals and substantial Personal UI are delivered; current external acceptance is tracked in [desktop acceptance #14](https://github.com/num-lab/Ruukoto/issues/14), with [settings #13](https://github.com/num-lab/Ruukoto/issues/13), [MyGo browser #17](https://github.com/num-lab/Ruukoto/issues/17) and [Personal remote #19](https://github.com/num-lab/Ruukoto/issues/19) owning their specific gaps.
 
-PA 连接已由下述决定取代，见 [Tailscale HTTPS／WebSocket](../../implemented/architecture/2026-10-24-personal-tailscale-https.md)；本篇 Code 决定保留。
+[Direct Markdown images](../../implemented/simplification/2026-10-25-desktop-markdown-images.md) supersedes image placeholders/source restrictions; [sanitized HTML](../../implemented/simplification/2026-10-25-desktop-markdown-html.md) supersedes the raw-HTML ban. Script and process isolation remain. [Personal Tailscale HTTPS/WSS](../../implemented/architecture/2026-10-24-personal-tailscale-https.md) replaces both Personal SSH paths and supplies current durable chat/settings. The earlier [durable migration](2026-10-17-personal-pi-durable.md) and [Personal entry](../../implemented/simplification/2026-10-18-personal-product-entry.md) retired the old shared Personal protocol; they do not mean today's Personal desktop UI is absent. [Settings management](../feature/2026-10-21-desktop-settings-management.md) owns the broader configuration proposal and its delivered successors.
 
-相关未实施方案：[设置管理](../../proposed/feature/2026-10-21-desktop-settings-management.md)扩展配置能力，并独立接入新 Personal durable 的设置管理；本篇旧控制连接不代表新个人协议已支持。
+## Problem
 
-个人目标范围由[正式个人入口](../../implemented/simplification/2026-10-18-personal-product-entry.md)收窄：新个人不支持本提案旧控制协议、SSH 客户端或 Personal 会话界面；Code 桌面与已有旧连接实现保留，不能将它们当作 durable 客户端。
+The original products offered TUI, CLI and IM only. The owner requested a macOS window for local Coding and server-hosted Personal, visually based on the [original HTML](../../../../test/fixtures/desktop-baselines/ui-demo.html). Later [approved shadcn demo migration](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md) owns component/interaction approval while retaining that visual origin.
 
-个人目标范围受[个人端 pi durable 迁移提案](2026-10-17-personal-pi-durable.md)收窄：新个人端采用 IM 与引导式 CLI，不兼容旧桌面控制协议；本篇 Code 能力与既有实现记录保留。
+Three initial constraints shaped the design. The backend listened only on a local Unix socket and remote use meant logging into the server to run TUI. Client/server protocol versions had to match exactly; `PROTOCOL_VERSION` rose from 1 to 25 between 2026-09-20 and 2026-10-14. TUI projection in `state.ts`/`event-flow.ts` used Node APIs and indirectly imported pi-tui through `workflows.ts`, so it could not simply run in a browser.
 
-## 问题
+## Proposal
 
-两个产品的交互入口只有 TUI、CLI 与 IM。拥有者需要一个 macOS 桌面界面，在同一窗口里操作本机的 ruukoto-code 与服务器上的 ruukoto，界面参考 [ui-demo](../../../../.scratch/desktop-gui/ui-demo.html)。
+Desktop coexists with TUI and may connect to the same Coding backend concurrently. Backend facts are read/written through the control plane. Code also has explicit local owner actions: folder selection, selected-attachment snapshots and revealing files in Finder. [Attachments](../../implemented/architecture/2026-10-16-owner-attachments.md) owns source/upload rules. Missing backend capabilities receive specific operations usable by TUI as well, rather than a second desktop data store. Current Personal instead uses its own durable remote protocol, not fabricated shared Runtime facts.
 
-后续组件统一采用[先审定 shadcn demo 再迁移](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md)，视觉来源仍为本篇引用的原始 HTML，业务要求仍由现行规格持有。
+Electron supplies the original shell. Its Node main process reuses `@ruukoto/control` connection, submission recovery and protocol types from the same TypeScript sources; protocol changes require rebuilding, not maintaining a second implementation. React 19 and Tailwind v4 supply rendering. The [MyGo experiment](../../implemented/architecture/2026-10-17-desktop-mygo-experiment.md) adds a comparable native WebView shell; retain both until the owner chooses.
 
-约束来自三处：控制面只在本机 Unix socket 上监听，文档写明远程使用沿用登录服务器后启动 TUI、不新增远程协议；控制面协议要求客户端与服务端版本完全相等，`PROTOCOL_VERSION` 在 2026-09-20 到 2026-10-14 间从 1 升到 25；抽取前的 TUI 事件投影（`state.ts`、`event-flow.ts`）经 `workflows.ts` 间接依赖 pi-tui，并直接使用 Node API，不能原样运行在浏览器环境里。
+### Processes, credentials and rendering
 
-## 方案
+Connections, tokens and backend startup belong to Node/main, as did the original SSH children. The preload bridge exposes specific subscriptions, allowlisted operations, folder picking and Finder actions, not arbitrary Node access. Electron rendering uses sandbox and contextIsolation with nodeIntegration off. Packaged `file://` pages receive CSP through build-inserted HTML meta because there are no HTTP response headers; development uses response headers and a nonce. The original local-only CSP, image suppression and raw-HTML ban have been selectively replaced by the linked image/HTML/preview decisions. Scripts remain constrained, and HTML is filtered by the existing sanitizer rather than executed as page code.
 
-桌面客户端是控制面的又一个客户端，与 TUI 并存，可同时连接同一后台。它只经控制面读写后台事实；Code 目标另有本机系统动作：文件夹选择框、拥有者选中的附件快照与在 Finder 中显示。附件来源及上传按[附件通路](../../implemented/architecture/2026-10-16-owner-attachments.md)。缺少的能力以新增 op 补齐，TUI 同样可用。
+Model/tool output may contain attacker-controlled web/repository content. A renderer injection could act as the owner through exposed approval operations; IPC allowlists and CSP reduce that authority surface but do not turn renderer code into a trusted source. Later Personal pairing and OS credential-storage protections belong to the HTTPS/WSS decision, not the original SSH-token policy.
 
-外壳用 Electron。主进程运行 Node，直接复用 `@ruukoto/control` 的 `ControlConnection`、`SubmissionGuard` 与协议类型，与后台出自同一份 TS 源码；协议升版只需重建桌面端，不维护第二套客户端。渲染进程用 React 19 与 Tailwind v4。[MyGo 试验](../../implemented/architecture/2026-10-17-desktop-mygo-experiment.md)增加可对比外壳，最终选型待拥有者决定。
+Shared snapshot/event projection lives in browser-safe `packages/view`, reused by TUI and desktop. It imports no `node:*`, uses no Node globals, and takes workspace-package runtime imports only from browser-safe modules. Build for the browser and run `no-undef` against browser globals on the bundle: this also catches transitive free `Buffer` references. Extract incrementally as desktop needs each part, repoint TUI to it and retain TUI regression coverage.
 
-进程边界按安全要求划分。令牌、连接、ssh 子进程与后台拉起只在主进程；preload 只暴露订阅、带 op 放行名单的请求、文件夹选择与在 Finder 中显示；渲染进程开 sandbox 与 contextIsolation、关闭 nodeIntegration，CSP 只允许本地资源：打包页面经 `file://` 加载，拿不到 HTTP 响应头，所以策略以构建时插入的 HTML meta 交付；开发页面以响应头加 nonce 交付。Markdown 不渲染原始 HTML。模型与工具输出可能含网页或仓库里攻击者控制的内容；渲染进程一旦被注入脚本，最大的危害是代替拥有者调用 `respond_confirmation`，放行名单与 CSP 用来缩小这个面。
+### Strict versions and Code startup
 
-快照与事件到界面状态的投影抽到新包 `packages/view`，TUI 与桌面端共用。该包必须能在浏览器运行：不引 `node:*`、不用 Node 全局，对其他 workspace 包的值引用只能来自本身不依赖 Node 的模块：以浏览器为目标打包，再只按浏览器全局对产物做 `no-undef` 检查，以此判定，依赖模块里的 `Buffer` 这类自由变量也能查出来。抽取按桌面端需要逐步进行，每抽一块，TUI 就改为引用新位置，并以 TUI 既有测试回归。
+Control protocol equality remains strict, without compatibility ranges. Mismatch shows both versions and which side needs updating. The server version comes from response-frame `v`, passed through structured `ControlClientError` fields rather than parsed messages. A new client cannot use control to stop an old backend that rejects the version before authentication. Desktop gives manual recovery steps and sends no process signal. Automatically stopping an incompatible backend needs separate proof that the target process is precisely the refusing instance; [Issue #15](https://github.com/num-lab/Ruukoto/issues/15) tracks that work.
 
-协议版本保持严格相等。版本不一致时，桌面端显示双方版本和需要更新的一侧，不加兼容区间。服务端版本取自错误应答帧里已有的 `v`，经 `ControlClientError` 以结构化字段传出，不解析消息文本。仓库已升级而旧后台仍在运行时，新客户端无法经控制面停止它，因为服务端在认证前就拒绝版本不等的请求。桌面端只给出人工恢复步骤，自己不向进程发信号。要自动停止旧后台，必须证明被停止的进程就是拒绝连接的那个实例，这部分另立工单处理。
+Code starts only the backend from the desktop build's recorded repository. If no backend is running, resolve Node from the login-shell environment and launch that checkout's bin. `ensureBackend.spawnExecPath` selects the executable, defaulting to `process.execPath`; `spawnArgv` contains the bin/service arguments only. Putting Node in argv would treat its binary as a script rather than select an external runtime. Classify spawn errors by system code: `ENOENT` means missing Node, `EACCES` means nonexecutable Node, and other errors retain their code, with path/recovery guidance. Probe before reporting: if another backend is ready, reuse it immediately without waiting for exit grace or killing it.
 
-Code 目标只拉起与桌面端同一份仓库代码的 ruukoto-code：.app 在构建时记录仓库路径，后台未运行时，用登录 shell 解析出的 node 执行该路径下的 bin。控制面的 `ensureBackend` 以 `spawnExecPath` 指定可执行文件（默认 `process.execPath`），`spawnArgv` 只放 bin 及服务参数；把 node 塞进 `spawnArgv` 会让宿主把二进制当脚本，不能选择外部 Node。`spawn` 失败按系统 `code` 分类并给出路径与修复指引：`ENOENT` 为找不到 node，`EACCES` 为 node 不可执行，其余附原码；先探测再报告，其他后台已经就绪则按复用返回，不等待退出宽限窗口，也不杀后台。路径与令牌须按登录 shell 环境解析，`ensureBackend.env` 只影响子进程；后台脱离运行，退出桌面端不停止后台。
+Resolve paths and tokens against the login-shell environment; `ensureBackend.env` only affects the spawned child. The backend detaches and survives desktop exit. `defaultDataDir`, `defaultAgentDir` and `controlDirFor` in `packages/control/src/connect.ts` accept an optional explicit product, defaulting to `productFromEnv()` for existing CLI/TUI callers. Explicit product lookup avoids mutating global identity. `resolveClientConfig` retains its interface: cross-product callers supply complete data/control directories. `PendingRequestStore` already takes an explicit directory.
 
-`packages/control/src/connect.ts` 的 `defaultDataDir`、`defaultAgentDir`、`controlDirFor` 接受可选的显式产品参数，省略时仍调用 `productFromEnv()`，保留 CLI／TUI 约定；显式参数让主进程可交替解析两个产品且不改全局身份。`resolveClientConfig` 不扩参数，跨产品调用时传全 `dataDir` 与 `controlDir`；`PendingRequestStore` 沿用显式目录入参。
+### Original Personal SSH design, now retired
 
-个人 Agent 目标经 SSH 转发控制面 socket：`ssh -N -L <本地 socket>:<远端 control.sock> <host>`，使用拥有者的 `~/.ssh/config` 与密钥或 ssh-agent，不支持交互式密码。每次控制面建连前，都经 ssh 预检远端 socket 并读取令牌，令牌只保存在主进程内存；为此，`ControlConnection` 的令牌改为可按次获取。只支持同账户部署，即 SSH 登录账户就是后台账户，与当前部署步骤一致；令牌读的是原文件，所以轮换后下一次建连就能读到新令牌。两条 ssh 命令都显式关闭连接复用与认证后转入后台，确保桌面端持有的子进程就是实际的监听者。ssh 转发由主进程的监督者负责重启，控制面由 `ControlConnection` 负责重连，连接是否在线以认证完成并装好快照为准。握手快照新增产品身份，协议升到 v26，桌面端拒绝连到产品不符的后台。后台仍只监听本机 Unix socket，认证仍是 SSH 身份加拥有者令牌，与登录服务器启动 TUI 的权限相同。实施时把远程使用的说明改为：登录服务器后启动 TUI，或由桌面客户端经 SSH 转发控制面 socket；不新增远程协议。
+The original proposal forwarded a local socket to the remote control socket with `ssh -N -L <local socket>:<remote control.sock> <host>`, using the owner's SSH config/keys/agent without interactive passwords. Before each control connection, a separate SSH command verified the remote socket and read its original token into main-process memory. A per-connection token supplier followed rotations without local token copies. Only same-account deployment was supported: SSH login and backend owner were the same account. Permission prechecks could not identify every historical different-account layout.
 
-桌面端放在 `apps/desktop/`，依赖全部列为 devDependencies。运行时依赖都会打进产物，所以服务器的 `npm ci --omit=dev` 不受影响；ESLint 的依赖边界检查为此只对这个包放开一条：值引用可以来自 devDependencies。CI 设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，只跑不依赖 Electron 的检查。构建用 electron-vite，打包用 electron-builder 的目录产物并 ad-hoc 签名；首版只在 macOS 验收，只供拥有者自用。
+The forwarding supervisor and `ControlConnection` owned separate restart/reconnect loops. Online meant authentication plus installed snapshot, not merely a live SSH process. Handshake product identity, introduced in protocol v26, prevented a Code/Personal mix-up. Forwarding left the server on a local socket with SSH identity plus owner-token authentication, the same authority as remote TUI login; it did not introduce a public server listener. Version 26 is historical, not the current protocol.
 
-需求、范围与验收归[规格](../../../../.scratch/desktop-gui/spec.md)，实施步骤归 `.scratch/desktop-gui/issues/`。拥有者已逐轮确认四轮共 22 题并确认整体方案；共享投影已抽取，落地归[同仓分包决定](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)，整体桌面客户端仍待交付，因此保持 proposed。
+The implementation retained these non-obvious lifecycle rules:
 
-## 当前落地边界
+- Save only host alias and remote control directory. Validate inputs and shell-escape them: spawn argv does not preserve remote shell argument boundaries, and Unix-socket forwarding colons have their own grammar.
+- Token reads clear configured forwards, have a 15-second total connection/read deadline and a 64 KiB output cap. Forwarding retains the user's other configured forwards, so their bind failure must be separately terminal rather than retried forever.
+- Other forwarding exits, including 0, 255 and signals, trigger backoff restart; each connection's precheck classifies authentication/configuration errors. Keep a bounded stderr tail and fixed C locale.
+- Both SSH commands disable connection multiplexing, post-authentication backgrounding and RemoteCommand. The owned child must be the actual listener. On close/configuration change, wait for that child to exit before reusing the socket; `StreamLocalBindUnlink` alone cannot prove old-listener exit.
+- Shared `ControlConnection` checks generation at every asynchronous phase and validates handshake before installing a snapshot. Checking only after `sync` returns cannot prevent late snapshot installation. `expectedProduct` is optional for other callers, which retain their fixed tokens/behavior.
 
-外观与交互以拥有者已认可的[shadcn 定稿迁移](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md)为准；本提案保留后台状态、安全与进程边界，下文旧参数展开、额外诊断卡及固定右栏要求不再约束正式界面。
+Early Personal bridging exposed only configure/reconnect/subscribe until UI requirements were confirmed; it did not preemptively clone Code's submission guard. This was an implementation checkpoint, not today's feature limit. Both SSH paths are now deleted under the HTTPS/WSS decision, whose pairing, credentials, generation and durable recovery rules replace these transport details.
 
-Code 桌面已采用本提案的进程、安全、配置来源与构建方案：主进程持有连接与令牌，渲染进程复用 view 显示工作区与会话树、标签页和正文／思考／工具对话流，preload 单文件 CommonJS；开发与打包的 CSP 分开交付。结构化版本信息沿既有 v 字段传递；Personal 产品身份随握手快照加入，产品身份从 v26 提供；附件契约升版由后继迁移持有。请求名单按界面需要开放创建、读取、模型与会话默认模式设置、任务控制和队列恢复；提交与继续由主进程持久守护，本地恢复操作不转发。审批卡片与通知已接入两个目标，Personal 完整会话界面尚未交付，因此整体保持 proposed。
+### Packaging and scope
 
-会话恢复的请求编排留在渲染进程，投影继续共用 view；每次快照递增请求代次，连同同连接重同步一起让旧历史、任务和正文补读失效。任务事件从零读起，不把详情 seq 当作事件游标；正文按 TextEncoder 的 UTF-8 字节计数连续补读。只装快照和历史会缺失思考、工具身份与长正文，直接照搬 TUI 的 Buffer 又无法在浏览器运行。
+`apps/desktop` participates in workspaces. The initial plan put all dependencies in `devDependencies`, bundled runtime imports, and added a package-specific ESLint allowance for runtime references to dev dependencies, so server `npm ci --omit=dev` needed no Electron/UI stack. Current packaging declares `ws` as a production dependency while Electron, UI/build tools and workspace source imports remain development dependencies; do not claim all dependencies are still dev-only. The current package/lock files own that boundary.
 
-Code 右栏复用同一会话恢复和 Conversation 组件读 SubAgent 历史，选中子会话也纳入新快照重载和实时条目补读。工作委托读 work_list／work_get，全部 SubAgent 从共享快照与事件取得，避免只显示工作首位承接者。任务终态不等于空闲，工作查询从后台读回 idle／unverified；在途读取使用代次与查询序号，新的事件刷新不被旧查询覆盖。通知定位父会话时同时打开子会话右栏。
+Build with electron-vite, produce an electron-builder directory artifact and ad-hoc sign it. Initial native acceptance is macOS for the owner's use. CI sets `ELECTRON_SKIP_BINARY_DOWNLOAD=1` and runs checks that do not launch Electron. The original four-job statement is superseded by the current Node 24.15.0 two-OS matrix; no job-count promise belongs to this architecture.
 
-差异按工具调用展示，读取资格与结果状态分开：entryId 只控制正文能否读取，不覆盖失败或效果未知。只有 done 且 read_tool_result 明确返回 isError: false 才展示 patch 或 writeContent；缺字段明确不可用，空字符串则是有效空文件。历史的 writeContent 从调用参数恢复，失败时可能仍有内容，因此不能当作写入成功的依据，也不用有界参数预览补位。工具结果预览与单页上限为 64 KiB，按[分页决定](../../implemented/feature/2026-10-16-tool-result-pagination.md)读取剩余内容；小组件只按 unified patch 行类型呈现，不增加 Accept／Reject、语法高亮或文件读取。
+The owner originally confirmed 22 questions across four rounds plus the overall proposal. Original requirements and implementation steps remain offline at `.scratch/desktop-gui/spec.md` and its `issues/` directory, not a live tracker. Shared projection/package extraction is delivered under [workspace packaging](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md). Current Issues and successor decisions own effective requirements and remaining acceptance.
 
-正文与思考中的 Markdown 图片只显示替代说明。react-markdown 默认拒绝 file:，但 file 页面里的绝对路径和相对路径仍能加载本机文件；真实 Electron 探针已用临时自有 PNG 复现。仅关闭原始 HTML 或依赖 default-src self 都挡不住这条路径。首版没有直接文件读取能力，因此不用图片元素加载 URL；不增加文件代理或远程图片放行。
+## Delivered behavior and recovery rules
 
-添加工作区与新建会话共享一条待完成创建记录，持有原键、参数、目标与 instanceId；同一待核实操作只按原键恢复，成功后的独立操作生成新键。在线应答丢失当场核实，断线与未发送等新快照再核实，找不到最多重发一次；未知状态保留并提示查树。快照代次只控制读取，不能丢掉用户尚未确认的创建结果。新实例里找不到原键不能证明旧实例未接收，因此实例不符既不重发，也不采纳旧响应，直到连回原实例核实。渲染进程不能引用含 node:fs 的 workspace 助手，故以小型创建状态机沿用同样语义，不引入新协议或通用请求框架。
+The [approved shadcn migration](../../implemented/architecture/2026-10-15-desktop-shadcn-demo.md) owns appearance and interaction. Old expanded-parameter, extra diagnostic-card and fixed-right-sidebar requirements do not constrain the current UI. Code implements the main-process connection/token ownership, view-backed workspace/conversation trees, tabs and body/reasoning/tool streams, a single-file CommonJS preload and distinct dev/packaged CSP. Product identity arrived in v26; later attachments and features own subsequent versions. Allowlisted operations follow actual UI needs, while local recovery actions are not forwarded as backend operations. Current Personal chat/settings use durable remote facts, not these shared Code projection records.
 
-提交与继续复用 SubmissionGuard，记录放在应用数据目录并按目标及控制目录摘要隔离；保存完整原参数、原请求键和数据实例。重复点击复用待核实记录。每次 onSnapshot 安装后触发串行核实，在线丢答也当场触发；运行中只合并一个后续轮次，不能依赖同连接重同步没有的第二次 online。守护的请求沿控制器脱敏，跨 await 仍核对原连接与实例，避免旧输入流入新数据库。
+### Conversation and tool projection
 
-缺模型且确认未接收时保留记录，由拥有者选择恢复。主进程只读交付，渲染进程按请求键合并原文与继续来源，之后确认严格删除；清理失败保留禁用，重复确认幂等。原文进入所属会话草稿前保留唯一持久副本，不把先删后返回当成恢复。PendingRequestStore 增加严格 read/remove，仅 ENOENT 表示不存在；宽容 list 空结果无法证明删除成功，既有 clear/list 调用方不改变。普通草稿仍只在内存中按实例与会话隔离，已知未发送的迟到应答恢复原实例草稿，不安装到当前新实例。
+Conversation-recovery orchestration stays in the renderer while projection is shared with TUI. Every snapshot increments request generation, including same-connection resynchronization, invalidating old history/task/body reads. Read task events from zero instead of mistaking detail `seq` for an event cursor. Continue body reads using `TextEncoder` UTF-8 byte counts. Snapshot/history alone omit reasoning, tool identity and long bodies; copying TUI's `Buffer` usage would break browser execution.
 
-模型和默认模式使用版本条件更新；应答丢失与冲突读回实际值，不重放设置。设置应答只更新版本化字段，队列恢复与查询按读取期间的快照／队列事件代次防回滚。任务中断与取消在线丢答读详情，断线等待同实例快照。旧队列先确认缺模型数量与具体模型，再显式传 model_selection；修改会话模型本身不能回填旧任务。模式标签留在浏览器模块，避免从含 node:crypto 的 core/types 值导入常量破坏开发页面。
+The Code side panel reuses conversation recovery and the Conversation component for SubAgent history. Selected child conversations participate in new-snapshot reload and live body completion. Work reads use `work_list`/`work_get`; all SubAgents come from shared snapshots/events, not only the assignment's first child. Terminal task state does not imply idle work: fetch `idle`/`unverified` from the backend. Request generation and query sequence prevent old reads overwriting newer event-driven refreshes. Navigating a child notification also locates the parent and child panel.
 
-开发时导航拦截允许配置的完整渲染文档 URL 自身重载：electron-vite 的 preload watch 用完整页面重载应用新桥接，若一律拦截，会把开发页面送到没有 preload 的系统浏览器。同源其他路径仍拦截并外开，不为 HMR 放开任意页面导航。
+Diffs are per tool call. `entryId` controls result readability, not whether execution succeeded or became unknown. Render patch/writeContent only for a done call whose `read_tool_result` explicitly returns `isError: false`. Missing fields are unavailable; an empty string is a valid empty file. Historical writeContent is reconstructed from call parameters and may exist after failure, so it is not success evidence; bounded parameter previews are no substitute. Result previews/pages are bounded to 64 KiB with remainder read under [result pagination](../../implemented/feature/2026-10-16-tool-result-pagination.md). The small diff view uses unified-patch line kinds without adding Accept/Reject, syntax highlighting or file reads.
 
-打包与开发入口的包边界、依赖和进程管理事实分别同步[同仓分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md)与[开发启动器](../../implemented/process/2026-10-09-dev-launchers.md)。macOS 恢复指引按实际 control.sock 生成 lsof 命令，路径按 shell 单引号转义；未查到监听进程时先核对命令是否成功，多匹配或无法核对时停止人工步骤。桌面端不向后台进程发送信号，版本拒绝后仅显式 reconnect 会再试；日常模式重走 ensureBackend，受管模式只连接。
+The original image placeholder had a concrete security reason: a real Electron probe with a temporary owned PNG showed that absolute/relative image paths in `file://` pages could load local files even when react-markdown rejected explicit file schemes. Disabling raw HTML or relying on `default-src self` did not prevent that. The owner later accepted native image loading, including network requests/local-path semantics, and sanitized HTML. Preserve this rationale as the superseded choice, not as a current image prohibition or a claim that present CSP allows local resources only.
 
-Personal 连接监督者已落在主进程，与 Code 各自持有状态。配置只存主机别名和远端控制目录，输入白名单与 shell 转义同时存在：spawn 的 argv 不能保住远端 shell 参数边界，Unix socket 转发的冒号又有独立语法。原始令牌每次建连经 SSH 获取，不用权限不同的副本；同账户部署是支持前提，权限预检不能识别所有不同账户的历史部署。
+### Create, submit and recover without losing input
 
-读取命令清除用户配置的转发，15 秒总期限覆盖连接和远端读取，令牌输出上限 64 KiB；转发保留用户配置的其他转发，因此其绑定错误必须独立判为终止失败。其他转发退出（包括 0、255、外部信号）只负责退避重启，认证和配置错误归每次建连的预检分类。stderr 留有界尾部并固定 C locale。二者禁用复用、后台化和 RemoteCommand，才能在关闭／改配置时等待自有进程退出后复用 socket；仅 StreamLocalBindUnlink 不能证明旧监听者已退出。
+Workspace/conversation creation shares one pending record holding original key, parameters, target and instance ID. Reconcile an uncertain operation only under its original key; a later independent operation gets a new key. Verify online lost responses immediately; after disconnection/unsent requests, wait for a new snapshot. If absent, resend at most once. Unknown outcomes remain visible with guidance to inspect the tree. Snapshot generations invalidate reads, not unconfirmed owner creations. Absence in a different instance proves nothing about the original: neither resend nor adopt old responses until reconnecting to the original instance. A small renderer creation state machine preserves workspace-helper semantics without importing `node:fs`, inventing a protocol or building a generic request framework.
 
-共享 ControlConnection 在每个异步阶段核对代次，握手检查放在安装快照之前；只在 sync 返回后检查挡不住迟到快照。expectedProduct 可选，桌面两个目标启用，其他调用方保持固定令牌与既有行为。Personal 界面尚未开放，桥接先仅开放配置、重连与订阅，业务 op 留在界面要求确认后接入；不提前复制 Code 提交守护。
+Submission/continuation use `SubmissionGuard` records in application data, separated by target and control-directory digest. Persist full original parameters/key/data instance; repeated clicks reuse pending state. Each installed `onSnapshot` triggers serialized reconciliation, as does an online lost response. A running reconciliation coalesces one following pass, rather than waiting for a second `online` event absent in same-connection sync. Guarded requests use controller redaction and recheck original connection/instance across awaits, preventing old input reaching a new database.
 
-## 既有笔记审计
+When missing models prove nonacceptance, keep the record for explicit owner recovery. Main delivers it read-only, renderer merges original input/continuation by request key, then acknowledgment strictly removes it. Failed cleanup retains send-disable state; duplicate acknowledgment is idempotent. The only durable input copy remains until the destination draft receives it: delete-before-IPC-delivery can lose it. `PendingRequestStore` adds strict read/remove with only ENOENT meaning absence; tolerant `list()` returning empty cannot prove deletion. Existing clear/list callers retain their behavior. Ordinary drafts remain in memory keyed by instance/conversation; a late known-unsent response restores only the original instance's draft, not the new instance currently on screen.
 
-按远程、ssh、GUI、桌面、客户端、投影、workspaces 与协议版本检索 active notes。proposed 与 rejected 中没有同题记录；不修改归档。
+Models and conversation defaults use conditional version updates. Lost responses/conflicts read the actual setting rather than replay writes. Update only versioned response fields; queue resume/query uses snapshot/queue-event generation to reject rollback. An online lost interrupt/cancel response reads original task detail; disconnect waits for a same-instance snapshot. Resuming an old queue first confirms missing-model count and specific model, then passes explicit `model_selection`; changing the conversation model does not backfill old tasks. Browser-safe mode labels avoid runtime imports from Node-dependent core/types.
 
-| 笔记 | 关系与处理 |
+### Development and manual backend recovery
+
+During development, navigation interception permits reloading the complete configured renderer-document URL: electron-vite preload watch reloads the page to install the new bridge. Blocking that would send it to a system browser without preload. Other same-origin paths still open externally; HMR does not authorize arbitrary navigation.
+
+Package/launch facts belong to [workspace packaging](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md) and [development launchers](../../implemented/process/2026-10-09-dev-launchers.md). macOS recovery guidance builds `lsof` against the real control socket, shell-single-quoting its path. If no listener is returned, first verify the command succeeded; multiple matches or unverifiable identity stop manual steps. Desktop never signals the backend. After version rejection, only explicit reconnect tries again; ordinary mode reruns `ensureBackend`, managed mode connects only.
+
+## Approval and notification recovery
+
+For shared Code control facts, main and renderer each hold view state and use the same pending-approval selector: approval pending, task nonterminal and matching permission version. Ending a task or changing permissions may only stale the old record without a resolution event, so event-count decrement is not an authoritative badge. Terminal-state constants live in a Node-free core module to preserve browser projection. Current Personal derives its own approval/notification facts from durable; the old two-shared-view composition is historical.
+
+`task.mode_switch_failed` currently comes only from the interrupted branch of Store.endTask, without a separate ordinary-interruption event. View directly interrupts a still-nonterminal task, sets end time, clears pending mode and preserves the failure reason; a late event never rewrites an existing terminal state. If the backend begins emitting this event for nonterminal failures, fetch `get_task` instead. Unverified stop never means safe stopping.
+
+Approval responses bind target, instance, approval ID and displayed permission version and are never resent automatically. An online lost response queries original task approval state; disconnect waits for a same-instance snapshot. Failed/stale verification retains unknown outcome with refresh. A permission-version change invalidates old parameter details; load fresh details before another decision. Snapshot generation invalidates old detail/response/verification work so it cannot resurrect a card or cross instances.
+
+Notification baselines retain seen approvals, terminal states and observed tasks per target/instance. Initial snapshots and replay up to their cutoff sequence are silent; buffered newer live events may notify before `online`. Foreground observations are marked seen and not replayed after backgrounding; cancellations only record terminal state. Derive badges from current pending sets, not increment counters. On a same-instance snapshot, fetch an observed task omitted from the snapshot with `get_task`, retrying failed reads on a later snapshot. The original Personal shared connection allowed that read during sync; it is not a current durable op claim.
+
+Baselines are application-memory only and do not scan all history. A task created and completed offline, absent from replay and outside snapshot coverage, receives no catch-up notification. This bounded recovery covers observed work without another notification service. Notification clicks publish an instance-bound navigation intent through the target subscription; consume it only after successful location and retain distinct child/task selection for the panel. Old-instance notifications report that the original target changed rather than navigating another instance.
+
+## Relationship to earlier decisions
+
+The original audit searched active notes for remote/SSH/GUI/client/projection/workspace/version concerns, finding no same-topic proposal to replace and leaving archives untouched. Its partial overlaps remain:
+
+| Decision | Relationship |
 | --- | --- |
-| [后台任务与终端](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md) | 沿用：后台与客户端分离、本机 socket 加令牌、按 seq 恢复、客户端断开不取消任务、探测与复用。桌面端是又一个客户端；SSH 转发后，后台看到的仍是本机 socket 连接。不改其决定。 |
-| [两个 Agent 产品](../../implemented/architecture/2026-10-02-two-agent-products.md) | 沿用：两个产品各自的档案、socket 与实例锁。桌面端按显式产品分别解析路径，不新增跨产品通道。 |
-| [同仓 workspaces 分包](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md) | 部分扩展：新增 `packages/view` 与 `apps/desktop`，依赖方向增加 `tui → view`。实施时就地同步该笔记的包表与依赖方向。 |
-| [开发启动器](../../implemented/process/2026-10-09-dev-launchers.md) | 沿用：开发前端只连接启动器管理的后台。受管的桌面开发前端不执行登录 shell，也不自行拉起后台；日常 .app 才按需拉起。 |
-| [浏览器自动化](../../implemented/feature/2026-10-14-agent-browser.md) | 引用：dashboard 已用 `ssh -L` 转发并只在本地打开，是本方案转发方式的先例。桌面端浏览器页推迟，不改其决定。 |
+| [Detached backend](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md) | Preserve backend ownership, local authenticated socket, sequence recovery, disconnect independence and probe/reuse. Original SSH forwarding still appeared as a local socket connection to the server. |
+| [Two products](../../implemented/architecture/2026-10-02-two-agent-products.md) | Keep separate profiles/socket/locks; explicit product path resolution does not grant cross-product authority. |
+| [Workspace packaging](../../implemented/architecture/2026-10-11-in-repo-workspace-packages.md) | Extend with view/desktop and `tui -> view`; maintain that package map at its owner. |
+| [Development launchers](../../implemented/process/2026-10-09-dev-launchers.md) | Managed frontend only connects, without login-shell discovery or backend spawning; ordinary .app performs on-demand startup. |
+| [Agent browser](../../implemented/feature/2026-10-14-agent-browser.md) | Its original SSH-forwarded local dashboard was a transport precedent. The original desktop browser deferral was later replaced by separate local-preview/MyGo-browser work, not by this connection proposal. |
 
-## 审批与通知的恢复
+## Alternatives considered
 
-主进程与渲染进程分别持有 view，共用同一待审批选择器：审批为 pending、任务非终态、权限版本一致才显示和计数。后台结束任务或改变权限只把旧审批写成 stale，不保证产生解决事件，因此不能靠解决事件累减角标。终态常量放在 core 的无 Node 模块，避免破坏浏览器投影。
+- **Tauri.** System WKWebView yields a smaller package, but Rust main needs a Node sidecar to reuse control or a second Rust client updated with each frequent protocol change.
+- **Native SwiftUI.** It offers the most native presentation, but requires rewriting protocol/client/projection in Swift and cannot reuse the demo.
+- **TCP/WebSocket with TLS/token, possibly restricted to Tailscale.** It removes local OpenSSH and simplifies reconnection, but originally introduced a new remote protocol/attack surface contrary to the then-current remote-use decision. SSH required no server change and reused SSH identity. The later Personal HTTPS/WSS decision explicitly reopens this tradeoff; Code does not gain a remote listener from it.
+- **Cache the remote owner token in Keychain.** It saves one SSH round trip but adds a static local secret/caching code and manual rotation. Reading the original each time was simpler for the old design. Current paired Personal app credentials are a different, explicitly designed secret, not a cache of `control.token`.
+- **Bundle the backend in .app with ELECTRON_RUN_AS_NODE.** A self-contained app avoids checkout/login-shell dependencies, but Electron's Node might not meet the then-required `>=22.19`/`node:sqlite`, and native sandbox outputs also need packaging. Current Node requirements have advanced and production credential protections explicitly disable RunAsNode.
+- **Write desktop-only projection.** It avoids refactoring TUI first, but duplicates deduplication/replay/body assembly and invites divergence as protocol changes.
+- **Project only in main and push view state to renderer.** It thins rendering but adds another state synchronization protocol without enough benefit.
+- **Negotiate capabilities or protocol ranges.** It tolerates skew, but contradicts direct wire-format replacement and adds compatibility cost. A single owner can coordinate backend deployment and desktop rebuild.
+- **Read arbitrary local files/Git directly for Code.** It would accelerate @File/diff features, but creates a separate path unavailable to remote Personal and bypasses backend/operation records. Explicit owner file selections and subsequent scoped local capabilities have their own decisions.
+- **Keep desktop outside workspaces with its own lock.** Like foundation, it would isolate CI setup, but path aliases would bypass shared-package dependency enforcement.
+- **Disconnect the inactive target or use two windows.** It simplifies UI state, but makes pending Personal approvals invisible while Code is selected.
+- **Delete pending input before returning it over IPC.** It reduces main state but loses the only durable copy if delivery fails. Read-only delivery, draft merge and strict cleanup preserve it without persisting all ordinary drafts.
+- **Use tolerant list() emptiness as deletion proof.** It reuses an API, but directory-read failure also returns empty and cannot justify reenabling send. Add strict read/remove without changing other callers.
 
-`task.mode_switch_failed` 目前只由 Store.endTask 的 interrupted 分支产生，不另发普通中断事件；view 因此直接把仍处于非终态的任务设为 interrupted，补结束时间、清理待切模式，并保留失败原因。已有终态不被迟到事件改写。若后台将来在非终态也发该事件，必须改为 get_task 核实；停止未核实始终不代表安全停止。
+## Acceptance criteria
 
-审批应答绑定目标、实例、审批 ID 与展示的权限版本，永不自动重发。在线丢答查询原任务的审批状态，断线等同实例快照；查询失败或旧于实时事件保留结果未知，提供刷新入口。权限版本改变会失效旧参数详情，读完新详情才能再次决定。快照递增请求代次，旧详情、应答和核实不得复活卡片或跨实例安装。
+Current requirements in the linked Issues and delivered decisions need criterion-specific evidence. Shared projection must pass existing TUI regressions and browser/no-Node checks; main must reject operations outside its allowlist; owner control tokens never enter renderer IPC or local token caches. Code mismatch displays both versions and does not retry; the .app starts an absent backend, coexists with TUI and leaves execution running after exit. CI checks must not download Electron. Real GUI behavior requires native/manual acceptance, with missing environments recorded as unverified.
 
-通知基线按目标与实例维护已见审批、终态和观察中任务。首次快照及不超过其截止 seq 的历史补发静默，缓冲 live 新事件照常通知，不能等 online 才解除静默。前台照常登记已见，后台不补发前台已见记录；取消只记终态。角标从两个当前审批集合求和，不靠事件累加。同实例快照未包含的观察中任务经 get_task 查询，失败留下次快照再查；Personal 在同步窗口允许这个只读查询。基线仅在应用内存中；不扫描全部历史，离线期间创建又结束且没有补发、已超出快照范围的任务不补通知。这用有限恢复覆盖已观察工作，避免另建通知服务。
+Original SSH-process restart and remote-token-rotation checks remain historical evidence for the deleted transport, not acceptance of current Personal. Current acceptance instead covers its HTTPS/WSS pairing, secure credential storage, durable chat/settings, connection/recovery and native behavior under the successor decision. Local protected app-credential ciphertext is intentional there; it does not violate the original prohibition on copying a remote owner control token. No translation or passing unit suite closes external acceptance gaps.
 
-点击通知经目标订阅发出带实例的导航意图，成功定位后消费，保留独立的子会话与任务选择供右栏使用。旧实例通知只提示原目标变化。
+## Risks
 
-## 备选方案
+- Ordinary .app startup depends on its recorded checkout and login-shell Node. Moving the checkout or changing Node can break startup; show actionable errors and require repair/rebuild.
+- Electron main runs its bundled Node, so control and transitive dependencies must support that version. Recheck when upgrading Electron; the external backend Node is a separate runtime.
+- Strict protocol matching requires coordinated desktop/backend versions. The original Personal shared-protocol risk is replaced by its own remote version/binding rules, not a generic compatibility layer.
+- The old SSH path required local OpenSSH and noninteractive authentication; password/2FA-only hosts were unsupported. This remains a reason for the successor transport, not a current SSH dependency.
+- Shared projection extraction changes core TUI state logic; confidence depends on regression coverage, not browser compilation alone.
+- Third-party Markdown/UI code renders untrusted content. Process isolation, allowlisted bridge and CSP remain essential; sanitized HTML and native images have their separately approved filtering, local-file and network-exposure tradeoffs. The former blanket raw-HTML prohibition is not a present security guarantee.
 
-- Tauri：用系统 WKWebView，安装包小。主进程是 Rust，复用客户端需要另带 Node sidecar；用 Rust 重写客户端则每次协议升版都要改两边，以当前升版频率不可承受。
-- SwiftUI 原生：体验最原生。协议、客户端与投影都要用 Swift 重写，demo 也不能复用。
-- 服务器开 TCP 或 WebSocket 监听并加 TLS 与令牌，或只在 Tailscale 私网暴露：桌面端不依赖本机 OpenSSH，重连更直接。这是新的远程协议，扩大攻击面，并推翻现有远程使用决定；SSH 转发服务端零改动，认证沿用既有 SSH 身份。
-- 令牌存 Keychain：重连少一次 ssh 往返。本机会多一份静态秘密与 Keychain 代码，服务器换令牌后还要手动更新；每次经 ssh 读取更简单，并自动跟上轮换。
-- 把后台打包进 .app，以 `ELECTRON_RUN_AS_NODE` 运行：.app 自包含，不依赖仓库路径与登录 shell。Electron 自带的 Node 不一定满足 `>=22.19` 与 `node:sqlite`，原生沙箱的构建产物也要跟着打包。
-- 桌面端自写投影：不必先重构 TUI。协议高频变动下，两套去重、补发与正文拼接逻辑会各自漂移。
-- 投影放在主进程，只把视图状态推给渲染进程：渲染进程更薄。要多一层状态同步协议，收益不足以抵消。
-- 协议兼容区间或能力协商：允许桌面端与后台版本错开。与「线上协议直接替换、不适配旧格式」冲突，以当前升版频率维护成本高；单一拥有者在部署服务器时顺带重建桌面端即可。
-- Code 目标直接读本地文件系统与 git：@File 与 diff 不必等新 op。两个目标会走两条路径，个人 Agent 目标用不了，也绕开了控制面与操作账本。
-- 像 `verification/foundation` 一样放在 workspaces 之外、自带锁文件：CI 完全不受影响。要靠路径别名引用共享包，ESLint 的依赖边界检查不到它。
-- 切换目标时断开另一条连接，或两个目标各开一个窗口：实现更简单。个人 Agent 的待审批需要随时可见，断开会漏掉。
-
-- 删除待核实记录后再跨 IPC 返回原文：主进程更少状态，但交付失败会丢掉唯一持久副本。采用只读交付、草稿合并、严格确认清理三步；无需持久化所有普通草稿。
-- 用宽容 `list()` 的空结果证明已清除：复用入口最少，但列目录失败同样返回空列表，不能解除发送禁用。新增严格读与删，保留其他调用方策略。
-
-## 验收标准
-
-[规格](../../../../.scratch/desktop-gui/spec.md)的各项要求逐项给出证据：投影抽取后 TUI 既有测试通过，`packages/view` 不含 Node 依赖；放行名单外的 op 被主进程拒绝，令牌不出现在 IPC 载荷与本地文件中；版本不一致时显示双方版本且不重试；后台未运行时 .app 能拉起后台，并与 TUI 同时连接同一后台，退出 .app 后后台仍在运行；ssh 进程被杀后按退避恢复，远端令牌更换后下次建连可用；CI 四个 job 不下载 Electron 二进制。GUI 行为由人工检查清单验收，归外部验收，缺环境时记为不可验证。
-
-## 风险
-
-- .app 依赖构建时记录的仓库路径与登录 shell 里的 node；仓库移动或 node 版本切换后拉起失败，必须显示可操作的错误，由拥有者修正或重建。
-- 主进程运行在 Electron 自带的 Node 上；`@ruukoto/control` 及其传递依赖必须兼容该版本，升级 Electron 时要复核。
-- 协议严格相等要求服务器部署与桌面端构建来自同一 commit；忘记重建时个人 Agent 目标不可用，直到重建。
-- SSH 转发依赖本机 OpenSSH 与免交互认证；需要密码或 2FA 的主机不支持。
-- 抽取投影层会改动 TUI 的核心状态代码，回归质量取决于 TUI 既有测试的覆盖面。
-- 渲染进程使用第三方 Markdown 与 UI 库，安全依赖 CSP、op 放行名单与关闭原始 HTML 三者同时成立。
-
-环境准备时机与轻量就绪探测由[启动优化](../../implemented/bug-fix/2026-10-17-desktop-connection-startup.md)持有；本篇其他决定继续适用。
+[Startup optimization](../../implemented/bug-fix/2026-10-17-desktop-connection-startup.md) owns environment-preparation timing and lightweight readiness; other independent decisions here remain.

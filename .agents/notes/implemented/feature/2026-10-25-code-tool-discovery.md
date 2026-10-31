@@ -1,31 +1,27 @@
-# Agent Note: Coding MCP 工具按需向模型暴露
+# Agent Note: Expose Coding MCP tools on demand
 
 Status: implemented
 
-本地搜索算法、旧工具名、任务激活集合与重置由[MCP宿主职责收缩](../simplification/2026-10-26-mcp-host-responsibilities.md)取代；Pi负责搜索和分支发现。按需暴露、当前资格求交及模型输入可重建继续成立，本篇保留原决定。
+[MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) supersedes the local search algorithm, old tool name, task activation set, and reset rules: Pi owns search and branch discovery. On-demand exposure, intersection with current eligibility, and reconstructable model inputs remain. This note preserves the original decision.
 
-## 问题
+## Problem
 
-MCP 在任务开始时把所有获准工具定义放进模型请求，未使用的定义也占上下文。拥有者要求 `search_tools` 搜索延迟注册工具，并确认本次先覆盖 Coding Agent。
+At task start, MCP put every authorized definition in the model request, consuming context even for unused tools. The owner requested `search_tools` for deferred tools, initially in Coding Agent only.
 
-## 决定
+## Decision
 
-保留任务开始的连接、发现、schema 校验与固定版本，只延迟模型可见工具。`search_tools` 对获准 MCP 的名称和描述做全部关键词匹配，默认最多5项、上限20项；返回名称和描述，命中工具的完整参数定义进入下一模型请求，激活持续到当前任务结束。新任务清空激活集合。
+The original implementation retains start-of-task connection, discovery, schema validation, and pinned versions; it defers only model-visible definitions. `search_tools` matches all query keywords against authorized MCP names/descriptions, returning at most five by default and twenty at most. Results expose names/descriptions; matching full schemas enter the next model request and stay active through that task. Each new task resets activation. Pi now owns the replacement discovery machinery described by the superseding note.
 
-Driver 分开计算基础资格与激活集合；SDK、发送前和调用门共用后者。搜索只查基础资格内、仍启用且配置版本未变的服务；它不修改角色、Plan 或审批资格。显式子任务清单或宿主收窄没有搜索入口时保留直接曝光，避免所需工具无入口可用；固定能力完整性核实仍针对基础资格。
+Driver separates base eligibility from activation. SDK exposure, presend checks, and invocation gates use the latter. Search only considers currently enabled base-eligible services whose configuration version is unchanged; it changes no role, Plan, or approval eligibility. Explicit child-task tool lists or host narrowing with no search entry retain direct exposure so required tools remain usable. Fixed-capability completeness checks still use base eligibility.
 
-实际工具定义由既有 prompt 快照与选择记录保存，搜索摘要进入工具历史，不新增数据库格式。测试模型在原 MCP 业务场景前实际调用搜索，业务 responder 的计数排除这段握手；完整请求仍保留，独立搜索集成用例直接核实真实初轮、下一轮与快照，不能用测试助手代替发现验证。
+Existing prompt snapshots and selection records persist actual definitions; search summaries enter tool history without a new database format. Test models really search before existing MCP business scenarios, and business-responder counts exclude that handshake. Complete requests remain recorded. A separate discovery integration checks actual initial/next requests and snapshots rather than relying on the helper as discovery evidence.
 
-## 既有笔记审计
+This supplements [MCP client](../architecture/2026-09-23-mcp-client.md) and [instance MCP configuration](../simplification/2026-10-24-code-instance-mcp.md) exposure timing while retaining discovery, versions, provenance, and approval. [Transport reuse](../architecture/2026-10-17-mcp-transport-reuse.md) and Personal's separate assembly remain.
 
-按工具发现、MCP、延迟注册检索 proposed／implemented／rejected。部分补充[MCP客户端](../architecture/2026-09-23-mcp-client.md)及[实例配置](../simplification/2026-10-24-code-instance-mcp.md)的曝光时机，保留其发现、版本、来源和批准规则；[传输复用](../architecture/2026-10-17-mcp-transport-reuse.md)与个人 durable 的独立装配不变。未发现需要删除或归档的同题提案。
+## Alternatives considered
 
-## 备选方案
+Connecting only after search saves initialization but changes fixed-capability checks, signatures, and failure timing, and still needs a searchable catalog. Hiding built-ins too saves more context but makes everyday read/wait/approval depend on discovery; only extensible MCP was deferred. Hiding definitions but allowing guessed calls is simpler yet makes exposure disagree with invocation authorization; undiscovered calls must be rejected.
 
-- 按搜索才连接服务：能省初始化连接，但会改变固定能力预检、签名与失败时序，首轮仍需知道可检索目录；本次保留已有发现链。
-- 全部内建工具一起隐藏：可进一步省上下文，但会引入日常读取、等待和审批的发现依赖；本次只延迟可扩展的 MCP。
-- 只隐藏定义而放行猜测调用：实现更少，但发送清单与调用门不一致；未发现工具也必须被拒绝。
+## Consequences
 
-## 后果
-
-未用 MCP 不占首轮定义预算，代价是使用前增加一次搜索；本地关键词并非语义检索。已有固定角色仍能直接使用明确要求的工具。旧会话可含旧工具名和历史结果，但不使新任务自动激活。实际请求、Plan、拒绝、重置和旧 MCP 回归由 `test/search-tools.test.ts`、24/25/44/58及子任务用例验证；真实模型效果单列于[工单](../../../../.scratch/agent-tools-next/issues/01-code-tools.md)。
+Unused MCP definitions leave the initial context budget, at the cost of a search before use. The original local keyword search was not semantic search. Explicit fixed roles retain required tools. Historical sessions may contain old tool names/results without activating them in new tasks. `test/search-tools.test.ts`, MCP suites 24/25/44/58, and child-task cases cover requests, Plan, rejection, reset, and compatibility. Historical real-model evidence is in the offline copy of `.scratch/agent-tools-next/issues/01-code-tools.md`.

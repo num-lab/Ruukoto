@@ -1,145 +1,145 @@
-# Ruukoto Agent
+# Ruukoto Domain
 
-Ruukoto 包含开发工具 ruukoto-code 和个人助手 ruukoto。前者在开发机运行，以 TUI 进行 Agentic coding；后者在专用 Linux 服务器运行，以 IM 处理个人事务。模块划分与主流程见[架构总览](docs/architecture.md)，操作见[操作手册](docs/usage.md)。
+Ruukoto contains the development tool `ruukoto-code` and personal assistant `ruukoto`. Coding runs on a development machine, primarily through a TUI; Personal runs on a dedicated Linux server, primarily through IM. See [architecture](docs/architecture.md) and [usage](docs/usage.md).
 
-## 领域术语
+## Domain Terms
 
-**桌面客户端**：Ruukoto macOS 应用。_Avoid_：称 Code／Personal 为模式。
+**Desktop client**: The Ruukoto macOS application. Code and Personal are product targets, not modes.
 
-**工作流定义**：Coding Agent 的命名编排脚本版本；更新保留旧版与历史，个人 Agent 不使用。_Avoid_：将定义等同于运行。
+**Workflow definition**: A named, versioned Coding orchestration script. Updates retain previous versions and history; Personal does not use this definition library. A definition is not a run.
 
-**工作流运行**：由拥有者显式或模型在任务授权内发起、固定脚本版本、参数与来源授权的一次后台编排。_Avoid_：将其生命周期等同于发起任务。
+**Workflow run**: One background orchestration, explicitly started by the owner or by a model within task authorization, with fixed script version, parameters and source permissions. Its lifecycle differs from the initiating task.
 
-**工作流步骤**：运行内按稳定键登记的一项工作。_Avoid_：与工作清单混称。
+**Workflow step**: Work registered under a stable key within a run. It is not a work-checklist item.
 
-**步骤尝试**：步骤的一次实际 Agent 执行。_Avoid_：将缓存复用或宿主操作计为尝试。
+**Step attempt**: One actual Agent execution of a step. Cache reuse and host operations are not attempts.
 
-**宿主操作任务**：工作流运行派生、由宿主执行且不调用模型的短期任务。_Avoid_：与发起任务或步骤尝试混称。
+**Host-operation task**: A short-lived task derived from a workflow run and executed by the host without a model call. Distinct from its initiating task and step attempts.
 
-**悬浮层**：TUI 中简单覆盖下层内容、打开时保留主界面可见的交互内容。_Avoid_：与隐藏主界面的窗口混称。
+**Overlay**: TUI interaction placed over content while the main screen remains visible. Distinct from a window.
 
-**窗口**：TUI 中由完整边框包围、打开时隐藏主界面的独立交互内容。_Avoid_：将窗口称为悬浮层。
+**Window**: A fully bordered TUI interaction that hides the main screen while open. Not an overlay.
 
-**Coding Agent（ruukoto-code，原名 ruukoto-dev）**：运行在开发机器上、以 TUI 为主要交互渠道的开发工具，重心是 Agentic coding。它支持多个工作区，每个工作区可有多个会话，也可使用一层 SubAgent 协作。_Avoid_：与旧 coding 角色、普通会话的 dev 类别或用于开发本项目的开发实例混称。
+**Coding Agent (`ruukoto-code`, formerly `ruukoto-dev`)**: An agentic coding tool on the development machine. It supports multiple workspaces, multiple conversations per workspace and one level of SubAgent collaboration. Distinct from the retired coding role, the `dev` conversation category and this repository's development instances.
 
-**个人 Agent（Personal Agent，ruukoto）**：运行在专用 Linux 服务器上、以 IM 为主要交互渠道的通用个人助手，面向多样化任务并持续扩展任务处理范围。_Avoid_：将个人 Agent 限定为编码助手或 QQ 群聊机器人；将“通用”理解为首版必须具备所有能力。
+**Personal Agent (`ruukoto`)**: A general personal assistant on a dedicated Linux server, reached mainly through IM, with an expanding range of tasks. It is not limited to coding or QQ group chat; general purpose does not require every capability in its first release.
 
-**产品装配**：各产品的入口与业务接线；个人 Agent 由 durable 持有会话与执行，Coding Agent 使用原有共享底座。_Avoid_：把同仓交付理解为必须共用运行时、存储或客户端协议；与开发实例的档案隔离混称。
+**Product composition**: Each product's entry points and business wiring. Durable owns Personal conversations/execution; Coding uses the shared foundation. Sharing a repository does not require a shared runtime, storage or client protocol. This differs from development-profile isolation.
 
-**能力声明**：Coding 与旧底座的 `product.ts` 以宿主代码固定的产品能力：身份、拥有者 IM、个人调度、服务管理可用性、专属工具族、默认执行后端、旧项目写资格与旧实例导入方向。_Avoid_：把能力声明当作可由模型、任务参数或配置页面改写的开关。
+**Capability declaration**: Host-code facts in Coding/legacy `product.ts`: identity, owner IM, personal scheduling, service management, exclusive tool families, default execution backend, legacy-project write eligibility and import direction. Models, task arguments and configuration pages cannot change these declarations.
 
-**主 Agent**：在用户会话中直接与拥有者交互、向若干 SubAgent 派发任务并汇总结果的 Agent；ruukoto 的主 Agent 称为 main。_Avoid_：把主 Agent 与整个 Ruukoto Agent 项目或 ruukoto-code 产品混称。
+**Main Agent**: The Agent interacting directly with the owner in a user conversation, delegating to SubAgents and collecting results. Personal calls it `main`. It is not the repository or the Coding product itself.
 
-**SubAgent**：两个产品均可使用的从属 Agent，拥有独立工作上下文，可与上级和当前参与同项工作的其他 SubAgent 交互，不直接与拥有者交互，也不能拥有自己的 SubAgent。任务完成后默认空闲，保留身份与上下文供同一主 Agent 在同一用户会话内继续委托原工作或新工作，由主 Agent 或拥有者显式关闭。_Avoid_：把 SubAgent 等同于一次子任务或旧架构中的固定 coding 角色；把任务完成等同于 Agent 关闭。
+**SubAgent**: A subordinate Agent with an independent work context, available in both products. It communicates with its parent and other SubAgents participating in the same work, not directly with the owner, and cannot create its own SubAgents. After task completion it normally becomes idle, retaining identity/context for further work from the same main Agent in the same user conversation. The main Agent or owner explicitly closes it. A SubAgent is neither one child task nor the retired fixed coding role; task completion is not Agent closure.
 
-**子代理角色**：具名的职责、工具要求、权限策略与 prompt 定义。_Avoid_：与 SubAgent 身份、工作、访问模式或旧 main/coding/chat 角色混称；配置不是授权。
+**SubAgent role**: A named responsibility, tool requirement, permission policy and prompt definition. Distinct from Agent identity, work, access mode and legacy main/coding/chat roles. Configuration is not authorization.
 
-**主会话**：拥有者通过不同个人消息入口与 ruukoto 持续交互的唯一会话，main 可在委派长任务后继续响应新消息。_Avoid_：把单一主会话理解为只有一个执行任务或禁止 SubAgent 拥有独立工作上下文。
+**Main conversation**: Personal's one persistent owner conversation shared by its entries. Main can keep responding while long work is delegated; one conversation does not imply one execution or forbid independent child contexts.
 
-**拥有者 IM 入口**：拥有者在某个 IM 平台上与 ruukoto 的私聊通道，共用主会话。宿主为它钉定目标与预期发送者；配置或凭据的任何变化都开启新的代次，旧代次的消息、批准与发送一律失效、不改发。_Avoid_：把 GitHub webhook 等事件来源当作拥有者 IM 入口；把已退役的 QQ 群聊入口当作拥有者 IM 入口。
+**Owner IM entry**: The owner's private channel to Personal on one platform, sharing main. The host pins destination and expected sender. Any configuration/credential change starts a new generation; old-generation messages, approvals and sends become invalid rather than being redirected. Webhooks and retired group-chat entries are not owner IM entries.
 
-**共享记忆**：经拥有者确认发布、供 ruukoto-code 与 ruukoto 共同使用的个人偏好和通用经验，修改跨端偏好也由拥有者确认。_Avoid_：把共享记忆等同于完整会话历史、日程或任务进度；把现有实例内的个人记忆范围当作已经实现了跨实例共享。
+**Shared memory**: Owner-approved personal preferences and general experience intended for both products; changes to cross-product preferences also need owner confirmation. Distinct from history, schedules and task progress. Existing instance-local Personal memory does not establish cross-instance sharing.
 
-**插件**：拥有者为个人 Agent 添加或定制能力的扩展单元。本项目不以建设插件平台为目标；具体扩展边界仍待明确。_Avoid_：将“插件”等同于插件市场或第三方开发者平台。
+**Plugin**: An extension unit through which the owner adds/customizes Personal capability. Its precise boundary remains open; a plugin marketplace/developer platform is not a project goal.
 
-**QQ 群聊外挂**：可独立运行和停用的群聊扩展，自行管理群会话、历史与发送状态，通过有限接口向 ruukoto 提供结果。_Avoid_：把外挂作为核心 chat 角色或 main 的 SubAgent；把群成员身份当作拥有者身份。
+**QQ group-chat extension**: An independently runnable/stoppable extension owning group conversations, history and send state, supplying results through a limited interface. Not the core chat role or a main SubAgent; a group member is not the owner.
 
-**会话历史**：会话中已经产生的完整消息记录，是拥有者和 Agent 可以查阅的历史资料。_Avoid_：将会话历史等同于每次模型调用携带的全部内容。
+**Conversation history**: The complete messages already produced in a conversation, available for inspection. It is not necessarily all the content in each model request.
 
-**模型上下文**：为某一次模型调用组装的输入内容。它可以引用或包含会话历史，但与会话历史具有不同的范围。_Avoid_：把当前未进入模型上下文的消息称为已经遗忘或删除。
+**Model context**: Input assembled for one model call, possibly containing or referencing history. A message absent from this request is not thereby forgotten or deleted.
 
-**参考块**：宿主为一次模型调用注入的带标记内容：项目指令、技能目录、长期记忆、继续来源、计划说明与工作清单。前三类排在会话历史之前，跨任务保持不变；继续来源与计划说明只属于当前任务，工作清单保留既有会话的步骤状态；这三类排在当前任务输入之前。计划说明由宿主写定，清单来自既有对话，其余来自拥有者的配置或此前的任务。参考块不属于会话历史，也不是拥有者的新指令。_Avoid_：把压缩摘要、移出标记称为参考块（它们是上下文压缩的有损标注）；把技能正文（`skill` 工具结果或 `/skill` 展开）当作参考块（它在会话历史里）。
+**Reference block**: Marked host-injected reference content: project instructions, skill catalog, memory, continuation source, plan guidance and work checklist. The first three precede history and remain stable across tasks; continuation/plan references belong to the current task, while the checklist retains conversation step state, and these three precede current input. Plan guidance is host-authored; the checklist comes from existing dialogue; other references come from owner configuration or earlier tasks. They are neither conversation history nor new owner instructions. Compaction summaries/removal markers are lossy annotations, not reference blocks. Skill bodies loaded by tools or explicit invocation belong to history, not references.
 
-**上下文压缩**：共享装配以占位说明替换较早工具结果、滚动摘要替换更早对话，有损处注明覆盖范围与找回原文的方法。会话历史不受影响。_Avoid_：把压缩当作删除或改写会话历史；把摘要当作会话历史、长期记忆或拥有者指令；与共享装配禁用的 pi compaction 混称；个人 durable 使用原生压缩并保留原 entries。
+**Context compaction**: Shared assembly substitutes placeholders for older tool results and rolling summaries for older dialogue, marking coverage and how to recover originals. History is unchanged. Summaries are not history, memory or owner instructions. Shared assembly disables Pi's own compaction; Personal durable uses native compaction while retaining original entries.
 
-**压缩点**：一次上下文压缩的结果，记录摘要与清理覆盖的范围和摘要正文；每个会话至多一个生效，在下一次压缩之前原样用于每次模型调用。_Avoid_：把压缩点当作会话历史的检查点或分支。
+**Compaction point**: One compaction result, including summarized/cleaned ranges and summary text. At most one is active per conversation and is reused unchanged until the next compaction. Not a history checkpoint or branch.
 
-**选择记录**：共享装配在模型调用前落盘的上下文组成：选入与移出的消息和长期记忆、项目指令与技能的版本、所用压缩点、估算与预算。拥有者可查阅；落盘失败不调用。个人 durable 用实际请求快照保存选择事实。_Avoid_：把选择记录当作发出内容的原文（原文另存为 prompt 快照）或会话历史。
+**Selection record**: Pre-send shared-assembly facts: selected/removed messages and memories, instruction/skill versions, compaction point, estimates and budget. The owner can inspect it; failed persistence blocks the call. Personal durable records selection through actual request snapshots. A selection record is not the sent prompt text, which has a separate snapshot, or the history itself.
 
-**长期记忆**：从使用过程中积累的个人偏好、项目约定、已确认决策和经验。每条记忆关联来源，可以修改或撤销，与会话历史分别保存。_Avoid_：将全部会话历史或临时任务进度统称为长期记忆。
+**Long-term memory**: Sourced preferences, conventions, confirmed decisions and experience accumulated through use. Entries can be revised/revoked and are stored separately from history. Neither all history nor temporary progress is memory.
 
-**工作区**：拥有者选择的开发根目录及其所属会话，可以包含多个仓库。SubAgent 的工作副本是所属工作区的执行副本，一律保留，不提供删除入口。_Avoid_：把临时执行副本当作必须单独管理的用户工作区，或把工作区限定为一个 Git 仓库。
+**Workspace**: An owner-selected development root and its conversations, possibly containing several repositories. A SubAgent work copy is an execution copy within that workspace's work, always retained without a delete entry. It need not become a separately managed user workspace.
 
-**项目（旧架构）**：迁移前组织开发工作及其历史资料的边界，同一项目可包含不同目录的会话。新产品采用工作区与会话的关系，旧项目资料和授权需要在迁移时映射。
+**Project (legacy)**: The pre-migration boundary grouping development work and history, possibly with conversations in different directories. Current products use workspace/conversation organization; legacy data and permissions need explicit mapping.
 
-**工作区组织归属**：旧会话在工作区下的展示归属：拥有者经迁移流程显式设定，组织查询与普通列表按它归类（显式映射优先，未映射按原归属）。它只是展示归属——资料身份与配置来源恒为会话原项目，不影响任务身份与执行，不迁移内容。_Avoid_：把它当作资料或配置的重新归属、迁移 JSONL/产物/配置的同义词，或用于 AccessScope、模型工具身份与凭据范围判定。
+**Workspace organizational membership**: Owner-set display grouping of legacy conversations under workspaces. Explicit mapping wins; otherwise original grouping applies. Data identity/configuration remain the original project's, and task identity/execution/content do not move. Do not use this display mapping as AccessScope, tool identity or credential scope.
 
-**实例导入（跨实例导入）**：把旧实例开发资料迁入 Coding Agent 档案的一次性迁移，保存回执与条目账本。个人用空白档案，旧资料原地归档，不导入。拥有者先只读预览、在计划文件中确认，再应用或回退；目标侧离线执行，源实例全程只读，任何路径不修改源资料。它不是跨端同步：源侧新增只在报告列出，可再次导入。_Avoid_：把实例导入当作跨端记忆同步机制的已实现部分；把组织归属与跨实例内容迁移混称；把目标备份当作可在线回滚的工具。
+**Instance import**: One-time import of old development data into a Coding profile, with receipts and an item ledger. Personal starts blank and keeps old data archived in place. The owner previews read-only, confirms a plan file, then applies/reverts with the target offline. Source data remains untouched on every path. New source content is reported and can be imported later; this is not cross-product synchronization. Organizational mapping is not data movement, and the target backup is not an online rollback tool.
 
-**资料授权**：拥有者在可信入口显式开放的资料读取范围，可查看、可撤销，撤销自后续查询与上下文注入起生效。范围以来源项目、目标项目和历史/产物/记忆类别界定，归属随工作区迁移映射。_Avoid_：把 grantedPaths 或完全访问模式当作资料 API 范围的隐含扩大。
+**Source-data grant**: An explicit, inspectable and revocable owner grant through a trusted entry, scoped by source project, target project and history/artifact/memory category. Revocation affects subsequent queries/context injection; ownership follows the migration mapping. `grantedPaths` and full access do not implicitly broaden data-API scope.
 
-**项目指令**：拥有者显式配置的工作区内指令文件，作为参考内容提供给 Agent，不变更控制面身份、审批规则或权限模式。配置归属旧项目，随工作区迁移映射。_Avoid_：把项目指令等同于自动发现的上下文文件（本仓库运行时默认关闭自动发现）。
+**Project instructions**: Explicitly configured workspace instruction files supplied as references. They change neither control identity nor approvals/access policy. Legacy-project configuration follows migration mapping. They are not automatically discovered context files; runtime discovery is off by default.
 
-**技能**：拥有者提供的 Agent Skills 说明及其引用资料，指导 Agent 完成特定工作，可按需加载或显式调用。技能是参考内容，不增加工具或权限，不能变更控制面身份、审批规则或权限模式。_Avoid_：把技能等同于插件（新增能力）、项目指令（按项目显式配置的工作区文件）或长期记忆（使用中积累、Agent 可写入）。
+**Skill**: Owner-supplied Agent Skills instructions and references, loaded on demand or explicitly invoked. Skills add neither tools nor permissions and cannot change control identity, approvals or access mode. Distinct from plugins, project instructions and Agent-writable long-term memory.
 
-**会话**：拥有独立历史的持续交互单元，用户会话承载拥有者与主 Agent 的对话。一项工作可在多轮对话期间继续执行，SubAgent 的独立工作上下文不构成新的用户会话。
+**Conversation**: Persistent interaction with independent history. User conversations contain owner/main-Agent dialogue; one work assignment may span several turns. A SubAgent work context is not a new user conversation.
 
-**会话分支**：从普通开发会话的已落盘历史一致点建立的独立会话，保留适用设置及已核实来源引用，父子后续对话各自延续。_Avoid_：把会话分支当作 Git 分支、工作副本、文件快照或 SubAgent；把来源读取资格当作原任务或工作的管理权限。
+**Conversation branch**: An independent conversation created at a consistent persisted-history point of an ordinary development conversation, retaining applicable settings and verified source references. Parent and child then evolve independently. It is not a Git branch, work copy, file snapshot or SubAgent. Reading the source does not authorize management of its original tasks/work.
 
-**会话身份**：宿主为会话确定的身份，决定会话可用入口与执行内容：**普通开发会话**（不绑定角色的 Coding 用户会话；活动 Code 调度由宿主管理）、**main 会话**（宿主为 main 绑定的会话；在 ruukoto 中即主会话）、**独立定时会话**（一次调度运行的个人助手上下文，用业务工具与委派能力，不占主聊天）、**SubAgent 会话**（某 SubAgent 的独立工作会话，只承接委派，不是用户会话）、**侧聊会话**（普通 Code 会话的持久无工具旁聊，固定首次快照，不进普通列表与 Agent 资料）、**已退役归档会话**（QQ 群与 chat/coding 旧角色会话，只读，不运行任务）。身份只由宿主绑定确定，任务、工具参数与模型结果不能改变。_Avoid_：把身份与会话类别（dev / qq_group）混称；把 SubAgent 当普通会话，或把 Code 定时来源当个人定时身份。
+**Conversation identity**: Host-bound eligibility for entries and execution: ordinary development (unbound Coding user conversation; active Code schedules are host-managed), `main`, independent Personal scheduled conversation, SubAgent, tool-free Coding side conversation, or retired archive (old QQ group/chat/coding, read-only). Side chat fixes its first snapshot and is excluded from ordinary lists and Agent data. Task parameters/model output cannot change identity. Identity differs from stored categories such as `dev`/`qq_group`; Code schedule provenance is not Personal scheduled identity.
 
-**工作委托**：拥有者交给主 Agent 的一项工作，可经多轮对话、由主 Agent 与 SubAgent 执行多个任务共同完成。整项取消作用于工作本身，不关闭 SubAgent，不销毁其身份、历史与产物。_Avoid_：把整项工作委托与其中某个任务或某个 SubAgent 的生命周期混称；把工作取消等同于任务取消（作用于名下全部活动与排队任务，不级联到运行中的唤醒轮次）或 SubAgent 关闭。
+**Work delegation**: An owner assignment carried across turns and multiple main/child tasks. Canceling work affects its active/queued tasks, not a currently running wakeup round, and does not close the SubAgent or destroy identity/history/artifacts. Work, task and SubAgent lifecycles are separate.
 
-**任务**：某个 Agent 接受的一次具体执行，具有自己的状态、结果和授权范围。客户端断开不取消任务；Coding 中断由拥有者决定，个人仅自动恢复安全工作，未知效果须核实。
+**Task**: One accepted execution with its own state, outcome and authority. Client disconnect does not cancel it. Coding interruption is owner-controlled; Personal automatically recovers only safe work and requires verification of unknown effects.
 
-**工作清单**：Agent 为多步工作维护的步骤及待做、进行中、完成状态，跟随会话跨任务延续。_Avoid_：把工作清单等同于拥有者的待办（应用数据空间中的业务数据）、调度计划或长期记忆，或当作审批与授权依据。
+**Work checklist**: Steps and pending/in-progress/completed state maintained by an Agent across tasks in a conversation. Not the owner's business-data todo list, a schedule, memory or an authorization source.
 
-**请求确认模式**：在已授予的权限内自主执行，超出权限的操作等待拥有者确认的任务运行模式。权限边界由执行环境约束。
+**Confirmation mode**: Execute within granted permissions; wait for owner approval when an operation exceeds them. The execution environment enforces the boundary.
 
-**完全访问模式**：拥有者明确允许任务使用启动后台账户已有的文件、网络与工具权限，不施加任务沙箱、无需操作审批的运行模式。继承后台用户环境，剔除内部 Ruukoto 控制变量；可访问同账户的后台数据、凭据与令牌。不额外赋予 OS 权限，派生任务沿登记时的来源授权创建；停止未核实时保留占用，不承诺收回主动脱离的进程或外部服务。
+**Full-access mode**: Explicit owner permission to use the backend account's existing files, network and tools without a task sandbox or per-operation approval. It inherits that account's environment except internal Ruukoto control variables, including access to same-account backend data/credentials/tokens. It grants no additional OS rights. Derived work uses source authority fixed at registration; unverified stopping retains occupancy. It does not promise to reclaim deliberately detached processes or external services.
 
-**自动审查模式**：与请求确认模式共用同一受限执行环境的任务运行模式。越界的外部文件读取与无凭据 HTTP 读取先经独立的无工具审查调用自动审批，结论为 approve/reject/ask_owner；无法确认或审查失败一律转拥有者确认。不扩大授权范围，也不升级为完全访问。_Avoid_：把自动审查当作模型自行放宽权限的入口；审查输入中的指令不能成为授权依据。
+**Auto-review mode**: The same restricted execution environment as confirmation mode. An independent tool-free review evaluates out-of-scope external file reads and credential-free HTTP reads as approve/reject/ask_owner. Uncertainty or review failure asks the owner. It neither broadens authorization nor becomes full access; instructions in review input are not authority.
 
-**会话默认模式**：拥有者为后续新任务选择的运行方式，普通开发会话可选择请求确认、完全访问、自动审查或计划模式。选择持续到拥有者手动更换；更换默认值不改写已有任务；继续中断任务采用本次提交的选择。_Avoid_：把会话默认模式等同于当前任务模式，或把界面的四种选项理解为四种访问策略。
+**Conversation default mode**: The owner's choice for later new tasks: confirmation, full access, auto-review or plan. It persists until changed but does not rewrite existing tasks. Continuing an interrupted task uses the current submission's choice. Four UI choices do not mean four distinct access policies.
 
-**计划模式**：普通开发会话中持续调研和完善计划的运行方式，由拥有者经模式选择启用，直到手动更换。它固定采用自动审查模式的受限执行环境与审批策略，并收窄工具、以计划说明约束修改行为；不提供全面只读保证。_Avoid_：把计划模式当作独立访问策略或安全边界；把批准计划当作其中具体操作的审批；称为「计划任务」（易与定时任务、调度计划混淆）。
+**Plan mode**: Owner-selected ongoing research/planning in an ordinary development conversation, using auto-review's restricted environment and approval policy with narrower tools and plan guidance. It is not a comprehensive read-only guarantee, a separate security boundary, approval of specific operations or a scheduled task.
 
-**审批请求**：任务为某个具体待执行操作向拥有者提出的授权请求。批准只适用于该操作及明确列出的范围。_Avoid_：代码与存储中的 `ConfirmationRequest`（确认请求）与审批请求是同一概念，不另立含义。
+**Approval request**: A task's request for permission for one specific pending operation and stated scope. Code/storage `ConfirmationRequest` names this same concept.
 
-**IM 审批控制消息**：绑定拥有者原私聊的控制动作，宿主按原始完整文本解析，在接收事务保存决定与固定回执意图，不调用模型或进入普通派发。共享底座用文本命令，个人 durable 回复已发送的宿主菜单选择，由原生后台任务发送回执。列表、详情和决定仅限原平台、原账号、原 owner 和原配置代次；批准绑定原请求与权限快照并单次消费。_Avoid_：把 IM 审批当作模型任务、把平台身份当作控制面认证、把批准接受说成操作已成功，或让自然语言、转发与引用摘录被解释为批准。
+**IM approval control message**: A control action from the original bound private chat. The host parses complete original text and persists decision plus fixed receipt intent in the receive transaction, without model execution or ordinary dispatch. Shared runtime uses commands; Personal durable accepts replies to host-generated menu choices and sends receipts through native background tasks. Lists/details/decisions are restricted to original platform, account, owner and generation; approval binds the original request/permission snapshot and is single-use. Forwarded/quoted text or natural language is not approval; accepted approval is not successful execution.
 
-**长期操作授权**：拥有者经原 IM 平台的待审批把具体操作和目标保存为可持续使用、可查看和撤销的限定权限。授权范围创建后不修改，存放于后台保护的持久存储并逐条管理版本；撤销或核实失败都递增版本并使范围失效，撤销后恢复逐次人工审批。命中完全相同范围的后续任务经宿主逐次重建核实后自动放行；模型、子任务消息、TUI 提交、调度与其他平台不能创建、扩大或继承授权。_Avoid_：把长期授权扩大到未列出的操作或目标，或把它等同于任意 root 权限；把候选授权当作执行依据（有效范围须在使用前逐项核实）；认为共享主会话会让另一平台继承授权。
+**Standing operation permission**: Owner-created, inspectable/revocable authority for an exact operation/target, saved from pending approval on the original IM platform. Its scope is immutable and versioned in protected backend storage. Revocation or failed verification increments the version and invalidates scope; later calls need individual approval. Only exactly matching operations pass after host revalidation. Models, child messages, TUI submissions, schedules and other platforms cannot create, broaden or inherit it. It is neither arbitrary root access nor cross-platform authority from sharing main; a candidate match must be verified before use.
 
-**批准消费**：宿主在真正执行前把一次批准原子地用掉：任务仍在进行、权限版本未变、批准未被使用过。消费即执行开始，此后结果未知的操作不自动重发。获批后的复核失败或消费失败使该批准失效，操作按已知未执行记录，不能再用。_Avoid_：把同一批准用于第二次执行；把「已批准未消费」当作已执行。
+**Approval consumption**: Atomic one-time use immediately before execution, requiring an active task, unchanged permission version and unused approval. Consumption marks execution start; an unknown result is not retried. Failed post-approval revalidation/consumption invalidates approval and records known-not-executed. Approved-but-unconsumed does not mean executed.
 
-**效果未知**：工具操作已经开始、却无法确认是否产生了效果时的结论：停止或后台重启时尚未结束的操作，以及写操作在请求已发出后遇到的传输类失败（超时、断线、中止）。效果未知的操作不自动重发，由拥有者核实。能从已提交的记录证明操作是否生效时（如应用数据回执），以核实结果为准；审批未消费或请求未发出是「已知未执行」，只读操作中止是「无写入效果」，都不算效果未知。_Avoid_：把效果未知当作失败或未执行；把只读操作的中断标为效果未知；把它与发送操作的 effect_unknown 当作同一条记录（语义相同，分别记在工具操作与发送操作上）。
+**Effect unknown**: Execution started but its effect cannot be established, including unfinished operations at stop/restart and sent writes with timeout/disconnect/abort. The owner verifies; automatic replay is forbidden. Committed receipts can establish the actual result. Unconsumed approval or an unsent request is known not executed; interrupted reads have no write effect. Tool-operation uncertainty and send-operation `effect_unknown` share semantics but are separate records.
 
-**应答丢失**：拥有者经控制面发出的请求已经送出，却拿不到能说明结果的应答（超时、断线、应答超限或后台内部错误）。应答丢失的写请求不自动换新键重发：有幂等键的（提交、工作区入口）按原键核实，确认未接收才以原键重发；其余查询后台状态后由拥有者决定。请求未送出属于「已知未执行」，后台明确拒绝的请求也不算应答丢失。_Avoid_：把应答丢失当作失败处理（恢复草稿、提示重试）；与工具操作的效果未知混称（前者针对控制面请求，后者针对工具操作）。
+**Lost response**: A control request was sent but no conclusive response is available because of timeout, disconnection, response limits or backend failure. Never retry a write with a new key automatically. Idempotent submissions/workspace entries are checked by original key and resent only with that key after known nonacceptance; other writes require state inspection and owner choice. Unsent requests and explicit rejection are not lost responses. Do not restore a draft as if the write failed; this is distinct from tool-effect uncertainty.
 
-**MCP 服务**：拥有者显式配置的外部工具服务（Model Context Protocol）。普通服务用 HTTPS 端点与凭据引用，Cua 用固定程序、目标的受管 stdio。配置含允许列表、启用状态和版本；写或副作用不明工具逐次统一审批。_Avoid_：将 MCP 当作项目命令的任意网络或凭据授权；以远端只读标注授权；把 Cua 当作任意本地命令入口。Coding 各工作区共用实例服务与允许列表；个人 Agent 档案独立，秘密不共享。
+**MCP service**: Owner-configured external tools. Ordinary services use HTTPS and credential references; Cua uses fixed managed stdio program/target. Configuration has allowlists, enabled state and versions; writes/unknown effects follow operation approval policy. It does not authorize arbitrary command networking/credentials, remote read-only hints do not grant rights, and Cua is not arbitrary local command execution. Coding workspaces share instance services; Personal profiles and secrets remain separate.
 
-**QQ 群聊入口（旧架构）**：迁移前由核心运行时接收群消息、按登录账号和群维护独立会话的入口，群资料与个人开发资料分别管理。核心群聊已退役：群消息直接忽略，旧群历史、收发账本、接收记录与撤回标记保留为只读归档；允许群等写入口已删除，群会话不能转成普通开发会话；正式群聊外挂在后续阶段交付。_Avoid_：把 QQ 身份（含群管理身份与拥有者本人在 QQ 的发言）等同于后台拥有者认证；把群消息正文当作项目 ID、权限模式或管理身份的来源。
+**QQ group entry (legacy)**: The old core adapter grouped messages by login account/group, separate from personal development data. It is retired: ignore new group messages, preserve old history/send/receive/withdrawal records read-only, remove group-write entries and never convert group conversations into ordinary development conversations. The standalone extension is later work. QQ identity, including the owner speaking in a group, is not backend owner authentication; message text cannot supply project/access/management identity.
 
-**逻辑角色（旧架构）**：迁移前同一后台内的 main、coding、chat 三种 Agent 身份，分别承担个人交互、固定编码委派和群聊处理。chat 与 coding 已退役：只引导 main，旧角色行、会话与任务保留为只读归档。_Avoid_：把 dev 会话类别当作第四个同级角色；把旧角色划分作为新产品边界。
+**Logical role (legacy)**: Old `main`, `coding`, `chat` identities for personal interaction, fixed delegation and group chat. Coding/chat are retired; setup only creates main, and old role rows/conversations/tasks are read-only. `dev` is not a fourth role and old roles are not current product boundaries.
 
-**群聊结果**：一次已完成群聊任务产生的有界摘要及其来源。只有 main 明确接收后，固定结果快照才可供 main 整理与通知使用；接收与外发授权分别处理。核心群聊退役后不再有新结果产生，已接收结果的旧群任务仍可查阅；归档缺失或不一致、main 不可用或来源已撤回时取消发送。_Avoid_：把群聊结果等同于完整群历史，或把接收摘要当作开放原始群资料、取得拥有者身份或允许自动外发。
+**Group result**: Bounded summary and provenance of a completed old group task. Only explicit main acceptance makes its fixed snapshot available for synthesis/notification; receipt and external-send authorization are separate. No new core group results are produced. Accepted historical results remain inspectable; missing/inconsistent archive, unavailable main or withdrawn source cancels sending. A result is not full group history or permission to read raw group data, claim owner identity or send automatically.
 
-**编排器**：宿主中负责入站事件派发、任务委派与结果回传的协调组件。_Avoid_：把编排器当作直接与拥有者交互的 Agent；将旧实现的固定 coding 委派限制视为通用 SubAgent 的定义。
+**Orchestrator**: Host component coordinating inbound dispatch, delegation and result return. Not an Agent interacting directly with the owner; the old fixed coding delegation limit does not define general SubAgents.
 
-**入站事件**：正式共享编排器接纳外部消息、定时器等来源的持久记录。先持久化再建任务；(source, external_id) 唯一即幂等键，重复登记不重复建任务。_Avoid_：在持久化之前派发任务，或对发送结果未知的事件自动重放外部副作用。
+**Inbound event**: Persisted shared-orchestrator acceptance of messages/timers and other sources, before task creation. `(source, external_id)` deduplicates it and prevents duplicate tasks. Registration does not authorize replay of unknown external effects.
 
-**入站媒体暂存**：外部图片在成为任务产物之前，按原消息归属保存的文件与接收记录；可表示接收完成、拒绝、过期和已归属任务。_Avoid_：把未绑定任务的暂存图片称为任务产物，或把拒绝记录当作普通入站任务。
+**Inbound media staging**: Files and receive records bound to the original message before task-artifact promotion. State can indicate received, rejected, expired or assigned. An unassigned staged image is not a task artifact; rejection is not an ordinary inbound task.
 
-**送达**：SubAgent 的结果或发给主 Agent 的工作内消息进入主 Agent 的一次模型调用——main 会话在承载它的唤醒任务开始运行时，普通开发会话在下一次任务开始时的注入。此前只是待送达，所属工作被取消即截住，内容仍作为事实保存可查。_Avoid_：把建好唤醒任务或写下投递登记当作已送达；与 owner 回复（发给拥有者的外发）混称。
+**Delivery**: A SubAgent result/work message enters one main-Agent model call: at wakeup-task start for main, or injection at the next task start for ordinary development. Registration alone is pending, not delivered. Canceled work blocks delivery while preserving inspectable facts. Distinct from an external owner reply.
 
-**子任务**：主 Agent 为一项工作委托派发给 SubAgent 的具体任务，其结果交回主 Agent 汇总。_Avoid_：把子任务等同于执行它的 SubAgent；把完成一个子任务等同于整项工作已完成。
+**Child task**: A concrete task assigned to a SubAgent for work whose result returns to the main Agent. Neither the executing SubAgent nor the whole assignment.
 
-**应用数据空间**：main 角色按需声明的个人结构化数据存储，独立于核心库。main 与独立定时会话通过宿主工具使用该空间；名称、类型、大小、关系与版本校验在存储边界执行；非破坏性变更自动执行，删表、删字段、删唯一索引、多行写与批量重写在受限模式下经统一审批逐次确认；完全访问免操作审批，仍核实任务、权限版本与参数并记录授权来源；所有变更留来源任务、版本与理由的审计回执。偏好、约定、决策、经验仍进入长期记忆，不进入应用数据。_Avoid_：把应用数据空间当作通用 SQL 引擎，或让核心任务/审批/事件/凭据表经应用数据工具访问。
+**Application data space**: Personal structured business storage declared by main, separate from core storage, used through host tools by main and independent scheduled conversations. Storage validates names, types, sizes, relations and versions. Nondestructive changes are automatic; dropping tables/fields/unique indexes, multirow writes and bulk rewrites require individual restricted-mode approval. Full access omits operation approval but still verifies task, permission version and parameters, recording authority. Every change has a task/version/reason audit receipt. Preferences/conventions/decisions belong in memory. This is not a general SQL engine or access to core task/approval/event/credential tables.
 
-**配置中心**：Coding Agent 的独立配置界面，经拥有者认证控制面管理 provider、模型目录、API key、后台默认模型、摘要模型、项目指令、实例级 Web Search、资料授权、会话默认、MCP、QQ 与服务凭据。并发保存按修订或版本校验；provider、模型目录与 API key 只在没有受影响的运行及排队任务时应用；后台不可达时有有限离线模式。_Avoid_：把配置中心当任务审批的替代入口，或在离线模式修改项目/会话/MCP/QQ 记录。
+**Configuration center**: Coding's independent authenticated UI for providers, model catalog/keys/defaults/summary model, project instructions, instance Web Search, source grants, conversation defaults, MCP, QQ and service credentials. Concurrent saves validate revisions/versions. Provider/catalog/key changes apply only with no affected running or queued tasks. Limited offline mode cannot edit project/conversation/MCP/QQ records. It is not a substitute for task approval.
 
-**开发实例**：用于开发本项目的隔离环境。`npm run dev` 启动个人 Agent，`npm run code` 启动 Coding Agent 并默认打开 TUI；两者分别保存开发资料，与日常实例分开。各开发入口管理本次后台与界面，退出时停止。配置、源码重载与隔离范围见[开发说明](docs/development.md#开发实例)。_Avoid_：把开发实例当作生产后台的替代品，或为开发放宽保护根检查。
+**Development instance**: This repository's isolated development profiles. `npm run dev` starts Personal; `npm run code` starts Coding and defaults to TUI. Each launcher owns this run's backend/UI and stops them on exit. See [development](docs/development.md#development-instances). It is not a production replacement or reason to weaken protected-root checks.
 
-**工作区入口（旧架构）**：迁移前通过 `ruukoto <路径>` 为指定目录创建开发会话的入口，会话归属根据既有项目关系确定。_Avoid_：把角色或 QQ 专用会话当作普通工作区的自动归属依据。
+**Workspace entry (legacy)**: Old `ruukoto <path>` creation of a development conversation using existing project membership. Role/QQ-specific conversations did not supply ordinary-workspace ownership.
 
-**调度计划**：产品内的一次性、每日或每周规则，固定时区、说明与创建权限。个人计划带工具、资料和可选回报目标，修改须取消重建；Code 固定标题、工作区、模型和档位，支持未来配置编辑。正文不是授权。_Avoid_：把调度计划当作 main 的待办/提醒业务数据（业务数据在应用数据空间）。
+**Schedule**: A one-shot, daily or weekly rule with fixed timezone, description and creation authority. Personal pins tools, sources and optional reporting target and requires cancellation/recreation for changes. Coding pins title, workspace, model and effort while supporting future configuration edits. Description is not authorization; a schedule is not main's business-data todo/reminder row.
 
-**调度运行**：计划一次独立执行，覆盖首次任务、派生工作、问题和报告；按（计划、版本、原定时刻）唯一，同计划至多一个未完成运行，漏期合并或只补最近一次。个人沿固定目标回报，Code 保留独立开发会话与结果。_Avoid_：把每个漏期当作独立待补运行。
+**Schedule run**: One execution covering initial task, derived work, questions and report, unique by schedule/version/original due time. At most one unfinished run exists per schedule; missed times coalesce or only the most recent is caught up. Personal reports to its fixed target; Coding retains an independent conversation and result. Each missed time is not a separate replay obligation.
 
-**发送操作**：宿主登记的一次固定目标、正文与操作 ID 的外发，状态为 pending/sending/sent/failed/effect_unknown/canceled；逻辑发送键由宿主决定，结果未知不自动换键重发。_Avoid_：把 sending 回退为 pending（唯一例外：平台明确限流拒绝、可证明未发送时退回 pending 延迟再领取），或把结果未知描述为取消成功。
+**Send operation**: A host-recorded outgoing action with fixed target, content and ID; states are pending/sending/sent/failed/effect_unknown/canceled. The host owns its logical key; uncertainty never triggers a fresh-key retry. Only explicit rate-limit rejection proving no send allows sending→pending after delay. Unknown is not successful cancellation.
 
-**QQ 私聊入口**：经拥有者配置绑定的固定 QQ 好友与 main 对话的入口，与 Telegram 共享主会话；新方向允许经核实的绑定拥有者通过私聊回应审批。_Avoid_：把 QQ 平台身份本身等同于通用控制面身份，把好友私聊等同于群临时会话，或把共享主会话理解为可以直接读取独立群资料。
+**QQ private entry**: The owner's configured friend-private-chat entry into main, shared with Telegram, including verified owner approval replies. Platform identity is not general control authentication; friend chat is not a temporary group conversation; sharing main does not open independent group data.
 
-**owner 回复**：对拥有者通过绑定入口提交的委托，由 main 汇总并发回原入口、原拥有者的应答，包括已接受委托的异步最终汇报。汇报在发起委托的工作收尾时登记，目标为发起事件钉版的目标；已取消的工作不汇报，重复登记幂等，目标停用或变化即取消不改发。_Avoid_：把任意定时或子任务唤醒当作主动外发授权；从“会话最新回复”推断某项委托的最终回答。
+**Owner reply**: Main's response to an accepted owner assignment, including asynchronous final reporting, sent to the original entry/owner. Work finalization registers it against the initiating event's fixed destination; canceled work does not report, duplicate registration is idempotent, and changed/disabled destinations cancel rather than redirect. Arbitrary scheduled/child wakeups do not authorize sending; a conversation's latest answer does not identify one work item's final report.
 
-**GitHub 评审入口（旧装配）**：旧个人装配中由拥有者启用的 PR 事件入口，对指定仓库的变更进行只读评审并由 main 向固定拥有者汇报，结果归属于明确的 PR 修订。评审经宿主固定的 SubAgent 完成；新个人不装配此入口，旧归档保留。_Avoid_：把评审结果等同于已批准发布的评论，或把未观察到变化理解为远端仍是同一修订。
+**GitHub review entry (legacy composition)**: Owner-enabled PR events triggering read-only review by a host-fixed SubAgent, reported by main to a fixed owner for a specific PR revision. New Personal does not assemble it; old archives remain. A review result is not approval to publish a comment, and no observed change does not prove the remote revision is unchanged.

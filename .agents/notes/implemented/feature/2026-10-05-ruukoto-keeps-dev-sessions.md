@@ -1,29 +1,29 @@
-# Agent Note: ruukoto 保留普通开发会话
+# Agent Note: Preserve ordinary development sessions in legacy ruukoto
 
 Status: implemented
 
-已被[个人正式入口](../simplification/2026-10-18-personal-product-entry.md)取代个人运行范围：新个人不创建或提交普通开发会话，旧会话原地归档；Coding 开发会话与原理由保留。下述决定记录旧装配，不作为恢复个人开发入口的要求。
+[The Personal product entry](../simplification/2026-10-18-personal-product-entry.md) supersedes this legacy Personal scope: the new Personal product neither creates nor submits ordinary development sessions, and old sessions remain archived in place. Coding development sessions and the historical compatibility rationale remain. The decision below documents the old assembly, not a requirement to restore Personal development entry points.
 
-原出处：ADR 0017「补充：ruukoto 保留普通开发会话」
+Original source: ADR 0017, supplement on preserving ordinary development sessions in ruukoto.
 
-## 问题
+## Problem
 
-开发本项目的 `npm run dev` 实例运行 ruukoto 产品，并用普通开发会话工作。若按 Personal Agent 产品拒绝其创建与提交，会立即打断现有开发实例；直接切换该实例到 ruukoto-code 又会被数据目录产品归属拒绝，必须先迁移现有开发档案。
+The project's `npm run dev` instance used the ruukoto product with ordinary development sessions. Rejecting their creation/submission merely because it was Personal would immediately break the existing development instance. Switching directly to ruukoto-code was also rejected by data-directory product ownership, so existing profiles needed migration first.
 
-## 决定
+## Decision
 
-ruukoto 产品允许普通开发会话的创建与提交。`npm run dev` 继续以 ruukoto 产品的普通开发会话开发本项目。Coding Agent 仍是编码主要入口，ruukoto 的这项能力是兼容保留；[两个产品](../architecture/2026-10-02-two-agent-products.md)的定位和档案隔离不变。
+The legacy ruukoto assembly retains ordinary development-session creation/submission, and its `npm run dev` continues using them. Coding remains the primary coding entry point; this is compatibility, not a change to the [two products](../architecture/2026-10-02-two-agent-products.md) or their profile isolation.
 
-固定角色退役时，旧项目新建入口只在 ruukoto-code 改为工作区提示，不扩展到 ruukoto。会话身份的入口资格无需增加产品维度，SubAgent、main、普通开发会话与退役归档仍按实际身份核实，不能借这个保留规则恢复固定 coding/chat 写入口。开发入口自己的档案与生命周期见[开发启动入口](../process/2026-10-09-dev-launchers.md)。
+When fixed roles were retired, the old project-creation entry changed to a workspace prompt only in ruukoto-code. Session-entry eligibility did not acquire a product dimension: SubAgent, main, ordinary development sessions, and retired archives were checked by actual identity. Compatibility did not restore writes to fixed coding/chat roles. [Development launchers](../process/2026-10-09-dev-launchers.md) own their profiles and lifecycle.
 
-## 验证
+## Verification
 
-决定由拥有者在[会话身份工单 08](../../../../.scratch/architecture/issues/08-session-profile.md)访谈确认，并记入[固定角色退役工单 23](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)的 2026-10-05 拥有者决定。工单 23 的普通 dev 测试与真实后台冒烟提供既有接线证据；其中模型为桩，未实测真实 IM。此次保留决定本身没有另改执行逻辑，也没有原 ADR 独立登记的测试命令结果。
+The owner confirmed this decision in the session-identity interview and the 2026-10-05 fixed-role retirement decision. Historical provenance is the offline copies of `.scratch/architecture/issues/08-session-profile.md` and `.scratch/agent-direction/issues/23-contract-legacy-roles.md`. The latter's dev tests and real-backend smoke verified existing wiring with a model stub, not real IM. The retention decision itself changed no execution logic and had no separately recorded original-ADR test results.
 
-## 备选方案
+## Alternatives considered
 
-把开发实例改成 ruukoto-code 并迁移档案，再让 ruukoto 拒绝普通 dev，可以让 Personal Agent 的产品能力与定位严格对应；工单 23 明确列出此选项，但产品归属禁止直接切换，现有档案迁移与约 37 个默认 ruukoto 产品的 dev 测试都要处理。拥有者选择保留现状，避免为产品限制打断当前开发工作。
+Migrating the development instance to ruukoto-code before rejecting Personal development sessions would align capability strictly with product positioning. However, product ownership forbade a direct switch, and existing profiles plus about 37 default-ruukoto development tests needed migration. The owner kept compatibility to avoid interrupting current work.
 
-## 后果
+## Consequences
 
-现有开发档案与日常开发流程可继续使用，身份判定不增加产品参数。代价是 ruukoto 的实际可用能力包含普通开发会话，不能仅凭产品名称假定它不可编码；未来若决定移除，必须先提供开发档案迁移并更新调用方和测试。[操作手册](../../../../docs/usage.md)描述现状。
+This decision preserved existing profiles and development workflows without a product parameter in identity checks. Its cost was that the legacy ruukoto name alone did not imply an inability to code. Removing the compatibility required migration of development profiles and corresponding callers/tests; the later Personal-entry decision owns that removal. The [usage guide](../../../../docs/usage.md) describes current entry points.

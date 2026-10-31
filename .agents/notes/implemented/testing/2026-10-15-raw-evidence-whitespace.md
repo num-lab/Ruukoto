@@ -1,25 +1,23 @@
-# Agent Note: 原始验证证据保留行尾空格
+# Agent Note: Preserve trailing spaces in raw verification evidence
 
 Status: implemented
 
-原始产物的入库范围按[历史瘦身方案](../../proposed/process/2026-10-30-git-history-evidence-retention.md)调整；本篇对原始字节的保留要求继续适用于外部归档，不再要求把日志放回 Git。
+[History cleanup](../../proposed/process/2026-10-30-git-history-evidence-retention.md) moves raw outputs outside Git. Byte preservation still applies to the offline archive; this note does not require putting logs back in Git.
 
-## 问题
+## Problem
 
-原始测试日志的诊断空行可能包含空格，统一补丁的空白上下文行也以空格开头。将这些证据入库时，git diff --cached --check 会把数据中的必要字符当成编辑错误；直接修剪又会改变原始输出、补丁和已固定的摘要。
+Diagnostic blank lines in raw logs can contain spaces, and unified-patch context lines begin with spaces. `git diff --cached --check` treats some necessary data bytes as editing mistakes. Trimming them changes the original output, patch, and fixed digests.
 
-## 决定
+## Decision
 
-仅在[本次证据目录](../../../../.scratch/subagent-roles/evidence/.gitattributes)为原始 .log 与 .patch 设置 whitespace=-blank-at-eol，保留其行尾空格。其他文件仍使用既有空白检查；原始证据的 space-before-tab、末尾空行和独立 EOF 门禁继续执行，不关闭提交钩子或修改历史证据。
+Preserve original evidence bytes. The historical `.scratch/subagent-roles/evidence/.gitattributes` limited `whitespace=-blank-at-eol` to raw .log and .patch files in that directory. Other files kept normal whitespace checking, and raw evidence still underwent space-before-tab, trailing-blank-line, and separate EOF checks. Hooks were not disabled and historical evidence was not edited. That local tracking exception disappears with its directory; it is not a global exemption for new artifacts.
 
-## 既有笔记审计
+[Prose and checks](../process/2026-10-10-postmortem-and-prose-standards.md) still owns source/document whitespace and EOF requirements. This note explains the original data-format exception and the continuing requirement not to rewrite archived raw bytes.
 
-按原始证据、空白、gitattributes 与 whitespace 检索既有笔记，无同题决定。[文风与门禁](../process/2026-10-10-postmortem-and-prose-standards.md)部分重叠，其源码/文档空白与 EOF 要求继续适用；本篇只记录证据数据的局部属性，不改写旧决定或归档。
+## Alternatives considered
 
-## 备选方案
+Trimming logs/patches avoids configuration but invalidates originals and digests. Disabling hooks or global whitespace checks admits source defects. Disabling all whitespace checks for an entire file class exceeds the demonstrated format need. The original exception therefore covered only trailing spaces in two local raw-data classes.
 
-修剪日志和补丁最少新增配置，但会改变原始证据和摘要，因此不采用。禁用钩子或全局空白检查可以直接提交，却会放过源码问题；整类关闭 whitespace 又超出已见格式需要，因此只豁免该目录两类原始数据的行尾空格。
+## Consequences
 
-## 后果
-
-原始输出和补丁可逐字节复核，提交门禁继续保护源码与文档。代价是该目录这两类数据的行尾空格不再产生诊断，不能把它们当作手写源码存放处。隔离 Git 仓以实际证据核实属性前失败、属性后通过、字节不变，并验证源码行尾空格、证据 space-before-tab 与末尾空行仍失败；结果见[探针记录](../../../../.scratch/git-history-cleanup/archive.md?path=.scratch%2Fsubagent-roles%2Fevidence%2Fcommit-whitespace-probe.log)。
+Raw output and patches remain byte-verifiable. The original exception suppressed only those trailing-space diagnostics and was not a place for handwritten source. An isolated Git probe failed before the attribute, passed afterward without byte changes, and still rejected source trailing spaces, evidence space-before-tab, and trailing blank lines. Historical probe provenance is `.scratch/subagent-roles/evidence/commit-whitespace-probe.log` in the offline archive.

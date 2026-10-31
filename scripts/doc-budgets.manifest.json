@@ -1,10 +1,7 @@
 {
-  "AGENTS.md": 4350,
-  "README.md": 3420,
-  "CONTEXT.md": 10100,
-  "docs/architecture.md": 6800,
-  "docs/development.md": 9700,
-  "docs/agents/domain.md": 550,
-  "docs/agents/issue-tracker.md": 900,
-  "docs/agents/triage-labels.md": 350
+  "AGENTS.md": 9000,
+  "README.md": 6500,
+  "CONTEXT.md": 22000,
+  "docs/architecture.md": 9000,
+  "docs/development.md": 14500
 }

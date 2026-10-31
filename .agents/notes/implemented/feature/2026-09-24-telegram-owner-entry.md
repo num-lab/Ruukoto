@@ -1,46 +1,42 @@
-# Agent Note: Telegram 拥有者入口、固定回复与限流退回
+# Agent Note: Telegram owner entry, fixed replies, and same-operation rate-limit deferral
 
 Status: implemented
 
-原编号：ADR 0011
+Original identifier: ADR 0011.
 
-## 问题
+## Problem
 
-[daily-agent issue 04](../../../../.scratch/daily-agent/issues/04-telegram-owner.md)把 Telegram 私聊作为 main 的第一条日常入口。外部消息需要进入持久会话并收到回复，但不能借用会话默认的完全访问权限，也不能把回复扩展成模型自由选择目标的外发能力。Telegram 的 429 与 `retry_after` 明确表示本次未发送，需要在未知结果不重发的前提下处理。
+Telegram private chat provides main's first daily entry. External messages need durable conversation/replies without inheriting a full-access session default or giving the model arbitrary send targets. Telegram 429/retry_after can prove this attempt was not sent, requiring a narrow retry exception without replaying unknown effects. Original requirements are historical offline `.scratch/daily-agent/issues/04-telegram-owner.md`.
 
-## 决定
+## Decision
 
-- **可信配置绑定固定 owner，入站任务统一为 `confirm`。** Telegram 用 long polling，只接收与固定 `user_id + chat_id` 一致的私聊；首次交付只收文本，后来按[入站图片暂存](../architecture/2026-10-07-inbound-image-staging.md)扩展为文本与图片。不匹配身份、群聊及其他不支持消息只记有界拒绝原因，不登记任务。外部消息先持久化，再按 `(source, external_id)` 去重，external ID 为 `<botId>:<chatId>:<messageId>`。登记成功后才推进轮询偏移，停机积压消息全部处理。编排器对所有入站事件（Telegram、scheduler 及其他外部来源）统一固定 `confirm`，不继承主会话的 `full_access`；批准只改变那一次具体操作，不改变任务模式。
-- **owner 回复由宿主自动登记。** Telegram 来源任务到达终态时，在编排器结果事务内登记一份公共 `owner_reply`，与任务结果及入站终态同时提交。普通回复键为入站事件 ID；正文从该任务的历史条目读取最终回答，不能读取会话最新一条来猜测。重启巡检补记结果时同事务补登，同键幂等。发送目标固定为收件时的同一 bot、owner chat 和配置版本，按原消息引用回复。
-- **两端身份与代次完整钉版。** 收件时保存捕获轮询配置的 `reply_target`；登记与偏移推进之前，以及派发、任务启动、登记回复和实际发送之前，核对来源、actor、目标与配置版本。绑定、启停和引用凭据的变化单调推进代次，旧轮询、消息、批准、回复不复活、不改发。旧 Telegram 事件 `replyTarget=null` 无法证明收件配置，registered/queued 工作明确失效，不能用当前目标补造。完整审批及代次语义见[IM 审批与最终汇报](2026-10-02-im-approval-and-final-report.md)。
-- **平台明确限流退回同一操作。** 渠道抛 `RetryLaterError`，表示平台明确拒绝且可证明未发送时，`sending → pending` 并写 `not_before`；到时重新领取原操作，目标、正文与键不变。领取期间已取消的直接 `canceled`。其他明确拒绝及连接未建立记 `failed`；发送后的超时、5xx、中途断开或不可解析回执记 `effect_unknown`，这些终态不自动重发。这是[调度器与 outbox](../architecture/2026-09-24-scheduler-outbox.md)发送事实规则的限流例外，不是通用重试框架。
-- **bot token 只通过凭据绑定使用。** 绑定用途为 `telegram_bot`，host 与 API 地址一致，scope 收紧，核心库只保存绑定名与固定 owner 身份。token 出现在 Bot API 请求 URL 中，错误进入日志、账本与状态前使用该请求捕获的 token 脱敏，覆盖凭据轮换后的旧请求迟到错误。
+- Trusted configuration fixes owner user_id + chat_id. Long polling accepts only matching private messages, initially text and later [images](../architecture/2026-10-07-inbound-image-staging.md). Wrong identity/groups/unsupported types record bounded rejection without tasks. Persist before dedupe/dispatch using `(source, external_id)` with `<botId>:<chatId>:<messageId>`; advance offset only after registration and process backlog. In the original shared orchestrator all external inbound sources, including scheduler, use confirm rather than main's full_access default. One approval affects one operation, not mode; later scheduled/full-access/personal rules are separately superseded.
+- On a Telegram task's terminal result, register one public owner_reply in the same result/inbound-terminal transaction. Key is inbound event ID. Read the final answer from that task's history, never the latest session answer. Restart reconciliation creates the same idempotent record transactionally. Target is the original bot/chat/config generation, replying to the original message.
+- Persist reply_target from captured polling configuration. Before registration/offset advancement, dispatch, task start, reply registration, and send, recheck source/actor/target/version. Binding/enablement/credential-reference changes advance generation monotonically; old polls/messages/approvals/replies never revive or redirect. Legacy replyTarget=null cannot prove original configuration and invalidates registered/queued work rather than inventing the current target. [IM approval/final reports](2026-10-02-im-approval-and-final-report.md) owns complete generation/approval rules.
+- `RetryLaterError` means explicit platform refusal proving non-send: sending -> pending with not_before, then reclaim the same target/body/key. Cancellation while claimed makes canceled. Other clear refusal or failure before connection is failed; timeout after sending, 5xx, disconnect, or unparseable receipt is effect_unknown. Terminal operations never auto-resend. This is the [outbox](../architecture/2026-09-24-scheduler-outbox.md) rate-limit exception, not generic retries.
+- Tokens use host-matching, narrowly scoped `telegram_bot` credential bindings; core stores only binding name/fixed owner. Bot API URLs contain the token, so redact errors before logs/ledger/status using the token captured for that request, including late errors after credential rotation.
 
-## 自动回复与入口失效的边界
+## Automatic replies and invalid entry
 
-定时唤醒及普通子任务唤醒不自动产生 owner 回复；只有 IM 发起的通用工作收尾轮次按[最终汇报规则](2026-10-02-im-approval-and-final-report.md)开例外。旧 coding draft 链唤醒仍不外发，固定角色退役后仅保留旧资料读取。GitHub 评审走[独立事件通知](2026-09-24-github-event-review.md)，不套用 owner 回复授权。
+Scheduled/ordinary child wakes do not auto-reply; IM-origin generic-work finalization is the explicit exception. Retired coding-draft wakes never send; [GitHub](2026-09-24-github-event-review.md) uses independent event-notification authority.
 
-启动配置 `RUUKOTO_DISABLE_TELEGRAM` 的入口按停用处理，入站作废、排队任务以 `telegram_unavailable` 取消；QQ 私聊自架构工单 10 起采用同一入站与任务语义，见[QQ 私聊入口](2026-09-24-qq-private-shared-main.md)。暂时离线且代次不变则等待恢复；由于渠道可用性取轮询健康状态，网络断开时回复通常保持 `pending`，没有调用发送函数。配置停用或目标变化取消未发送回复，不改发。
+Startup `RUUKOTO_DISABLE_TELEGRAM` invalidates inbound and cancels queued tasks with `telegram_unavailable`. [QQ](2026-09-24-qq-private-shared-main.md) adopts the same inbound/task rule. Temporary offline state with unchanged generation waits. Poll health determines availability, so disconnected replies usually remain pending without calling the sender. Configuration disable/rebind cancels unsent replies and never redirects. Do not infer identical startup-disabled outbox behavior from inbound cancellation; the shared-entry note records that distinction.
 
-首次交付只提供 CLI 与拥有者控制面配置，`--api-base` 可以指向受控反代；HTTPS 为常规路径，HTTP 仅限回环。token 与目标的配置校验不能借反代绕过。操作需要批准时可用[绑定私聊的 IM 审批命令](2026-10-02-im-approval-and-final-report.md)，也可继续使用原 TUI/CLI 拥有者认证。
+Original settings were CLI/control-plane only. `--api-base` can use a controlled reverse proxy: HTTPS normally, HTTP only loopback, with unchanged token/target validation. Approvals can use host-parsed bound-private commands or existing owner-authenticated TUI/CLI. [The personal entry](../simplification/2026-10-18-personal-product-entry.md) and durable Telegram decisions own current client/menu wiring instead of these historical interfaces.
 
-## 备选方案
+## Alternatives considered
 
-- **从会话最新回答取回复正文。** 原先的读取可以直接复用，少做任务历史定位。未选，是因为任务终态但结果事务未提交时，main 可能已经处理后续消息；恢复补登会把后续回答发给原委托。拥有者明确选择按任务读取，并用这个崩溃窗口回归。来源：[daily-agent issue 04](../../../../.scratch/daily-agent/issues/04-telegram-owner.md)「实施前确认」第 3 项与交付验证。
-- **429 按原 outbox 规则记 `failed` 后停止。** 这能完全沿用原有终态不重发规则，无需退回 pending。未选，是因为平台已明确本次未发送且给出等待时间；拥有者确认按 `retry_after` 延迟重试同一条记录，既能继续回复，也不重试可能已产生效果的请求。来源：issue 04「实施前确认」第 4 项及原发送规则的修订。
+- **Reply with the latest session answer:** simpler reuse, but main may already have answered a later message after task completion and before result commit. Recovery would send that answer to the earlier requester. Use task-specific history and test this crash window.
+- **Make 429 terminal failed:** reuses the old no-terminal-retry rule, but explicit non-send plus retry_after justifies delaying the same record without replaying a possible effect. This owner-confirmed exception does not extend to uncertain transport errors.
 
-## 后果
+## Consequences
 
-拥有者可以持续使用同一个 main 会话，回复与原任务、原消息和原固定目标可追溯。主会话默认 `full_access` 不能越过外部入站的 `confirm`；即时私聊审批的窄权限不变成通用控制面身份。限流会延迟回复，结果未知则需要拥有者核实，不能保证远端 exactly-once 或未知窗口必达。
+Conversation continues in one main session with traceable original task/message/target. The original inbound confirm rule prevents inheriting a full-access default; narrow IM approval is not general control identity. Later [current-account full-access policy](2026-10-12-full-access-current-account.md) owns revised authorization propagation. Rate limits delay replies; unknown effects require owner verification and cannot guarantee remote exactly-once or delivery.
 
-共享历史的 QQ 与 Telegram 不是互相隔离的资料空间，边界见[QQ 私聊共享 main](2026-09-24-qq-private-shared-main.md)。国内服务器部署需要可达的 API 反代或网络层代理，历史验收时全局 `fetch` 未使用 `HTTP_PROXY`；真实部署连通性与消息平台兼容性不能由模拟结果推出。运行配置见[操作手册](../../../../docs/usage.md)。
+QQ/Telegram shared history is not separate data space. Deployments needing an API proxy must verify real connectivity; historical global fetch did not use HTTP_PROXY. Mock results do not prove actual platform compatibility. See [usage](../../../../docs/usage.md) for current configuration.
 
-## 验证
+## Verification
 
-[daily-agent issue 04](../../../../.scratch/daily-agent/issues/04-telegram-owner.md)记录 macOS、模拟模型与本地 Bot API 下 `npm run typecheck` 通过，`npm test` 393 项中 392 通过、1 项真实模型检查按默认跳过。`npx tsx --test test/38-telegram-owner.test.ts` 当时 5 项覆盖同主会话与原消息回复、重投去重、非 owner/群聊/贴纸零模型调用、full_access 默认不继承、token 脱敏、400/502 不重发、429 原操作重试、断线恢复、按任务补登、配置校验与停用失效、重叠启停只有一个轮询及 v13→v14 迁移。
+Historical first delivery: macOS mock model/local Bot API, passing typecheck, 393 total tests with 392 passed and one default-disabled real-model test. `test/38-telegram-owner.test.ts` then had five cases covering shared main/original-message replies, dedupe, zero calls for wrong owner/groups/stickers, noninherited full access, token redaction, 400/502 no resend, same-operation 429 retry, reconnect, task-specific recovery, configuration/disable, single poll under overlapping starts/stops, and v13-to-v14 migration.
 
-首次交付未执行真实 Telegram bot 闭环，按拥有者确认没有在国内 tx 执行 Linux 验收。后续双平台身份/审批与异步回复的 Linux 后台冒烟由[IM 审批与最终汇报](2026-10-02-im-approval-and-final-report.md)分别记录，仍不代表真实 Bot API 已实测。
-
-## 适用范围
-
-完全访问的账户、环境、免审批及宿主任务授权传播采用[本决定](2026-10-12-full-access-current-account.md)；本篇其他独立规则继续适用。
+No real Telegram bot loop ran, and the owner explicitly excluded tx Linux acceptance in that delivery. Later Linux backend IM approval/report smoke is separate and still does not prove real Bot API behavior. This documentation migration reruns no runtime tests.

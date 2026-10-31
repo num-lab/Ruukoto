@@ -1,31 +1,33 @@
-# Agent Note: Desktop 消息操作：复制与按任务建立分支
+# Agent Note: Desktop message copy and task-boundary branching
 
 Status: implemented
 
-## 问题
+## Problem
 
-Desktop 的 agent 消息流没有消息级操作。拥有者要在消息底部加入复制与从当前任务建立分支两个 action，并且只在对应任务已完成时显示。既有 `branch_session` 只从会话最新安全尾建立分支；如果把按钮挂在不属于最新任务的已完成消息上，点击结果会与「从当前任务」不符。
+Agent messages lacked actions. The owner requested copy/branch below messages only after their task completed. Existing `branch_session` branched only from the latest safe session tail, contradicting an earlier message's current-task action.
 
-## 决定
+## Decision
 
-- **复制**：已完成任务的 agent 消息显示复制按钮，复制该条消息当前正文。异步加载长正文沿用既有历史恢复，不在渲染层另做截断猜测。
-- **分支点由任务决定**：分支按钮把消息的 `taskId` 交给 `branch_session`。控制面新增可选 `task_id`，协议升到 43，旧后台必须拒绝而不是忽略该字段；否则新旧组合会静默从会话尾建立分支。
-- **任务边界**：runtime 要求任务属于来源会话（连续分支允许 `branchSource.taskIds` 中的祖先任务）且状态为 `completed`；core 的 `snapshotSessionHistory` 新增 `throughTaskId`，只复制到该任务的 `TASK_END_MARKER` 并包含标记，没有完成标记按 `entry_not_found` 拒绝。源文件仍只读，指纹覆盖实际复制的前缀。
-- **桌面写流程**：`CodeState.branch` 用随机 `request_id`；分支会话的 `createRequestId` 与既有会话创建一样用于快照和 `session.created` 核实。应答丢失按原键重发一次，成功后打开新会话；明确失败或确认未发布时清除待办，准备未完成时保留原键并允许再次点击重试，数据实例变化不向新实例重发。
-- **分支历史 trace**：分支会话历史加载时，桌面与 TUI 按当前页引用的 `branchSource.taskIds` 调用 `read_task_events`，把来源任务的思考与工具活动投影到分支会话；只用于展示，不复制任务账本。
-- **分支历史任务状态**：分支会话的历史消息引用来源会话的任务，`list_tasks` 只返回当前会话的任务；桌面历史恢复按当前页引用的 `branchSource.taskIds` 用 `get_task` 补齐 `TaskView`，否则祖先消息没有可判断的完成状态。
-- **可见性**：消息操作条只在 `role === "assistant"`、对应 `TaskView.status === "completed"` 且条目不在流式中时渲染。主会话显示复制与分支；子会话只显示复制，定时运行与角色会话也不显示分支，因为它们不是普通开发会话。
+Completed-task assistant messages copy their current body; existing long-body history recovery remains authoritative, with no renderer truncation guesses.
 
-## 验证
+Branch sends the message taskId through optional control `task_id`. This introduced protocol 43, requiring old backends to reject rather than ignore it and silently branch from the session tail. Runtime verifies source-session ownership (including ancestor `branchSource.taskIds` in repeated branches) and completed status. Core `snapshotSessionHistory(throughTaskId)` copies through that task's TASK_END_MARKER inclusive; absent markers are `entry_not_found`. The source stays read-only and fingerprints cover the copied prefix.
 
-`test/102-branch-session.test.ts` 覆盖按已完成任务截取、排除后续任务、拒绝未完成／缺少结束标记／外部任务，以及连续分支只继承分支点前的结果与产物；`test/history-recovery.test.ts` 覆盖分支来源任务按当前历史页补齐状态及思考/工具 trace；`test/desktop-message-actions.test.ts` 覆盖操作条可见性、子会话／定时会话隐藏分支、请求携带 `task_id`、应答丢失重试、快照核实、准备未完成时的原键重试，以及分支历史页的来源任务 trace。既有分支安全尾、控制面转发与静态检查按改动面回归。
+CodeState.branch uses a random request_id; branch `createRequestId` supports snapshot/session.created verification like session creation. Lost responses resend once with the same key. Success opens the branch. Explicit failure/confirmed nonpublication clears pending; incomplete preparation retains the key for click-to-retry. Instance changes never resend into a new instance.
 
-## 备选方案
+Desktop/TUI branch history reads task events for source task IDs referenced by the current page, projecting thinking/tools without copying task ledgers. Desktop also uses get_task for those source IDs because list_tasks returns only current-session tasks; otherwise ancestor messages lack completion status.
 
-- **只复用现有 `branch_session` 从会话最新安全尾分支**：改动最小，但消息属于较早任务时会包含后续任务，与按钮文案和用户选择不符；放弃。
-- **客户端传原始 entry_id 或 JSONL 路径**：客户端可伪造分支边界，跨实例路径也不安全；控制面只接受任务 ID，由宿主核实任务归属和完成标记。
-- **桌面端建临时新会话再粘贴历史**：不走宿主分支快照，会丢失引用、压缩点与来源约束，也无法幂等恢复；放弃。
+Render actions only for assistant, completed TaskView and nonstreaming entries. Ordinary main sessions have copy/branch; child sessions have copy only. Scheduled/role sessions cannot branch because they are not ordinary development sessions.
 
-## 后果
+## Verification
 
-已完成消息获得轻量的复制与分支入口，分支可以落在任意已完成的旧任务上，而不只是会话末尾。代价是控制面新增一个可选参数并升协议：桌面客户端与旧后台不能混用；任务级分支还会让分支来源的 `entryId` 指向任务结束标记而非最后一条消息。分支历史、产物与工作清单仍按既有快照规则复制，任务、审批与执行权限不转移。
+`test/102-branch-session.test.ts` checks completed-task boundaries, excluding later tasks, rejection of incomplete/missing-marker/foreign tasks, and repeated branches inheriting only pre-boundary results/artifacts. `test/history-recovery.test.ts` checks page-scoped source status/thinking/tool recovery. `test/desktop-message-actions.test.ts` covers visibility, child/scheduled restrictions, task_id forwarding, lost responses, snapshot verification, original-key retry and branch-page trace. Existing safe-tail/control/static checks remain scoped regressions.
+
+## Alternatives considered
+
+- Latest-tail branching is smallest but includes later tasks than the chosen message.
+- Client entry IDs/JSONL paths let callers forge boundaries and cross-instance paths; accept task IDs and verify ownership/markers in the host.
+- Creating a session then pasting history loses references, compaction/source constraints and idempotent snapshot recovery.
+
+## Consequences
+
+Completed messages gain lightweight actions and branches can end at any completed old task. Matching client/backend protocol is required. Task branches reference a task-end marker rather than the last message. History, artifacts and work lists use existing snapshot copying; tasks, approvals and execution permissions are not transferred.

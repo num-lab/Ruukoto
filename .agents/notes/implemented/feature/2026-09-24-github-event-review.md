@@ -1,47 +1,49 @@
-# Agent Note: GitHub PR 事件的宿主只读评审与固定通知
+# Agent Note: Host-owned read-only review of GitHub PR events with fixed notifications
 
 Status: implemented
 
-部分取代：[个人正式入口与旧装配退出](../simplification/2026-10-18-personal-product-entry.md)使新个人退出 GitHub 自动评审与旧 webhook 配置；本篇只约束保留旧实现和历史记录，Coding 未因此获得个人 IM 或评审入口。
+Original identifier: ADR 0013.
 
-原编号：ADR 0013
+[The personal product entry](../simplification/2026-10-18-personal-product-entry.md) removes GitHub auto-review and old webhook settings from new personal. This note governs retained legacy code/history only; Coding does not gain personal IM or review entry points from it.
 
-## 问题
+## Problem
 
-拥有者需要由 GitHub PR 事件触发只读评审，并收到对应修订的一次汇报。原 daily-agent issue 08 依赖已经退役的专用草稿机制；如果接入 webhook 顺带恢复 REST 采集、草稿和发布状态机，就会重新产生两套 GitHub 能力。PR 资料又是外部内容，不能通过评审取得代码执行、评论、合并或发布权限。[两个 Agent 产品](../architecture/2026-10-02-two-agent-products.md)取消固定 coding 角色后，评审执行与资料、通知边界需要继续保留。
+The owner wants a PR event to trigger read-only review and one report for that revision. The original daily-agent issue 08 depended on retired dedicated drafts; restoring REST collection/draft/publish machinery through webhook would recreate two GitHub paths. Untrusted PR material must not gain code execution, comments, merge, or publishing. Retiring fixed coding must preserve review provenance and notification authorization.
 
-## 决定
+## Decision
 
-- **webhook 只负责校验、登记和宿主编排。** 可信启动配置限制监听地址、端口、webhook 凭据、repository ID 和通知渠道；对原始字节执行 HMAC-SHA256 校验，再核对 delivery ID、事件/action、仓库与 PR 字段。请求上限 1 MiB，PR body 进入快照与模型输入前截取 4,000 字符并标注。归一化快照先登记，`(github, delivery ID)` 去重，持久化后即返回 2XX，异步评审不阻塞 HTTP 应答。GitHub 资料经[普通 MCP](../architecture/2026-09-23-mcp-client.md)读取，完整评审正文保存为普通 Artifact，修订与有效性写 `Task result`；[专用模块退役](../simplification/2026-09-23-retire-github-module.md)保持生效，不恢复 REST 采集、草稿表或发布状态机，也不提供 REST 回退。
-- **每个修订由宿主建立全新的评审工作与 SubAgent。** 编排器创建固定 main 父任务，直接用 `hostReview: { sourceEventId }` 登记一项新工作、一个新 SubAgent，不经模型工具，也不占 main 的通用委派名额。角色/项目/会话/工作目录和 `confirm` 模式均由宿主固定；每个修订使用全新上下文，空闲后保留身份与历史，但宿主和主 Agent 均不能继续或复用这名评审 SubAgent，其上下文含不可信 PR 资料。拥有者或主 Agent 可以显式关闭。
-- **工具和资料仅限只读评审。** 评审 SubAgent 的白名单为 `read / read_artifact` 加按任务开放的、本地 `effect=read` MCP；工具装配、模型发送前和实际调用门都按同一边界收窄。不执行 PR 代码，不接受正文里的提权或发布指令，不开放 bash、委派、write/unknown MCP。main 父任务没有工具，结果唤醒只开放 `subagent_result` 与只读 `coding_result`（历史查阅）。修改、评论、合并与其他写操作必须回到拥有者可信入口及既有审批流程，webhook 不能隐式授予。
-- **MCP 配置与凭据跟随 main 项目核对。** 评审 SubAgent 会话位于 main 项目，GitHub MCP 配在 main 项目，并且只对宿主评审任务开放；main 自身、拥有者普通委派及开发会话 SubAgent 不因此得到 MCP。旧 coding 项目配置和凭据不自动迁移，拥有者须另建 scope 为 main 项目的只读凭据，再执行 `mcp configure --project`。旧配置不自动删除，拥有者可用 `mcp remove` 清理；未配置时评审如实说明无法取得资料。
-- **通知授权来自拥有者启用 webhook。** 每个有效入站事件的一次 main 摘要发到配置中选定渠道的固定 owner；宿主在事件登记时钉版目标，摘要结果事务登记公共 outbox，`sourceKind=inbound_event`、逻辑键为事件 ID。该授权与 [Telegram/QQ owner 回复](2026-09-24-telegram-owner-entry.md)及[IM 工作最终汇报](2026-10-02-im-approval-and-final-report.md)分别核实，GitHub 工作不会产生第二份 owner_reply。模型不能选择目标、换键或额外发送；停用、目标变化、已观察到修订失效则取消未发送通知，在途发送保留事实，`effect_unknown` 不重发，明确限流按[同操作退回规则](2026-09-24-telegram-owner-entry.md)延迟。
+- Webhook only verifies, registers, and starts host orchestration. Trusted startup config fixes listener/port/webhook credential/repository ID/notification channel. Verify HMAC-SHA256 over raw bytes, then delivery ID, event/action, repository, and PR fields. Cap requests at 1 MiB; truncate PR body to 4,000 characters with a marker before snapshot/model input. Persist normalized snapshot and deduplicate `(github, delivery ID)` before 2XX; async review does not delay response. Read through [ordinary MCP](../architecture/2026-09-23-mcp-client.md), store full review as ordinary Artifact and revision/validity in Task result. No REST fallback, draft tables, or publish state machine returns.
+- For each revision the host creates a fresh fixed-main parent task, new work, and new SubAgent with `hostReview: { sourceEventId }`, not via a model tool or main's ordinary delegation quota. Host fixes role/project/session/directory/confirm mode. Each revision gets new context; idle preserves identity/history but neither host nor main can continue/reuse this untrusted-PR reviewer. Main/owner may explicitly close it.
+- Reviewer tools are `read`, `read_artifact`, and task-enabled locally declared read MCP only. Assembly, pre-model send, and invocation agree. No PR code execution, bash, delegation, write/unknown MCP, or obedience to PR privilege/publishing instructions. Parent has no tools; result wake allows only `subagent_result` and historical read-only `coding_result`. Writes/comments/merge require the owner's trusted entry and normal approvals, never webhook authority.
+- Legacy review sessions live in main project; GitHub MCP/credentials are configured there and enabled only for host-review tasks, not main itself or ordinary SubAgents. Never automatically migrate coding-project configuration or broaden credential scope. The owner creates main-scoped read credentials and configures them; old settings remain until explicitly removed. Missing configuration is reported as unavailable data.
+- Enabling webhook authorizes one main summary per valid inbound event to the configured fixed owner/channel. Pin target at registration and create the public outbox operation in the summary-result transaction with `sourceKind=inbound_event`, key=event ID. This is separate from owner_reply/final-report authority; no second owner_reply. Model cannot choose target/key/additional sends. Disable/rebind/observed stale revision cancels unsent notifications; in-flight facts remain, unknown never resends, explicit rate refusal retries only the same operation under [Telegram rules](2026-09-24-telegram-owner-entry.md).
 
-## 修订依据与旧角色收尾
+## Revision evidence and retired-role cleanup
 
-修订依据来自签名通过的 PR 事件快照，保存 head/base SHA、`updatedAt`、关闭与 draft 状态。按已观察到的 `updatedAt` 比较修订；同时间戳却不同修订也保守判过期。旧报告保持不可变，当前有效性由 `result_ref.review.staleReason` 表示。模型在 MCP 采集前后核对 head/base；无法核对或资料不全时明确说明。事件缺失、延迟或远端在采集后变化时，本地快照不保证最新，也不承诺旧草稿模块的发布前远端复核保证。
+Signed snapshots retain head/base SHA, updatedAt, closed, and draft status. Compare observed updatedAt; equal timestamp with different revision is conservatively stale. Original reports stay immutable; current validity is `result_ref.review.staleReason`. Review checks head/base before and after MCP collection, explicitly reporting incomplete/unverifiable data. Missing/late events or later remote changes mean local validity is relative to observed snapshots, not a guarantee of latest remote state or the former publish-time verification.
 
-评审正文分页完整保存；历史分页失败不能误记完整报告，残缺产物标 `partial`，结果记录 `captureError` 并要求拥有者核实。出队门再次核对修订，排队期间已过期的评审取消且不调用模型、不登记通知。
+Capture complete paginated review history. Failed pagination produces a partial artifact and `captureError`, requiring owner verification, never a complete-report claim. Recheck revision at dequeue; stale queued review cancels with no model call or notification.
 
-最初宿主固定 main→coding 父子任务，issue 19 迁移到通用 SubAgent 时暂时接管已建出的 `deleg:<父任务>:review` 旧 coding 评审，避免重复创建；issue 23 随固定角色退役删除这条接管分支。旧排队子任务取消，旧运行子任务在恢复中记中断/效果未知，结果补记后仍可经 `coding_result` 与产物查阅，但不新增评审通知。崩溃窗口中旧子任务已创建、事件仍 registered 的情况，旧任务收尾后可建立新的只读 SubAgent 评审；它不重放结果未知的写操作。历史修订、有效性与正文都保留。
+Originally main delegated to fixed coding. Issue 19 temporarily adopted existing `deleg:<parent>:review` children to avoid duplicates; issue 23 removed that branch with fixed-role retirement. Old queued children cancel; running children recover interrupted/unknown and retain result/artifact lookup without new notifications. If a crash left an old child created while its event stayed registered, cleanup can precede a fresh read-only SubAgent review; this never replays an unknown write. Historical revisions/validity/text remain.
 
-## 备选方案
+## Alternatives considered
 
-- **恢复专用 REST 采集、草稿与发布状态机。** 原规格基于现成的 GitHub 草稿流程，复用它可以直接回到旧路径。未选，是因为拥有者已确认退役，资料、报告和结果改用 MCP、普通 Artifact 和 Task result；恢复会重新引入专用业务分支，webhook 也不应取得发布权限。来源：[daily-agent issue 08](../../../../.scratch/daily-agent/issues/08-github-events.md)「已确认决策」及[专用模块退役](../simplification/2026-09-23-retire-github-module.md)。
-- **跨修订复用评审 SubAgent。** 这样能保留 PR 背景上下文，也减少评审身份数量。未选，是因为旧 diff 与旧报告会混入新 head 的核对，且不可信 PR 上下文不能复用到拥有者的其他工作；每修订独立上下文保留明确依据。来源：[agent-direction issue 19](../../../../.scratch/agent-direction/issues/19-github-subagent-review.md)「默认取舍」。
-- **自动把 coding 项目 MCP/凭据迁到 main。** 这省去拥有者重新配置步骤，升级后可直接读取。未选，是因为改写凭据 scope 是授权变更，宿主不能替拥有者扩大或改变范围；旧配置只留作历史，由拥有者另建 main 范围凭据。来源：issue 19「GitHub MCP 改配到 main 角色的项目」及 [issue 23](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)保留不收缩的读取兼容。
+- **Restore REST collection, drafts, and publishing:** direct reuse of the original spec's workflow, but the owner already retired it. MCP/ordinary artifacts/results avoid a dedicated branch and webhook publishing authority.
+- **Reuse a reviewer across revisions:** retains PR background and fewer identities, but mixes old diff/report evidence with new head and could carry untrusted context into other owner work. Use fresh contexts.
+- **Automatically move coding MCP/credentials to main:** easier upgrades, but credential-scope changes are authorization decisions. Preserve old config; require owner-created main scope.
 
-## 后果
+Historical offline provenance: `.scratch/daily-agent/issues/08-github-events.md`, `.scratch/agent-direction/issues/19-github-subagent-review.md`, and `23-contract-legacy-roles.md`.
 
-事件、固定修订、完整或残缺的评审正文、当前过期原因、main 摘要和通知键都可追溯；重复 delivery 与后台恢复复用原工作、任务、产物与发送键。签名通过只证明事件来源，PR 正文仍是不可信资料，评审不包含代码执行或发布权限。
+## Consequences
 
-每个修订的新 SubAgent 与不可变产物增加保留记录；当前宿主评审可并行且没有独立并发名额，模型成本或持续积压成为问题时须加宿主评审并发上限。MCP 项目和凭据授权变更需要拥有者手动配置。未观察到新事件无法证明远端没变化，旧报告的“有效”只相对于已观察到的快照；真实远端连通与投递行为需要另行验收。
+Events, revisions, complete/partial reports, stale reasons, summaries, and send keys remain traceable. Duplicate delivery/recovery reuse work/tasks/artifacts/keys. A valid signature proves event source, not trust in PR instructions or permission to run/publish code.
 
-## 验证
+Fresh reviewers and immutable artifacts add retained records. Host reviews can run concurrently without a separate quota; sustained cost/backlog would require a host-review cap. Configuration/credential scope changes need owner action. Missing new events cannot prove remote stability. Real connectivity/delivery requires independent acceptance.
 
-[daily-agent issue 08](../../../../.scratch/daily-agent/issues/08-github-events.md)记录首次交付 `npm run typecheck` 与 `git diff --check` 通过，`npm test` 437 项中 436 通过、1 项真实模型检查跳过。`test/42`–`test/46` 用本地 HTTP、MCP、模型与通知模拟核对验签、有界请求、去重、五个恢复窗口、工具白名单、修订失效、目标变化、未知发送与残缺报告。
+## Verification
 
-[agent-direction issue 19](../../../../.scratch/agent-direction/issues/19-github-subagent-review.md)记录 `npx tsx --test test/45-github-events.test.ts test/46-github-recovery.test.ts` 及相关回归、typecheck 通过：新工作/SubAgent 完整链路、不占名额且拒绝复用、只读 MCP 仅对评审开放、新旧结果过期、恢复不重复、通知授权不变。`.scratch/agent-direction/smoke-19-github-subagent-review.mts` 在 macOS arm64 与 tx Linux x64 各 8/8，真实部分为后台、控制面、SQLite/JSONL、Docker 受限 worker 和回环签名 webhook；模型、MCP 与通知平台模拟。该轮全量有 worktree 路径下 test/32 的既有预置断言失败，主检出路径通过，详见原工单。
+Historical first delivery passed typecheck/diff checks; full suite was 437 total, 436 passed, one gated model skip. Tests 42-46 used local HTTP/MCP/model/notification mocks for signatures, limits, dedupe, five recovery windows, tool allowlists, staleness, target changes, unknown sends, and partial capture.
 
-[issue 23](../../../../.scratch/agent-direction/issues/23-contract-legacy-roles.md)另验证旧角色收尾、不重放、读取兼容与旧评审不再通知，smoke-23 在 macOS/Linux 各 5/5。真实 GitHub webhook 投递、真实 GitHub MCP 与真实 Telegram/QQ 均未实测；不能把回环入口和模拟平台冒烟表述为真实平台闭环。部署配置见[操作手册](../../../../docs/usage.md)。
+Issue 19 recorded passing `test/45-github-events.test.ts`, `test/46-github-recovery.test.ts`, related regressions/typecheck for full new-work flow, quota exemption/no reuse, reviewer-only MCP, old/new staleness, nonduplicating recovery, and unchanged notification scope. Offline smoke-19 passed 8/8 on macOS arm64 and tx Linux x64 with real backend/control/SQLite/JSONL/Docker worker/loopback signed webhook, but mock model/MCP/notification platform. Full checks had a preexisting test/32 worktree-path assertion failure absent in main checkout. Issue 23 smoke passed 5/5 per platform for cleanup/no replay/read compatibility/no old-review notifications.
+
+Real GitHub webhook delivery, GitHub MCP, and Telegram/QQ were not exercised. Loopback/mock smoke is not a real-platform loop. This migration reruns no runtime tests; current operation guidance is [usage](../../../../docs/usage.md), not the offline scripts.

@@ -1,39 +1,39 @@
-# Agent Note: Telegram 服务权限由原收件和宿主选择持有
+# Agent Note: Original Telegram receipts and host choices own service permissions
 
 Status: implemented
 
-入口在线切换及发送前短互斥见[个人 IM 更新](2026-10-25-personal-im-updates.md)；旧代次不恢复授权，权限与批准仍按本文的原来源核实。
+[Personal IM updates](2026-10-25-personal-im-updates.md) owns online entry changes and short pre-send locking. Old generations do not regain authorization; permissions/approvals still verify original sources here.
 
-## 问题
+## Problem
 
-[文本入口](../../implemented/architecture/2026-10-17-personal-telegram-entry.md)只记录收发，[服务工作](../../implemented/architecture/2026-10-17-personal-service-operations.md)只有可信宿主审批 API。把聊天内容转成决定会让模型或过期入口提供权限，按当前默认模式重建旧输入又会扩大原委托。
+The [text entry](2026-10-17-personal-telegram-entry.md) only records messages, and [service work](2026-10-17-personal-service-operations.md) only has trusted host approval APIs. Turning chat text into decisions lets models or expired entries authorize operations. Reconstructing old input with current default mode expands its delegation.
 
-## 决定
+## Decision
 
-Telegram 普通输入在收件事务保存模式与版本；服务请求引用原 Submission 和收件，执行前重查原绑定。模式变更只影响新收件。旧无权限快照收件仍可聊天，但不能建立新的服务工作；旧版本已建立的 Telegram 来源服务工作未消费时失效，已消费时继续未知核实与占用；本机可信 API 的现有显式授权独立保留。审批命令由宿主在收件时完整解析，不进入模型，也不等待模型队列。
+Ordinary Telegram input saves mode/version in the receipt transaction. Service requests reference original Submission/receipt and recheck the original binding before execution. Mode changes affect new receipts only. Old receipts without permission snapshots still support chat but cannot create new service work. Legacy Telegram-source service work becomes invalid before consumption; consumed work retains unknown-effect verification/occupancy. Existing explicit authorization from trusted local APIs remains separate. The host parses complete approval commands at receipt, outside model input/queueing.
 
-宿主使用已发送回执的 Telegram message ID 保存选择关系。拥有者先查询 `/审批`、`/服务状态` 或 `/授权`，然后回复该条宿主消息选择动作；每条操作仍绑定原 bot、owner 和配置代次。转发不携带决定资格，引用内容不参与解析。控制收件去重、决定、授权与固定回执意图同 commit；发送沿原生 Task 的 sending/verify 机制，失去结果不重发。
+The host stores choice relationships using Telegram message IDs from confirmed sends. The owner first queries `/审批`, `/服务状态` or `/授权`, then replies to that host message with a listed action. Each operation remains bound to original bot, owner and configuration generation. Forwarding grants no decision eligibility; quoted content is not parsed. Control-receipt deduplication, decision, authorization and fixed acknowledgement intent commit together. Native Task sending/verify retains lost outcomes without replay.
 
-已接受的控制收件保存结构化决定与创建授权引用，授权反向核实该引用；不能用同正文但未被接受的回执替代。历史未知完成效果及停止核实后不再撤销后来的新授权。
+Accepted control receipts save structured decisions and created-authorization references; grants verify the reverse reference. An unaccepted receipt with identical text cannot substitute. Once historical unknown effects/stopping are verified, that old operation does not revoke later new grants again.
 
-长期授权范围沿[限定服务授权](../../implemented/feature/2026-10-03-standing-permissions.md)，只从 pending 原审批创建，不给 full_access 或模型提供自由授权接口。保存原操作与控制消息来源；消费逐次复核原绑定、部署修订及授权版本。撤销先提交使未消费候选回到人工；消费先提交不撤回外部操作。服务效果未知使同机器/单元的所有入口授权失效，未知占用仍由既有服务 Task 保持。普通独立单次批准不依赖另一授权。
+Standing scope follows [bounded service authorization](../feature/2026-10-03-standing-permissions.md), created only from the original pending approval. Neither full_access nor models get a free-form grant API. Original operation/control-message source is retained; every consumption rechecks binding, deployment revision and grant version. Revocation committed first returns unconsumed candidates to manual approval; consumption committed first does not undo the external operation. Unknown service effects invalidate every entry's grants for the same machine/unit, while the service Task retains unknown occupancy. Independent one-use approval does not depend on another grant.
 
-新迁移规格保留重启后的未消费审批并执行前复核；旧共享底座笔记中的重启失效规则不移植到 durable。主会话显式登记 `personal-telegram-permissions` 空扩展标记，使旧程序按缺扩展拒绝打开新权限档案；标记和权限记录同 commit 配置。新授权/权限记录及服务引用缺失或版本不符时拒绝恢复，不从最新配置猜测旧权限。
+The migration preserves unconsumed approvals through restart and rechecks before execution; the shared foundation's restart-invalidation rule is not transplanted. Main registers the empty personal-telegram-permissions extension marker in the same commit as permission records, so old code rejects an unrecognized profile. Missing/version-mismatched new grant/permission records or service references reject recovery rather than guessing from latest configuration.
 
-## 既有笔记审计
+## Related decisions
 
-检索 durable、Telegram、原 IM 审批、长期授权与效果未知；迁移提案、文本入口、服务工作、[共享底座审批](../../implemented/feature/2026-10-02-im-approval-and-final-report.md)与限定服务授权部分重叠，分别保留并互链。本切片只改变个人 durable，旧 Runtime/核心库消费者继续使用原决定；无完全吸收或过时提案。
+The original audit searched durable, Telegram, original-IM approval, standing authorization and unknown effects. Migration, text entry, service work, [shared approvals](../feature/2026-10-02-im-approval-and-final-report.md) and bounded service authorization retain their separate decisions. This changes Personal durable only; old Runtime/core consumers keep their rules. No note was wholly absorbed or obsolete.
 
-## 备选方案
+## Alternatives considered
 
-- 沿用完整审批 ID 与版本的文本命令：实现简单，但让拥有者管理内部标识；使用原宿主消息的回复关系。
-- 把控制消息交给主模型解释：自然语言较灵活，但不能保证来源、幂等决定和零模型审批；只解析宿主列出的完整动作。
-- 同批开放模型服务写工具和服务配置向导：更快形成完整用户流程，但还涉及模型工作归属与未知暂停接线；本切片保持可信宿主请求，先完成可验证的权限闭环。
+- Text commands with full approval IDs/versions: simple implementation, but makes the owner manage internal identifiers. Use replies to original host messages.
+- Ask main to interpret controls: flexible language, but cannot guarantee source, idempotent decisions and zero-model approval. Parse only complete listed actions.
+- Add model service writes/configuration wizards together: faster end-to-end flow, but requires model-work ownership and unknown pauses. This slice first completes a verifiable permission loop using trusted-host requests; later service/configuration notes own their additions.
 
-## 验证
+## Verification
 
-[窄工单](../../../../.scratch/personal-pi-durable/issues/08-telegram-service-approval.md)列出控制零模型、原入口/代次与快照、重投、恢复、长期授权及撤销竞争和未知效果反例。
+Original zero-model controls, entry/generation/snapshot checks, redelivery, recovery, standing grants, revocation races and unknown-effect counterexamples are recorded offline at `.scratch/personal-pi-durable/issues/08-telegram-service-approval.md`.
 
-## 后果
+## Consequences
 
-回复关系依赖可信平台消息身份；未知发送没有可验证的菜单消息 ID，必须重新显式查询。查询与决定的回执同样可能发送未知，拥有者应查询原记录核实，不能据回执缺失推断未决定。服务配置向导、模型写工具、真实平台和完整产品验收仍在总方案待完成。
+Reply relationships depend on trusted platform message identity. Unknown sends have no verified menu message ID, requiring a new explicit query. Query/decision acknowledgements can themselves have unknown send results: inspect original records rather than infer non-decision from a missing receipt. Service configuration/model-write implementation and real-platform/complete-product acceptance remain separately owned; this permission slice alone proves none of them.

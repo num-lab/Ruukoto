@@ -1,36 +1,33 @@
-# Agent Note: 个人会话后台与共享目录认领
+# Agent Note: Personal session background processes share directory claims
 
 Status: implemented
 
-完全访问后台装配与持续监督的保护扫描由[按操作核实范围](../bug-fix/2026-10-24-operation-specific-checks.md)移除；来源、cwd身份、停止与认领规则继续适用。
+[Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) removes protection scans from full-access background setup/supervision. Provenance, cwd identity, stop, and claim rules remain.
 
-## 问题
+## Problem
 
-个人 durable 的两分钟 `run_command` 归子工作持有，调用收尾停止原单元，不能支撑跨消息服务。仅在新后台启动时查询命令表也挡不住已准备但未派发的命令，或正在等待批准的文件写入；旧程序不了解新认领时会绕过占用。
+Personal's two-minute run_command belongs to child work and stops its original unit on completion, so it cannot host a service across messages. Checking command records only when background start begins misses prepared-but-undispatched commands and file writes awaiting approval. Older code unaware of new claims could bypass occupancy.
 
-## 决定
+## Decision
 
-个人主拥有者的完全访问输入新增 `process_start/status/output/stop`，固定沿原 `command.json` 目录与Linux机器身份，复用共享 `BackgroundExecution` 的一次认领、独立worker和原scope停止原语。子工作、定时及汇总不开放会话后台。原两分钟 `run_command` 保留前台及工作归属；没有同等个人配置与执行能力的平台明确拒绝，不借Coding的macOS支持扩大个人平台。
+Main-owner full-access input gains process_start/status/output/stop, pinned to original command.json directory/Linux machine identity and reusing shared BackgroundExecution one-time claim, independent worker, and original-scope stop. Children, scheduled tasks, and summaries get no session backgrounds. Two-minute run_command retains foreground/work ownership. Platforms without equivalent Personal configuration/execution reject rather than inherit Coding's macOS support.
 
-后台接纳同durable commit保存来源、独立后台Task、目录认领和不可改entry；实际launch前保存一次指纹认领。重复原工具只查原记录，冷恢复只停止原身份，不重放命令。后台归主会话，创建轮结束或取消不级联停止；原入口或实际权限失效、目录变化、日志限额、应用关闭均登记停止。主命令退出、受管单元停止与外部业务效果分别记录，未知停止保留认领。
+One durable acceptance commit saves source, independent background Task, directory claim, and immutable entry. Before actual launch, persist a one-time fingerprint claim. Duplicate original tools query records only; cold recovery stops original identities, never replays. Processes belong to main conversation, so creating-round completion/cancellation does not cascade stop. Original-entry/authority invalidation, directory change, log budget, or app shutdown registers stop. Main command exit, managed-unit stop, and business effects are separate facts; unknown stop retains the claim.
 
-目录认领是独立session document，覆盖后台starting、普通命令prepare/start和文件写批准消费。所有入口在各自commit中双向核实父子路径和dev/ino别名，认领绑定原操作及不可改获取/释放entry。命令按原停止和效果核实释放，文件写按实际写入/关闭观察释放；未知事实及意外Task终态不能清除认领。恢复先核对document、entry、Task、来源与认领的正反链，再触及外部身份。个人业务格式 `extensions.personal=2` 与独立认领记录共同保护文件写入口，包括未配置命令的档案；旧程序精确拒绝，新程序也不补造旧未决工作的认领或授权。
+An independent session document owns directory claims covering background starting, ordinary-command prepare/start, and file-write approval consumption. Each entry's transaction checks parent/child paths and dev/ino aliases both ways. Claims bind original operations and immutable acquire/release entries. Commands release only under original stop/effect proof; file writes use actual write/close observation. Unknown facts or unexpected terminal Tasks cannot clear claims. Recovery checks document/entry/Task/provenance/claim backlinks before external identities. extensions.personal=2 and separate claims protect file writes even without command configuration; old code rejects exactly, and new code never fabricates claims/authority for legacy unresolved work.
 
-启动后的当前轮和后续观测轮使用统一主工具策略，只开放本会话状态、日志、可信停止、提问和仍具同原入口完全访问资格的浏览器；提问pending再作交集。实际请求准备、发送前证据和工具调用均核实阶段，普通worker、目录工具、MCP和委派先停后台再使用。定时配置显式排除全部 `process_*`，来源权限与目录认领继续约束原命令和文件写。
+A unified main-tool policy for the starting and observation rounds exposes only same-session status/logs/trusted stop/questions and browser still eligible under the same original full-access entry. Pending questions further intersect that set. Prepare, presend evidence, and invocation all verify phase. Ordinary workers, directory tools, MCP, and delegation require stopping background first. Scheduled config explicitly excludes every process_*; source authority/claims still govern ordinary commands and writes.
 
-日志私有保存并核实dev/ino、长度及SHA，stdout/stderr合计16MiB，读取每页32KiB原字节并附base64。data回调当场计数裁剪，固定缓冲与至多一个待提交批次限制排队；超额只登记一次停止。短写保留实际字节并停止，数据库提交失败冻结后续队列、停止已掌握单元并关闭Harness，明确报告 `background_persistence_failed`，不以stderr代替恢复事实。文件与durable提交不声称原子；重开发现不一致保留认领和现场。
+Private logs verify dev/ino, length, and SHA. stdout/stderr total <=16MiB; reads page 32KiB original bytes/base64. Data callbacks count/trim immediately; fixed buffers and at most one pending commit batch bound queues. Exceeding budget registers stop once. Short writes retain real bytes then stop. DB commit failure freezes later queues, stops known units, closes Harness, and reports background_persistence_failed; stderr never substitutes for durable recovery facts. Files/durable commits are not atomic; inconsistent reopening retains claims/evidence.
 
-本机认证接口和原IM菜单提供列表、原字节日志、单停与显式结束；平台私聊按原账号、owner、配置代次和已送达菜单引用核实，本机可管理旧入口。结束请求持久保存稳定键、来源接纳水位及原目标，IM屏障只覆盖同原入口，本机屏障覆盖所有入口；后台统一读取来源解析的接纳entry，包含提问答案的原接纳，拦住此前接纳但尚未交接的启动。重取原键不扩大到之后新启动。退出客户端或存档不结束后台，后台关闭与重开只停止原执行。停机配置拒绝仍有效的共享认领。
+Local authenticated controls/original IM menus list, read raw logs, stop one, or explicitly end backgrounds. Private-platform menus validate account/owner/config generation/delivered menu; local authority can manage old entries. End requests persist stable key, source-acceptance watermark, and original targets. IM barriers cover only the original entry, local barriers all entries. Backend source resolution uses original acceptance entries, including question answers, preventing earlier accepted but not-yet-dispatched starts. Reusing a key does not capture later starts. Client exit/archive does not end processes; backend shutdown/reopen only stops original execution. Offline config rejects effective shared claims.
 
-按个人命令、目录占用、durable、后台和停止恢复检索：[原后台提案](../../proposed/feature/2026-10-14-bash-background-lifecycle.md)、[Coding会话后台](2026-10-21-coding-background-processes.md)、[个人命令归属](../architecture/2026-10-17-personal-durable-commands.md)、[完全访问命令](../architecture/2026-10-17-personal-full-access-commands.md)、[文件操作](../architecture/2026-10-17-personal-tools-access-artifacts.md)及[独立定时](../architecture/2026-10-18-personal-durable-scheduled-work.md)均部分重叠，分别保留原语、业务和来源职责；本篇落实个人后台与共享认领，不取代其余决定。没有完全吸收或应归档的记录。
+[Background proposal](../../proposed/feature/2026-10-14-bash-background-lifecycle.md), [Coding backgrounds](2026-10-21-coding-background-processes.md), [durable commands](../architecture/2026-10-17-personal-durable-commands.md), [full-access commands](../architecture/2026-10-17-personal-full-access-commands.md), [file tools](../architecture/2026-10-17-personal-tools-access-artifacts.md), and [schedules](../architecture/2026-10-18-personal-durable-scheduled-work.md) keep primitive/business/provenance ownership.
 
-## 备选方案
+## Alternatives considered
 
-- 仅后台启动时扫现有命令表，代码较少，但准备中命令和待批准写入可以之后穿过；共用事务认领封住两个方向。
-- 复用旧Store、ApprovalGate和后台管理器，可直接沿用工具族，但会重新引入个人已退役的业务运行时；只复用不持有业务状态的执行与停止原语。
-- 把后台归原工具或原工作，可复用取消传播，但创建轮结束会错误停止服务；独立conversation-owned后台Task和记录保留跨轮归属。
-- 自动给旧档案补claim，表面上减少停机成本，但无法证明旧未决写入及未知效果归属；精确拒绝旧业务格式，保留原件供匹配程序查看。
+Scanning commands only at background start is smaller but misses later dispatch from prepared commands/approved writes. Reusing legacy Store/ApprovalGate/manager imports retired Personal runtime; share stateless execution/stop only. Owning backgrounds by original tool/work wrongly stops services when that round ends. Backfilling old claims reduces migration friction but cannot prove original unresolved write/effect ownership; reject old business formats and preserve originals for matching code.
 
-## 后果
+## Consequences
 
-个人服务能跨拥有者消息保留，同时守住先停后改和原引用停止。代价是未知事实会持续占用目录，新业务格式需要独立新档案；完全访问主动脱离的进程或外部服务仍需单独核实。实现与验收范围由[有效工单](../../../../.scratch/agent-tool-completion/issues/04-personal-adapters.md)持有，平台桩不替代真实Linux、模型与IM验收。
+Services survive owner messages while retaining stop-before-modify and original-reference stop. Unknown facts can occupy directories indefinitely; the new business format requires an independent new profile. Full-access escaped processes/external services need separate effect verification. Historical scope/evidence is in `.scratch/agent-tool-completion/issues/04-personal-adapters.md` offline; platform stubs do not replace real Linux/model/IM acceptance.

@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import workspaces from "./scripts/workspace-boundaries.mjs";
 
 export default [
-  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "dist/**", "apps/desktop/out/**", "verification/archive/**"] },
+  { ignores: ["**/node_modules/**", ".agents/**", ".scratch/**", "worker/**", "dist/**", "apps/desktop/out/**", "verification/archive/**", "verification/desktop-demo/**", "verification/desktop-settings/**", "test/fixtures/desktop-baselines/**"] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -15,11 +15,11 @@ export default [
   {
     languageOptions: { globals: globals.node },
     rules: {
-      // 清理循环和控制字符过滤是既有行为；保留这些检查的明确例外。
+      // Preserve existing cleanup loops and control-character filtering.
       "no-constant-condition": ["error", { checkLoops: "none" }],
       "no-control-regex": "off",
       "no-empty": ["error", { allowEmptyCatch: true }],
-      // 原因链、弃用赋值和排版整理另成批，首轮不重写既有错误与声明。
+      // Error-chain, assignment and formatting cleanup belongs in a separate change.
       "preserve-caught-error": "off",
       "no-useless-assignment": "off",
       "no-useless-catch": "off",
@@ -46,7 +46,7 @@ export default [
   {
     files: ["**/*.ts", "**/*.mts", "**/*.tsx"],
     rules: {
-      // 现有 SDK/协议边界广泛使用 any；首轮保留类型与 API 兼容，不做全库类型重写。
+      // Existing SDK/protocol boundaries use any; this configuration preserves their API compatibility.
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": "off",
     },

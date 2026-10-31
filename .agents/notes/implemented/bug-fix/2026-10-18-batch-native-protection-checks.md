@@ -1,25 +1,25 @@
-# Agent Note: 原生依赖批量核对保护树
+# Agent Note: Batch native dependency checks against protected trees
 
 Status: implemented
 
-[读取检查复用](2026-10-24-read-check-overhead.md)将本篇的批量核对扩展至原生显式挂载，运行依赖的逐保护根例外保持。
+[Read-check reuse](2026-10-24-read-check-overhead.md) extends this batching to explicit native mounts while retaining per-protected-root exceptions for runtime dependencies.
 
-## 问题
+## Problem
 
-原生启动逐个运行依赖核对保护根，每个候选都同步遍历同一保护树。代码根包含依赖和证据资料，多个真实 worker 并行准备时，重复扫描使正常工作超过测试等待，也阻塞宿主推进其他事件。保护树子对象的 bind 与硬链接别名仍须按物理身份拒绝，不能用文本路径或 nlink 快速放行。
+Native startup synchronously traversed the same protected tree for each runtime dependency. Source roots contain dependencies and evidence; concurrent real workers multiplied scans, exceeded normal waits and blocked unrelated host events. Bind/hard-link aliases of protected descendants still require physical identity checks, not path strings or `nlink` shortcuts.
 
-## 决定
+## Decision
 
-同次原生启动对每个保护根批量核对运行依赖。候选与祖先的 dev/ino 汇成集合，按既有不跟随符号链接、目录 inode 去重的算法遍历保护树一次；命中任一身份即拒绝，保护根的文本/物理祖先也拒绝。代码资产的只读例外仍逐保护根计算；显式挂载、文件别名权限与硬链接条目闭合检查保持。
+Within one native startup, batch runtime dependencies separately for each protected root. Collect candidate and ancestor `dev`/`ino` identities, then traverse each protected tree once using the existing no-symlink-following and directory-inode-deduplication algorithm. Any identity match rejects access, as do textual or physical ancestors of the protected root. Read-only code-asset exceptions remain per protected root. Explicit mounts, file-alias permissions and hard-link closure checks retain their rules.
 
-批量核对只在一个同步调用内保存固定路径身份；返回前复核候选、祖先和保护根。目录退出遍历时核对其身份及目录项修订，读取错误或已观察变化向调用方传播，原生单元尚未创建。单目标入口复用物理扫描算法，保留既有判定和错误；不保存跨调用或跨启动的放行结果。
+The batch retains fixed identities only within one synchronous call. Before returning, recheck candidates, ancestors and protected roots; on directory exit, recheck identity and entry revisions. Read failures or observed changes propagate before native-unit creation. Single-target callers reuse the physical-scan algorithm and existing errors. No successful authorization is cached across calls or startups.
 
-本篇补充[原生执行](../architecture/2026-10-10-native-execution-sandbox.md)的核对成本与批量实现，不改[当前工作区快照](../architecture/2026-10-15-current-workspace-snapshots.md)的来源保护要求。两篇仍分别持有执行身份和来源/副本契约；其他笔记未发现同一批量决定。
+This supplements the cost model of [native execution](../architecture/2026-10-10-native-execution-sandbox.md), not source protection in [workspace snapshots](../architecture/2026-10-15-current-workspace-snapshots.md). Those notes retain execution identity and source/copy ownership respectively.
 
-## 备选方案
+## Alternatives considered
 
-完整保护树 inode 索引可服务多个候选，但内存随保护树条目数增加，索引生命周期还容易跨过异步准备；采用目标祖先集合反向核对，遍历结束即丢弃。全局缓存能减少跨启动扫描，却无法可靠观察外部路径、硬链接或挂载变化，不能作为放行依据。延长等待或统一串行测试能减少超时，但重复同步扫描仍阻塞宿主，因此保留原等待与并发入口。
+A full protected-tree inode index can serve many candidates but consumes memory proportional to entries and risks surviving asynchronous preparation. Use the smaller target-ancestor set and discard it after traversal. A global cache cannot reliably observe external paths, hard links or mount changes, so cannot authorize access. Longer waits or serial tests hide timeouts without fixing synchronous event-loop blockage; retain the existing wait and concurrency entry points.
 
-## 后果
+## Consequences
 
-运行依赖保护核对的遍历成本随保护树条目数增加，不再额外乘以候选数；单目标调用仍按次扫描，授权树和大仓库的遍历成本没有消失。核对不构成文件系统原子快照，宿主外部特权准备的原生旁路仍按既有范围单列；本修复不解释历史停止身份核实失败。
+Runtime-dependency scanning grows with protected-tree entries, no longer multiplied by candidate count. Single-target calls still scan each time; large trees remain costly. These checks are not an atomic filesystem snapshot. Privileged external native preparation retains its separately stated limits, and this fix does not explain historical stop-identity verification failures.

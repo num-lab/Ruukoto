@@ -1,117 +1,91 @@
-# 控制面协议与进程通信
+# Control Protocol
 
-## 职责与边界
+## Responsibilities and Boundaries
 
-`control` 模块（对应 `packages/control/src/`）是 Coding Agent 后台服务对外暴露的唯一进程间通信边界。它在受保护的 Unix Domain Socket 上提供结构化的 JSON-RPC 协议与双向流式事件广播。
+`packages/control/src/` exposes the Coding backend through a protected Unix socket with line-delimited JSON requests and bidirectional events. The socket at `<controlDir>/control.sock` uses mode `0600`; every business operation requires owner-token authentication. Production Personal has [separate durable and remote protocols](personal-durable.md).
 
-> 注：本篇描述 Coding Agent 客户端协议；正式个人 Agent 采用原生的 durable 进程间通信与远程协议，见[个人持久会话](personal-durable.md)。
+Control validates protocol versions, authenticates, bounds large payloads and replays committed events by monotonic `seq`. [Runtime](runtime.md) owns execution; [core](core.md) owns storage; [TUI](tui.md) owns rendering and on-demand startup.
 
-### 核心职责
-- **Unix Socket 监听与访问控制**：在 `<controlDir>/control.sock` 建立本地套接字，收紧文件系统权限位（`0600`）。
-- **拥有者令牌认证（Owner Token）**：采用常量时间算法比对随机认证令牌，强制要求所有业务请求前必须完成身份鉴权。
-- **协议版本协商与分帧**：基于每行一个 JSON 对象的简洁分帧格式（行分隔），严格校验客户端与服务端的协议版本一致性。
-- **持久事件流广播与补发**：维护单调递增的事件流水号（`seq`），向连接的客户端推送流式事件增量，支持断线重连按游标补发。
-- **大载荷有界化**：对工具执行大输出、Diff 补丁与日志实施分段与有界截断，避免单个超大帧阻塞通信管道。
+## Public Interfaces
 
-### 边界与非职责
-- 任务排队、状态机流转与执行画像归 [runtime](runtime.md)。
-- 终端界面全屏渲染与按需拉起进程管理归 [tui](tui.md)。
-- 数据库落盘与会话元数据存储归 [core](core.md)。
+Each frame ends in `\n`.
 
-## 对外接口
+| Frame | Structure | Meaning |
+| --- | --- | --- |
+| Request | `{ v, id, op, params }` | Protocol version, request ID, operation and arguments |
+| Response | `{ v, id, ok, result \| error }` | Result or structured error |
+| Event | `{ v, push: "event", event }` | Persistent event with sequence, type and payload |
+| Narrow client request | `{ v, push: "request", id, op, params }` | Only to a connection registered by `desktop_browser_register`; response uses the ordinary response frame |
 
-### 1. 通信协议帧规范
+| Operations | Purpose |
+| --- | --- |
+| `auth`, `ping`, `connect`, `stop` | Authenticate, inspect liveness, install snapshot and stop |
+| `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue` | Task and queue lifecycle |
+| `task_queue`, `queue_reorder`, `steer_task` | Persisted queue order and steering |
+| `get_task`, `list_tasks`, `read_task_events` | Task/event reads |
+| `respond_confirmation`, `get_confirmation_params` | Owner decisions and bounded parameter reads |
+| `open_workspace`, `create_session`, `branch_session`, `compact_session` | Workspace identity, new/branched conversations and explicit compaction |
+| `open_side_chat`, `find_side_chat`, `submit_side_chat` | Prepare/reopen side chat, verify original request, submit plain text |
+| `list_models`, `get_model_config`, `set_session_model`, `test_model_connection` | Model catalog, configuration and connection tests |
+| `workflow_start`, `workflow_list`, `workflow_control`, `workflow_answer` | Workflow execution and owner interaction |
+| `read_history`, `read_tool_result`, `read_artifact` | Read-only history, tool details and artifact slices |
+| `mcp_list`, `mcp_configure`, `mcp_check`, `mcp_set_enabled` | Instance services, local effect classes and discovery |
+| `mcp_cua_status`, `mcp_cua_stop`, `mcp_cua_observe`, `mcp_cua_accept` | Verify original execution stop, obtain and accept a fresh observation |
+| `desktop_browser_register`, `desktop_browser_event`, `desktop_browser_chunk` | Bind browser connection, upload page facts and bounded image/snapshot chunks |
 
-通信在 Unix Domain Socket 上进行，每帧以 `\n` 结尾：
+After verified Cua stopping, call `mcp_cua_observe` directly. Retired `mcp_cua_begin_recovery` is rejected as unknown. Personal's original-call finalization uses its own [desktop management protocol](desktop.md#mcp-call-finalization-and-computer-recovery).
 
-| 帧类型 | 结构规范 | 核心字段说明 |
-|---|---|---|
-| **请求帧** (客户端 → 服务端) | `{ v, id, op, params }` | `v`: 协议版本号；`id`: 请求流水号；`op`: 操作名；`params`: 参数载荷 |
-| **应答帧** (服务端 → 客户端) | `{ v, id, ok, result \| error }` | `ok: true` 返回业务数据 `result`；`ok: false` 返回结构化错误对象 `error` |
-| **事件推送** (服务端 → 客户端) | `{ v, push: "event", event }` | `event` 包含单调递增的 `seq`、事件类型 `type` 与业务载荷 |
-| **窄请求** (服务端 → 已登记客户端) | `{ v, push: "request", id, op, params }` | 仅发往以 `desktop_browser_register` 登记浏览器能力的连接；客户端以 `{ v, id, ok, result \| error }` 应答帧回流 |
-
-### 2. 控制面核心操作分类 (op 目录)
-
-| 操作类别 | 代表性 op 名称 | 核心能力说明 |
-|---|---|---|
-| **鉴权与连接** | `auth`, `ping`, `connect`, `stop` | 令牌鉴权、服务活性探测、全量快照握手与服务优雅停止 |
-| **任务与队列控制** | `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue`, `task_queue`, `queue_reorder`, `steer_task` | 任务提交、在途任务中断与取消、模式切换（受限/完全访问）、队列恢复、持久顺序读取与重排、排队输入转引导 |
-| **状态与事件查询** | `get_task`, `list_tasks`, `read_task_events` | 任务执行状态检索与事件历史分页拉取 |
-| **安全审批响应** | `respond_confirmation`, `get_confirmation_params` | 拥有者批准/拒绝敏感操作；按需分段读取超长审批参数 |
-| **会话与工作区** | `open_workspace`, `create_session`, `branch_session`, `compact_session`, `open_side_chat`, `find_side_chat`, `submit_side_chat` | 映射工作区目录、新建会话、按已完成任务或当前安全尾拉取会话分支与手动触发历史压缩；侧聊三操作分别完成创建/重开、原键核实与纯文本提交 |
-| **模型与凭据配置** | `list_models`, `get_model_config`, `set_session_model`, `test_model_connection` | 动态查询模型目录、按会话切换模型、保存 API Key 与执行连通性测试 |
-| **工作流控制** | `workflow_start`, `workflow_list`, `workflow_control`, `workflow_answer` | 启动自动化工作流、查询执行步骤、人工干预与问答提交 |
-| **历史与产物读取** | `read_history`, `read_tool_result`, `read_artifact` | 只读解析 JSONL 会话历史、读取工具执行补丁与提取产物二进制片段 |
-| **实例 MCP 管理** | `mcp_list`, `mcp_configure`, `mcp_check`, `mcp_set_enabled` | 管理实例服务、允许工具与本地效果类别，检查连接与发现工具 |
-| **电脑恢复** | `mcp_cua_status`, `mcp_cua_stop`, `mcp_cua_observe`, `mcp_cua_accept` | 核实原执行停止、取得新观察并接受当前新图 |
-| **桌面浏览器通路** | `desktop_browser_register`, `desktop_browser_event`, `desktop_browser_chunk` | 登记浏览器能力连接身份、页面事实上行、截图/快照 ≤256KiB 分块回流 |
-
-电脑恢复在停止核实后直接调用 `mcp_cua_observe`；独立的 `mcp_cua_begin_recovery` 已退役，旧请求按未知操作拒绝。Personal 的原调用人工结束走其远程管理协议，入口见[桌面客户端](desktop.md#mcp-原调用收尾与电脑恢复)。
-
-## 数据与状态
-
-### 客户端连接与鉴权状态机
+## Data and State
 
 ```mermaid
 stateDiagram-v2
-  [*] --> connected: Socket 连接建立
-  connected --> authed: 发送 auth(token) 验证通过
-  connected --> rejected: 令牌错误或协议版本不匹配
-  authed --> ready: 执行 connect 握手，拉取初始快照
-  ready --> streaming: 订阅事件流，双向收发 RPC
-  streaming --> closed: 客户端主动退出或服务停止
+  [*] --> connected
+  connected --> authenticated: auth succeeds
+  connected --> rejected: Invalid token/version
+  authenticated --> ready: connect snapshot
+  ready --> streaming
+  streaming --> closed
   rejected --> [*]
   closed --> [*]
 ```
 
-### 令牌分发与优先级解析
+Owner-token lookup is ordered: `RUUKOTO_OWNER_TOKEN`, then `RUUKOTO_OWNER_TOKEN_FILE`, then `<controlDir>/owner.token`.
 
-客户端解析拥有者认证令牌时，严格按以下优先级回退查找：
-1. **环境变量**：`RUUKOTO_OWNER_TOKEN`（最高优先级，适合容器与自动化测试）；
-2. **凭据文件路径**：`RUUKOTO_OWNER_TOKEN_FILE`（适合生产多用户部署）；
-3. **默认凭据文件**：`<controlDir>/owner.token`（本地开发与单机默认）。
-
-## 主要流程
-
-### 客户端连接与事件订阅时序
+## Main Flows
 
 ```mermaid
 sequenceDiagram
-  participant Client as 客户端 (TUI / CLI)
-  participant Socket as 控制面 Socket
-  participant Dispatcher as 控制面派发器
-  participant Runtime as 运行时核心
-
-  Client->>Socket: 建立 Unix Socket 连接
-  Client->>Dispatcher: auth({ token: "..." })
-  Dispatcher->>Dispatcher: 常量时间比对 owner.token
-  Dispatcher-->>Client: { ok: true, result: { authenticated: true } }
-  Client->>Dispatcher: connect({ clientName: "tui" })
-  Dispatcher->>Runtime: 获取当前系统状态快照
-  Dispatcher-->>Client: 返回全量快照与当前 event_seq 水位
-  loop 实时事件驱动
-    Runtime->>Dispatcher: 产生 task.output_fragment / task.completed
-    Dispatcher-->>Client: push: "event" (带连续 seq)
+  participant Client
+  participant Control
+  participant Runtime
+  Client->>Control: Open Unix socket
+  Client->>Control: auth(token)
+  Control->>Control: Timing-safe token comparison
+  Control-->>Client: Authenticated
+  Client->>Control: connect(clientName, cursor)
+  Control->>Runtime: Read snapshot and event watermark
+  Control-->>Client: Snapshot / replay
+  loop Committed events
+    Runtime->>Control: Persistent event
+    Control-->>Client: Event with seq
   end
 ```
 
-1. **严格鉴权守卫**：连接建立后必须首先发起 `auth` 操作。在鉴权成功前，服务端对所有其他 op 调用均直接拒绝。
-2. **快照与事件对齐**：客户端执行 `connect` 时获取最新系统快照与当前事件水位号（`seq`），后续增量事件按序追加，杜绝状态盲区。
-3. **断线平滑恢复**：若客户端短暂断开，重连鉴权后传入上次处理的 `seq`，控制面直接从持久事件表中拉取未消费事件补齐。
+Version validation precedes authentication and dispatch. Authentication precedes business reads/writes. Snapshot and sequence align the client's starting state; reconnect reauthenticates and uses the last consumed sequence to recover missing events.
 
-电脑恢复沿“停止核实 → 新图观察 → 接受此观察”转发到运行时。控制面传递原恢复身份与当前观察，真实执行停止、图片保存和接受资格由运行时核实。
+Computer recovery forwards the original recovery identity and fresh observation through **verify stop → observe → accept**. Runtime verifies real execution, image persistence and acceptance eligibility.
 
-## 不变量与失败处理
+## Invariants and Failure Handling
 
-- **鉴权先于一切业务**：未通过 `auth` 校验的连接，绝对无法触发任何数据读取、会话操作或任务提交。
-- **常量时间比对（Timing-safe）**：服务端验证令牌时使用 `crypto.timingSafeEqual`，防止通过统计学旁路时序攻击推测令牌。
-- **大参数有界传输防阻塞**：对于超过 1 MiB 的工具输出或大参数，控制面接口强制要求客户端按 offset 与 limit 分片读取，防止打爆内存与套接字缓冲区。
-- **协议版本硬匹配**：当前协议为 `47`，版本检查先于认证与业务派发。不匹配时返回 `protocol_version`；旧客户端需升级，新客户端遇到旧后台需结束旧进程后重开入口。
-- **桌面浏览器来源归属**：任务是否源自 MyGo 登记连接由服务端按 socket 写定（`submit`/`continue`/`owner_question_answer`），客户端参数不能自称；页面事件、分块与窄命令应答只认发出时那个连接，断线即解绑且不可继承。截图/快照走有界分块（≤256KiB/块、合计 ≤8MiB、sha256 校验），不走持久事件重放。
+- Unauthenticated connections cannot read data, manage conversations or submit work. Tokens use `crypto.timingSafeEqual`.
+- Large output and parameters use bounded `offset`/`limit` slices rather than unbounded frames.
+- Current protocol is `47`; mismatch returns `protocol_version`. Upgrade an old client, or explicitly stop an old backend before reopening a new client.
+- The server binds MyGo browser provenance from the actual socket on `submit`, `continue` and `owner_question_answer`; client parameters cannot assert it.
+- Browser events, chunks and narrow responses belong to the exact registered connection. Disconnect revokes it; another connection cannot inherit it.
+- Browser snapshots/screenshots use at most 256 KiB per chunk and 8 MiB total, verified by SHA256, and are not replayed as persistent events.
 
-## 设计依据
+## Design Rationale
 
-- [后台任务与终端](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
-- [人类文档与决策记录](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)
-- [MCP 宿主职责收缩](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)：删除独立电脑开始恢复操作，以协议升级明确拒绝旧客户端。
+- [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
+- [Split agent and human docs](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)
+- [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)

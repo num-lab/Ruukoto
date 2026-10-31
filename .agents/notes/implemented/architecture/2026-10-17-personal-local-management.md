@@ -1,52 +1,56 @@
-# Agent Note: 隔离个人实例由后台独占并通过本机接口管理
+# Agent Note: One backend owns the personal profile and exposes local management
 
 Status: implemented
 
-普通配置的在线保存、对象生效与原键核实由[设置保存与生效](2026-10-25-personal-settings-versions.md)收窄；本文其余本机认证、档案锁、输入及管理接口约束继续适用。
+[Configuration saving and activation](2026-10-25-personal-settings-versions.md) narrows the original stop/global-idle rules. [Tailscale HTTPS/WebSocket](2026-10-24-personal-tailscale-https.md) adds a separate remote entry without replacing the local socket, single Harness, or lock. [Atomic token publication](../bug-fix/2026-10-24-personal-token-atomic-publish.md) owns publication details; authentication and refusal of malformed existing tokens remain.
 
-独立远程入口见 [Tailscale HTTPS／WebSocket](2026-10-24-personal-tailscale-https.md)；本机 Unix socket、唯一 Harness 与锁规则保持。
+## Problem
 
-逐启动令牌的完整发布方式见[原子发布修复](../bug-fix/2026-10-24-personal-token-atomic-publish.md)，认证与坏令牌拒绝的决定保持。
+[The durable migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) keeps a guided CLI, requires work to survive client disconnection, and gives the running backend exclusive Harness ownership. Reusing the old CLI/developer/configuration stack would reintroduce the retired Runtime and control protocol. Upstream admission deduplicates by request ID/type without comparing bodies, and cannot atomically commit admission with host documents.
 
-## 问题
+## Decision
 
-[durable 迁移](../../proposed/architecture/2026-10-17-personal-pi-durable.md)保留引导式 CLI，要求客户端断开不取消工作、运行中只由后台持有 Harness。旧 CLI、开发器和配置中心绑定旧 Runtime/控制协议；直接复用会把已退出的兼容层带回个人端。上游 admission 只按 requestId/type 去重，不比较正文，也不能原子地与宿主自定义 document 一起提交。
+The personal app owns the entry. The default profile is `~/.ruukoto-durable/`; `RUUKOTO_PERSONAL_DIR` selects a separate new profile. Development ignores inherited profile directories and uses the first 12 SHA-256 characters of checkout realpath for an external development profile. Configuration, backend, and clients never read old profiles or copy old credentials. Child environments remove old `RUUKOTO_*` configuration and reintroduce only the personal directory, current model, and credential variables for enabled IM.
 
-## 决定
+Local chat uses the current main session; the [service wizard](2026-10-17-personal-service-configuration.md) and [IM entry](2026-10-17-personal-telegram-entry.md) add their own capabilities. Bins, root start, compatibility command, and deployment wiring belong to [the product entry](../simplification/2026-10-18-personal-product-entry.md); production handoff requires separate acceptance.
 
-正式入口位于个人 app，默认 `~/.ruukoto-durable/`，`RUUKOTO_PERSONAL_DIR` 可选择独立新档案；开发入口固定使用检出 realpath 的 SHA-256 前 12 位分配仓库外开发档案，忽略继承目录。本机聊天接当前主会话，Linux 可由[服务配置向导](2026-10-17-personal-service-configuration.md)启用只读服务工具；可选 [Telegram 文本入口](2026-10-17-personal-telegram-entry.md)共用主会话，正式 bin、根 start、兼容命令和部署接线由[入口决定](../simplification/2026-10-18-personal-product-entry.md)持有；生产接管仍另行验收。配置向导、后台与客户端不读取旧档案或复制旧凭据；子进程清洗旧 `RUUKOTO_*` 配置，仅重新注入个人目录、本次模型和已启用 IM 的凭据变量。日常菜单不监听源码；开发默认通过薄启动器托管 Node watch 前台 serve；`--config` 直接运行同档案菜单，不监听源码，配置菜单源码变化须退出重开。菜单启动的后台由本进程持有并在退出时停止。开发先拒绝已启用 QQ/Telegram 的档案，不改配置、令牌或运行记录，不连接平台。
+The ordinary CLI starts a detached backend and leaving the wizard does not stop its work. Development instead owns its foreground Node-watch backend and stops it on exit. Its `--config` menu uses the same profile without source watching; menu code changes require reopening. Development rejects enabled QQ/Telegram before modifying configuration, tokens, or runtime facts, and never connects them. This distinction replaces the original note's ambiguous claim that every menu-owned backend stops when the menu exits.
 
-后台取得 SQLite 实例锁后读取模型配置，独占 Harness 和 Unix HTTP socket。令牌逐启动生成，只存 0600 普通文件，每次请求认证；不开放 TCP，不复用旧控制协议。坏令牌拒绝启动，不自动覆盖。目录 0700，配置、日志和客户端待核实文件 0600，socket 0600。仅持实例锁者能够写配置或清理陈旧 socket；连不上不是停机证明。配置临时文件与 rename 只保证单文件替换，不宣称与 durable 跨存储原子。
+### Lock and interface lifetime
 
-CLI 启动独立后台，退出向导不停止执行。[后台分析菜单](2026-10-17-personal-work-controls.md)通过同一本机接口查询原工作、分页读结果、提交取消事实或关闭空闲身份，不重开 Harness。停止请求先完成自身应答，再停止接收并等待全部在途 handler，最后关闭 Harness；Harness 自行故障关闭也先执行 `beforeUnlock` 清理接口和 handler，再释放档案锁。清理失败保留锁并报告，不让第二实例覆盖仍在使用的 socket。传入已持有的具名档案锁时，Harness 接管其释放责任；`close()` 等待清理完成。
+The backend obtains the SQLite instance lock before reading runtime configuration, owns the Harness, and exposes authenticated HTTP over a Unix socket, not the old control protocol. This local entry opens no TCP listener; the later remote entry is separate. Each start publishes a fresh token in a mode-0600 regular file; every request authenticates. A malformed existing token refuses startup rather than being silently overwritten. Directories are 0700, and configuration, logs, pending client files, and socket are 0600. Only the lock holder may write configuration or remove a stale socket: inability to connect is not proof the backend stopped. Temporary-file rename replaces one file, not an atomic transaction with durable storage.
 
-引导菜单按聊天、工作/计划、审批核实、权限/资料、停机配置及实例运维分组，复用各能力管理函数。默认模式通过本机认证接口查看/切换，本机与Telegram沿既有共享默认值，QQ独立；只影响新接纳。长期服务授权本机可查看并按原版本撤销（包括旧入口），创建仍限原IM具体待审批。双平台 `/帮助`、`/状态` 由宿主直接回答，配置与历史操作来源分别展示；记忆/技能/历史沿已有主工具与本机管理入口，不复制IM业务状态机。
+[Work controls](2026-10-17-personal-work-controls.md) query original work, page results, record cancellation, and close idle identities over the same interface without another Harness. A stop request finishes its response, stops admission, drains in-flight handlers, then closes the Harness. Harness fault shutdown also runs `beforeUnlock` to drain the interface/handlers before releasing the profile lock. Cleanup failure retains the lock and reports rather than letting another instance overwrite a live socket. Passing an already-held named profile lock transfers release responsibility to Harness; `close()` waits for cleanup.
 
-配置保存和Harness启用共用未决工作检查，只放过与索引、版本、根会话、后台归属及空参数完整相符的调度监督任务；未结束定时运行、普通活动Task与queued/placed输入仍阻断。各能力的外部未知效果检查继续保留。模型保存异步核实整个规范化配置，端点/API/凭据变量变化也在写文件前拒绝未决工作，相同配置仍可用于恢复；避免同模型名更换端点而把旧输入改发。QQ/TG停用换代保持可用，不因未决审批阻止撤销入口。服务路径和命令目录的不可变约定不变。
+The guided menu groups chat, work/schedules, approvals/verification, permissions/data, configuration, and maintenance, reusing capability managers. Authenticated local mode selection shares the local/Telegram default; QQ has its own. Changes affect only newly admitted input. Local management may inspect and version-revoke service grants, including old-entry grants, but creation remains tied to an original IM pending operation. Both IM platforms answer `/帮助` and `/状态` in the host, displaying configuration/history provenance separately. Memory, skills, and history use their existing tools/managers, not another IM business state machine.
 
-每个本机输入在 admission 前提交一个 `ruukoto.local-input` doc family，键为程序生成的 UUID，值只保存正文 JSON 字符串编码的 SHA-256，不镜像执行状态；该编码保留孤立 UTF-16 代理的区别。相同键异参拒绝；指纹提交后崩溃而 submission 不存在，只能由拥有者选择原键继续提交，查询不会执行它。输入、任务与结果仍以 durable 为权威。
+### Input identity and lost responses
 
-客户端发送前以独占创建写 `pending-<UUID>.json` 保存原键和正文；不同 CLI 不共享可覆盖的单槽。只在查询确认原 submission 后删除对应文件，配置和启动不清理它。失去应答先查询，未受理时逐步选择原键继续或保留，不自动换键或重送。客户端文件不授予执行资格，不要求与后台数据库原子；正文仍可能在多个本地客户端记录中暂存。
+Before admission, a program-generated UUID selects a `ruukoto.local-input` document. Its SHA-256 fingerprint uses JSON-string encoding so lone UTF-16 surrogates remain distinguishable. Current records also pin local permission mode/version and an admission entry; work continuations include their work identity in the digest. These are admission facts, not a second task-state authority. Same-key/different-body or ownership conflicts fail. If the fingerprint commits but submission does not, querying never executes it: the owner explicitly chooses continuation with the original key. Durable remains authoritative for input, task, and result.
 
-请求体上限 128 KiB、正文 16 KiB、应答 256 KiB、客户端总时限 5 秒；后台收件超时 10 秒，连接闲置时限 15 秒。最近记录只扫描 64 条 entry，显示最多 16 条消息，每条 8192 字符，标明截断和中断片段；完整历史仍保存在 durable，不把诊断视图当完整历史导出。内部异常只返回安全提示，不返回堆栈、凭据或请求正文；终端输出过滤控制字符。
+Before sending, each client exclusively creates its own `pending-<UUID>.json` (or work-continuation counterpart) with original key/body, avoiding a shared overwriteable slot. Only a query confirming the original submission permits deletion; configuration/startup does not clear pending files. After response loss, query first; if absent, offer original-key continuation or retention, never automatic resend/new key. Client files grant no execution authority and are not atomic with the backend database. Bodies may temporarily exist in several local client records.
 
-真实模型验收另用显式开关及拥有者指定的模型配置，在临时档案执行两次输入，中间停止并新建后台进程；第二次只依赖持久历史找回随机校验标记，同时核对四条请求证据不含凭据。仅提取所选模型，凭据经临时进程环境传给后台，不写个人配置文件；远端可通过 SSH stdin 在内存接收所选配置，不借此增加运行时旧配置导入功能。没有环境前提时退出 2，清理只删除已核实停止的本轮测试目录。
+Request bodies are bounded at 128 KiB, input at 16 KiB, responses at 256 KiB, and client total time at five seconds; backend receive timeout is ten seconds and idle connection timeout fifteen. Recent diagnostics scan 64 entries, display at most 16 messages and 8192 characters per message, and label truncation/interrupted fragments. Full durable history remains intact; this is not a complete history export. Internal errors return safe guidance, not stacks, credentials, or request bodies, and terminal output filters control characters.
 
-## 既有笔记审计
+### Configuration scope and evidence
 
-按 durable、本机认证、实例锁、开发档案与客户端断线检索 active notes；rejected 目录不存在。[基础保护](2026-10-17-personal-durable-foundation.md)部分重叠，互链并同步调用范围；[后台与终端](2026-09-19-detach-terminal-from-task-runtime.md)和[双产品](2026-10-02-two-agent-products.md)继续描述 Coding 与保留的旧格式实现，沿用其身份与断线原则，不复制旧协议。[渐进交互](../process/2026-10-14-progressive-human-interaction.md)继续持有面向人的选择原则。其他执行、审批、业务记录不被本篇取代；没有完全吸收、过时提案或应归档记录。
+The original implementation shared an unresolved-work check for configuration and Harness startup. It exempted only fully verified scheduler supervisors: correct index, version, root conversation, backend ownership, and empty arguments. Open scheduled runs, active ordinary tasks, queued/placed input, and capability-specific unknown effects still blocked. Whole normalized model configuration, including endpoint/API/credential variable changes under the same model name, was checked before save; identical configuration remained usable for recovery. IM disablement remained possible despite pending approvals.
 
-## 备选方案
+Those broad save barriers and permanent command/service path restrictions are historical. [Settings activation](2026-10-25-personal-settings-versions.md), [request configuration](2026-10-25-personal-request-configuration.md), [execution versions](2026-10-25-personal-execution-configuration-versions.md), and [IM updates](2026-10-25-personal-im-updates.md) now own object-scoped saving and activation. They retain original-operation identity and the single writer, not global shutdown as a normal prerequisite.
 
-- CLI 直接重开 Harness：不需要本机管理协议，但与常驻后台争写同一存储，无法满足单拥有者约束。
-- 复用旧 ControlServer、ConfigTui 和 runDev：已有完整交互与监控，但依赖旧 Runtime、模型目录和客户端投影，违反个人端独立权威与退出兼容层的要求。
-- 只依赖 durable requestId：代码最少，但异参会静默返回旧提交，应答丢失后也缺少原请求；增加指纹事实与逐键客户端文件。
-- 每个配置函数独自忽略名为调度监督的Task：改动局部，但漏掉启动复核及未结束运行，也会放过错误归属的监督任务；复用技能配置已有的完整关系检查。
-- 仅在启动时检查模型变化：保存接口同步且短，但原配置会先丢失，同模型名更换端点也不能被模型ID检查发现；写盘前核实整个配置。
-- 在旧 listener 关闭前释放锁：失败路径更短，但随后实例可能已换 socket，旧清理会影响新实例；锁覆盖整个接口清理生命周期。
+Real-model acceptance uses an explicit switch and owner-selected model in a temporary profile. Two inputs straddle stopping and creating a new backend process; the second recovers a random marker only from durable history, while four request-evidence records are checked for credential absence. Only the selected model is extracted; credentials travel in temporary process environment, never personal configuration. SSH stdin may transfer the selected configuration in memory without adding runtime legacy-config import. Missing prerequisites exit 2; cleanup removes only this run's directory after verified stop.
 
-## 后果
+## Alternatives considered
 
-提供可重复的隔离配置与会话验证入口，既有正式产品和 Coding 运行依赖保持。代价是少量本机请求协议、每个输入一份指纹、临时客户端正文和后台诊断日志；后台不自动重启，日志留在保护档案中。窄测试覆盖真实 socket、进程、SQLite 与模型替身；真实模型、IM、业务工具、权限和拥有者体验由总工单继续验收，不能据此切换生产。
+- Let CLI reopen Harness: no local protocol, but two writers violate exclusive ownership.
+- Reuse ControlServer/ConfigTui/runDev: mature interaction and monitoring, but imports old Runtime/catalog/projection authority.
+- Rely only on durable request IDs: minimal code, but different bodies silently return the old submission and lost responses lack original-request evidence.
+- Ignore supervisor tasks independently in each configuration function: locally simple, but misses startup/open runs and can exempt tasks with wrong ownership. Reuse complete relationship verification.
+- Check model changes only on startup: shorter saves, but loses the original file first and misses same-ID endpoint changes. Verify the whole candidate before saving.
+- Release the lock before listener cleanup: shorter shutdown, but a new instance could replace the socket while old cleanup still targets it. Keep the lock through cleanup.
 
-相关未实施方案：[持久提问](../../proposed/feature/2026-10-21-persistent-owner-questions.md)为本机入口增加问题选择、回答和原回执查询，保留本篇持锁与请求恢复规则。
+## Consequences
+
+Isolated configuration and session checks become repeatable without changing Coding's runtime authority. Costs are a local request protocol, per-input admission facts, temporary client bodies, and protected diagnostics. The backend does not automatically restart. Narrow tests use real sockets/processes/SQLite and model substitutes; real models, IM, tools, permissions, and owner experience still require their own acceptance and do not follow from these tests.
+
+[Profile foundations](2026-10-17-personal-durable-foundation.md), [backend/terminal separation](2026-09-19-detach-terminal-from-task-runtime.md), [two products](2026-10-02-two-agent-products.md), and [guided human interaction](../process/2026-10-14-progressive-human-interaction.md) retain their independent decisions. The original note search found partial overlaps but no fully absorbed/archive candidate. [Persistent owner questions](../../proposed/feature/2026-10-21-persistent-owner-questions.md) retains the broader proposal; [implemented owner questions](../feature/2026-10-21-personal-owner-questions.md) now provides local selection, answers, and original receipts under these lock/recovery rules.

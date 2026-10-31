@@ -1,70 +1,46 @@
 ---
 name: writing-docs-for-human
-description: 写或改 docs/ 下面向人类的文档（architecture、modules、usage 等）。始终兼顾准确性、可读性与美观性：通过清晰的分层结构、直观的图表与抓大放小的精炼表达，帮助人类读者快速建立心智模型，严禁晦涩臃肿与代码级细节堆砌。
+description: "Use when writing or reviewing human-facing docs such as architecture, modules, usage and development. Build a clear mental model with accurate, readable prose, useful tables and focused diagrams."
 ---
 
-# 维护面向人类的文档
+# Human Documentation
 
-`docs/` 面向人类读者（使用者、开发者、架构师），核心价值是**帮助读者快速建立心智模型并解决实际问题**。设计决策、权衡取舍与被否方案归档在 `.agents/notes/`，文档单向链接到它，不搬运讨论历史。
+`docs/` helps users and developers understand the system and solve a problem. Explain what it does, why the mechanism matters, and how to use it. Accuracy, readability and visual hierarchy all matter. Decisions and rejected alternatives live in notes; documents link to them without copying discussion history.
 
-> **黄金法则：准确性绝不是唯一要求，可读性和美观性同样重要。** 充满防御性法条、密不透风的代码翻译和穷举细节的“绝对准确”，只会让文档失去阅读价值。优秀的文档必须主次分明、视觉舒适、条理清晰。
+## Choose The Home
 
-## 1. 文档定位与分工
+| Document | Purpose | Detail to keep elsewhere |
+| --- | --- | --- |
+| `docs/architecture.md` | Module map, dependency direction and main end-to-end flows | Individual functions and exhaustive database fields |
+| `docs/usage.md` | Prerequisites, operation, configuration and troubleshooting | Wire encodings and lock implementation |
+| `docs/modules/<module>.md` | Responsibilities, interfaces, entities, state and invariants | Private helper walkthroughs and every error branch |
+| `docs/development.md` | Setup, feedback loops, test navigation and timing | Duplicated deployment instructions |
+| `.agents/notes/` | Design reasons, alternatives and tradeoffs | Work progress and user operation steps |
+| `.agents/postmortem/` | Reusable systemic failure mechanisms | Routine review history |
 
-| 路径 | 核心目标 | 核心受众与内容 | 禁忌内容 |
-|---|---|---|---|
-| `docs/architecture.md` | 全局架构与骨干拓扑 | 模块地图、分层关系、四条端到端主流程 | 细碎的单个函数或特定数据表字段 |
-| `docs/usage.md` | 操作与运维手册 | 安装前提、常用运行方式、核心配置、问题排查 | 底层 wire 协议解码、内部锁竞争推导 |
-| `docs/modules/<模块>.md` | 模块领域设计与边界 | 模块职责、核心接口表格、数据模型与状态机、主要流程图、关键不变量 | 穷举每一列 SQL、复述代码级异常分支 |
-| `docs/development.md` | 贡献与日常开发指南 | 开发环境、定向测试、基线耗时、常见反馈入口 | 与使用手册重复的部署步骤 |
-| `.agents/notes/` | 决策归档与深度上下文 | 方案选型依据、被否方案、历史演变、复盘报告 | 读者操作步骤 |
+## Explain The Mechanism
 
-## 2. 人类视角的写作准则
+Begin with the normal path, then the important limits and failure guarantees. Describe concepts, collaboration and data flow rather than translating code line by line. Summarize key entities; the schema and types already own exhaustive field definitions. Place a guarantee once where readers need it instead of repeating defensive caveats in each paragraph.
 
-### 2.1 抓大放小，拒绝“代码字面翻译”
+Use tables for comparable interfaces, settings and states; use focused Mermaid diagrams for topology, sequences or transitions when they explain more clearly than prose. Headings, short paragraphs and lists provide hierarchy. Emphasis should help scanning, not decorate every sentence.
 
-- **讲意图与机制，不讲实现细枝末节**：文档关注的是“概念是什么、模块间如何协作、数据如何流转”。不要把每个内部函数入参、局部变量、每一处边界判断逐字翻译成中文。
-- **不要把文档当成数据字典**：关键数据模型用清晰的结构体或表格说明核心字段与业务含义；不要在正文里毫无格式地平铺几十个 SQL 列名和枚举值。
-- **不过度防御**：避免通篇充满“不负责A、不改写B、不自动C、坏旧D仍拒绝”的防御性长句。先讲正常主路径（Happy Path），再精炼列出核心边界与失败保证。
+One paragraph per physical line does not mean one giant paragraph: separate ideas with blank lines, lists or table rows. `verify-md-wrap` checks physical wrapping, not readability.
 
-### 2.2 视觉美感与阅读呼吸感
+## Module Structure
 
-- **拒绝“水泥墙”**：严禁连续几千字密不透风的纯文字大段。多利用清晰的小标题、分类表格、无序列表（Bullet points）进行视觉拆解。
-- **表格优先**：接口清单、配置项说明、状态列表一律用整洁的 Markdown 表格呈现，列明：`名称/入口 | 作用/职责 | 关键说明`。
-- **善用 Mermaid 图表**：架构拓扑与时序用 `sequenceDiagram`，状态流转用 `stateDiagram-v2`。图表务求精炼，保留骨干主路径。
-- **重点突出**：善用加粗关键字引导视觉扫读；关键警示或背景上下文可使用引用块强调。
+Keep the existing six-section module pattern, adapting detail to the module:
 
-### 2.3 物理行约定与段落节奏
+1. Responsibilities and boundaries: role and ownership, with links to neighboring modules.
+2. External interfaces: callers and core entry points in a concise table.
+3. Data and state: key entities, persistence and lifecycle; use a state diagram when useful.
+4. Main flows: the normal sequence and important branches, preferably a focused diagram.
+5. Invariants and failures: guarantees for timeout, cancellation, crash and recovery.
+6. Design references: links to owning notes with a brief reason for each.
 
-- 仓库门禁要求“一段一物理行（靠编辑器软换行）”（`npm run verify-md-wrap`）。
-- **注意**：这绝不意味着要把所有内容堆在一大段里。合理拆分成多个逻辑段落（段落之间保留空行）、独立列表项或表格行，既符合物理行规范，又保障视觉排版的舒适感。
+See [the template](templates/module.md) and [prose guidance](references/prose.md).
 
-## 3. 模块文档的六节组织范式
+## Synchronize And Check
 
-每篇 `docs/modules/<模块>.md` 保持统一的六节骨架，但行文必须生动清晰、富于版式美感：
+Observable module changes update the module document. Package/module changes update the architecture map. Entry points, configuration and troubleshooting changes update usage. Changed decisions update notes, with docs linking to them.
 
-1. **职责与边界**：用 1~2 个精炼段落与边界清单说清定位，明确指出它负责的核心领域及明确的非职责（并指路对应模块）。
-2. **对外接口**：必须以清晰的 Markdown 表格为主，列出调用方、核心入口/协议/命令与职责；辅助以精要说明。
-3. **数据与状态**：用 Mermaid 画出核心状态机，用结构化列表或小表格讲清关键存储实体、持久化位置与生命周期。
-4. **主要流程**：用清晰的 Mermaid 时序图配合精要的编号步骤（1、2、3），讲清楚主干正常路径与关键分支。
-5. **不变量与失败处理**：用无序列表精炼列出系统必须始终守住的底线约束，以及发生超时、崩溃重启或取消时的收敛保证。
-6. **设计依据**：精炼列出指向 `.agents/notes/` 的相对链接及一句话设计动机说明。
-
-模板见 [templates/module.md](templates/module.md)，写作规范与自检清单见 [references/prose.md](references/prose.md)。
-
-## 4. 什么时候改哪篇
-
-| 改动范围 | 文档落点 |
-|---|---|
-| 模块对外能力、核心接口、数据状态或流程机制发生变化 | `docs/modules/<模块>.md` |
-| 新增、拆分、合并或删除包/模块 | `docs/architecture.md` 模块地图与主流程 |
-| 启动命令、交互入口、配置参数、故障排查方式发生变化 | `docs/usage.md` |
-| 方案决策更迭、被否方案与深入权衡留档 | `.agents/notes/`（docs 仅单向补充链接） |
-
-## 5. 写完自检清单
-
-- [ ] **可读性**：读者扫读 30 秒内是否能建立该模块的核心心智？是否有长达半屏的未排版纯文本？
-- [ ] **精炼度**：是否混入了代码级实现细节（如函数局部变量、内部异常穷举、数据字典式平铺）？
-- [ ] **美观性**：表格排版是否整齐？Mermaid 图表是否简洁直观？重要概念是否有加粗强调？
-- [ ] **六节完备**：模块文档六节结构是否齐全？
-- [ ] **格式合规**：运行 `npm run check:docs` 确保链接有效、无断链、无多行硬换行段落、常驻文档字符不超上限。
+Check whether a quick scan establishes the module's mental model, whether code-level detail has crowded out the explanation, and whether the layout makes relationships visible. Verify facts against current code and run `npm run check:docs` for links, references, budgets and paragraph layout. The gates cannot prove semantic accuracy. English and optional `.zh.md` translations follow the root language policy.

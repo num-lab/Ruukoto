@@ -1,9 +1,0 @@
-{
-  "base": "66295bf3e7171f582459d71ece7cf536db11c647",
-  "files": 537,
-  "sourceManifestSha256": "cc7a8d343cba6030bfb4a75538d6d2ed6628ba81fce624e9c49ce7356c004639",
-  "overlays": {
-    "test/personal-service-operations.test.ts": "91c6598476afe2604c8590f434f247a2f2904baf9191bb00da0cfdaa38768a90"
-  },
-  "transport": "repository snapshot with frozen test-file overlay; temporary transport archives removed"
-}

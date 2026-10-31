@@ -37,7 +37,7 @@ test("加载页的独立位移重置在生产 CSS 压缩后保留，避免被 Di
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-loading-css-"));
   try {
     fs.writeFileSync(path.join(root, "index.html"), '<html><head><link rel="stylesheet" href="/loading.css"></head><body></body></html>');
-    fs.writeFileSync(path.join(root, "loading.css"), fs.readFileSync(new URL("../.scratch/desktop-shadcn/approved-demo-v4-connection-loading.css", import.meta.url)));
+    fs.writeFileSync(path.join(root, "loading.css"), fs.readFileSync(new URL("../test/fixtures/desktop-baselines/approved-demo-v4-connection-loading.css", import.meta.url)));
     await build({ root, configFile: false, logLevel: "silent", build: { target: "safari16", cssMinify: "lightningcss", outDir: path.join(root, "dist") } });
     const assets = path.join(root, "dist/assets"), file = fs.readdirSync(assets).find(name => name.endsWith(".css"));
     assert.ok(file, "必须生成生产 CSS");

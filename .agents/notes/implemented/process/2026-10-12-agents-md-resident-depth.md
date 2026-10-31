@@ -1,44 +1,34 @@
-# Agent Note: 抬高根 AGENTS.md 的篇幅上限并改写为一句一规则
+# Agent Note: Increase root instruction budget for one-rule-per-item guidance
 
 Status: implemented
 
-## 问题
+[Development standards](2026-10-31-development-standards.md) supersedes the original language/layout budget where necessary. This note retains the resident-versus-linked criterion and rationale for changing a budget explicitly.
 
-根 `AGENTS.md` 落地后上限停在 2800 个非空白字符，改写前实际 2735，只剩 65 字符余量。[给 docs 与 notes 加纯文本结构门禁](2026-10-10-docs-and-instructions-gates.md)设这个护栏的理由是「常驻指示层长起来会挤占上下文」；同一篇把提高上限的最后手段留成「同一改动里说明理由」。
+## Problem
 
-拥有者要求按 DSH 根 `AGENTS.md` 的写法改写本文件。实测对照：DSH 根 `AGENTS.md` 1937/1960 词（按 `wc -w` 计，上限同样贴着运行），正文是一句一规则、括号里链承载理由的文档，`.agents/notes/` 与 `docs/` 构成第二层。本仓若照这个密度写，常驻层会超过现有护栏，而当时没有一条记录说明「写进常驻层还是链出去」的判断依据，只有一个数字上限。
+The root budget was 2,800 non-whitespace characters with 2,735 used. [Structural gates](2026-10-10-docs-and-instructions-gates.md) protected resident context and allowed justified increases in the same change. The owner requested DSH's concise linked-rule style; the measured reference used 1,937 of 1,960 words. No rule yet explained what belongs in resident instructions versus linked knowledge.
 
-同时有一个反复出现的疑问：对 agent 来说，直接写在 `AGENTS.md` 的规则是不是比链出去的更不容易漂移。[把已成立的代码约定写进根 AGENTS.md](2026-10-10-agents-md-conventions.md)给出了半边答案——它否掉「写成一篇 `docs/` 设计文档」的理由是「约定要在改动前就在上下文里才起作用；放进 `docs/` 意味着 agent 得先想到去读它」，即常驻层解决的是**命中**问题。但它没有回答**失真**问题：文本与代码脱节时，常驻层里的一句错误规则会被每次改动沿用（同篇记录的那条被 9 个 `node:child_process` 文件推翻的判断，正是这个风险的实证），而链出去的文档有唯一「家」和改动时的同步义务。
+[Established conventions](2026-10-10-agents-md-conventions.md) showed that resident rules improve discovery: a pre-change rule must be encountered before editing. They do not guarantee truth: a wrong resident rule repeats on every change, while linked documents have an explicit owner/synchronization obligation. The disproved child-process exclusivity claim illustrated this distinction.
 
-## 决定
+## Decision
 
-`scripts/doc-budgets.manifest.json` 的 `AGENTS.md` 上限从 2800 提高到 **4300** 个非空白字符，按 5% 余量规则取整（改写后实际 4112）。提高上限与改写在同一改动里完成，抬高本身不是内容增长。
+The original change raised AGENTS.md's manifest budget from 2,800 to 4,300 non-whitespace characters, rounding for about 5% headroom around the 4,112-character rewrite. Budget and rewrite changed together; a larger limit alone is not justification for more content.
 
-改写后的 `AGENTS.md` 保持 DSH 的形状，条目密度而不是散文密度：
+Use rule density rather than prose density: start topics with an actionable conclusion and link details to docs, skills or notes. A document-destination table merges repeated guidance across development, conventions and skills. Make preexisting newline enforcement, CI prerequisite policy, monotonic schema/committed-record preservation, frozen notes and recorded model input explicit. The CI matrix mentioned in the original rewrite is historical and later changes independently.
 
-- 每个主题的第一节用一句结论起头，细节链到 `docs/`、`.agents/skills/` 或 `.agents/notes/`；
-- [落点表](../../../../AGENTS.md#文档与决策落点)把「改了什么落到哪、跑什么」并成一张表，替代原先散在开发与验证、约定、Agent skills 三处的重复描述；
-- 原先只存在于约定习惯里的内容显式成条：文件末尾换行由 `check-staged-eol.mjs` 门禁执行、CI 矩阵四组环境不跳环境能力、`SCHEMA_VERSION` 与已提交记录的不可变、归档笔记不可改写、「模型可见即已记录」。
+The resident layer contains only rules needed before a change whose omission once would cause a mistake. Reasons, algorithms, history and long examples stay linked. When crowded, move misplaced material before compressing. The limit is a guardrail, not a reduction target; merge before appending. This original change did not otherwise alter development/module/task content.
 
-决定分层判据，写进 `AGENTS.md` 的「编辑这份指示」一节：常驻层只放**改动前就必须知道、且被跳过一次就会出错的规则**；理由、算法、历史与长例子继续外链。`AGENTS.md` 仍只在拥挤时先搬再压。上限是护栏不是缩减目标，4300 之后再加主题时先归并，不追加。
+## Alternatives considered
 
-`docs/development.md`、`docs/modules/*.md`、`.scratch/` 三层的既有分工不变：本次不改这三层的任何内容。
+- Stay within 2,800: unchanged guardrail, but conflicts with the requested structure and leaves negligible room, forcing repeated unjustified increases.
+- Move new conventions to docs/agents: smaller resident text but repeats the previously rejected discoverability problem.
+- Raise beyond 5,000 preemptively: saves future updates but weakens the guardrail without a demonstrated need.
+- Replace all rules with scripts: robust for mechanically defined behavior, but boundary/error semantics need more than keyword matching. Existing import/EOL checks remain; further gates require separate evaluation.
 
-## 备选方案
+## Consequences
 
-- **压在 2800 内** — 护栏不动、零新风险。否：与拥有者指定的 DSH 写法不兼容，改写后仍只剩 65 字符余量；下次补任何一条约定都要再抬一次，反而把「同一改动里说明理由」的机会浪费掉。
-- **维持 2800，把新内容拆去 `docs/agents/`** — 常驻层最省。否：这正是[把已成立的代码约定写进根 AGENTS.md](2026-10-10-agents-md-conventions.md)否过的方案，约定会退化成「要先想到去读」。
-- **一次提到 5000 以上留足空间** — 后续不用再抬。否：上限随即失去约束意义，常驻层变成半真半假的手册；4100 左右够本次结构归并后的实际需要。
-- **把可机械检查的约定改写成门禁脚本后删掉文本** — 最抗漂移。否：跨包 import 方向已由 ESLint 执行，其余（空 `catch`、`console.log` 落点、文件末尾换行）判据是语义或文件级，机械检查会退化成关键词扫描，误报比漏报更贵；门禁化留作独立评估。
+One-rule items are scannable, previously implicit obligations become explicit, and future increases have an ownership/justification rule. The historical rewrite grew resident cost from 2,735 to 4,112 characters per chat. Counts/budget values describe that decision, not current limits; current manifest and later standards govern. The change introduced no unverified convention, deriving rules from package scripts, pre-commit and development docs. Structural gates do not prove semantic code consistency. If merging cannot solve renewed crowding, revisit the rationale rather than merely increasing a number.
 
-## 后果
+## Verification
 
-- **收益**：常驻层与 DSH 同形，一句一规则可扫读；三条原先隐性的约定（文件末尾换行、CI 不跳环境、已提交记录不可变）变成可执行句子；提高上限的流程与判据写进文件本身，下次触发时不必重新推理。
-- **代价与已知上限**：常驻层从 2735 增至 4112 个非空白字符，每次会话都要支付这段上下文。规则与代码的漂移仍无门禁——本次新增条目全部取自既有事实（`package.json`、`.githooks/pre-commit`、`docs/development.md` 的正文），没有新增未经取证的规则。`docs/modules/*.md`、`docs/usage.md` 不在预算内，仍可能无限增长。
-- 上限提高到 4300 后，再加主题应先归并；若常驻层再次贴近上限而无法归并，重访本决定而不是直接抬数字。
-
-## 验证
-
-- `npm run verify-doc-budgets -- --list` 显示 4112/4300。
-- `npm run verify-md-links`、`npm run verify-md-wrap`、`npm run verify-doc-refs` 通过；改写前后全仓链接目标与锚点数量不变，无新增跨行段落。
-- `npm run check:static` 通过；`npm run lint` 与 `npm run typecheck` 未受影响（本次只改 Markdown 与一个 JSON 数字）。
+The original `verify-doc-budgets -- --list` reported 4112/4300. Link/wrap/reference checks preserved targets/anchors, and check:static passed. The change was Markdown plus one manifest number; no runtime behavior was involved.

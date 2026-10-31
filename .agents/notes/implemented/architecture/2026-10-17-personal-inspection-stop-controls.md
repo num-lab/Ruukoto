@@ -1,31 +1,27 @@
-# Agent Note: 拥有者按原接纳请求固定检查停止重核
+# Agent Note: Pin inspection stop checks to the original accepted request
 
 Status: implemented
 
-## 问题
+## Problem
 
-[持久检查归属](2026-10-17-personal-durable-inspection.md)与[子工作检查](2026-10-17-personal-subagent-inspection.md)在停止未核实时保留原占用，但只有可信宿主 API 可以重核。拥有者需要实际管理入口；直接以 Task ID 查找当前检查会让旧菜单作用于后来尝试，直接在 Telegram 接纳事务调用 helper 会阻塞全部收件，本机客户端的五秒应答时限也短于停止协议。
+[Durable inspection](2026-10-17-personal-durable-inspection.md) and [child inspection](2026-10-17-personal-subagent-inspection.md) retain occupancy when stop is unverified, but only a trusted host API could recheck. Owners need real controls. Looking up the current inspection by Task ID lets an old menu affect a later attempt. Calling the helper inside Telegram's acceptance transaction blocks all incoming messages, while the local client's five-second reply limit is shorter than the stop protocol.
 
-## 决定
+## Decision
 
-CLI 与 Telegram 菜单保存具名 `PersonalInspectionRef`，同时固定原 Task 与不可改接纳 entry。原检查仍在执行时不接纳重核；接纳及执行分别核实，执行捕获原检查后在事务外调用现有 `stop-inspect`。原检查的机器、ID 与接纳 CAS 以及退出证明继续是清除占用的唯一依据。不调用 inspect/restart，不推断服务写入效果，不强制释放。
+CLI and Telegram menus save a named `PersonalInspectionRef`, pinning both original Task and immutable accepted entry. Do not accept a recheck while the original inspection is executing. Validate at acceptance and execution separately, capture the original inspection, then call existing stop-inspect outside the transaction. Original machine/ID, acceptance CAS, and exit evidence remain the sole basis for releasing occupancy. Never call inspect/restart, infer service-write effects, or force-release.
 
-请求创建独立 durable background `ruukoto.inspection-stop` Task，生命周期由框架持有；CLI POST 与 Telegram 固定回执只表示登记。每项请求只做一次有界停止观察，错误证明或失败保留原占用，不自动轮询；用户恢复原 helper 部署后可主动再次选择。崩溃恢复只重核同一身份，原检查已有退出证明时不再次外调。取消重核请求不会证明原检查退出。
+Each request creates a framework-owned durable background `ruukoto.inspection-stop` Task. CLI POST and Telegram's fixed receipt acknowledge registration only. A request performs one bounded stop observation; invalid evidence/failure retains occupancy without polling. After repairing helper deployment, the owner can select again. Crash recovery rechecks the same identity only and makes no external call when original exit evidence already exists. Canceling the recheck does not prove original inspection exit.
 
-本机认证沿已有全档案权限，可以管理旧入口检查。Telegram 只列全部来源 Submission 均可追溯至当前 bot/owner/代次直接拥有者收件的检查；本机来源、混合来源、旧入口与缺证据均不进入菜单。转发、引用摘录、普通模型回复和未送达宿主菜单不能请求重核。收件、原引用、重核 Task 与固定回执同 commit；平台重投沿原收件，不创建第二项。
+Local authentication retains whole-profile authority, including old-entry inspections. Telegram lists only inspections whose every source Submission traces to direct owner input at the current bot/owner/generation. Local, mixed, old-entry, or unproven origins are excluded. Forwarded/quoted text, ordinary model replies, and undelivered host menus cannot authorize recheck. Input, original reference, recheck Task, and fixed receipt commit together. Platform redelivery reuses the original input rather than creates another request.
 
-`personal-inspection-controls` 登记主会话，新程序可在保留旧未决工作的前提下增加仅管理用的扩展；没有模型工具或提示变化，旧程序缺扩展即拒绝恢复。恢复核对历史菜单的原接纳与来源、重核 Task 的版本/归属及 Telegram 控制收件与已送达原详情菜单的双向引用；历史菜单不要求仍是当前尝试，但执行旧菜单必须拒绝。
+The main session selects `personal-inspection-controls`. New code may add this management-only extension while preserving old unresolved work, without model tools/prompt changes; old code lacking it refuses recovery. Recovery verifies historical menu acceptance/provenance, recheck Task version/ownership, and bidirectional links between Telegram control input and the delivered original detail menu. A historical menu need not still name the current attempt, but executing a stale menu must fail.
 
-## 既有笔记审计
+Existing durable/child inspection, local management, Telegram authority, and work controls retain their independent guarantees. This closes the missing CLI/IM stop-recheck entry only, not helper evidence or unknown-write verification.
 
-按 inspection、停止重核、CLI、宿主菜单检索 active notes。持久检查、子检查、本机管理、Telegram 权限及工作控制部分重叠，保留各自决定并互链；本篇仅补齐“CLI/IM 尚无检查重核入口”的缺口，不扩大 helper 退出证明或改变未知写入核实。没有完全吸收或失效提案。
+## Alternatives considered
 
-## 备选方案
+Waiting in local request/Telegram acceptance is smallest but blocks input and times out locally before stop completes. Task ID alone fits the trusted API but lets replay advance to another attempt. Repeated polling or force-release reduces manual steps but can call a broken deployment indefinitely, and owner choice cannot substitute for exit evidence from the original machine.
 
-- 在本机请求与 Telegram 收件事务直接等待 helper：代码最少，但阻塞收件且本机先超时，拥有者不能区分登记与停止，故使用原生后台 Task。
-- 只保存 Task ID：可复用既有可信 API 参数，但 Task 重放可能产生后续检查尝试，旧菜单不能因此获得新尝试的操作资格。
-- 失败后循环自动重核或提供强制释放：可缩短人工操作，但部署故障会持续产生调用，且人工选择不能替代原机器的退出证明。
+## Consequences
 
-## 后果
-
-拥有者可在实际入口解除修复后的检查占用，原工作与报告沿既有 document 观察自行继续；登记不消耗模型请求。代价是一个具体后台任务及控制来源校验；Telegram 只管理当前入口，旧入口需本机认证。实际平台、systemd 与主观体验仍需单独验收，任意命令、MCP、子工具写入及正式切换继续由总方案持有。验证范围与证据见[实施工单](../../../../.scratch/personal-pi-durable/issues/19-inspection-stop-controls.md)。
+After repair, owners can release verified inspection occupancy through actual entry points, allowing existing work/report document observers to continue. Registration uses no model call. The cost is a specific background Task and control-provenance validation. Telegram manages only its current entry; old entries need local authentication. Real platform, systemd, and subjective acceptance remain separate, as do arbitrary commands, MCP, child writes, and final product cutover. Historical evidence is in the offline copy of `.scratch/personal-pi-durable/issues/19-inspection-stop-controls.md`.

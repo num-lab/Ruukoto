@@ -1,21 +1,23 @@
-# Agent Note: 侧栏折叠按钮连续位移
+# Agent Note: Continuous sidebar-toggle motion
 
 Status: implemented
 
-## 问题
+## Problem
 
-侧栏收起按钮与顶栏展开按钮是两个节点；状态切换即挂载顶栏按钮，而侧栏宽度才开始过渡。真实Demo逐帧测得x从210跳至268，再随顶栏移至36，形成58px向右跳位；原生顶栏还有交通灯留白。
+The sidebar collapse button and title-bar expand button were separate nodes. Switching state mounted the title-bar button before the sidebar width transition finished. Demo frame measurements showed x jumping from 210 to 268 before moving to 36: a 58px jump to the right. Native chrome also reserves traffic-light space.
 
-## 决定
+## Decision
 
-app-window直接持有一个永久按钮，放在侧栏inert区域外，沿用原ref、焦点和点击／键盘入口，aria-controls及aria-expanded表达状态。展开时left为侧栏宽度减42px，收起终点为Demo16px／Desktop114px，Desktop左侧额外保留30px给搜索键（[搜索决定](../feature/2026-10-21-desktop-spotlight-search.md)）；left与侧栏宽度均使用200ms ease，按钮层级高于顶栏并显式no-drag。收起后顶栏padding为按钮终点加30px，保持原标签终点，padding也过渡；鼠标和键盘调宽禁用left过渡，减少动画沿用全局偏好。
+`app-window` owns one permanent button outside the sidebar's inert area, retaining its ref, focus, click, and keyboard entry points. `aria-controls` and `aria-expanded` expose state. Expanded `left` is sidebar width minus 42px; collapsed endpoints are 16px in Demo and 114px in Desktop. Desktop reserves another 30px on the left for search, as defined by the [search decision](../feature/2026-10-21-desktop-spotlight-search.md).
 
-检索toggleSidebar、折叠、侧栏和过渡：既有[Desktop迁移](../architecture/2026-10-17-desktop-demo-v4.md)继续持有原生交通灯与玻璃层，[文件树反馈](../feature/2026-10-17-desktop-file-tree-loading.md)独立持有目录反馈决定，其余无对应按钮交接决定。
+Button left and sidebar width use `200ms ease`. The button sits above the title bar and is explicitly `no-drag`. Collapsed title-bar padding is the button endpoint plus 30px, preserving tab endpoints; padding also transitions. Pointer and keyboard resizing disable the left transition. Reduced motion follows the global preference.
 
-## 备选方案
+The [Desktop migration](../architecture/2026-10-17-desktop-demo-v4.md) still owns native traffic-light and glass layers. [File-tree feedback](../feature/2026-10-17-desktop-file-tree-loading.md) remains independent.
 
-新按钮延迟出现可掩盖单向跳位，但交接中缺少可操作按钮，焦点和快速反向仍不稳定。仅补偿新节点位移需要同步两个节点及焦点，永久按钮直接消除交接。取消侧栏动画虽不再看到过程，却丢失既有交互要求。
+## Alternatives considered
 
-## 后果
+Delaying the new button hides a one-way jump but leaves no usable button during handoff and complicates focus and rapid reversal. Compensating the new node's position still synchronizes two nodes and focus. One permanent button removes the handoff. Removing sidebar animation loses an existing interaction requirement.
 
-按钮保持同一DOM，收起时连续左移并保留焦点，减少左右跳位；定位数值与现有26px按钮和标题栏留白绑定。真实Demo帧210单调下降至36，来源断言和SSR守住单节点及位置归属；原生MyGo与具体窗口尺寸的体验缺口见[工单23](../../../../.scratch/desktop-shadcn/issues/23-files-sidebar.md)。
+## Consequences
+
+The same DOM node moves continuously left during collapse and retains focus. Position constants remain coupled to the 26px button and title-bar spacing. The historical Demo frame record decreased monotonically from 210 to 36; source assertions and SSR protect the single node and its positioning owner. Native MyGo and window-size experience gaps are recorded in the offline copy of `.scratch/desktop-shadcn/issues/23-files-sidebar.md`.

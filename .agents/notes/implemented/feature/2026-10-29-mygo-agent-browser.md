@@ -1,48 +1,46 @@
-# Agent Note: MyGo 右栏浏览器由 Coding 主 Agent 与拥有者接替操作
+# Agent Note: Let the Coding Agent and owner hand over the same MyGo browser page
 
 Status: implemented
 
-交付形态与逐项验收见[工单](../../../../.scratch/mygo-agent-browser/issues/01-integrate-browser.md)；原生行为依据见[探针证据](../../../../.scratch/mygo-agent-browser/evidence/probe.md)与[宿主证据](../../../../.scratch/mygo-agent-browser/evidence/host-probe.md)。
+## Problem
 
-## 问题
+Coding browser tools operated Runtime's Chrome while MyGo's right panel showed an isolated iframe. The Agent could not inspect or control the page the owner saw. The owner needs local frontend acceptance in that desktop page with explicit takeover/return.
 
-Coding Agent 的 browser 工具操作 Runtime 持有的 Chrome，MyGo 右栏只显示隔离 iframe；Agent 不能读取或操控拥有者眼前的同一页面。拥有者需要在桌面中完成本地前端验收，并能显式接管、交还页面。
+## Decision
 
-## 决定
+### Native page and host isolation
 
-### 原生页面与宿主隔离
+MyGo `WindowOptions.Content` contains the frontend WebView. `apps/desktop/mygo/browser.Manager` separately pools a browser WebView per main session. Trusted frontend geometry is clipped to window bounds. A native input-covering `ui.Box` intercepts pointer/keyboard input while the Agent owns the page. Browser pages install no preload/TrustedOrigins; OnWillNavigate refuses out-of-policy protocols. `EmitPage(frontend.Page())` targets frontend events rather than broadcasting to web pages. Trusted calls verify exact frontend Page identity and `mygo://localhost/`; foreign WebViews cannot invoke Browser.*.
 
-MyGo 外壳用 `WindowOptions.Content` 承载前端 WebView，每个主会话另持一个浏览器 WebView 由 `apps/desktop/mygo/browser.Manager` 管理：页面按会话池化，矩形由可信前端上报并做窗口边界裁剪，原生遮挡盖（`ui.Box` 参与命中）在 Agent 持页时裁掉人工指针与键盘输入。浏览器页不装 preload、无 TrustedOrigins，`OnWillNavigate` 拒绝协议越界；`EmitPage(frontend.Page())` 定向事件，不广播到网页。可信调用核实精确前端 Page 身份与 `mygo://localhost/` URL，外来 WebView 调 `Browser.*` 被身份检查拒绝。
+### Binding and tool eligibility
 
-### 归属与工具资格
+Control v47 added reverse `push:"request"` plus desktop_browser_register/event/chunk. Commands go only to the registered socket, and responses are accepted only from the connection that received the request. Submit/continue/owner_question_answer through that connection writes task_browser_bindings in the same task transaction; server derives provenance from socket and idempotent replay cannot swap it.
 
-控制面 v47 增 `push:"request"` 反向通道与 `desktop_browser_register/event/chunk` 三个 op，浏览器命令只下达到登记的 socket，应答只认发出请求的连接。`submit`/`continue`/`owner_question_answer` 经登记连接提交时，与任务同事务写 `task_browser_bindings`，来源由服务端按 socket 写定，幂等重放不能偷换。新增 `desktop_browser` 工具族仅装配给 `task_browser_bindings` 命中 + dev 会话 + 完全访问 + 非 Plan/SubAgent/后台来源的任务，与旧 `browser` 由 Driver 收窄互斥；TUI、Electron、Personal 路径保持原 Chrome 工具。
+The desktop_browser family requires a matching binding, ordinary dev identity, full access, and no Plan/SubAgent/background source. Driver installs it mutually exclusively with old browser tools. TUI/Electron/Personal retain Chrome behavior.
 
-动作集为 status/open/navigate/back/forward/reload/snapshot/screenshot/click/fill/select/check/uncheck/press/scroll/wait/close，按 `connectionId|session` 串行。页面交互经 Go `eval` 的固定宿主脚本；eval 结果、截图（`transfer` 分块 ≤256KiB、总量 ≤8MiB、sha256 装配验签）与超 24k 字符快照进 ArtifactStore。快照引用绑 (任务, 页面代次)，导航或闸门代次翻转变为 `stale_ref`。`unknown`/`disconnected` 记效果未知，不静默重发；断线撤销登记、页面标 gone、释放在途等待。
+Status/open/navigate/back/forward/reload/snapshot/screenshot/click/fill/select/check/uncheck/press/scroll/wait/close serialize by connectionId/session. Go eval executes fixed host scripts. Eval results, screenshots, and snapshots over 24k characters enter ArtifactStore; transfers use at most 256 KiB chunks/8 MiB total with SHA-256 assembly verification. Snapshot references bind task/page generation; navigation or gate-generation change makes them stale_ref. Unknown/disconnected outcomes are effect-unknown, not silently retried. Disconnect unregisters, marks pages gone, and releases in-flight waiters.
 
-### 接管与交还
+### Takeover and return
 
-拥有者点「接管」：`browser.Manager` 收回闸门、翻代次并 `EmitPage` gate 事件，后台把 Agent 调用挡在 `awaitGate`；持有时拥有者的地址栏导航、后退/前进、刷新同样被拒，`接管`/`关闭` 始终可用。Driver 在 `finishTurn`/`prepareNextTurnWithContext`/`prepareRequest`/`handleToolCall` 四边界检查闸门：持有时发 `task.browser_wait` 并等待，任务保持 running，取消/断线/页面消亡立即解除等待。「交还 Agent」是唯一交还入口：宿主 eval 取 DOM 观察（失败写 unavailable 事实）、`appendMarker("ruukoto_browser_observation")` 落会话 JSONL、装配层把 marker 投为 `browserObservation` 参考块并按 observationId 记录交付；未交付观察时 `checkBeforeSend`/`prepareRequest` 拒绝旧上下文发送，`mustRejudge` 强制一次续轮，每次交还只触发一次。
+Owner Take Over closes the Agent gate, increments generation, and emits a targeted gate event; backend calls wait at awaitGate. While the Agent holds the page, owner address navigation/back/forward/reload are refused, but Take Over/Close stay available. Driver checks the gate at finishTurn, prepareNextTurnWithContext, prepareRequest, and handleToolCall. During owner possession it emits task.browser_wait and waits while the task remains running; cancel/disconnect/page disappearance releases the wait immediately.
 
-### 前端
+Return to Agent is the only return entry. Host eval captures a DOM observation, recording unavailable on failure. `appendMarker("ruukoto_browser_observation")` persists it in session JSONL; assembly projects a browserObservation reference and tracks delivery by observationId. Until delivered, checkBeforeSend/prepareRequest rejects stale-context sends. mustRejudge forces one continuation, exactly once per return.
 
-`renderer/native-browser-panel.tsx` 的 `.native-browser-host` 占位区只上报几何不绘制页面；ResizeObserver、MutationObserver 与 scroll/resize 上报 `rect` 与 `state(session, shown, covered)`，隐藏页保持运行但按遮挡分闸。`browser_event` 投影到 `code-browser` 标签的 `NativeBrowserState`，普通浏览器与文件预览标签保持原 iframe 路径。`Window.ruukoto` 类型声明在 `shared/bridge.ts`，根 typecheck 程序与桌面程序共用同一来源。
+### Frontend integration
 
-## 既有决定
+`renderer/native-browser-panel.tsx` renders only the .native-browser-host geometry placeholder. ResizeObserver/MutationObserver/scroll/resize report rect and state(session, shown, covered). Hidden pages continue running, with gate behavior respecting covering. browser_event projects NativeBrowserState for the code-browser tab; ordinary browser/file-preview tabs keep iframe rendering. Window.ruukoto types live in shared/bridge.ts for both root and desktop typechecks.
 
-与 [MyGo 外壳](../architecture/2026-10-17-desktop-mygo-experiment.md) 部分重叠：本篇把外壳扩为 Content + 原生页面宿主，原传输、构建与 Electron 对照保留。与 [原浏览器](2026-10-14-agent-browser.md) 部分重叠：TUI/Personal Chrome 生命周期与暂停规则不动，桌面专属工具互斥装配。与 [本机文档](2026-10-17-desktop-local-browser.md)、[present 展示](2026-10-25-code-present.md)、[展示权限](2026-10-25-present-preview-access.md) 部分重叠：能力根、释放与拥有者入口保持。
+[MyGo shell](../architecture/2026-10-17-desktop-mygo-experiment.md) retains transport/build/Electron comparison while adding Content/native-page hosting. [Original browser](2026-10-14-agent-browser.md) retains TUI/Personal Chrome lifecycle/pause rules. [Local browser](2026-10-17-desktop-local-browser.md), [present](2026-10-25-code-present.md), and [preview access](2026-10-25-present-preview-access.md) retain capability roots, release, and owner entry rules.
 
-## 备选方案
+## Alternatives considered
 
-- 保留 iframe 由宿主定向执行脚本：MyGo 无子 frame 执行能力、隐藏 iframe 无独立截图，不满足范围。
-- 现有 Page 窗口加窄 Darwin WKWebView 适配：需自持布局、导航、权限与截图，探针证实 Content 路线已足。
-- 复用独立 Chrome 展示截图或另开窗口：不满足操控同一右栏页面，不作自动降级。
-- 同一 browser 名称下泛化 Chrome/WKWebView manager：进程与暂停规则不同，采用互斥装配。
+- Keep iframe and execute targeted scripts: MyGo has no child-frame execution and a hidden iframe has no independent screenshot, so it cannot meet the requirement.
+- Add a narrow Darwin WKWebView adapter to the old Page window: requires separately owned layout/navigation/permissions/capture; probes showed Content already sufficient.
+- Show Chrome screenshots or another window: does not control the same right-panel page and is not an automatic fallback.
+- Generalize Chrome/WKWebView behind the same browser manager/name: process/pause rules differ; mutually exclusive tool assembly keeps those responsibilities explicit.
 
-## 后果
+## Consequences
 
-每个会话页占一份 WebView 内存，收栏不回收，拥有者可主动关闭。共享 WebKit 登录数据使一个会话的登录/退出影响其他网页。接管边界后的工作不能撤销先前发出的外部动作。真实模型闭环与人工可视项（A1、A3 视觉、A5 整链路）在工单验收表中逐项记录，离线检查不替代。
+Each session page consumes WebView memory until explicitly closed, not when the sidebar hides. Shared WebKit login storage means one page's login/logout affects others. Takeover cannot undo external actions sent before the gate closed. Real-model and visual acceptance (A1, A3 visual, A5 end-to-end) require individual evidence rather than offline substitutes.
 
-## 验证
-
-原生探针 P01–P17 与生产宿主探针 H01–H08 全过（macOS 27.0.1 arm64，mygo v0.5.5）：矩形/隐藏执行/新鲜截图/Cookie 共享/合成事件驱动 React 表单/`Emit` 广播隔离/https 页引擎拒绝/跨启动持久化；宿主侧闸门/代次/身份/事件定向实测。`desktop-browser-control.test.ts` 4 例与 `desktop-browser-manager.test.ts` 7 例覆盖登记应答、断线解绑、分块完整性、来源归属、资格互斥、一次消费、串行、代次作废与观察投影。`npm run desktop:mygo:build` 全量构建通过。
+Historical native probes P01-P17 and production-host probes H01-H08 passed on macOS 27.0.1 arm64/mygo v0.5.5: geometry, hidden execution, fresh captures, shared cookies, synthetic React form events, Emit broadcast isolation, HTTPS-page engine refusal, cross-launch persistence, host gate/generation/identity/targeted events. desktop-browser-control.test.ts (4 cases) and desktop-browser-manager.test.ts (7) covered registration/response, disconnect unbinding, chunks, provenance/eligibility exclusion, one-time consumption, serialization, generation expiry, and observation projection. Full `npm run desktop:mygo:build` passed then. Former `.scratch/mygo-agent-browser/` spec/issue/probe/host-probe records are offline historical provenance, not fresh or complete visual/model acceptance.

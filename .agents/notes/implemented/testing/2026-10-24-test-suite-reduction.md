@@ -1,77 +1,75 @@
-# Agent Note: 按现行产品与独有行为精简测试
+# Agent Note: Reduce tests by current products and unique regression value
 
 Status: implemented
 
-当前 Node 支持范围与 CI job 时限由[Node24 与 CI 预算决定](2026-10-24-node24-ci-budget.md)部分取代；既有平台保护、真实覆盖与历史结果保持。
+[Node 24 and CI budget](2026-10-24-node24-ci-budget.md) supersedes the historical Node matrix/job deadline below. Platform protection, real coverage and historical results remain.
 
-## 问题
+## Problem
 
-应用测试已占最近本地完整检查的约 98%，远端四格超过 45 分钟；Linux 还出现约 25 分钟无新结果。大量低成本断言不构成主要耗时，旧个人 Runtime 的运行验收和反复启动后台、worker、Git 副本、PTY 的用例同时增加维护成本。拥有者要求尽可能精简，现已接手[实施工单](../../../../.scratch/ci/issues/02-reduce-test-suite.md)。
+Application tests consumed about 98% of the latest local full check; the remote four-cell matrix exceeded 45 minutes and Linux had roughly 25 minutes without new output. Many cheap assertions were not the main cost. Retired Personal Runtime acceptance and repeated backend/worker/Git-copy/PTY setup increased maintenance. The owner requested maximal useful reduction; original implementation scope is offline at `.scratch/ci/issues/02-reduce-test-suite.md`.
 
-## 决定
+## Decision
 
-用现行产品契约与独有回归价值决定去留。已退役的正常运行入口退出验收；仍支持的旧资料读取、导入和不重放保留。相同边界的同一行为由一处最窄用例持有，必要跨层接线留少量真实组合；不同权限、存储、传输、执行或恢复条件不能仅因标题相似合并。
+Current product contracts and unique regression value determine retention. Retired normal-runtime entries leave acceptance; supported old-data reading, import and no-replay remain. One narrow test owns one behavior at one boundary, with a few real combinations for necessary cross-layer wiring. Similar titles do not justify combining different permission, storage, transport, execution or recovery conditions.
 
-先定位 Linux 无输出与已有失败，固定可比较基线，再删除明确退役/重复项，最后压缩必要集成测试的重复准备。纯分类、草稿、分页、修订和事务断言使用现有最窄接口；OS 隔离、停止、真实崩溃及副作用不重放继续用真实边界。共享夹具仅复用稳定准备，各负例的可变状态独立；完整文件进程墙钟包含准备与清理。
+First diagnose Linux silence/existing failures and establish comparable baselines, then delete clearly retired/duplicate tests, then reduce repeated preparation in necessary integrations. Pure classification, drafts, pages, revisions and transactions use the narrowest existing interface. OS isolation, stopping, real crashes and no effect replay keep actual boundaries. Shared fixtures reuse stable preparation only; mutable negative-case state stays independent. Full-file wall time includes setup/cleanup.
 
-Coding 联合验收从六输入缩成四输入：首批三个占满名额，其中一个失败，第四个排队后成功；三个成功项各有独立验证和实际汇入。保留排队补位、冻结结果、来源保护、失败依赖跳过、唯一部分失败回报及停止核实。旧个人工作流联合样例随正式入口退役，个人 durable 的现行测试继续持有个人行为。
+Coding joint acceptance shrinks from six inputs to four: three initially fill capacity, one fails, and the queued fourth succeeds. Each of three successes has independent verification/actual integration. Retain queued replacement, frozen results, source protection, failed-dependency skip, one partial-failure report and stopping checks. Old Personal workflow joint examples retire with production entry; current durable tests own Personal behavior.
 
-保持 macOS/Linux × Node 22.19/24.15、45 分钟 job 期限、文件并发 2 与 macOS 独占清单，使裁剪效果可比较。完成必要性审查后仍不能满足时限时，以最慢保留集合的实测另议调度；不把增加时限、跳过、失败重试或减少平台覆盖当作精简。
+The original comparison kept macOS/Linux by Node 22.19/24.15, 45-minute jobs, file concurrency two and macOS exclusive lists. This isolated reduction gains; after necessity review, remaining slow retained sets would justify a separate scheduling decision, not disguised deadline increases/skips/retries/platform removal. The later Node24/budget decision explicitly supersedes matrix/deadline requirements rather than rewriting this historical baseline.
 
-后续新增回归先寻找同一行为的归属：用现有用例扩充缺失断言，或在最窄层新增独有反例；新的完整链路必须说明现有组合为何不能证明其接线。此规则补充按改动面选检查的方法，不替代每处行为变化的回归责任。
+New regressions first locate the existing behavior owner: add missing assertions there or a unique narrow counterexample. A new full chain must explain why existing combinations cannot prove its wiring. This supplements impact-selected checks, not the duty to cover each changed behavior.
 
-## 准备与兼容
+## Preparation and compatibility
 
-命令恢复损坏按受限、完全访问与停止未核实三个真实状态建立基线。一致关闭 SQLite 后保留不可变副本，每个负例复制回原档案路径，再独立冷启动、篡改与拒绝恢复；workspace 的真实路径、inode、机器与原命令引用不改，十种损坏分别核实零新增模型或执行。减少的是原命令准备，不把恢复校验移成静态字段判断。
+Command-recovery corruption uses three real baselines: restricted, full access and unverified stopping. After clean SQLite close, immutable copies are restored to the original profile path for each independent cold-start/tamper/rejection case. Actual workspace realpath/inode, machine and command references do not change. Ten corruptions separately prove zero additional model/execution calls. Only original command preparation is shared, not reduced to static-field checks.
 
-SSH 文案表直接调用现有分类入口，真实进程继续核实退出码、错误字节与 locale；期限和退避使用 Node 的受控时钟，真实忽略 TERM 后被回收仍由独立 OS 用例证明。虚拟时间推进前，先核实实际转发 PID 已监听、控制连接已在线或重连计时器已登记；首次连接、超时恢复与转发重启共用这一阶段同步，避免推进时间早于真实 I/O。模型设置的草稿、请求顺序和迟到应答使用现有 DesktopBridge 内存应答；保存不改目录、省略名称/凭据、秘密占位、回滚及真实事件继续由真实后端证明。MCP renderer 分页用两页响应，拒绝凭据与迟到应答降到同一接口；真实来源、空工作区、修订和归属由后台小样本承担。新会话四模式×四入口保留全部前端传参组合，两种控制面入口在各自同一真实后台逐模式核实落盘、零任务与幂等；存档与取消存档在同一夹具顺序核实。纯迁移回滚与回退直接使用真实 SQLite 和目录，保留控制面、权限、配置来源与字节的其他集成。重复 integrate 检查并入已有真实成功路径，同时保留只读拒绝、empty 零事件及旧角色拒绝委派。
+SSH message tables call existing classification directly; real processes still prove exit code, error bytes and locale. Deadlines/backoff use controlled Node clocks, while ignoring TERM and actual reaping remains an OS case. Before advancing clocks, verify actual forwarding PID listening, control connection online or reconnect timer registered. First connection, timeout recovery and forwarding restart share phase synchronization to avoid advancing ahead of real I/O.
 
-自动审查的 approve/reject/invalid/failure/length/error 继续覆盖真实工具与证据链：纯 JSON 解析已有窄用例，但不能代替个人入口对不完整流及证据缺失的处理。无现成窄入口时保留真实测试，避免为了测试裁剪新增产品 API。两种审查证据损坏从同一已关闭基线分别复制，仍真实冷启动拒绝。
+Model-settings drafts, request order and late responses use existing in-memory DesktopBridge replies; real backends still prove no directory change, omitted names/credentials, secret placeholders, rollback and actual events. MCP renderer pagination uses two pages, with denied credentials/late replies at the same interface; small backend cases prove actual sources, empty workspaces, revisions and ownership. New chat keeps all four-mode by four-entry frontend argument combinations. Each of two control entries checks every mode in one actual backend for persistence, zero tasks and idempotency. Archive/unarchive runs sequentially in one fixture. Pure migration rollback/fallback uses real SQLite/directories; other controls, permissions, sources and byte checks retain integration coverage. Duplicate integrate checks join the real success path while retaining read-only rejection, empty zero-event and old-role delegation refusal.
 
-旧审批、回复、账本、导入和只读资料仍有兼容用例。旧个人正常工作流、Scheduler 运行、旧 TUI 正常面板及未采用的 Pi RPC 探索退出当前集合；同仓共享时间/DST、AppDataStore/Query、OneBotClient、GitHub 现存调用链和真实 SSH 边界保留。历史文件定位到原提交，历史次数与日志保持。
+Automatic review approve/reject/invalid/failure/length/error keeps actual tools/evidence. Narrow JSON parsing cannot replace Personal incomplete-stream/missing-evidence handling. Without an existing narrow entry, keep real tests rather than adding production APIs solely for reduction. Two corrupted-review-evidence cases independently clone one closed baseline and actually reject cold startup.
 
-## 夹具失败
+Legacy approval/reply/ledger/import/read-only data keeps compatibility tests. Old Personal workflow/Scheduler runtime, old TUI normal panels and unused Pi RPC exploration leave the current suite. Shared time/DST, AppDataStore/Query, OneBotClient, retained GitHub call chains and actual SSH boundaries remain. Historical files are located by original commit, preserving counts/logs.
 
-macOS 可信启动标记的创建/写入窗口属于产品缺陷，按[原子发布修复](../bug-fix/2026-10-24-native-marker-atomic-publish.md)单独处理，保留原严格读取、超时和停止规则。
+## Fixture failures
 
-Linux 诊断另确认 TUI 退出后的迟到应答可重启动画并保留进程；这属于产品清理缺陷，按[关联修复](../bug-fix/2026-10-24-tui-exit-late-response.md)单独保留反例与局部守门，不以裁剪替代修复。
+The macOS trusted-launch marker create/write window is a product defect fixed separately by [atomic publication](../bug-fix/2026-10-24-native-marker-atomic-publish.md), retaining strict reads/timeouts/stopping. Linux diagnosis also found late TUI replies restarting animation/retaining the process after exit; [its cleanup fix](../bug-fix/2026-10-24-tui-exit-late-response.md) retains a counterexample/local guard rather than deleting coverage.
 
-控制面回执的零事件断言在同步查询前后比较，真实 IPC 另核实结果，避免把并发最终回报的事件算成读取副作用。个人工具审批用真实独立客户端进程接收应答，保留原五秒期限；同进程后台在应答后执行同步文件核实会延迟本进程客户端读响应，不能用延长产品期限掩盖夹具竞争。
+Zero-event control-receipt assertions compare around synchronous queries, with actual IPC checking results separately so concurrent final-report events are not read effects. Personal tool-approval tests use an independent actual client process and retain five seconds; backend synchronous file verification after response can delay an in-process client's read, not justify longer product deadlines.
 
-SSH 设置夹具的场景文件由父子进程各写临时文件再原子替换，inspect 仅读取，避免半写 JSON 及旧整份快照覆盖新控制；释放失败仍进入关闭。Cua 四张上限图片使用产品已有六十秒调用预算，删除夹具额外的十秒覆盖，四张 8MiB 与 48MiB 聚合拒绝不变。Demo 补齐已有 MCP 事件类型；桌面创建拒绝使用不存在目录，沿现行拥有者登记权限。
+SSH fixture scenario files use parent/child temporary files plus atomic replace; inspect only reads, avoiding partial JSON/old-snapshot overwrites. Release failure still enters close. Cua's four maximum-size images use the product's sixty-second call budget, removing only a fixture ten-second override; four 8-MiB images and 48-MiB aggregation rejection remain. Demo gains existing MCP event types. Desktop creation rejection uses nonexistent paths under current owner-registration permissions.
 
-macOS 原生夹具在临时文件中写完孤儿 PID 后再原子发布就绪文件；fork 后早退先发布释放信号，让本夹具所有等待者退出并回收直属 worker，再返回原失败码。正常路径仍在清理前核实 stopped/orphan/reason，不把协作退出当作生产停止证明。
+macOS native fixtures finish orphan PID writes in temporary files before atomic ready publication. Early post-fork failure first publishes release, joins fixture waiters/direct worker, then returns original failure code. Normal paths still verify stopped/orphan/reason before cleanup; cooperative exit is not production stopping proof.
 
-工作流 PTY 按上一动作后的实际画面发送下一动作，不再依赖启动后的绝对秒数；标记只读新输出，末步选择增量重绘确实包含的聊天内容，避免等待未变化的连接行。原二十一项动作、宽窄尺寸、分段断言和四十秒期限保留，其他 PTY 场景沿用原数字时刻。
+Workflow PTY sends each action after observing the preceding action's actual screen, not absolute seconds from startup. Markers read new output only; the last step selects chat text present in incremental redraw rather than unchanged connection text. All 21 actions, wide/narrow sizes, segmented assertions and forty-second deadline remain. Other PTY cases retain original timing.
 
-模型替身的 SSE 响应显式使用 `Connection: close`。同进程同步准备跨过默认空闲期限时，服务端可能先销毁连接，而客户端连接池尚未消费关闭事件；下一轮请求便出现 `ECONNRESET`，并被零重试的 SDK 报作连接失败。测试替身不承担连接复用验证，响应结束关闭连接保留完整流、工具调用和后续请求；不扩大超时或重试预算，也不改真实模型客户端。
+Mock-model SSE replies explicitly use Connection: close. Same-process synchronous setup can cross the default idle deadline: server destroys the connection before the client pool consumes close, and the next request gets ECONNRESET from the zero-retry SDK. These mocks do not test connection reuse. Closing after replies preserves complete streams, tool calls and later requests without longer timeouts/retries or changed production clients.
 
-## 既有笔记审计
+## Related decisions
 
-- [工作流联合验收](../testing/2026-10-13-workflow-joint-acceptance.md)：部分重叠。取代六输入规模与旧个人组合样例；真实模型显式开启、平台停止事实和证据分层继续成立。当前适用范围与关联工单同步，不改写历史结果。
-- [个人唯一 durable 入口](../simplification/2026-10-18-personal-product-entry.md)：部分重叠。沿用旧运行入口退出、共享业务库和旧资料保留；本决定收窄因此失去产品意义的测试，不新增产品退役决定。
-- [CI 前提与并发限制](../testing/2026-10-22-ci-prerequisites.md)：部分重叠。系统前提、失败透传、独占与并发规则继续使用；“保留全部成员”由逐项必要性判断部分取代。
-- [按改动面选检查](../process/2026-10-10-pre-push-evidence-ladder.md)：部分重叠。保留定向证据与最终 CI 覆盖的责任，本决定说明保留集合如何收敛。
+- [Joint workflow acceptance](2026-10-13-workflow-joint-acceptance.md): replaces six-input scale/old Personal examples; retains explicit real-model opt-in, platform stopping and evidence levels without rewriting results.
+- [Sole Personal durable entry](../simplification/2026-10-18-personal-product-entry.md): retains retired entries/shared libraries/old data; only tests losing product value are narrowed, with no new product retirement.
+- [CI prerequisites/concurrency](2026-10-22-ci-prerequisites.md): retains prerequisites, failure propagation and exclusivity/concurrency; per-test necessity replaces blanket retention.
+- [Impact-selected checks](../process/2026-10-10-pre-push-evidence-ladder.md): retains targeted evidence/final CI responsibility; this determines the retained suite.
 
-[通用调度](../feature/2026-10-12-generic-scheduled-tasks.md)与[后台和终端分离](../architecture/2026-09-19-detach-terminal-from-task-runtime.md)部分重叠：只更新已退役的运行验收与 RPC 探索定位，保留其他产品决定。
+[Generic scheduling](../feature/2026-10-12-generic-scheduled-tasks.md) and [backend/terminal separation](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) only update retired runtime/RPC-exploration test locations. The original audit found no same-topic proposal or wholly absorbed note. Existing async-phase mechanisms remain.
 
-按 CI、测试策略、六输入、并发与个人入口检索，未发现同题 proposed 或完全被吸收的笔记；`rejected/` 当前不存在。异步阶段同步等既有机制无需改变。
+## Alternatives considered
 
-## 备选方案
+- Delete by percentage/line count: quick small suite/quotas, but historically nearly half the cases consumed only about 0.8% of time, and counts do not identify unique negatives.
+- Increase concurrency/shard/shrink matrix only: quicker jobs, but leaves valueless coverage and real-worker contention. Keep separate from first reduction; reconsider from measurements if needed.
+- Mock everything: fewer starts, but cannot prove native permissions/stopping/crash no-replay. Only pure logic/UI state moves to narrower layers.
+- Keep everything on a periodic schedule: quicker daily feedback, but retired tests still cost maintenance and unique regressions appear later. Delete obsolete coverage; required cases stay in full checks.
 
-- 按比例或行数删除最快获得小集合，也便于设定数量目标；历史上近半用例耗时仅占约 0.8%，且数量不能区分独有负例，故不用删除配额。
-- 只提高并发、分片或缩小矩阵可以较快降低单 job 时间；无法消除无价值覆盖，既有真实 worker 竞争还会重现，故不混入首批裁剪，必要时另议。
-- 全面改用内存模拟可以减少启动成本；不能证明原生权限、停止和崩溃后不重放，故仅把纯逻辑和界面状态移到最窄层。
-- 保留全部测试并改为定期运行能降低日常反馈时间；退役测试仍需维护，且把独有回归延后暴露，故已无产品意义的用例直接删除，有必要的覆盖仍进入完整检查。
+## Verification
 
-## 验证
+Every removal must trace to a retired entry or retained assertion, with module-by-module necessity review. Replacements retain failure conditions and safety/recovery negatives remain fault-detectable. Original acceptance required all four cells on the same candidate below 45 minutes and separate reporting against a thirty-minute optimization goal; that was a requirement, not evidence of a pass, and later matrix/budget rules supersede it. Old failures, timeouts and unverified environments cannot disappear from success summaries.
 
-每处删除能追溯到退役入口或保留断言，整份测试清单按模块完成必要性审查。替代用例保留原失败条件，必要安全与恢复负例可通过受控故障检出。原四格对同一候选提交完整运行且均小于 45 分钟，30 分钟优化目标单独报告；旧失败、超时和未验证环境不能消失在成功汇总里。
+Implementation steps, first candidates, commands, stopping criteria and evidence remain in the offline original work item. Independent retention review is not implementation/performance/remote acceptance. Commands, checked content and results are recorded separately.
 
-实施步骤、首批候选、验证命令、阶段停止条件与证据归[工单](../../../../.scratch/ci/issues/02-reduce-test-suite.md)。独立去留审查不表示实现、性能或远端验收已通过；命令、被检内容与结果分别记录。
+## Consequences
 
-## 后果
+Retired wiring tests may contain unique shared-library/old-profile guarantees, requiring caller/assertion inspection. Moving down layers can lose wiring coverage, so real representative cases remain. Shared preparation must not pollute state or bypass persistent identity; independent recovery negatives cannot become sequential mutations of one profile.
 
-旧产品接线测试可能混有共享库或旧档案的独有保护，须逐用例检查调用与断言。降层可能丢失跨层接线，须保留真实代表场景。共享准备可能污染状态或绕过持久身份，不能把独立恢复负例变成同一可变档案上的顺序试验。
-
-历史耗时与当前 HEAD、GitHub runner 不同，首批删除量不能支持 30 分钟承诺。最终若必要集合仍慢，应公开剩余成本并讨论执行策略；当前裁剪不承担新产品功能或生产边界修改。
+Historical times differ from current HEAD/runners. Initial deletion counts do not promise thirty minutes. If the necessary suite stays slow, expose remaining costs and discuss execution strategy. Test reduction itself does not authorize new features or production-boundary changes.

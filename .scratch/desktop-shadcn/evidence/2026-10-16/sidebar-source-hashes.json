@@ -1,6 +1,0 @@
-{
-  "src/app.tsx": "ea974d017a2a0dc0e6c14ac81d923338a3a687edbbafbf207e6004c95919c107",
-  "src/demo-data.ts": "3944b7058c87fa92e8d754cc4ee7de8f8fcab6605b03cec467567a605ac0aeef",
-  "src/style.css": "841acb585fed5426dead85522db0cb571b1b9981b626d6310a0de6f9e752918f",
-  "scripts/check-render.mjs": "f76c2a1358d8a9156770c7f80bf62d7b8ef92242f2638e9166f0288b93a018fc"
-}

@@ -58,6 +58,8 @@ sequenceDiagram
 
 Dependency-free work can run concurrently; dependent steps wait for registered predecessors. An `ask` result resumes the relevant work without approving tool operations. Integration checks isolated changes before bringing them into the main work copy.
 
+A terminal workflow's internal report keeps its original run/version/source and fallback identity. For an active eligible Coding task, report text enters the next request after its current tool batch; idle tool-free summaries run before ordinary queued messages. Claims, actual model consumption and final reporting are separate persisted facts, and receiving a report does not transfer ownership of its source work. Workflow script `ask` retains its own step-wait contract; this does not grant `ask_user` to workflow steps.
+
 Named MCP requirements use official `mcp__<server>__<tool>` names. Before calling the model, wait for registration and verify current source eligibility. Published definitions and capability snapshots stay unchanged: report unmatched requirements explicitly and use a revised definition for a new run.
 
 ## Invariants and Failure Handling
@@ -71,3 +73,4 @@ Named MCP requirements use official `mcp__<server>__<tool>` names. Before callin
 - [Work delegation subagent task](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)
 - [Native execution sandbox](../../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md)
 - [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)
+- [Next-request report delivery](../../.agents/notes/implemented/feature/2026-10-30-coding-report-delivery-boundary.md)

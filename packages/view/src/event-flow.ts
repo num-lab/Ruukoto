@@ -97,6 +97,7 @@ export class EventFlow {
   applyRecall(recall: PublicMessageRecall): void {
     if (recall.phase !== "completed") return;
     this.recalledTasks.add(recall.targetTaskId);
+    if (recall.purpose === "queued") return;
     for (const id of recall.omittedEntryIds ?? []) this.omittedEntries.add(id);
   }
 
@@ -353,7 +354,7 @@ export class EventFlow {
     }
     if (history.role === "user" && history.inputPurpose === "internal_report") {
       this.entries.delete(fallback);
-      if (taskId) this.entries.delete(`input:${taskId}`);
+      for (const [key, entry] of this.entries) if (entry.kind === "message" && entry.entryId === history.entryId) this.entries.delete(key);
       return;
     }
     if (history.role === "toolResult") {
@@ -369,7 +370,7 @@ export class EventFlow {
         return;
       }
       this.entries.set(fallback, { key: fallback, kind: "tool", at: history.timestamp, seq: ref?.seq ?? 0, taskId: ref?.taskId,
-        name: history.toolName ?? "unknown", toolOpId: null, toolCallId: history.toolCallId, params: {}, target: "",
+        name: history.toolName ?? "unknown", toolOpId: history.hostToolOpId ?? null, toolCallId: history.toolCallId, params: {}, target: "",
         status: history.isError ? "error" : "done", summary: history.isError ? history.text : null,
         editStats: history.editStats, entryId: history.entryId, paramsTruncated: false, artifactIds: [] });
       return;

@@ -1,10 +1,10 @@
-import type { MessageRecall, ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { PublicMessageRecall, ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import { formatTaskStatus, type ViewState } from "@ruukoto/view/state.ts";
 import type { DesktopAttachment, DesktopBridge, DesktopSubmitResult, DesktopTarget, DesktopUpdate, PendingInput } from "../shared/bridge.ts";
 
-export interface Draft { text: string; taskId?: string; attachments?: DesktopAttachment[]; attaching?: boolean }
+export interface Draft { text: string; attachments?: DesktopAttachment[]; attaching?: boolean }
 
 /** task_queue 回执（coding-message-control）：顺序/修订/资格集合以服务端为准。 */
 export type QueueDetail = OpResult<"task_queue">;
@@ -33,7 +33,7 @@ interface UnknownControl { op: "interrupt" | "cancel" | "resume_queue" | "settin
 /** Recall state: candidate, pending request, edit window and receipt. */
 export type RecallState = OpResult<"message_recall_state">;
 /** The initiating client retains the request key and completion revision to restore its draft. */
-interface HeldRecall { requestId: string }
+interface HeldRecall { requestId: string; params?: OpParams<"message_recall">; installed?: boolean }
 
 // Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class CodeWrites {
@@ -43,6 +43,7 @@ export class CodeWrites {
   models: OpResult<"list_models">["models"] = [];
   message: string | null = null;
   readonly busy = new Set<string>();
+  readonly stopConfirmations = new Set<string>();
   readonly unknown = new Map<string, UnknownControl>();
   private readonly savingSettings = new Set<string>();
   private readonly drafts = new Map<string, Draft>();
@@ -54,7 +55,6 @@ export class CodeWrites {
   private readonly submitting = new Map<string, HeldInput>();
   private readonly held = new Map<string, HeldInput>();
   private readonly restoring = new Set<string>();
-  private readonly stopping = new Map<string, { sessionId: string; instanceId: string | null }>();
   private readonly queues = new Map<string, QueueDetail>();
   queueDetail(sessionId: string): QueueDetail | undefined { return this.queues.get(`${this.view.instanceId}:${sessionId}`); }
   private readonly recallStates = new Map<string, RecallState>();
@@ -70,30 +70,38 @@ export class CodeWrites {
     if (!draft) { draft = { text: "" }; this.drafts.set(key, draft); }
     return draft;
   }
-  edit(sessionId: string, text: string): void { this.draft(sessionId).text = text; this.changed(); }
+  edit(sessionId: string, text: string): void {
+    if (this.recallPending(sessionId)) return;
+    const held = this.heldRecall.get(this.key(sessionId));
+    if (held?.installed) this.forgetRecall(sessionId);
+    this.draft(sessionId).text = text; this.changed();
+  }
+  recallPending(sessionId: string): boolean {
+    const held = this.heldRecall.get(this.key(sessionId));
+    return !!held && !held.installed;
+  }
   defer(): void { this.report("原记录仍保留；可稍后恢复输入，发送仍禁用。"); }
   blocked(sessionId: string): boolean {
-    return !this.online() || !!this.draft(sessionId).attaching || this.busy.has(sessionId) || this.checking(sessionId) || [...this.entries.values()].some(({ record }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId);
+    return !this.online() || this.recallPending(sessionId) || !!this.draft(sessionId).attaching || this.busy.has(sessionId) || this.checking(sessionId) || [...this.entries.values()].some(({ record }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId);
   }
   checking(sessionId: string): boolean {
-    return this.submitting.has(this.key(sessionId)) || [...this.held.values()].some(held => !held.settled && held.draft === this.draft(sessionId)) || [...this.entries.values()].some(({ record, result }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId && result?.kind !== "needs_resubmit" && result?.kind !== "rejected");
+    return this.recallPending(sessionId) || this.submitting.has(this.key(sessionId)) || [...this.held.values()].some(held => !held.settled && held.draft === this.draft(sessionId)) || [...this.entries.values()].some(({ record, result }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId && result?.kind !== "needs_resubmit" && result?.kind !== "rejected");
   }
   settingsPending(sessionId: string): boolean {
     const unknown = this.unknown.get(sessionId);
     return this.savingSettings.has(this.key(sessionId)) || unknown?.op === "settings" && unknown.instanceId === this.view.instanceId;
   }
   private hold(record: PendingRequest): HeldInput | undefined {
-    if (record.instanceId !== this.view.instanceId || typeof record.params.session_id !== "string" || typeof record.params.input !== "string") return;
+    if (record.op !== "submit" || record.instanceId !== this.view.instanceId || typeof record.params.session_id !== "string" || typeof record.params.input !== "string") return;
     const existing = this.held.get(record.requestId);
     if (existing) return existing;
     // 恢复记录来自主进程校验过的持久 JSON，保留原附件引用，不重新读取本机文件。
     const attachments = Array.isArray(record.params.attachments) ? record.params.attachments as DesktopAttachment[] : undefined;
-    const input: Draft = { text: record.params.input, attachments, ...(record.op === "continue" && typeof record.params.task_id === "string" ? { taskId: record.params.task_id } : {}) };
+    const input: Draft = { text: record.params.input, attachments };
     const active = this.submitting.get(this.key(record.params.session_id));
     const held = active?.requestId === record.requestId ? active : { requestId: record.requestId, draft: this.draft(record.params.session_id), input, settled: false };
     this.held.set(record.requestId, held);
     if (input.text && held.draft.text !== input.text && !held.draft.text.startsWith(`${input.text}\n\n`)) held.draft.text = held.draft.text ? `${input.text}\n\n${held.draft.text}` : input.text;
-    if (input.taskId) held.draft.taskId = input.taskId;
     if (attachments) held.draft.attachments = [...attachments, ...(held.draft.attachments ?? []).filter(item => !attachments.some(original => original.id === item.id))];
     return held;
   }
@@ -104,12 +112,10 @@ export class CodeWrites {
     if (accepted) {
       if (draft.text === input.text) draft.text = "";
       else if (input.text && draft.text.startsWith(`${input.text}\n\n`)) draft.text = draft.text.slice(input.text.length + 2);
-      if (draft.taskId === input.taskId) delete draft.taskId;
       const sentIds = new Set(input.attachments?.map(item => item.id));
       if (draft.attachments) draft.attachments = draft.attachments.filter(item => !sentIds.has(item.id));
     } else {
       if (input.text && draft.text !== input.text && !draft.text.startsWith(`${input.text}\n\n`)) draft.text = draft.text ? `${input.text}\n\n${draft.text}` : input.text;
-      if (input.taskId) draft.taskId = input.taskId;
       if (input.attachments) draft.attachments = [...input.attachments, ...(draft.attachments ?? []).filter(item => !input.attachments!.some(original => original.id === item.id))];
     }
   }
@@ -125,14 +131,6 @@ export class CodeWrites {
     }
     this.changed();
   }
-  private stopped(): void {
-    for (const [id, source] of this.stopping) {
-      if (source.instanceId !== this.view.instanceId) continue;
-      const task = this.view.getTask(id);
-      if (task?.status === "interrupted") { this.continueTask(source.sessionId, id); this.stopping.delete(id); }
-      else if (task?.endedAt) this.stopping.delete(id);
-    }
-  }
   private report(message: string): void { this.message = message; this.changed(); }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<T> {
     const result = await this.bridge.request(this.target, op, params);
@@ -140,7 +138,7 @@ export class CodeWrites {
     return result.value as T;
   }
   private merge(record: PendingRequest): void {
-    if (record.instanceId !== this.view.instanceId || this.restored.has(record.requestId)) return;
+    if (record.op !== "submit" || record.instanceId !== this.view.instanceId || this.restored.has(record.requestId)) return;
     const sessionId = record.params.session_id;
     const input = record.params.input;
     if (typeof sessionId !== "string" || typeof input !== "string") return;
@@ -150,7 +148,6 @@ export class CodeWrites {
       const attachments = record.params.attachments as DesktopAttachment[];
       draft.attachments = [...attachments, ...(draft.attachments ?? []).filter(item => !attachments.some(original => original.id === item.id))];
     }
-    if (record.op === "continue" && typeof record.params.task_id === "string") draft.taskId = record.params.task_id;
     this.restored.add(record.requestId);
     this.changed();
   }
@@ -203,8 +200,11 @@ export class CodeWrites {
         let stored: string | null = null;
         try { stored = localStorage.getItem(this.storageKey(session.id)); } catch { stored = null; }
         if (!stored) continue;
-        this.heldRecall.set(this.key(session.id), { requestId: stored });
-        void this.loadRecallState(session.id, stored);
+        let held: HeldRecall;
+        try { held = JSON.parse(stored) as HeldRecall; } catch { held = { requestId: stored }; }
+        if (!held || typeof held.requestId !== "string") continue;
+        if (!this.heldRecall.get(this.key(session.id))?.installed) this.heldRecall.set(this.key(session.id), held);
+        void this.loadRecallState(session.id, held.requestId);
       }
       for (const [key, control] of this.unknown) {
         if (control.instanceId !== this.view.instanceId) continue;
@@ -216,7 +216,6 @@ export class CodeWrites {
         }
       }
     }
-    this.stopped();
   }
   async restore(requestId: string): Promise<void> {
     try {
@@ -298,9 +297,10 @@ export class CodeWrites {
 
   /** Persist the initiating request key so a cold start can verify edit-window ownership and restore the draft. */
   private storageKey(sessionId: string): string { return `ruukoto.recallDraft:${this.key(sessionId)}`; }
-  private rememberRecall(sessionId: string, requestId: string): void {
-    this.heldRecall.set(this.key(sessionId), { requestId });
-    try { localStorage.setItem(this.storageKey(sessionId), requestId); } catch { /* Use memory-only state when persistent storage is unavailable. */ }
+  private rememberRecall(sessionId: string, held: HeldRecall): void {
+    this.heldRecall.set(this.key(sessionId), held);
+    try { localStorage.setItem(this.storageKey(sessionId), JSON.stringify({ requestId: held.requestId, ...(held.params ? { params: held.params } : {}) })); }
+    catch { this.heldRecall.delete(this.key(sessionId)); throw new Error("无法保存原撤回请求，本次没有发送；请恢复应用存储后重试。"); }
   }
   private forgetRecall(sessionId: string): void {
     this.heldRecall.delete(this.key(sessionId));
@@ -311,6 +311,7 @@ export class CodeWrites {
   private applyRecallDraft(sessionId: string, state: RecallState): void {
     const held = this.heldRecall.get(this.key(sessionId));
     const edit = state.edit;
+    if (held?.installed) return;
     if (!held || !edit || state.receipt?.id !== edit.recallId || state.receipt.requestId !== held.requestId || state.receipt.phase !== "completed") {
       // A terminal request that no longer owns the edit window invalidates the key without restoring a draft.
       if (held && state.receipt?.requestId === held.requestId && (state.receipt.phase === "rejected" || (state.receipt.phase === "completed" && state.receipt.id !== edit?.recallId))) this.forgetRecall(sessionId);
@@ -319,32 +320,44 @@ export class CodeWrites {
     const draft = this.draft(sessionId);
     draft.text = edit.input;
     draft.attachments = edit.attachments.length ? edit.attachments.map(item => ({ id: item.id, name: item.name, size: item.size })) : undefined;
-    delete draft.taskId;
-    this.forgetRecall(sessionId);
-    this.report("已撤回上一条输入，可编辑后重新发送。");
+    this.rememberRecall(sessionId, { ...held, installed: true });
+    this.report("已取回输入，可编辑后重新发送。");
+  }
+
+  async retryRecall(sessionId: string): Promise<void> {
+    const held = this.heldRecall.get(this.key(sessionId));
+    if (held?.params) await this.recall(sessionId, held.params.task_id, held.params.purpose);
+    else if (held) await this.loadRecallState(sessionId, held.requestId);
   }
 
   /** The server arbitrates concurrent recalls; this client tracks only its own request key. */
-  async recall(sessionId: string, taskId: string): Promise<void> {
-    const state = this.recallState(sessionId);
-    const candidate = state?.candidate;
-    if (!candidate || candidate.taskId !== taskId) { await this.loadRecallState(sessionId); return; }
-    const requestId = crypto.randomUUID();
+  async recall(sessionId: string, taskId: string, purpose: "queued" | "historical" = "historical"): Promise<void> {
+    if (this.busy.has(sessionId)) return;
+    const instanceId = this.view.instanceId;
+    const current = this.heldRecall.get(this.key(sessionId));
+    const existing = current?.installed ? undefined : current;
+    if (existing && !existing.params) { await this.loadRecallState(sessionId, existing.requestId); return; }
+    const candidate = this.recallState(sessionId)?.candidate;
+    const queue = this.queueDetail(sessionId)?.queue;
+    const revision = purpose === "queued" ? queue?.revision : candidate?.inputSeq;
+    if (!existing && (revision === undefined || (purpose === "queued" ? !queue?.retrievableTaskIds.includes(taskId) : candidate?.kind !== "task" || candidate.taskId !== taskId))) { await Promise.all([this.loadRecallState(sessionId), this.loadQueue(sessionId)]); return; }
+    const requestId = existing?.requestId ?? crypto.randomUUID();
+    const params: OpParams<"message_recall"> = existing?.params ?? { session_id: sessionId, task_id: taskId, request_id: requestId, expected_revision: revision!, purpose };
     this.busy.add(sessionId);
     this.changed();
     try {
-      const receipt = await this.request<MessageRecall>("message_recall", { session_id: sessionId, task_id: taskId, request_id: requestId, expected_revision: candidate.inputSeq });
-      // The receipt acknowledges asynchronous acceptance. Save the key before completion;
-      // message_recall.changed triggers a keyed query to restore completed drafts or invalidate rejected keys.
+      this.rememberRecall(sessionId, { requestId, params });
+      const receipt = await this.request<PublicMessageRecall>("message_recall", params);
+      if (instanceId !== this.view.instanceId) return;
+      // The saved key also recovers completion when the mutation response is lost.
       if (receipt.phase === "rejected") {
         this.report(`撤回被拒绝：${receipt.error?.message ?? "目标已变化"}`);
-      } else {
-        this.rememberRecall(sessionId, requestId);
+        this.forgetRecall(sessionId);
       }
     } catch (error) {
       this.report(error instanceof Error ? error.message : "撤回失败，请重试。");
     } finally { this.busy.delete(sessionId); this.changed(); }
-    await this.loadRecallState(sessionId, requestId);
+    if (instanceId === this.view.instanceId) await this.loadRecallState(sessionId, requestId);
   }
 
   /** Retry stop verification with the original request key and parameters. */
@@ -354,7 +367,7 @@ export class CodeWrites {
     this.busy.add(sessionId);
     this.changed();
     try {
-      const receipt = await this.request<MessageRecall>("message_recall_verify", { session_id: sessionId, request_id: open.requestId });
+      const receipt = await this.request<PublicMessageRecall>("message_recall_verify", { session_id: sessionId, request_id: open.requestId });
       if (receipt.phase === "blocked") this.report("停止仍未核实，请稍后再次核实");
     } catch (error) {
       this.report(error instanceof Error ? error.message : "核实失败，请重试。");
@@ -365,9 +378,10 @@ export class CodeWrites {
   async send(sessionId: string, opts: { guidance?: boolean } = {}): Promise<void> {
     const session = this.view.sessions.find(item => item.id === sessionId);
     const draft = this.draft(sessionId);
-    if (session?.codeScheduleActive && !draft.taskId) { this.report("定时运行期间请从 Scheduled 查看与处理本轮，结束后可发送普通消息。"); return; }
+    if (session?.codeScheduleActive) { this.report("定时运行期间请从 Scheduled 查看与处理本轮，结束后可发送普通消息。"); return; }
     if (!session || (!draft.text.trim() && !draft.attachments?.length) || this.blocked(sessionId)) return;
     if (!session.modelSelection) { this.report("请先选择模型。"); return; }
+    if (this.heldRecall.get(this.key(sessionId))?.installed) this.forgetRecall(sessionId);
     const input = { ...draft, attachments: draft.attachments ? [...draft.attachments] : undefined };
     const instanceId = this.view.instanceId;
     const key = this.key(sessionId);
@@ -376,13 +390,13 @@ export class CodeWrites {
     this.busy.add(sessionId);
     this.changed();
     try {
-      const result = await this.request<DesktopSubmitResult>(input.taskId ? "continue" : "submit", { session_id: sessionId, request_id: held.requestId, ...(input.taskId ? { task_id: input.taskId } : {}), input: input.text, model_selection: session.modelSelection, ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(opts.guidance && !input.taskId ? { guidance: true } : {}) });
+      const result = await this.request<DesktopSubmitResult>("submit", { session_id: sessionId, request_id: held.requestId, input: input.text, model_selection: session.modelSelection, ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(opts.guidance ? { guidance: true } : {}) });
       if (result.kind === "accepted") {
         this.settle(held, true);
         this.notices.add(result.requestId);
         this.entries.delete(result.requestId);
         this.held.delete(result.requestId);
-        if (instanceId === this.view.instanceId) this.view.upsertTask(result.task);
+        if (instanceId === this.view.instanceId && "task" in result) this.view.upsertTask(result.task);
       } else if (result.kind === "not_sent" || result.kind === "rejected" || result.kind === "conflict") {
         this.settle(held, false);
         this.restored.add(result.requestId);
@@ -395,12 +409,6 @@ export class CodeWrites {
       this.settle(held, false);
       if (instanceId === this.view.instanceId) this.report(error instanceof Error ? error.message : "发送失败，输入仍保留。");
     } finally { this.submitting.delete(key); this.busy.delete(sessionId); this.changed(); }
-  }
-  continueTask(sessionId: string, taskId: string): void {
-    const task = this.view.getTask(taskId);
-    if (task?.sessionId !== sessionId || task.status !== "interrupted") return;
-    this.draft(sessionId).taskId = taskId;
-    this.changed();
   }
   async loadModels(): Promise<void> {
     if (!this.online() || !this.view.instanceId) return;
@@ -444,9 +452,11 @@ export class CodeWrites {
       const result = await this.request<OpResult<K>>(op, params);
       if (control.instanceId !== this.view.instanceId) return;
       this.unknown.delete(key);
+      if (op === "resume_queue") this.stopConfirmations.delete(this.key(control.sessionId));
       return result;
     } catch (error) {
       if (control.instanceId !== this.view.instanceId) return;
+      if (op === "resume_queue" && error instanceof WriteFailure && error.failure.code === "stop_unverified") this.stopConfirmations.add(this.key(control.sessionId));
       if (error instanceof WriteFailure && (error.failure.outcome === "unknown" || error.failure.outcome === "disconnected" || error.failure.code === "model_selection_conflict" || error.failure.code === "default_mode_conflict")) {
         this.unknown.set(key, control);
         this.report("操作结果未知；等待核实后台实际状态。");
@@ -490,16 +500,15 @@ export class CodeWrites {
     if (saved) { this.applySession(saved); this.changed(); }
   }
   async control(op: "interrupt" | "cancel", sessionId: string, taskId: string): Promise<void> {
-    if (op === "interrupt") this.stopping.set(taskId, { sessionId, instanceId: this.view.instanceId });
     await this.write(op, { task_id: taskId }, { op, sessionId, taskId, instanceId: this.view.instanceId });
-    this.stopped();
   }
-  async resume(session: Session, confirmed = false): Promise<void> {
+  stopConfirmationNeeded(sessionId: string): boolean { return this.stopConfirmations.has(this.key(sessionId)); }
+  async resume(session: Session, confirmed = false, stopConfirmed = false): Promise<void> {
     if (this.settingsPending(session.id)) { this.report("会话设置仍在保存或等待核实，请重新连接确认后台实际设置后再恢复队列。"); return; }
     const decision = queueDecision(this.view, session, confirmed);
     if (decision.kind !== "send") return;
     const revision = this.queueRevision;
-    const saved = await this.write("resume_queue", decision.params, { op: "resume_queue", sessionId: session.id, instanceId: this.view.instanceId });
+    const saved = await this.write("resume_queue", { ...decision.params, ...(stopConfirmed ? { stop_confirmed: true } : {}) }, { op: "resume_queue", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applyQueue(saved, revision); this.changed(); }
   }
 }

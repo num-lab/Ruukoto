@@ -276,12 +276,13 @@ export class ViewState {
         }
         return;
       case "task.queued":
+        if (!body.inputPurpose && !this.tasks.get(body.taskId)) return;
         this.upsertTask({
           id: body.taskId,
           sessionId: body.sessionId,
           requestId: body.requestId,
           input: "",
-          inputPurpose: this.tasks.get(body.taskId)?.inputPurpose ?? "user",
+          inputPurpose: body.inputPurpose ?? this.tasks.get(body.taskId)!.inputPurpose,
           modelSelection: body.modelSelection,
           submissionDigest: null,
           status: "queued",
@@ -728,7 +729,7 @@ export class ViewState {
   queuedTasksFor(sessionId: string): Task[] {
     return this.tasksFor(sessionId)
       // 待接入引导源不独立执行，不属于队列成员；顺序只取持久 queue_order 事实
-      .filter((t) => t.status === "queued" && !t.reportParked && this.guidance.get(t.id)?.state !== "pending")
+      .filter((t) => t.status === "queued" && t.inputPurpose === "user" && !t.reportParked && this.guidance.get(t.id)?.state !== "pending")
       .sort((a, b) => a.queueOrder - b.queueOrder || a.id.localeCompare(b.id));
   }
 

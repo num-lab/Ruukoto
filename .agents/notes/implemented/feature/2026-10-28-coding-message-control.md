@@ -2,7 +2,7 @@
 
 Status: implemented
 
-Confirmed follow-up proposals are [user queue controls](../../proposed/feature/2026-10-30-coding-user-queue.md), [next-request report delivery](../../proposed/feature/2026-10-30-coding-report-delivery-boundary.md) and [in-task questions](../../proposed/feature/2026-10-30-coding-owner-question-wait.md). They propose changes to queued sources, pause/resume and continuation entries, but are not implemented; this note retains the current decision.
+The superseding decisions are [user queue controls](2026-10-30-coding-user-queue.md), [next-request report delivery](2026-10-30-coding-report-delivery-boundary.md) and [in-task questions](2026-10-30-coding-owner-question-wait.md). They own the replacement contracts for queued sources, pause/resume and continuation entries; this note preserves the original decision and retained guidance guarantees.
 
 ## Problem
 

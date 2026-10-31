@@ -189,7 +189,7 @@ test("验收2：inbox 附接收与复核结论、outbox 账本、read_history �
     const interrupted = group.seedTask({ userId: OWNER, messageId: "9", state: "running" }).task!;
     rt.store.transitionTask(interrupted.id, ["running"], "interrupted", { interruptReason: "backend_restart", endedAt: new Date().toISOString() });
     await assert.rejects(
-      rt.continueTask({ taskId: interrupted.id, requestId: "cont-9", input: "继续", modelSelection: rt.defaultSelection }),
+      rt.submit({ sessionId: interrupted.sessionId, requestId: "cont-9", input: "继续", modelSelection: rt.defaultSelection }),
       (err: any) => err.code === "invalid_state" && /核心群聊已退役/.test(err.message),
     );
 
@@ -494,7 +494,7 @@ test("验收5：排队/在途/待发/未派发事件一次性收尾只定终态�
     {
       const rt = await startOnce();
       await assert.rejects(
-        rt.continueTask({ taskId: ids.running, requestId: "resume-run", input: "继续", modelSelection: rt.defaultSelection }),
+        rt.submit({ sessionId: rt.store.getTask(ids.running)!.sessionId, requestId: "resume-run", input: "继续", modelSelection: rt.defaultSelection }),
         (err: any) => err.code === "invalid_state" && /核心群聊已退役/.test(err.message),
         "被中断的群任务不能续跑",
       );

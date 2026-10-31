@@ -20,9 +20,10 @@ Each frame ends in `\n`.
 | Operations | Purpose |
 | --- | --- |
 | `auth`, `ping`, `connect`, `stop` | Authenticate, inspect liveness, install snapshot and stop |
-| `submit`, `continue`, `interrupt`, `cancel`, `switch_mode`, `resume_queue` | Task and queue lifecycle |
+| `submit`, `interrupt`, `cancel`, `switch_mode`, `resume_queue` | Task and queue lifecycle; resumption releases retained occupancy only with explicit `stop_confirmed` |
 | `task_queue`, `queue_reorder`, `steer_task` | Persisted queue order and steering |
-| `message_recall`, `message_recall_verify`, `message_recall_state` | Recall the latest effective owner input: stop affected execution, append history omissions and restore text/attachments to the initiating client; verify retries stop verification, state only queries |
+| `message_recall`, `message_recall_verify`, `message_recall_state` | Explicit `queued` retrieval preserves other execution/queue state; `historical` recall stops its closure and appends omissions. Original-key state queries restore the initiating draft; verify retries historical stop verification |
+| `owner_question_answer`, `owner_question_cancel`, `owner_question_receipt` | Commit/query original-task receipts; answers carry no new-task model, mode or paths |
 | `get_task`, `list_tasks`, `read_task_events` | Task/event reads |
 | `respond_confirmation`, `get_confirmation_params` | Owner decisions and bounded parameter reads |
 | `open_workspace`, `create_session`, `branch_session`, `compact_session` | Workspace identity, new/branched conversations and explicit compaction |
@@ -80,8 +81,9 @@ Computer recovery forwards the original recovery identity and fresh observation 
 
 - Unauthenticated connections cannot read data, manage conversations or submit work. Tokens use `crypto.timingSafeEqual`.
 - Large output and parameters use bounded `offset`/`limit` slices rather than unbounded frames.
-- Current protocol is `48`; mismatch returns `protocol_version`. Upgrade an old client, or explicitly stop an old backend before reopening a new client.
-- The server binds MyGo browser provenance from the actual socket on `submit`, `continue` and `owner_question_answer`; client parameters cannot assert it.
+- Current protocol is `49`; mismatch returns `protocol_version`. Upgrade an old client, or explicitly stop an old backend before reopening a new client. Schema 58 requires a fresh Coding data directory; no migration is added.
+- The server binds MyGo browser provenance from the actual socket on `submit`; client parameters cannot assert it. Answers retain the original task's authority.
+- Executable `continue` is removed. Historical pending continue and old-format answer files remain tied to their original instance/key for verification; they are neither converted to submit nor automatically replayed.
 - Browser events, chunks and narrow responses belong to the exact registered connection. Disconnect revokes it; another connection cannot inherit it.
 - Browser snapshots/screenshots use at most 256 KiB per chunk and 8 MiB total, verified by SHA256, and are not replayed as persistent events.
 
@@ -90,3 +92,5 @@ Computer recovery forwards the original recovery identity and fresh observation 
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Split agent and human docs](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)
 - [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)
+- [Coding user queue](../../.agents/notes/implemented/feature/2026-10-30-coding-user-queue.md)
+- [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)

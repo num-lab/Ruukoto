@@ -10,8 +10,7 @@ type QueueDrag = { taskId: string; targetId: string; placement: "before" | "afte
 /**
  * Display the compact queue in persisted queue_order.
  * Drag and arrow keys use revision-checked queue_reorder; conversion to guidance uses steer_task.
- * Order and eligibility come from the server's task_queue receipt. Continuations and question answers
- * can be reordered but are absent from steerableTaskIds, so their guidance action is disabled.
+ * Order and action eligibility come from the server's task_queue receipt.
  */
 export function QueuePanel({ model, session, defaultOpen = false }: { model: CodeState; session: Session; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -81,7 +80,7 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
         const order = reorderable.indexOf(task.id);
         const canMove = order >= 0;
         const canSteer = steerable.includes(task.id);
-        const canRecall = model.writes.recallState(session.id)?.candidate?.taskId === task.id;
+        const canRecall = detail?.queue.retrievableTaskIds.includes(task.id) ?? false;
         const previewIndex = previewVisible?.indexOf(task.id) ?? index;
         const dragging = drag?.taskId === task.id;
         const style: CSSProperties = drag && !dragging && previewIndex !== index ? { transform: `translateY(${(previewIndex - index) * drag.rowHeight}px)` } : {};
@@ -117,7 +116,7 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
           <span className="queue-panel-text">{input}</span>
           {(canSteer || canRecall) && <span className="queue-panel-actions">
             {canSteer && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn queue-panel-steer" draggable={false} disabled={busy} aria-label={`把第 ${index + 1} 项转为引导`} title="转为引导：接入当前任务下一边界" onClick={() => void model.writes.steerQueued(session.id, task.id)}><Waypoints /></Button>}
-            {canRecall && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn" draggable={false} disabled={busy} aria-label={`撤回第 ${index + 1} 项并编辑`} title="撤回此输入并编辑" onClick={() => void model.writes.recall(session.id, task.id)}><Undo2 /></Button>}
+            {canRecall && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn" draggable={false} disabled={busy} aria-label={`撤回第 ${index + 1} 项并编辑`} title="撤回此输入并编辑" onClick={() => void model.writes.recall(session.id, task.id, "queued")}><Undo2 /></Button>}
           </span>}
         </li>;
       })}

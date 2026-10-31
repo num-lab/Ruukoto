@@ -113,35 +113,43 @@ test("接纳事务失败不留会话或任务、不调用模型，原到期时�
   } finally { await t.shutdown(); }
 });
 
-test("问答沿固定快照续接，活动会话人工改配拒绝；取消后迟到回答不建任务", async () => {
+test("定时Task原地等待回答并保留固定配置；普通提交和改配拒绝，取消后迟到回答不建任务", async () => {
   const t = await fixture("code-schedule-question", req => !afterTool(req) && lastUserText(req) === "EXECUTE" ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "是否继续？", options: ["继续", "停止"] }] } }] } : { kind: "text", text: "已回答" }, true);
   try {
     const saved = await t.runtime.saveCodeSchedule({ requestId: "save", config: t.config });
     t.clock(epoch + 60_000); await t.runtime.codeScheduler!.scan();
     const run = t.runtime.getCodeSchedule({ planId: saved.plan.id }).runs[0];
-    await waitFor("定时问题可回答", () => t.runtime.listOwnerQuestions(run.sessionId).questions.length > 0 && t.runtime.store.getTask(run.rootTaskId)!.status === "completed");
+    await waitFor("定时问题可回答", () => t.runtime.listOwnerQuestions(run.sessionId).questions.some(question => question.status === "pending"));
+    assert.equal(t.runtime.store.getTask(run.rootTaskId)!.status, "running");
+    assert.equal(t.server.calls.length, 1, "waiting does not start another model request");
     assert.equal(getCodeScheduleRun(t.runtime.store, run.id)!.closedAt, null);
     assert.equal(t.runtime.getSession(run.sessionId).codeScheduleActive, true);
+    assert.ok(t.runtime.store.listAllOccupancy().some(held => held.taskId === run.rootTaskId));
     const session = t.runtime.getSession(run.sessionId), question = t.runtime.listOwnerQuestions(run.sessionId).questions[0];
     await assert.rejects(t.runtime.submit({ sessionId: session.id, requestId: "manual", input: "不能混入", modelSelection: t.config.modelSelection }), { code: "schedule_session_managed" });
     await assert.rejects(t.runtime.setSessionModel({ sessionId: session.id, expectedVersion: session.modelSelectionVersion, modelSelection: t.config.modelSelection }), { code: "schedule_session_managed" });
     await assert.rejects(t.runtime.setSessionDefaultMode({ sessionId: session.id, expectedVersion: session.defaultAccessModeVersion, mode: "confirm" }), { code: "schedule_session_managed" });
     await assert.rejects(t.runtime.switchTaskMode({ taskId: run.rootTaskId, mode: "confirm" }), { code: "schedule_session_managed" });
-    const answer = { sessionId: session.id, questionId: question.id, version: question.version, requestId: "answer", answers: [{ text: "继续", option: 0 }], modelSelection: t.config.modelSelection };
-    await assert.rejects(t.runtime.answerOwnerQuestion({ ...answer, accessMode: "confirm" }), { code: "schedule_configuration_fixed" });
-    const continued = await t.runtime.answerOwnerQuestion(answer);
-    assert.equal(continued.codeScheduleRunId, run.id);
-    assert.equal(getCodeScheduledTaskSource(t.runtime.store, continued.id)!.runId, run.id);
-    assert.equal(getOwnerQuestion(t.runtime.store, question.id)!.answerSource!.kind, "coding-schedule");
-    assert.equal(continued.accessMode, t.config.permission);
+    const answer = { sessionId: session.id, questionId: question.id, version: question.version, requestId: "answer", answers: [{ text: "继续", option: 0 }] };
+    await assert.rejects(t.client.request("owner_question_answer", { session_id: session.id, question_id: question.id, question_version: question.version, request_id: "old-answer", answers: answer.answers, access_mode: "confirm" }), { code: "invalid_params" });
+    const receipt = await t.runtime.answerOwnerQuestion(answer);
+    assert.equal(receipt.taskId, run.rootTaskId);
+    assert.equal(getCodeScheduledTaskSource(t.runtime.store, receipt.taskId!)!.runId, run.id);
+    const answered = getOwnerQuestion(t.runtime.store, question.id)!;
+    assert.equal(answered.source.kind, "coding-schedule"); assert.equal(answered.continuationTaskId, undefined);
     await waitFor("回答后的整项收尾", () => getCodeScheduleRun(t.runtime.store, run.id)!.closedAt !== null);
+    const original = t.runtime.store.getTask(run.rootTaskId)!;
+    assert.equal(original.accessMode, t.config.permission); assert.deepEqual(original.modelSelection, t.config.modelSelection);
+    assert.equal(listCodeScheduleRunTasks(t.runtime.store, run.id).length, 1);
+    assert.equal(t.runtime.store.findTaskByRequest(run.sessionId, answer.requestId), null);
     const next = await t.runtime.saveCodeSchedule({ requestId: "save-next", config: { ...t.config, rule: { ...t.config.rule, kind: "once", at: new Date(epoch + 120_000).toISOString() } } });
     t.clock(epoch + 120_000); await t.runtime.codeScheduler!.scan();
     const nextRun = t.runtime.getCodeSchedule({ planId: next.plan.id }).runs[0];
-    await waitFor("第二轮提问", () => t.runtime.listOwnerQuestions(nextRun.sessionId).questions.length > 0);
+    await waitFor("第二轮提问", () => t.runtime.listOwnerQuestions(nextRun.sessionId).questions.some(item => item.status === "pending"));
     const late = t.runtime.listOwnerQuestions(nextRun.sessionId).questions[0];
     await t.runtime.controlCodeSchedule({ requestId: "cancel", planId: next.plan.id, expectedVersion: next.plan.version, control: "cancel" });
     const before = listCodeScheduleRunTasks(t.runtime.store, nextRun.id).length;
+    assert.equal(getOwnerQuestion(t.runtime.store, late.id)!.status, "stale");
     await assert.rejects(t.runtime.answerOwnerQuestion({ ...answer, sessionId: nextRun.sessionId, questionId: late.id, version: late.version, requestId: "late" }));
     assert.equal(listCodeScheduleRunTasks(t.runtime.store, nextRun.id).length, before);
   } finally { await t.shutdown(); }
@@ -162,19 +170,28 @@ test("目录失效持久失败并暂停，模型零调用且不创建替代目�
   } finally { await t.shutdown(); }
 });
 
-test("定时问题回答在同一主会话完成，不把续接递归当作子结果唤醒", async () => {
-  const t = await fixture("cs-own-answer", req => !afterTool(req) ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "下一步？" }] } }] } : { kind: "text", text: "等待回答" }, true);
+test("同一定时Task可问答两批；取消第二批让原Task完成，不产生结果唤醒", async () => {
+  const t = await fixture("cs-own-answer", (_req, index) => index < 2 ? { kind: "tool_calls", calls: [{ id: `ask-${index}`, name: "ask_user", arguments: { questions: [{ question: `下一步 ${index}？` }] } }] } : { kind: "text", text: "已处理取消" }, true);
   try {
     const saved = await t.runtime.saveCodeSchedule({ requestId: "save", config: t.config });
     t.clock(epoch + 60_000); await t.runtime.codeScheduler!.scan();
     const run = t.runtime.getCodeSchedule({ planId: saved.plan.id }).runs[0];
-    await waitFor("首轮问题结束", () => t.runtime.listOwnerQuestions(run.sessionId).questions.length === 1 && t.runtime.store.getTask(run.rootTaskId)!.status === "completed");
+    await waitFor("首批问题等待", () => t.runtime.listOwnerQuestions(run.sessionId).questions.some(item => item.status === "pending"));
     const question = t.runtime.listOwnerQuestions(run.sessionId).questions[0];
-    const answer = await t.runtime.answerOwnerQuestion({ sessionId: run.sessionId, questionId: question.id, version: question.version, requestId: "answer", answers: [{ text: "继续提问" }], modelSelection: t.config.modelSelection });
-    await waitFor("续接提问完成", () => t.runtime.listOwnerQuestions(run.sessionId).questions.length === 2 && t.runtime.store.getTask(answer.id)!.resultSummary !== null);
-    assert.equal(t.runtime.store.findTaskByRequest(run.sessionId, `wake:${answer.id}`), null);
-    assert.equal(t.runtime.store.listTasksBySession(run.sessionId).length, 2);
+    const answer = await t.runtime.answerOwnerQuestion({ sessionId: run.sessionId, questionId: question.id, version: question.version, requestId: "answer", answers: [{ text: "继续提问" }] });
+    assert.equal(answer.taskId, run.rootTaskId);
+    await waitFor("同Task第二批问题等待", () => t.runtime.listOwnerQuestions(run.sessionId).questions.length === 2);
+    const second = t.runtime.listOwnerQuestions(run.sessionId).questions.find(item => item.status === "pending")!;
+    assert.equal(second.taskId, run.rootTaskId); assert.notEqual(second.hostOpId, question.hostOpId);
+    assert.equal(t.runtime.store.getTask(run.rootTaskId)!.status, "running");
+    assert.equal(t.runtime.store.findTaskByRequest(run.sessionId, `wake:${run.rootTaskId}`), null);
+    assert.equal(t.runtime.store.listTasksBySession(run.sessionId).length, 1);
     assert.equal(getCodeScheduleRun(t.runtime.store, run.id)!.closedAt, null);
+    t.runtime.cancelOwnerQuestion({ sessionId: run.sessionId, questionId: second.id, version: second.version, requestId: "cancel-question" });
+    await waitFor("原Task取消问题后完成", () => getCodeScheduleRun(t.runtime.store, run.id)!.closedAt !== null);
+    assert.equal(t.runtime.store.getTask(run.rootTaskId)!.status, "completed");
+    assert.equal(t.runtime.store.listTasksBySession(run.sessionId).length, 1);
+    assert.equal(t.server.calls.length, 3);
   } finally { await t.shutdown(); }
 });
 
@@ -198,7 +215,7 @@ test("重启保留未执行原任务并暂停队列，显式恢复按原键执�
     assert.equal(restarted.getSession(run.sessionId).queueState, "paused");
     assert.equal(restarted.getCodeSchedule({ planId: saved.plan.id }).runs.length, 1);
     assert.equal(t.server.calls.length, 0);
-    await restarted.resumeQueue(holder.sessionId);
+    await restarted.resumeQueue(holder.sessionId, undefined, true);
     await restarted.resumeQueue(run.sessionId);
     await waitFor("原定时任务执行", () => restarted!.store.getTask(run.rootTaskId)!.status === "completed");
     assert.equal(t.server.calls.length, 1);
@@ -219,7 +236,7 @@ test("未知效果先核实遗留占用，再按运行版本确认仅开放未�
     });
     t.clock(epoch + 60_000); await t.runtime.codeScheduler!.scan();
     const run = t.runtime.getCodeSchedule({ planId: saved.plan.id }).runs[0];
-    // 用持久中断事实模拟执行边界的未知回执，不声称这个夹具核实了真实进程。
+    // Persist an interrupted unknown-effect outcome; this fixture does not verify real process termination.
     t.runtime.store.withTx(() => {
       t.runtime.store.setSessionQueueState(run.sessionId, "paused", "test_unknown");
       t.runtime.store.endTask(holder.id, ["running"], "completed");
@@ -236,7 +253,7 @@ test("未知效果先核实遗留占用，再按运行版本确认仅开放未�
     const view = new ViewState(); view.applySnapshot(await t.client.handshake(), false);
     const projection = (events: import("@ruukoto/core/types.ts").PersistentEvent[]) => { for (const event of events) view.applyEvent(event, "live"); };
     t.runtime.addEventListener(projection);
-    await t.runtime.resumeQueue(run.sessionId);
+    await t.runtime.resumeQueue(run.sessionId, undefined, true);
     assert.equal(view.sessions.find(session => session.id === run.sessionId)!.queueState, "paused");
     assert.equal(view.sessions.find(session => session.id === run.sessionId)!.queuePauseReason, "schedule_recovery_required");
     t.runtime.removeEventListener(projection);

@@ -26,7 +26,6 @@ const LEGACY_COMMANDS = new Set([
   "models",
   "set-model",
   "submit",
-  "continue",
   "switch-mode",
   "set-session-mode",
   "status",

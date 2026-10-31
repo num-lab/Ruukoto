@@ -3,9 +3,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 import type { UserMessage } from "@earendil-works/pi-ai";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { createSdkSession } from "@ruukoto/agent/session-factory.ts";
+import { Type } from "typebox";
+import { createSdkSession, type SessionHostHooks } from "@ruukoto/agent/session-factory.ts";
 import type { AttachmentReference } from "@ruukoto/core/attachments.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
@@ -33,13 +34,14 @@ function historySources(sdk: AgentSession): string[] {
   return file && fs.existsSync(file) ? sourceIds(parseSessionFile(file).filter(entry => entry.type === "message").map(entry => entry.message)) : [];
 }
 
-async function contractSession(responder: Responder = () => ({ kind: "text", text: "done" })) {
+async function contractSession(responder: Responder = () => ({ kind: "text", text: "done" }),
+  tools: ToolDefinition[] = [], onToolCall: SessionHostHooks["onToolCall"] = async () => undefined) {
   const kit = await startAssemblyKit("sdk-steering", { responder });
   const { session } = kit.project();
   const sdk = await createSdkSession({
     session, sessionsDir: path.join(kit.dirs.dataDir, "sessions"), agentDir: kit.dirs.agentDir,
-    modelRuntime: kit.deps.modelRuntime, model: kit.model, thinkingLevel: "off", tools: [], systemPrompt: "SDK contract check",
-    hooks: { onToolCall: async () => undefined, onSessionEvent: () => undefined, bindHostApi: () => undefined },
+    modelRuntime: kit.deps.modelRuntime, model: kit.model, thinkingLevel: "off", tools, systemPrompt: "SDK contract check",
+    hooks: { onToolCall, onSessionEvent: () => undefined, bindHostApi: () => undefined },
   }).catch(async error => { await kit.close(); throw error; });
   sdk.setSteeringMode("all");
   return {
@@ -290,5 +292,102 @@ test("SDK 写失败：refreshContext 不重读 JSONL，必须丢弃污染 manage
     const reopened = SessionManager.open(file);
     assert.deepEqual(sourceIds(reopened.buildSessionProjection().messages), []);
     assert.deepEqual(fs.readFileSync(file), bytes, "重新打开不修改已提交历史");
+  } finally { await kit.close(); }
+});
+
+for (const abort of [false, true]) {
+  test(`SDK question waiting: ${abort ? "abort settles without another request" : "old-batch writes stay blocked until the next request"}`, async () => {
+    const answered = deferred(), waiting = deferred();
+    let writes = 0, barrier = false;
+    const tools: ToolDefinition[] = [
+      { name: "ask_user", label: "ask_user", description: "Wait for an owner answer", executionMode: "sequential", parameters: Type.Object({}),
+        execute: async (_id, _args, signal) => {
+          barrier = true;
+          waiting.resolve();
+          let stop: (() => void) | undefined;
+          if (!signal?.aborted) await Promise.race([answered.promise, new Promise<void>(done => {
+            stop = () => done();
+            signal?.addEventListener("abort", stop, { once: true });
+          })]);
+          if (stop) signal?.removeEventListener("abort", stop);
+          return { content: [{ type: "text", text: signal?.aborted ? "question interrupted" : "actual owner answer" }], details: {} };
+        } },
+      { name: "write", label: "write", description: "Count an effect", parameters: Type.Object({}),
+        execute: async () => { writes++; return { content: [{ type: "text", text: "written" }], details: {} }; } },
+    ];
+    const kit = await contractSession((_request, index) => index === 0
+      ? { kind: "tool_calls", calls: [{ id: "question", name: "ask_user", arguments: {} }, { id: "old-write", name: "write", arguments: {} }] }
+      : index === 1 ? { kind: "tool_calls", calls: [{ id: "new-write", name: "write", arguments: {} }] }
+      : { kind: "text", text: "done" }, tools, async event => barrier && event.toolName === "write"
+        ? { block: true, reason: "The model has not read the question result" } : undefined);
+    try {
+      const { sdk } = kit, prepareRequest = sdk.agent.prepareRequest;
+      sdk.agent.prepareRequest = async (request, signal) => {
+        const next = await prepareRequest?.(request, signal);
+        if (JSON.stringify((next?.context ?? request.context).messages).includes("actual owner answer")) barrier = false;
+        return next || undefined;
+      };
+      const running = sdk.prompt("original requirement");
+      await waiting.promise;
+      assert.equal(kit.server.calls.length, 1);
+      assert.equal(writes, 0);
+      if (abort) await sdk.abort(); else answered.resolve();
+      await running;
+      assert.equal(writes, abort ? 0 : 1);
+      assert.equal(kit.server.calls.length, abort ? 1 : 3);
+      const history = parseSessionFile(sdk.sessionFile!);
+      assert.ok(history.some(entry => entry.type === "message" && JSON.stringify(entry.message).includes(abort ? "question interrupted" : "actual owner answer")));
+      if (!abort) assert.ok(JSON.stringify(kit.server.calls[1].messages).includes("The model has not read the question result"));
+    } finally { answered.resolve(); await kit.close(); }
+  });
+}
+
+test("SDK reports: natural completion reserves N+1 and N cannot consume input prepared after its turn_end", async () => {
+  const kit = await contractSession();
+  let pending = true, prepared = false, bound = false, consumed = false;
+  const timeline: string[] = [];
+  const report: UserMessage & { ruukotoReportKeys: string[] } = { role: "user", content: [{ type: "text", text: "trusted report" }],
+    timestamp: Date.now(), ruukotoReportKeys: ["report-one"] };
+  try {
+    const { sdk } = kit, finishTurn = sdk.agent.finishTurn;
+    sdk.agent.finishTurn = async (turn, signal) => {
+      const decision = await finishTurn?.(turn, signal);
+      timeline.push("finish");
+      return pending && !signal?.aborted && decision?.action !== "end" ? { action: "continue" } : decision || undefined;
+    };
+    const prepare = sdk.agent.prepareNextTurnWithContext;
+    assert.ok(prepare);
+    sdk.agent.prepareNextTurnWithContext = async (turn, signal) => {
+      const next = await prepare(turn, signal);
+      if (pending) {
+        assert.equal(consumed, false);
+        sdk.agent.steer(report);
+        pending = false; prepared = true;
+        timeline.push("prepare-report");
+      }
+      return next || undefined;
+    };
+    const prepareRequest = sdk.agent.prepareRequest;
+    sdk.agent.prepareRequest = async (request, signal) => {
+      const next = await prepareRequest?.(request, signal);
+      if (prepared) {
+        assert.ok((next?.context ?? request.context).messages.some(message => JSON.stringify(message).includes("report-one")));
+        assert.ok(parseSessionFile(sdk.sessionFile!).some(entry => entry.type === "message" && JSON.stringify(entry.message).includes("report-one")));
+        bound = true;
+        timeline.push("report-bound");
+      }
+      return next || undefined;
+    };
+    sdk.subscribe(event => {
+      if (event.type !== "turn_end") return;
+      timeline.push(`turn-end:${bound}`);
+      if (bound && event.message.role === "assistant" && event.message.stopReason !== "error" && event.message.stopReason !== "aborted") consumed = true;
+    });
+    await sdk.prompt("original requirement");
+    assert.equal(kit.server.calls.length, 2);
+    assert.equal(consumed, true);
+    assert.equal(JSON.stringify(kit.server.calls[0].messages).includes("trusted report"), false);
+    assert.equal(JSON.stringify(kit.server.calls[1].messages).includes("trusted report"), true);
+    assert.deepEqual(timeline, ["finish", "turn-end:false", "prepare-report", "report-bound", "finish", "turn-end:true"]);
   } finally { await kit.close(); }
 });

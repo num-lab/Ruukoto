@@ -32,7 +32,7 @@ import { sliceTextByBytes } from "@ruukoto/core/history.ts";
 import { getWorkflowDeliveryRun, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, requireWorkflowRun, updateWorkflowRun,
   workflowDeliveryKey, workflowTerminal, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { agentReportKey, agentWaitCovers, bindAgentReportFallback, completeAgentReports, consumeAgentReport, finishAgentReportFallback, getAgentReport,
-  AgentWaitError, invalidateAgentReports, isAgentReportFallback, listAgentReports, listAgentWaits, registerAgentReport, releaseAgentReports, type AgentReport, type AgentReportCompletion } from "@ruukoto/core/agent-wait.ts";
+  AgentWaitError, invalidateAgentReports, isAgentReportFallback, listAgentReports, listAgentWaits, registerAgentReport, releaseAgentReports, sameAgentReportSource, type AgentReport, type AgentReportCompletion } from "@ruukoto/core/agent-wait.ts";
 import { isRecallSealedTask } from "@ruukoto/core/message-recall.ts";
 import { childOutcome,OUTCOME_TEXT,REVIEW_DEADLINE_MS,type ChildOutcome,type OrchestratorBridge } from "./orchestrator.ts";
 import { agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
@@ -471,7 +471,7 @@ export class ParentDelivery {
         const report = this.store.withTx(() => {
           const target = { kind: "workflow" as const, runId: run.id, terminalVersion: run.terminalVersion! };
           let current = getAgentReport(this.store, agentReportKey(target));
-          if (!current && agentWaitCovers(this.store, { kind: "workflow", runId: run.id }, run.source.sessionId)) {
+          if (!current && (this.store.getSessionIdentity(run.source.sessionId)?.kind === "dev" || agentWaitCovers(this.store, { kind: "workflow", runId: run.id }, run.source.sessionId))) {
             current = registerAgentReport(this.store, { target, source: run.source, parentSessionId: run.source.sessionId });
           }
           if (!current) return null;
@@ -551,12 +551,20 @@ export class ParentDelivery {
         .filter(item => item.fallbackTaskId === report.fallbackTaskId && item.status === "pending")
         .every(item => consumed.some(candidate => candidate.key === item.key)));
       if (outcome === "completed" && this.deps.readReply(wake.id)?.trim() && consumed.length && completeGroups && this.reportReady(wake)) {
-        const valid = consumed.every(report => this.reportValid(report));
-        const result = valid ? this.deps.recordClaimedReport?.(wake, outcome, consumed) ?? { status: "reported" as const }
-          : { status: "undelivered" as const, reason: "source_invalid" };
-        if (valid) completeAgentReports(this.store, wake.id, result);
-        else invalidateAgentReports(this.store, claims.map(report => report.key), "source_invalid");
-        for (const report of consumed) this.finishWorkflowReport(report, result);
+        const groups: AgentReport[][] = [];
+        for (const report of consumed) {
+          const group = groups.find(items => sameAgentReportSource(items[0].source, report.source));
+          if (group) group.push(report);
+          else groups.push([report]);
+        }
+        for (const group of groups) {
+          const valid = group.every(report => this.reportValid(report));
+          const result = valid ? this.deps.recordClaimedReport?.(wake, outcome, group) ?? { status: "reported" as const }
+            : { status: "undelivered" as const, reason: "source_invalid" };
+          if (valid) completeAgentReports(this.store, wake.id, result, group.map(report => report.key));
+          else invalidateAgentReports(this.store, group.map(report => report.key), "source_invalid");
+          for (const report of group) this.finishWorkflowReport(report, result);
+        }
       } else releaseAgentReports(this.store, wake.id, outcome === "completed" ? this.reportReady(wake) ? "report_missing" : "wait_group_pending" : `parent_${outcome}`);
     }
     const fallback = getAgentTaskReport(this.store, wake.id);

@@ -64,12 +64,10 @@ export class DesktopQuestions {
   }
   async send(question: OwnerQuestionView, cancel = false): Promise<void> {
     if (this.blocked(question)) return;
-    const session = this.view.sessions.find(item => item.id === question.sessionId);
-    if (!cancel && !session?.modelSelection) { this.message = "请先为当前会话选择模型，再提交回答。"; this.changed(); return; }
     this.busy.add(question.id); this.changed();
     try {
       const draft = this.draft(question);
-      const params = { session_id: question.sessionId, question_id: question.id, question_version: question.version, request_id: crypto.randomUUID(), ...(!cancel ? { answers: draft.answers, model_selection: session!.modelSelection } : {}) };
+      const params = { session_id: question.sessionId, question_id: question.id, question_version: question.version, request_id: crypto.randomUUID(), ...(!cancel ? { answers: draft.answers } : {}) };
       const response = await this.bridge.request("code", cancel ? "owner_question_cancel" : "owner_question_answer", params);
       if (!response.ok) throw new WriteFailure(response.error);
       const result = response.value as DesktopSubmitResult | DesktopCancelQuestionResult;

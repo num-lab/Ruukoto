@@ -263,6 +263,8 @@ export interface HistoryEntryView {
   /** JSONL 宿主标记关联的原任务；分支仍保留来源任务。 */
   taskId: string | null;
   inputPurpose: InputPurpose;
+  /** Host report keys awaiting verification against report claim and consumption records. */
+  reportKeys?: string[];
   taskAssociationError?: "task_missing" | "task_outside_session" | "task_marker_missing";
   parentId: string | null;
   role: string;
@@ -279,6 +281,8 @@ export interface HistoryEntryView {
   toolCalls: HistoryToolCallRef[];
   /** toolResult 消息的工具关联。 */
   toolCallId: string | null;
+  /** Verified host operation associated with this persisted tool result. */
+  hostToolOpId?: string;
   toolName: string | null;
   isError: boolean | null;
   editStats?: EditStats;
@@ -378,6 +382,7 @@ export function extractMessageView(entry: ParsedSessionEntry, taskId: string | n
       entryId: entry.id,
       taskId,
       inputPurpose: "user",
+      ...(Array.isArray(message.ruukotoReportKeys) && message.ruukotoReportKeys.every((key: unknown) => typeof key === "string") ? { reportKeys: message.ruukotoReportKeys as string[] } : {}),
       parentId: typeof entry.parentId === "string" ? entry.parentId : null,
       role,
       timestamp: typeof entry.timestamp === "string" ? entry.timestamp : "",

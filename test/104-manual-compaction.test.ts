@@ -104,15 +104,9 @@ test("摘要占用与取消：新提交、继续、配置与另一压缩被拒�
   });
   try {
     const bytes = fs.readFileSync(file);
-    const interrupted = t.runtime.store.withTx(() => {
-      const task = t.runtime.store.insertQueuedTask({ sessionId: session.id, requestId: randomUUID(), input: "已中断工作", modelSelection: t.runtime.defaultSelection, submissionDigest: randomUUID() }).task;
-      t.runtime.store.endTask(task.id, ["queued"], "interrupted");
-      return task;
-    });
     const accepted = await t.runtime.compactSession({ sessionId: session.id, requestId: "cancel" });
     await waitFor("摘要正在请求", () => t.server.calls.length === 1);
     await assert.rejects(() => t.runtime.submit({ sessionId: session.id, requestId: "new", input: "待保留草稿", modelSelection: t.runtime.defaultSelection }), (e: { code?: string }) => e.code === "session_compaction_busy");
-    await assert.rejects(() => t.runtime.continueTask({ taskId: interrupted.id, requestId: "continue", input: "继续原工作", modelSelection: t.runtime.defaultSelection }), (e: { code?: string }) => e.code === "session_compaction_busy");
     await assert.rejects(() => t.runtime.compactSession({ sessionId: session.id, requestId: "another" }), (e: { code?: string }) => e.code === "session_compaction_busy");
     await assert.rejects(() => t.runtime.models.setApiKey({ provider: "mock", apiKey: "new-key", expectedRevision: configRevision(t.dirs.agentDir) }), (e: { code?: string }) => e.code === "model_config_blocked");
     const branch = await t.runtime.branchSession({ sessionId: session.id, requestId: "branch-during" });

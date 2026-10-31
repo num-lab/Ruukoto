@@ -127,7 +127,9 @@ Schedules are one-shot, daily or weekly rules in a fixed IANA timezone. Coding's
 
 Coding workflows combine isolated Agent steps, dependencies, owner questions and checked integration. Use `/workflow` to inspect runs, start definitions and operate on the selected item. [Workflow design](modules/workflows.md) describes versioning and controls.
 
-`ask_user` presents one to three structured questions. Answers resume their original work; they do not approve unrelated tools. `/questions` supports choices, free text and cancellation. Personal background analysis lets main keep chatting, query progress and receive a report when the original work completes.
+`ask_user` presents one to three structured questions and keeps the original Coding task waiting. Answer or explicitly cancel through `/questions` or a desktop question card; closing the window leaves the question pending. Answers return through the original tool call with its model and permissions. Ordinary messages queue, while explicit guidance cancels the pending question and enters the next request. Answers and reports do not approve tools. Personal background analysis lets main keep chatting, query progress and receive a report when the original work completes.
+
+Trusted Coding background reports enter the active task's next model request after the current request and tool batch finish. They wait while a question needs an answer. When the conversation is idle, report summaries run before queued owner messages; they do not appear in the user queue.
 
 ## 6. Import and Archive
 
@@ -174,8 +176,8 @@ For `execution_unavailable`, check the [native prerequisites](../deploy/native/R
 | `/history` | Reload history; scrolling to the top fetches older pages |
 | `/artifact <id-prefix>` | Read artifact body in byte pages |
 | `/approvals` | Inspect decisions; `a` approves, `r` rejects; Esc/`q` closes without rejecting |
-| `/interrupt [taskId]`, `/cancel <taskId>`, `/continue [taskId]` | Task interruption/cancellation/continuation; side overlay interrupt affects side only |
-| `/resume-queue`, `/queue` | Resume, inspect or reorder pending input |
+| `/interrupt [taskId]`, `/cancel <taskId>` | Pause ordinary Coding dispatch and interrupt the current task / cancel the selected task; side overlay interrupt affects side only |
+| `/resume-queue`, `/queue` | Resume dispatch / inspect, reorder, retrieve or steer ordinary queued messages |
 | `/steer <text>` | Route input at the running task's next boundary; queue at the head if missed |
 | `/recall [verify]` | Recall the latest input into the draft; `verify` rechecks unresolved stopping under the original request |
 | `/detach` | Remove attachments restored into the draft by recall |
@@ -190,5 +192,11 @@ For `execution_unavailable`, check the [native prerequisites](../deploy/native/R
 | `/questions` | Answer, skip/cancel and review pending questions |
 | `/qq <command>` | `status`, `enable`, `disable`, `groups`, `inbox`, `outbox`; last three are old group archives |
 | `/quit` | Exit client while backend work continues |
+
+Retrieving an unstarted message restores its text and attachments to the initiating draft without stopping the current task or changing the remaining queue's order or pause state. Historical `/recall` retains its stopping and edit-pause rules. If the latest owner input is a structured answer or Skip, historical recall rejects it rather than skipping back to the earlier requirement.
+
+An owner pause persists across new messages, retrieval, reports and backend restart. Explicit resume starts queued work; it never reruns an interrupted task. If old execution still holds directory occupancy, verify it stopped before confirming the separate stop-verification prompt. Headless `ruukoto-code resume-queue <session> --stop-confirmed` records that explicit confirmation; ordinary `resume-queue` cannot release it. New messages after interruption are independent tasks in the same conversation; `continue` and `/continue` are removed.
+
+A backend restart makes unanswered questions stale and interrupts the original task; client closure or reconnection alone does neither. Schema 58 and control protocol 49 require a fresh Coding data directory. Preserve old profiles and pending answer/continue records in their original instance; they are not converted or replayed into the new instance.
 
 A conversation branch shares its working directory, not ongoing model execution. Source read access does not grant management rights over the original work. For lost write responses, verify the original request/result before retrying; closing an approval UI is not rejection.

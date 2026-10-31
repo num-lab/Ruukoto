@@ -1,14 +1,14 @@
 # Agent Note: Wait for Coding answers within the original task
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
-`ask_user` currently persists questions, immediately returns pending and tells the model to finish its turn; answering creates a new queued Task. The owner requires the original task to wait for answers without putting them in the user queue. Merely changing answers into wakeups leaves permanent tool restrictions, premature old-batch execution and orphaned answerable cards after interruption.
+`ask_user` previously persisted questions, immediately returned pending and told the model to finish its turn; answering created a new queued Task. The owner requires the original task to wait for answers without putting them in the user queue. Merely changing answers into wakeups leaves permanent tool restrictions, premature old-batch execution and orphaned answerable cards after interruption.
 
 Itemized owner confirmation belongs to [the input-lifecycle issue](https://github.com/num-lab/Ruukoto/issues/30). This reverses the original nonblocking-continuation decision; [user queue controls](2026-10-30-coding-user-queue.md) and [report delivery](2026-10-30-coding-report-delivery-boundary.md) own pause and internal-input timing.
 
-## Proposal
+## Decision
 
 ### Waiting and trusted answers
 
@@ -16,7 +16,7 @@ Itemized owner confirmation belongs to [the input-lifecycle issue](https://githu
 
 A trusted answer atomically saves answers, original provenance, answer receipt and event only while the original question and Task can receive it. Release the waiter only after commit. Create no Task, change no user queue, and do not adopt new default model/mode/granted paths selected in the answer UI. The original Task's explicit mode switches and per-operation permission rechecks still apply; business answers do not approve tools. Register the waiter and reread state to avoid missed commits; an already-aborted signal exits immediately.
 
-Persist answer acceptance order in the same transaction using the answer event sequence and original question identity, not inferred Task creation. Historical recall follows [the user-queue proposal](2026-10-30-coding-user-queue.md): the latest structured answer, including Skip, remains unsupported. Turning answers into tool results must not permit skipping them and recalling an earlier input.
+Persist answer acceptance order in the same transaction using the answer event sequence and original question identity, not inferred Task creation. Historical recall follows [the user-queue decision](2026-10-30-coding-user-queue.md): the latest structured answer, including Skip, remains unsupported. Turning answers into tool results must not permit skipping them and recalling an earlier input.
 
 `ask_user` writes actual answers as its original tool result. `answered` proves durable acceptance, not model consumption. Question registration, accepted answers, actual tool result and next-request input each have original records; do not introduce another question-execution ledger. Verification of a committed host operation cannot equate question registration with answer delivery.
 
@@ -50,9 +50,9 @@ Desktop, TUI and Code Scheduled show waiting-for-answer from actual pending ques
 
 ## Related decision audit
 
-[Coding persistent questions](../../implemented/feature/2026-10-21-coding-owner-questions.md) is partially superseded: remove immediate return, new answer tasks, answer-time new configuration and old-card continuation after restart, while retaining trusted provenance, persistent questions, single batches, unique answers and non-approval semantics. [Question types](../../implemented/feature/2026-10-21-owner-question-choice-types.md) keeps its types/interactions but changes in-task placement; [Coding Scheduled](../../implemented/feature/2026-10-25-code-scheduled.md) retains provenance/fixed configuration and changes waiting-state derivation. All three retain their decisions and gain proposal links.
+[Coding persistent questions](2026-10-21-coding-owner-questions.md) is partially superseded: remove immediate return, new answer tasks, answer-time new configuration and old-card continuation after restart, while retaining trusted provenance, persistent questions, single batches, unique answers and non-approval semantics. [Question types](2026-10-21-owner-question-choice-types.md) keeps its types/interactions but changes in-task placement; [Coding Scheduled](2026-10-25-code-scheduled.md) retains provenance/fixed configuration and changes waiting-state derivation. All three retain their original decisions and link to the superseding contract.
 
-The Coding part of the [shared-question proposal](2026-10-21-persistent-owner-questions.md) already has separate implemented decisions, which remain the specific baseline here. Its Personal part and [Personal questions](../../implemented/feature/2026-10-21-personal-owner-questions.md) are unaffected; do not delete the entire note or mark it rejected. [Wait/report ownership](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md) still owns task/workflow waits; this proposal does not expand its target types.
+The Coding part of the [shared-question proposal](../../proposed/feature/2026-10-21-persistent-owner-questions.md) already has separate implemented decisions, which remain the specific baseline here. Its Personal part and [Personal questions](2026-10-21-personal-owner-questions.md) are unaffected; do not delete the entire note or mark it rejected. [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) still owns task/workflow waits; this decision does not expand its target types.
 
 ## Alternatives considered
 
@@ -60,10 +60,10 @@ The Coding part of the [shared-question proposal](2026-10-21-persistent-owner-qu
 - Introduce generic persistent pause/resume: permits original-Task recovery across backend restart, but reintroduces the old-task recovery being removed and broadens execution/unknown-effect recovery. Instead invalidate question cards after interruption.
 - Restore all tools immediately after saving an answer: simply clears pending state, but lets old assistant batches execute before the model reads the answer. Keep the barrier through the next request.
 
-## Acceptance criteria
+## Verification
 
-The issue's A5, A6, A8 and A9 cover real waiting, zero new Task/queue entries per answer, no old-batch business execution, original model/permissions, repeated questions, dual-client unique consumption, answer/guidance/stop races, disconnect, restart and historical recall candidates. Real model snapshots must include new tool instructions and original tool results, without the old immediate-pending/end-turn guidance.
+Owner-question tool, Runtime and client regressions verify original-Task waiting, repeated question batches, answer receipts, old-batch execution barriers, answer/guidance/stop races, restart invalidation and recall barriers. Real-model requests verify original tool results and subsequent input. The owner confirmed real Desktop/TUI product acceptance on 2026-10-31; evidence and scope are recorded in [Issue #30](https://github.com/num-lab/Ruukoto/issues/30).
 
-## Risks
+## Consequences
 
 Tasks and possible directory occupancy persist until the owner handles questions; explicit guidance or stopping still exits. Old cards cannot be answered after backend restart, an explicitly confirmed reduction in behavior, while questions, answers and history remain preserved. Question storage and JSONL are not atomic: stopping or disk failure after acceptance retains the real receipt and reports incomplete delivery without replaying business operations.

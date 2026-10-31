@@ -96,8 +96,9 @@ test("排队未采纳的输入撤回即取消并恢复草稿", async () => {
     const state0 = await t.client.request<any>("message_recall_state", { session_id: sessionId });
     assert.equal(state0.candidate?.taskId, second.id, "候选应为最近接纳的拥有者输入");
 
+    const queue = await t.client.request<any>("task_queue", { session_id: sessionId });
     await t.client.request<any>("message_recall", {
-      session_id: sessionId, task_id: second.id, request_id: "rc-1", expected_revision: state0.candidate.inputSeq,
+      purpose: "queued", session_id: sessionId, task_id: second.id, request_id: "rc-1", expected_revision: queue.queue.revision,
     });
     const receipt = await recallDone(t.client, sessionId, "rc-1");
     assert.equal(receipt.phase, "completed");
@@ -134,7 +135,7 @@ test("已完成任务撤回：草稿恢复、历史省略、可编辑后重发",
     const state0 = await t.client.request<any>("message_recall_state", { session_id: sessionId });
     assert.equal(state0.candidate?.taskId, task.id);
     await t.client.request<any>("message_recall", {
-      session_id: sessionId, task_id: task.id, request_id: "rc-2", expected_revision: state0.candidate.inputSeq,
+      purpose: "historical", session_id: sessionId, task_id: task.id, request_id: "rc-2", expected_revision: state0.candidate.inputSeq,
     });
     const receipt = await recallDone(t.client, sessionId, "rc-2");
     assert.equal(receipt.phase, "completed");
@@ -183,7 +184,7 @@ test("陈旧目标、冲突请求键与更晚输入存在时拒绝", async () =>
 
     // An older task is no longer the latest recall candidate.
     const stale = await t.client.request<any>("message_recall", {
-      session_id: sessionId, task_id: first.id, request_id: "rj-r1", expected_revision: 1,
+      purpose: "historical", session_id: sessionId, task_id: first.id, request_id: "rj-r1", expected_revision: 1,
     });
     const staleDone = await recallDone(t.client, sessionId, "rj-r1");
     assert.equal(staleDone.phase, "rejected");
@@ -191,18 +192,18 @@ test("陈旧目标、冲突请求键与更晚输入存在时拒绝", async () =>
 
     // An incorrect revision is a stale target.
     const wrongRev = await t.client.request<any>("message_recall", {
-      session_id: sessionId, task_id: second.id, request_id: "rj-r2", expected_revision: 0,
+      purpose: "historical", session_id: sessionId, task_id: second.id, request_id: "rj-r2", expected_revision: 0,
     });
     const wrongDone = await recallDone(t.client, sessionId, "rj-r2");
     assert.equal(wrongDone.phase, "rejected");
 
     // Changed parameters under the same idempotency key must reject.
     await t.client.request<any>("message_recall", {
-      session_id: sessionId, task_id: second.id, request_id: "rj-r3", expected_revision: state.candidate.inputSeq,
+      purpose: "historical", session_id: sessionId, task_id: second.id, request_id: "rj-r3", expected_revision: state.candidate.inputSeq,
     });
     await assert.rejects(
       () => t.client.request<any>("message_recall", {
-        session_id: sessionId, task_id: second.id, request_id: "rj-r3", expected_revision: state.candidate.inputSeq + 99,
+        purpose: "historical", session_id: sessionId, task_id: second.id, request_id: "rj-r3", expected_revision: state.candidate.inputSeq + 99,
       }),
       (err: Error) => (err as { code?: string }).code === "request_conflict",
     );

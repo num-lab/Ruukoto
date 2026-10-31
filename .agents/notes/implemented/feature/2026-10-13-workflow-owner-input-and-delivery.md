@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[Next-request report delivery](../../proposed/feature/2026-10-30-coding-report-delivery-boundary.md) proposes changing internal-summary FIFO and delivery to active tasks. It is not implemented; workflow business questions, original provenance, unique reporting and unknown-send rules remain.
+[Next-request report delivery](2026-10-30-coding-report-delivery-boundary.md) supersedes internal-summary FIFO and adds delivery to active tasks. That decision owns the changed report-delivery contract; workflow business questions, original provenance, unique reporting and unknown-send rules remain.
 
 [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) now lets an active waiting parent claim results and continue, with the independent tool-free summary as fallback. It supersedes unconditional separate summaries here, not unique reporting, trusted bindings, source checks, or no resend after uncertainty. [Internal report visibility](2026-10-14-internal-report-visibility.md) owns trusted hiding of host prompts.
 

@@ -12,7 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 
-export const SCHEMA_VERSION = 57;
+export const SCHEMA_VERSION = 58;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS code_schedules (
@@ -264,6 +264,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status);
 CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (session_id, status, queue_order);
 CREATE TABLE IF NOT EXISTS message_recalls (
   id TEXT PRIMARY KEY,
+  purpose TEXT NOT NULL CHECK (purpose IN ('queued','historical')),
   session_id TEXT NOT NULL REFERENCES sessions(id),
   request_id TEXT NOT NULL,
   params_digest TEXT NOT NULL,

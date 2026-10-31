@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[User queue controls](../../proposed/feature/2026-10-30-coding-user-queue.md) propose changes to manual pause, resumption and continuation entries; [report delivery](../../proposed/feature/2026-10-30-coding-report-delivery-boundary.md) proposes replacing internal-report FIFO. Neither proposal is implemented. Client disconnection still leaves backend execution running, and persistent acceptance remains unchanged.
+[User queue controls](../feature/2026-10-30-coding-user-queue.md) changes manual pause, resumption and continuation entries; [report delivery](../feature/2026-10-30-coding-report-delivery-boundary.md) replaces internal-report FIFO. Those decisions own the changed dispatch contracts. Client disconnection still leaves backend execution running, and persistent acceptance remains unchanged.
 
 Original identifier: ADR 0002. [Late-response cleanup](../bug-fix/2026-10-24-tui-exit-late-response.md) adds animation cleanup after client exit without changing detached backend ownership. [Coding message control](../feature/2026-10-28-coding-message-control.md) extends queue ordering and guidance.
 

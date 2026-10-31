@@ -13,7 +13,8 @@
 | `ruukoto-code config` | Model, credential and default configuration |
 | `ruukoto-code stop` | Graceful backend stop |
 | `ruukoto-code status` | Noninteractive backend/task status |
-| `ruukoto-code submit <input>` | Submit a task to a selected conversation and return its ID |
+| `ruukoto-code submit <input>` | Submit a new task to a selected conversation and return its ID |
+| `ruukoto-code resume-queue <session> [--stop-confirmed]` | Resume dispatch; use the flag only after verifying old retained execution has stopped |
 | `ruukoto-code mcp cua` | Open computer selection/recovery in configuration |
 
 Online MCP settings are instance-wide across workspaces. The owner chooses allowed tools and read/write/unknown effects; newly allowed tools default to unknown. Personal remote services, credential rebinding and original-call finalization use [desktop management](desktop.md#mcp-call-finalization-and-computer-recovery) or the [Personal CLI](personal-durable.md).
@@ -24,8 +25,8 @@ Online MCP settings are instance-wide across workspaces. The owner chooses allow
 | `/model` | Select a conversation model |
 | `/todo` | Toggle the work checklist overlay |
 | `/interrupt` / `/cancel` | Interrupt execution / cancel the task |
-| `/resume-queue` | Resume a paused queue |
-| `/queue` | Inspect/reorder queued input or turn it into guidance |
+| `/resume-queue` | Resume dispatch; retained occupancy opens a separate stop-confirmation interaction |
+| `/queue` | Inspect, reorder or retrieve any eligible ordinary queued input, or turn it into guidance |
 | `/steer <text>` | Inject guidance at the target's next boundary; return to queue head if missed |
 | `/recall [verify]` | Recall the latest input into the draft; the queue stays paused if stopping is unverified, and `verify` rechecks the original request |
 | `/detach` | Remove attachments restored into the draft by recall |
@@ -62,6 +63,8 @@ sequenceDiagram
   TUI-->>Owner: Render in raw mode
 ```
 
+Queue retrieval saves the original request key before sending, verifies lost responses through its receipt, and restores text/attachments into the initiating draft. `/recall` remains historical recall. `/questions` answers, skips or cancels within the original task; closing the window leaves it waiting. Ordinary post-interrupt drafts create new tasks; CLI `continue` and TUI `/continue` are removed, while old pending records remain verification-only in their original instance.
+
 On-demand backend logs go to `<controlDir>/spawn.log`. The client listens for keyboard and `SIGWINCH`, then restores cursor, alternate screen and input mode on exit.
 
 Computer recovery starts from the original operation in MCP settings. Verify it stopped, enable the original computer service before observation, obtain and open a new screenshot, then accept that observation. The separate begin-recovery menu is retired; existing recovery-started records continue with observation. Fetching a replacement image clears old acceptance eligibility first.
@@ -79,3 +82,5 @@ Computer recovery starts from the original operation in MCP settings. Verify it 
 - [Shared history recovery](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [In repo workspace packages](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)
 - [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)
+- [Coding user queue](../../.agents/notes/implemented/feature/2026-10-30-coding-user-queue.md)
+- [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)

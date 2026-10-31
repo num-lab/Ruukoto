@@ -55,7 +55,7 @@ test("重排只置换可整理输入的槽位；修订与成员不一致拒绝",
     const a = f.queued(), internal = f.queued({ parentTaskId: "host" }), b = f.queued(), c = f.queued();
     const before = f.revision();
     const moved = f.store.withTx(() => f.store.reorderTaskQueue(f.session.id, [c.id, a.id, b.id], before));
-    assert.deepEqual(moved.tasks.map(item => item.taskId), [c.id, internal.id, a.id, b.id], "重排只置换拥有者输入已有槽位");
+    assert.deepEqual(moved.tasks.map(item => item.taskId), [c.id, a.id, b.id], "用户队列只投影拥有者输入");
     assert.deepEqual(f.order(), [c.id, internal.id, a.id, b.id]);
     assert.equal(f.revision(), before + 1);
     assert.throws(() => f.store.withTx(() => f.store.reorderTaskQueue(f.session.id, [c.id, a.id, b.id], before)), f.conflict("queue_conflict"), "旧修订拒绝覆盖新队列");
@@ -63,7 +63,7 @@ test("重排只置换可整理输入的槽位；修订与成员不一致拒绝",
     assert.throws(() => f.store.withTx(() => f.store.reorderTaskQueue(f.session.id, [c.id, a.id, internal.id], f.revision())), f.conflict("queue_conflict"), "宿主内部输入不参与普通重排");
     const noop = f.store.withTx(() => f.store.reorderTaskQueue(f.session.id, [c.id, a.id, b.id], f.revision()));
     assert.equal(f.revision(), before + 1, "同序重排不产生新修订");
-    assert.deepEqual(noop.tasks.map(item => item.taskId), [c.id, internal.id, a.id, b.id]);
+    assert.deepEqual(noop.tasks.map(item => item.taskId), [c.id, a.id, b.id]);
   } finally { f.cleanup(); }
 });
 

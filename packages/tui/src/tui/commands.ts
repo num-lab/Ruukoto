@@ -36,7 +36,6 @@ export interface CommandHost {
   openApprovals(): void;
   interrupt(taskId: string): Promise<void>;
   cancel(taskId: string): Promise<void>;
-  continueTask(taskId: string): Promise<void>;
   resumeQueue(): Promise<void>;
   openModelPicker(result: CommandResult): Promise<void>;
   openModeList(rest: string[], result: CommandResult): Promise<void>;
@@ -331,7 +330,6 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "interrupt", description: "中断当前任务或手动压缩", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.interrupt(arg) },
   { name: "cancel", description: "取消排队/活动任务", argumentHint: "<taskId>", run: (ctx, { arg }) => ctx.host.cancel(arg) },
   { name: "model", description: "切换模型", keepsResult: true, run: (ctx) => ctx.host.openModelPicker(ctx.result) },
-  { name: "continue", description: "继续已中断任务", argumentHint: "[taskId]", run: (ctx, { arg }) => ctx.host.continueTask(arg) },
   { name: "resume-queue", description: "恢复已暂停的会话队列", run: (ctx) => ctx.host.resumeQueue() },
   { name: "queue", description: "查看排队输入，逐项上移/下移或转为引导", run: (ctx) => ctx.host.openQueue() },
   { name: "steer", description: "把正文作为引导接入当前任务的下一边界", argumentHint: "<正文>",

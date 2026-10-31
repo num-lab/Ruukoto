@@ -618,7 +618,7 @@ test("工作区入口重载：无参恢复原会话与草稿，不再次创建�
   }
 });
 
-test("重载状态：恢复继续意图，退出后的迟到应答不重启动画且后台继续", { timeout: 120_000 }, async context => {
+test("重载状态：暂停后恢复普通草稿，退出后的迟到应答不重启动画", { timeout: 120_000 }, async context => {
   let releaseModel!: () => void, releaseReply!: () => void;
   const modelGate = new Promise<void>(resolve => { releaseModel = resolve; });
   const replyGate = new Promise<void>(resolve => { releaseReply = resolve; });
@@ -626,7 +626,7 @@ test("重载状态：恢复继续意图，退出后的迟到应答不重启动�
   const submit = SubmissionGuard.prototype.submit;
   context.mock.method(SubmissionGuard.prototype, "submit", async function (this: SubmissionGuard, ...args: Parameters<SubmissionGuard["submit"]>) {
     const result = await submit.apply(this, args);
-    if (args[0] === "continue") { replyReady = true; await replyGate; }
+    if (args[0] === "submit" && args[1].input === "重载前的草稿") { replyReady = true; await replyGate; }
     return result;
   });
   const t = await startTestRuntime("dev-reload", async (req) => {
@@ -644,14 +644,13 @@ test("重载状态：恢复继续意图，退出后的迟到应答不重启动�
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const h1 = await startReloadApp(t, { sessionId, reloadFile });
     apps.push(h1);
-    // 可中断任务 + /continue 意图 + 未发送草稿
+    // A paused conversation preserves an ordinary unsent draft.
     h1.terminal.send("长跑任务");
     h1.terminal.send("\r");
     await waitFor("任务运行", () => [...h1.state.tasks.values()][0]?.status === "running");
     h1.terminal.send("/interrupt\r");
     await waitFor("任务中断", () => [...h1.state.tasks.values()][0]?.status === "interrupted");
     const interruptedId = [...h1.state.tasks.values()][0]!.id;
-    h1.terminal.send("/continue\r");
     await renderFlush();
     h1.terminal.send("重载前的草稿");
     await new Promise((r) => setTimeout(r, 450)); // 超过防抖窗口
@@ -663,19 +662,20 @@ test("重载状态：恢复继续意图，退出后的迟到应答不重启动�
     assert.equal(saved.instanceId, h1.state.instanceId);
     assert.equal(saved.sessionId, sessionId);
     assert.equal(saved.draft, "重载前的草稿");
-    assert.equal(saved.continueForTaskId, interruptedId);
+    assert.equal(saved.continueForTaskId, undefined);
 
-    // 重开（等价 dev 前端重启）：会话/草稿/继续意图恢复
+    // Reload restores the conversation and draft without executable continuation intent.
     const h2 = await startReloadApp(t, { reloadFile });
     apps.push(h2);
-    await waitFor("继续模式已恢复", () => h2.terminal.output().includes("已恢复继续模式"));
+    await waitFor("普通草稿已恢复", () => (h2.app as any).editor.getText() === "重载前的草稿");
     assert.equal(h2.state.currentSessionId, sessionId);
     assert.equal((h2.app as any).editor.getText(), "重载前的草稿");
 
-    h2.terminal.send("\r"); // 提交恢复的草稿：走继续路径
+    await t.client.request("resume_queue", { session_id: sessionId });
+    h2.terminal.send("\r"); // Submit the restored draft as a new Task.
     await waitFor("继续任务运行且应答尚未交回", () => replyReady && [...h2.state.tasks.values()][1]?.status === "running");
     const continued = [...h2.state.tasks.values()][1]!;
-    assert.equal(continued.resumesTaskId, interruptedId, "恢复后继续提交生成带 resumes 的任务");
+    assert.equal(continued.resumesTaskId, null, "恢复草稿提交新任务");
     h2.app.quit(0);
     await waitFor("h2 退出", () => h2.exitCode() === 0);
     releaseReply();
@@ -758,7 +758,7 @@ test("重载状态：继续目标任务已结束 → 意图丢弃并提示，草
     );
     const h2 = await startReloadApp(t, { reloadFile });
     apps.push(h2);
-    await waitFor("丢弃意图提示", () => h2.terminal.output().includes("继续目标任务已不存在或已结束"));
+    await waitFor("旧继续字段不影响草稿恢复", () => (h2.app as any).editor.getText() === "保留的草稿");
     assert.equal(h2.state.currentSessionId, sessionId);
     assert.equal((h2.app as any).editor.getText(), "保留的草稿", "草稿保留");
 

@@ -38,7 +38,6 @@ test("普通捕获独立宿主任务借持源占用，账本与停止身份不�
     assert.equal(rt.store.listSessions().length, sessions);
     assert.equal(t.server.calls.length, calls);
     rt.store.withTx(() => rt.store.db.prepare("UPDATE tasks SET status = 'interrupted' WHERE id = ?").run(host.id));
-    await assert.rejects(rt.continueTask({ taskId: host.id, requestId: "continue", input: "不能继续宿主操作", modelSelection: rt.defaultSelection }), { code: "invalid_state" });
   } finally { gate.release(); controlled.finish(); await t.shutdown(); }
 });
 
@@ -61,7 +60,10 @@ test("捕获停止未核实独立保留副本占用，父任务保留来源；�
     assert.equal(workCopyHostFor(host)!.stopVerified, false);
     assert.equal(rt.store.listToolOpsByTask(host.id).find(op => op.toolName === "worktree_capture")!.resultSummary, "captured");
     assert.equal(rt.store.getTask(parent.id)!.effectUnknown, false);
-    await rt.resumeQueue(session.id);
+    await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
+    assert.equal(rt.store.getOccupancyByDir(copyDir)?.taskId, host.id);
+    assert.equal(rt.store.getOccupancyByDir(session.cwdReal)?.taskId, parent.id);
+    await rt.resumeQueue(session.id, undefined, true);
     assert.equal(rt.store.getOccupancyByDir(copyDir), null);
     assert.equal(rt.store.getOccupancyByDir(session.cwdReal), null);
     assert.equal(workCopyHostFor(rt.store.getTask(host.id)!)!.stopVerified, true);

@@ -16,6 +16,7 @@ interface Deps {
   request: ControlConnection["request"];
   sessionId: () => string | null;
   online: () => boolean;
+  retrieve: (taskId: string, revision: number) => Promise<void>;
   /** 输入气泡标题（按 TaskView 的正文/请求 ID），未知返回 null。 */
   taskLabel: (taskId: string) => string | null;
   render: () => void;
@@ -84,6 +85,7 @@ export class TaskQueuePanel implements Component {
       ...(index > 0 ? [{ value: "$up", label: "上移", pick: () => void this.move(id, -1) }] : []),
       ...(index >= 0 && index < order.length - 1 ? [{ value: "$down", label: "下移", pick: () => void this.move(id, 1) }] : []),
       ...(steerable ? [{ value: "$steer", label: "转为引导（接入当前任务下一边界）", pick: () => void this.steer(id) }] : []),
+      ...(detail.queue.retrievableTaskIds.includes(id) ? [{ value: "$retrieve", label: "取回并编辑", pick: () => void this.deps.retrieve(id, detail.queue.revision) }] : []),
       { value: "$back", label: "返回队列", pick: () => this.back() },
     ]);
     this.deps.render();

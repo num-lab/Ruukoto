@@ -20,7 +20,7 @@ interface Deps {
   render: () => void;
   close: () => void;
 }
-export const ownerQuestionStatus = (status: OwnerQuestionView["status"]): string => ({ pending: "待回答", answered: "已回答，后续任务已接纳", canceled: "已取消，没有续接", stale: "已失效，请继续普通聊天" })[status];
+export const ownerQuestionStatus = (status: OwnerQuestionView["status"]): string => ({ pending: "待回答", answered: "已回答", canceled: "已取消", stale: "已失效" })[status];
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
@@ -142,17 +142,14 @@ export class OwnerQuestions implements Component {
     if (this.busy || !this.selected) return;
     const question = this.selected, cancel = this.screen === "cancel", instanceId = this.deps.instanceId();
     this.busy = true;
-    try { await this.deps.beforeSend(); }
-    catch (error) { this.busy = false; this.message = `会话设置尚未保存：${(error as Error).message}；请核实设置后再回答。`; this.deps.render(); return; }
     const session = this.deps.session();
     if (!session || session.id !== question.sessionId || this.deps.instanceId() !== instanceId) { this.busy = false; return; }
-    if (!cancel && !session.modelSelection) { this.busy = false; this.message = "请返回聊天，通过 /model 选择模型后再提交。"; this.deps.render(); return; }
     this.message = "正在提交；关闭窗口后仍会保留原请求。"; this.deps.render();
     try {
       const params = { session_id: session.id, question_id: question.id, question_version: question.version };
       const result = cancel ? await new OwnerQuestionCancelGuard(this.deps.pending, this.connection()).cancel(params)
-        : await new SubmissionGuard(this.deps.pending, this.connection()).submit("owner_question_answer", { ...params, answers: this.answers, model_selection: session.modelSelection });
-      this.message = result.kind === "accepted" ? cancel ? "已取消，没有续接。" : "回答已接纳，后续任务已排队。"
+        : await new SubmissionGuard(this.deps.pending, this.connection()).submit("owner_question_answer", { ...params, answers: this.answers });
+      this.message = result.kind === "accepted" ? cancel ? "问题已取消，原任务将继续。" : "回答已接纳，原任务将继续。"
         : result.kind === "pending_verification" ? "应答丢失，原请求已保留；恢复连接后核实原回执。" : result.message;
       if (result.kind === "accepted") { this.selected = null; this.screen = "root"; }
     } catch (error) { this.message = `未能提交：${(error as Error).message}；请核实原记录后再操作。`; }

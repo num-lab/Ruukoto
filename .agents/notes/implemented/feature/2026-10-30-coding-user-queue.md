@@ -1,20 +1,20 @@
 # Agent Note: Retrieve queued Coding input and simplify pause/resume
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
-The user queue currently includes internal summaries and question answers. Arbitrary queued messages cannot be retrieved independently, and interrupting the current task does not pause later dispatch. Desktop also automatically turns the next input after interruption into continuation of the old task, obscuring what a submission controls.
+The user queue previously included internal summaries and question answers. Arbitrary queued messages could not be retrieved independently, and interrupting the current task did not pause later dispatch. Desktop also automatically turned the next input after interruption into continuation of the old task, obscuring what a submission controls.
 
 Owner-confirmed requirements and implementation tracking belong to [the input-lifecycle issue](https://github.com/num-lab/Ruukoto/issues/30). This note owns user-queue and continuation-entry decisions; [report delivery](2026-10-30-coding-report-delivery-boundary.md) and [in-task questions](2026-10-30-coding-owner-question-wait.md) own the two input types excluded from that queue.
 
-## Proposal
+## Decision
 
 The user queue displays, reorders and retrieves only unstarted ordinary owner input. Task remains the durable acceptance receipt; do not introduce another message queue. Pending guidance is excluded, while fallback guidance becomes ordinary queued input. Internal-report fallback tasks retain host identity and their ledger but are excluded from user-queue queries, counts and panels. Question answers no longer create tasks.
 
 ### Separate queued retrieval from historical recall
 
-Reuse `message_recall` and `message_recalls` with an explicit queued-retrieval or historical-recall purpose supplied by the client entry and included in the request digest and persistent receipt. Queue entries permit any eligible item without the latest-input candidate check; historical entries retain existing candidate and source-sealing rules. Losing queued eligibility rejects and refreshes; never silently escalate to execution stopping or history mutation.
+Reuse `message_recall` and `message_recalls` with explicit `purpose: "queued"` or `purpose: "historical"` supplied by the client entry and included in the request digest and persistent receipt. Queue entries permit any eligible item without the latest-input candidate check; historical entries retain existing candidate and source-sealing rules. Losing queued eligibility rejects and refreshes; never silently escalate to execution stopping or history mutation.
 
 An in-task answer remains genuine owner input. Its transaction reuses the answer event's sequence to save acceptance order on the question record, comparable with ordinary input. Historical candidates explicitly distinguish a source Task from a question answer. If the latest effective input is an answer, including Skip, return `unsupported_input`: never skip it, treat the original requirement as latest or disguise the question's taskId as recallable input. Recalling a later ordinary input/guidance can expose the answer as a blocker again. Arbitrary queued retrieval remains exempt from latest-input restrictions; do not recreate answer tasks or add another input ledger.
 
@@ -28,7 +28,7 @@ When the owner pauses an ordinary Coding main task, synchronously commit the con
 
 Ordinary submission, retrieval, reordering, report arrival, restart and retrieval-edit completion cannot clear manual pause. Explicit resumption executes only still-queued work, never reruns an interrupted Task. Restart must not replace manual pause with `backend_restart` and then clear it through a reports-only auto-resume path. Candidate selection and the transaction after asynchronous verification must use identical pause/priority rules.
 
-Distinguish everyday queue resumption from verification of retained occupancy. Keep `resume_queue`: without retained occupancy it resumes dispatch; when stopping remains unverified, require explicit owner confirmation of stopping rather than interpreting an ordinary resume click as verification. Active occupancy, unfinished historical recall and corrupt history still block. Confirmation cannot rewrite effect unknown. Clients reuse confirmation interaction; CLI extends its existing resumption entry, not a new queue-editing command family.
+Distinguish everyday queue resumption from verification of retained occupancy. Keep `resume_queue`: without retained occupancy it resumes dispatch; when stopping remains unverified, require explicit `stop_confirmed` owner confirmation of stopping rather than interpreting an ordinary resume click as verification. Active occupancy, unfinished historical recall and corrupt history still block. Confirmation cannot rewrite effect unknown. Clients reuse confirmation interaction; CLI extends its existing resumption entry, not a new queue-editing command family.
 
 ### Remove continuation entries
 
@@ -38,9 +38,9 @@ Retain historical `resumesTaskId`, read-only continuation provenance, attachment
 
 ## Related decision audit
 
-[Queue/guidance](../../implemented/feature/2026-10-28-coding-message-control.md), [message recall](../../implemented/feature/2026-10-30-coding-message-recall.md) and [backend/FIFO ownership](../../implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md) partially overlap: change the user queue, queued retrieval and manual pause while retaining guidance, append-only history, idempotency and stopping guarantees. [Coding Scheduled](../../implemented/feature/2026-10-25-code-scheduled.md) loses only its continuation exception; schedule provenance and admission restrictions remain. Existing notes retain their decisions and link to these proposals.
+[Queue/guidance](2026-10-28-coding-message-control.md), [message recall](2026-10-30-coding-message-recall.md) and [backend/FIFO ownership](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) partially overlap: change the user queue, queued retrieval and manual pause while retaining guidance, append-only history, idempotency and stopping guarantees. [Coding Scheduled](2026-10-25-code-scheduled.md) loses only its continuation exception; schedule provenance and admission restrictions remain. Existing notes retain their original decisions and link to these superseding contracts.
 
-[History preservation](../../implemented/architecture/2026-09-19-preserve-session-history.md), [execution boundaries](../../implemented/architecture/2026-09-20-tool-worker-per-task-container.md), [SubAgent restart](../../implemented/architecture/2026-10-05-subagent-restart-recovery.md), [conversation archive](../../implemented/feature/2026-10-20-desktop-session-archive.md), [conversation backgrounds](../../implemented/feature/2026-10-21-coding-background-processes.md), [generic wait](../../implemented/feature/2026-10-25-code-wait.md) and [side chat](../../implemented/feature/2026-10-29-coding-side-chat.md) retain independent lifecycle/history/stopping constraints and dedicated controls. Personal backgrounds, work controls, Telegram, IM configuration and retired group-chat decisions are unrelated to this Coding scope. No note is fully absorbed, deleted or archived; no related rejected proposal was found.
+[History preservation](../architecture/2026-09-19-preserve-session-history.md), [execution boundaries](../architecture/2026-09-20-tool-worker-per-task-container.md), [SubAgent restart](../architecture/2026-10-05-subagent-restart-recovery.md), [conversation archive](2026-10-20-desktop-session-archive.md), [conversation backgrounds](2026-10-21-coding-background-processes.md), [generic wait](2026-10-25-code-wait.md) and [side chat](2026-10-29-coding-side-chat.md) retain independent lifecycle/history/stopping constraints and dedicated controls. Personal backgrounds, work controls, Telegram, IM configuration and retired group-chat decisions are unrelated to this Coding scope. No note is fully absorbed, deleted or archived; no related rejected proposal was found.
 
 ## Alternatives considered
 
@@ -48,10 +48,10 @@ Retain historical `resumesTaskId`, read-only continuation provenance, attachment
 - Interrupt then pause only at the button: minimizes UI changes, but stopping races with queue dispatch and CLI could bypass it. Shared Runtime must accept pause first.
 - Retain continue as a hidden alias: accommodates old clients, but preserves a second submission meaning contrary to explicit removal. Keep history and old pending inputs, not an executable alias.
 
-## Acceptance criteria
+## Verification
 
-The issue's A1, A2, A7 and A9 cover arbitrary retrieval, dispatch races, explicit resumption, retired entries and in-task answers blocking historical recall. Restart after queued retrieval must not require a nonexistent JSONL marker. Existing Desktop, TUI, CLI and control operations agree; user queues never include internal reports or answer tasks.
+Store, Runtime, control and client regressions verify arbitrary queued retrieval, immutable attachments, retained order/pause, lost-response recovery, answer/Skip recall barriers and explicit stop confirmation. The owner confirmed real Desktop/TUI product acceptance on 2026-10-31. Engineering evidence and the accepted scope are recorded in [Issue #30](https://github.com/num-lab/Ruukoto/issues/30).
 
-## Risks
+## Consequences
 
-Ordinary submission while paused requires explicit resumption. Everyday resume cannot bypass unverified stopping. New receipt purposes and question formats advance schema/protocol with this work; [strict version policy](../../implemented/simplification/2026-10-24-code-instance-mcp.md) requires a fresh profile without migration or deletion of old data. Restored text still replaces the initiating draft; any recall-recovery stack requires a separate decision.
+Ordinary submission while paused requires explicit resumption. Everyday resume cannot bypass unverified stopping. New receipt purposes and question formats use schema 58/protocol 49; [strict version policy](../simplification/2026-10-24-code-instance-mcp.md) requires a fresh profile without migration or deletion of old data. Restored text still replaces the initiating draft; any recall-recovery stack requires a separate decision.

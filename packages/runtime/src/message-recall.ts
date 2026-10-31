@@ -1,11 +1,11 @@
 /**
  * Recall progression: accept, adjudicate, stop the execution closure, fix omissions, append JSONL context_edit records, then complete.
- * Acceptance persists the request and freezes the conversation transactionally: pause scheduling, reject new input and establish source barriers.
+ * Historical recall freezes dispatch and establishes source barriers; queued retrieval atomically cancels only its unstarted input.
  * Recovery resumes from the persisted phase and fixed list without reconstructing request parameters.
  * Stopping follows trusted ownership across execution/host tasks, registered derived tasks, delegations, workflow runs/executions, backgrounds and pending messages.
  * Unknown ownership or unverified units remain blocked; verify-only continues verification.
  * edit_open authorizes restoring a completed draft until new input, explicit queue resumption or the next completed recall closes it.
- * Note: See .agents/notes/implemented/feature/2026-10-30-coding-message-recall.md
+ * Note: See .agents/notes/implemented/feature/2026-10-30-coding-user-queue.md
  */
 
 import * as fs from "node:fs";
@@ -60,7 +60,7 @@ const STOP_VERIFY_POLL_MS = 200;
 
 export interface MessageRecallStateView {
   /** Latest accepted real owner input not successfully recalled. */
-  candidate: { taskId: string; inputSeq: number } | null;
+  candidate: { kind: "task"; taskId: string; inputSeq: number } | { kind: "answer"; taskId: string; questionId: string; inputSeq: number } | null;
   /** Redacted pending request in accepted/stopping/blocked/applying phase. */
   open: PublicMessageRecall | null;
   /** Current edit window: completed with edit_open. */
@@ -146,15 +146,11 @@ export class MessageRecallRuntime {
    * Fix and accept the recall target. Identical keyed requests return the existing receipt; changed parameters reject.
    * Reject new requests while one is pending, rather than treating them as recalls of earlier input.
    */
-  async recallMessage(input: { sessionId: string; taskId: string; requestId: string; expectedRevision: number }): Promise<MessageRecall> {
+  async recallMessage(input: { sessionId: string; taskId: string; requestId: string; expectedRevision: number; purpose: MessageRecall["purpose"] }): Promise<MessageRecall> {
     const session = this.store.getSession(input.sessionId);
     if (!session) throw new RuntimeApiError("not_found", `会话不存在：${input.sessionId}`);
-    const identity = this.store.getSessionIdentity(session.id);
-    if (identity?.kind !== "dev") {
-      throw new RuntimeApiError("recall_unsupported", "仅普通 Coding 会话支持撤回上一条输入");
-    }
-    if (!input.requestId) throw new RuntimeApiError("invalid_params", "request_id 不能为空");
-    const digest = recallParamsDigest({ sessionId: input.sessionId, taskId: input.taskId, expectedRevision: input.expectedRevision });
+    if (!input.requestId || !["queued", "historical"].includes(input.purpose) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new RuntimeApiError("invalid_params", "撤回用途、请求键或修订无效，请刷新后重试");
+    const digest = recallParamsDigest(input);
     const now = this.now();
     const recall = this.store.withTx(() => {
       const existing = findMessageRecall(this.store, session.id, input.requestId);
@@ -162,13 +158,15 @@ export class MessageRecallRuntime {
         if (existing.paramsDigest !== digest) throw new RuntimeApiError("request_conflict", "该请求键已用于其他参数，请换用新请求键");
         return existing;
       }
+      if (this.store.getSessionIdentity(session.id)?.kind !== "dev") throw new RuntimeApiError("recall_unsupported", "仅普通 Coding 会话支持撤回输入");
+      if (!this.store.getTask(input.taskId)) throw new RuntimeApiError("not_found", "撤回目标不存在，请刷新会话");
       const open = getOpenMessageRecall(this.store, session.id);
       if (open) throw new RuntimeApiError("recall_pending", "本会话有撤回请求尚未收束，请等待其完成或先核实停止");
-      const candidate = recallCandidate(this.store, session.id);
-      const task = candidate && candidate.task.id === input.taskId ? candidate.task : null;
+      const candidate = input.purpose === "historical" ? recallCandidate(this.store, session.id) : null;
+      const task = input.purpose === "queued" ? this.store.getTask(input.taskId) : candidate && candidate.task.id === input.taskId ? candidate.task : null;
       const reject = (code: string, message: string): MessageRecall => {
         const rejected: MessageRecall = {
-          id: randomUUID(), sessionId: session.id, requestId: input.requestId, paramsDigest: digest,
+          id: randomUUID(), purpose: input.purpose, sessionId: session.id, requestId: input.requestId, paramsDigest: digest,
           targetTaskId: input.taskId, inputSeq: candidate?.inputSeq ?? 0, expectedRevision: input.expectedRevision,
           execTaskId: null, phase: "rejected", stopTaskIds: [], sealedTaskIds: [], omittedEntryIds: null,
           historyFingerprint: null, originalInput: task?.input ?? "", originalAttachments: [], draftAttachments: null,
@@ -180,21 +178,26 @@ export class MessageRecallRuntime {
         this.publish(rejected);
         return rejected;
       };
-      if (!task || candidate!.inputSeq !== input.expectedRevision) {
+      if (input.purpose === "queued") {
+        if (this.store.getTaskQueue(session.id).revision !== input.expectedRevision) return reject("queue_conflict", "队列已改变，请刷新后重新选择");
+        if (!task || task.sessionId !== session.id || !recallInputSupported(this.store, task) || this.store.taskInputPurpose(task.id) !== "user") return reject("unsupported_input", "该输入不支持从用户队列取回，请刷新队列");
+        if (task.status !== "queued" || task.startedAt !== null || task.historyEntryIds.length > 0 || this.inputEnteredHistory({ sessionId: session.id }, task.id)) return reject("already_started", "输入已开始执行或已进入历史，不能从队列取回；请刷新队列");
+        if (this.store.getTaskGuidance(task.id)?.state === "pending") return reject("guidance_pending", "输入正在接入引导，不能从用户队列取回");
+      } else if (!task || candidate!.inputSeq !== input.expectedRevision) {
         return reject("stale_target", "目标已不再是最近可撤回输入；请刷新会话后重试");
       }
-      if (!recallInputSupported(this.store, task)) {
+      if (candidate?.kind === "answer" || !recallInputSupported(this.store, task!)) {
         return reject("unsupported_input", "结构化提问卡片的回答暂不支持撤回，请手动重发更正");
       }
       // Only completion replaces edit-window ownership. If the previous window is still open, inherit
       // its saved queue state rather than treating the recall edit pause as the original state.
       const priorEdit = getEditWindowRecall(this.store, session.id);
-      const savedQueueState = priorEdit ? priorEdit.savedQueueState : session.queueState;
-      const savedQueueReason = priorEdit ? priorEdit.savedQueueReason : session.queuePauseReason;
+      const savedQueueState = priorEdit && session.queuePauseReason === RECALL_EDIT_PAUSE_REASON ? priorEdit.savedQueueState : session.queueState;
+      const savedQueueReason = priorEdit && session.queuePauseReason === RECALL_EDIT_PAUSE_REASON ? priorEdit.savedQueueReason : session.queuePauseReason;
       const attachments = this.store.taskAttachments(task.id).map(({ id, name, size }) => ({ id, name, size }));
       const accepted: MessageRecall = {
-        id: randomUUID(), sessionId: session.id, requestId: input.requestId, paramsDigest: digest,
-        targetTaskId: task.id, inputSeq: candidate!.inputSeq, expectedRevision: input.expectedRevision,
+        id: randomUUID(), purpose: input.purpose, sessionId: session.id, requestId: input.requestId, paramsDigest: digest,
+        targetTaskId: task!.id, inputSeq: candidate?.inputSeq ?? this.store.getTaskInputSeq(task!) ?? 0, expectedRevision: input.expectedRevision,
         execTaskId: null, phase: "accepted", stopTaskIds: [], sealedTaskIds: [], omittedEntryIds: null,
         historyFingerprint: null, originalInput: task.input, originalAttachments: attachments, draftAttachments: null,
         completionRevision: null, nextCandidateTaskId: null, editOpen: false,
@@ -202,6 +205,10 @@ export class MessageRecallRuntime {
         error: null, createdAt: now, updatedAt: now,
       };
       insertMessageRecall(this.store, accepted);
+      if (input.purpose === "queued") {
+        this.completeQueued(accepted);
+        return getMessageRecall(this.store, accepted.id)!;
+      }
       this.store.setSessionQueueState(session.id, "paused", RECALL_PAUSE_REASON);
       this.store.appendEvent({ type: "session.queue_paused", sessionId: session.id, reason: RECALL_PAUSE_REASON }, { sessionId: session.id });
       this.publish(accepted);
@@ -220,6 +227,7 @@ export class MessageRecallRuntime {
     const recall = findMessageRecall(this.store, input.sessionId, input.requestId);
     if (!recall) throw new RuntimeApiError("not_found", "撤回请求不存在，请核实原请求键");
     if (recall.phase === "completed" || recall.phase === "rejected") return recall;
+    if (recall.purpose === "queued") throw new RuntimeApiError("invalid_state", "队列取回无需停止核实；请检查原取回回执和存储记录");
     this.store.withTx(() => {
       const current = getMessageRecall(this.store, recall.id)!;
       if (current.phase !== "blocked" && current.phase !== "stopping") return;
@@ -286,7 +294,7 @@ export class MessageRecallRuntime {
       }
     }
     return {
-      candidate: candidate ? { taskId: candidate.task.id, inputSeq: candidate.inputSeq } : null,
+      candidate: candidate ? { kind: candidate.kind, taskId: candidate.task.id, inputSeq: candidate.inputSeq, ...(candidate.kind === "answer" ? { questionId: candidate.questionId } : {}) } as MessageRecallStateView["candidate"] : null,
       open: open ? publicMessageRecall(open) : null,
       edit: edit ? { recallId: edit.id, completionRevision: edit.completionRevision ?? 0, input: isInitiator ? edit.originalInput : "", attachments: draftAttachments } : null,
       receipt: receipt ? publicMessageRecall(receipt) : null,
@@ -300,6 +308,10 @@ export class MessageRecallRuntime {
     const recall = getMessageRecall(this.store, recallId);
     if (!recall || recall.phase === "completed" || recall.phase === "rejected") return;
     try {
+      if (recall.purpose === "queued") {
+        this.verifyQueuedCompletion(recall);
+        return;
+      }
       if (recall.phase === "accepted") await this.adjudicate(recall);
       const current = getMessageRecall(this.store, recallId);
       if (!current || current.phase === "completed" || current.phase === "rejected") return;
@@ -320,7 +332,8 @@ export class MessageRecallRuntime {
       if (!recall) continue;
       if (recall.phase === "completed") {
         try {
-          this.verifyCompletionMarker(recall);
+          if (recall.purpose === "queued" || recall.execTaskId === null && recall.omittedEntryIds?.length === 0) this.verifyQueuedCompletion(recall);
+          else this.verifyCompletionMarker(recall);
         } catch (err) {
           this.store.withTx(() => {
             const current = getMessageRecall(this.store, recall.id)!;
@@ -367,33 +380,38 @@ export class MessageRecallRuntime {
     }
     const entered = this.inputEnteredHistory(recall, task.id);
     if (task.status === "queued" && !entered) {
-      this.completeQueued(recall);
+      this.store.withTx(() => this.completeQueued(recall));
       return;
     }
     this.fixClosure(recall, task.id);
   }
 
   /** Whether authoritative JSONL contains the target's own input or adopted guidance entry. */
-  private inputEnteredHistory(recall: MessageRecall, taskId: string): boolean {
+  private inputEnteredHistory(recall: Pick<MessageRecall, "sessionId">, taskId: string): boolean {
     const session = this.store.getSession(recall.sessionId);
     const file = session?.sessionFile;
-    if (!file || !fs.existsSync(file)) return false;
+    if (!file) return false;
+    if (!fs.existsSync(file)) throw new HistoryReadError("history_missing", "会话历史文件缺失，无法核实输入是否已经接入");
     const { entries } = parseSessionFileStrict(fs.readFileSync(file, "utf8"));
     return entries.some(entry => entry.type === "message"
       && ((entry.message as { ruukotoTaskId?: unknown; ruukotoSourceTaskId?: unknown } | undefined)?.ruukotoTaskId === taskId
         || (entry.message as { ruukotoTaskId?: unknown; ruukotoSourceTaskId?: unknown } | undefined)?.ruukotoSourceTaskId === taskId));
   }
 
-  /** For queued input absent from history, cancel the source task and complete recall transactionally without JSONL edits. */
+  /** The caller holds a Store transaction; cancel unadmitted input without JSONL edits. */
   private completeQueued(recall: MessageRecall): void {
-    this.store.withTx(() => {
-      const task = this.store.getTask(recall.targetTaskId);
-      if (task?.status === "queued") {
-        this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "message_recall", endedAt: this.now() });
-        invalidateOwnerQuestionsForTask(this.store, task.id);
-      }
-      this.finishRecall(recall, null);
-    });
+    const task = this.store.getTask(recall.targetTaskId);
+    if (task?.status === "queued") {
+      this.store.endTask(task.id, ["queued"], "canceled", { errorMessage: "message_recall", endedAt: this.now() });
+      invalidateOwnerQuestionsForTask(this.store, task.id);
+    }
+    this.finishRecall(recall, null);
+  }
+
+  /** Queue retrieval commits cancellation and completion together, so recovery never needs a JSONL marker. */
+  private verifyQueuedCompletion(recall: MessageRecall): void {
+    const task = this.store.getTask(recall.targetTaskId);
+    if (recall.phase !== "completed" || recall.execTaskId !== null || recall.stopTaskIds.length || recall.sealedTaskIds.length || recall.omittedEntryIds?.length !== 0 || !task || task.sessionId !== recall.sessionId || task.status !== "canceled" || task.errorMessage !== "message_recall" || task.startedAt !== null || task.historyEntryIds.length || this.inputEnteredHistory(recall, task.id)) throw new HistoryReadError("history_corrupt", "队列取回的取消记录无法核实，请保留档案并检查存储");
   }
 
   // Execution closure and stopping
@@ -611,7 +629,7 @@ export class MessageRecallRuntime {
       const targetIndex = this.targetEntryIndex(recall, entries);
       if (targetIndex === null) {
         // If the target never entered history despite requiring a full stop, complete through the fast path.
-        return this.completeQueued(recall);
+        return this.store.withTx(() => this.completeQueued(recall));
       }
       const manifest: string[] = [];
       for (let i = targetIndex; i < entries.length; i++) {
@@ -638,7 +656,7 @@ export class MessageRecallRuntime {
         if (current.phase !== "applying") return;
         // Finally verify the target is still the latest unrecalled input.
         const candidate = recallCandidate(this.store, recall.sessionId);
-        if (!candidate || candidate.task.id !== recall.targetTaskId) {
+        if (!candidate || candidate.kind !== "task" || candidate.task.id !== recall.targetTaskId) {
           current.phase = "rejected";
           current.error = { code: "stale_target", message: "冻结点时目标已不再是最近可撤回输入" };
           current.updatedAt = this.now();
@@ -754,8 +772,10 @@ export class MessageRecallRuntime {
     // Compute the next candidate after persisting completed, or recalledInputTaskIds would select this target again.
     current.nextCandidateTaskId = recallCandidate(this.store, current.sessionId)?.task.id ?? null;
     updateMessageRecall(this.store, current);
-    this.store.setSessionQueueState(current.sessionId, "paused", RECALL_EDIT_PAUSE_REASON);
-    this.store.appendEvent({ type: "session.queue_paused", sessionId: current.sessionId, reason: RECALL_EDIT_PAUSE_REASON }, { sessionId: current.sessionId });
+    if (current.purpose === "historical") {
+      this.store.setSessionQueueState(current.sessionId, "paused", RECALL_EDIT_PAUSE_REASON);
+      this.store.appendEvent({ type: "session.queue_paused", sessionId: current.sessionId, reason: RECALL_EDIT_PAUSE_REASON }, { sessionId: current.sessionId });
+    }
     this.publish(current);
   }
 

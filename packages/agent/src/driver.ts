@@ -1,5 +1,5 @@
 import { getCurrentSystemPrompt, getCurrentTools, createInitialSystemMessage, toToolDeclaration } from "@earendil-works/pi-ai";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 /**
  * 会话驱动器：把 SDK 会话接到任务状态机上。
  *
@@ -68,7 +68,7 @@ import { beginContextAssembly, ContextSendBlocked, type AgentReportContext, type
 import { DesktopBrowserError, type DesktopBrowserManager } from "./desktop-browser.ts";
 import type { JevRequestConfig } from "./jev.ts";
 import type { HostToolContext } from "./host-tools.ts";
-import { ownerQuestionCreatedByTask, ownerQuestionTaskEligible, type OwnerQuestion, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
+import { findOwnerQuestionByOp, ownerQuestionTaskEligible, type OwnerQuestion, type OwnerQuestionItem } from "@ruukoto/core/owner-questions.ts";
 import type { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
 import { expandSkillCommand, loadSkillLibrary, type SkillLibrary } from "./skills.ts";
 import { validateSubAgentRole, validateSubAgentRoleLibrary, type SubAgentRoleLibrary } from "./subagent-roles.ts";
@@ -76,7 +76,7 @@ import { requireSubAgentDefinition, SubAgentDefinitionError, type SubAgentDefini
 import { SubAgentRoleError } from "./subagent-roles.ts";
 import { buildHostToolSet, type HostCall, type HostToolFamily, type HostToolRuntime } from "./host-tool-families.ts";
 import type { BackgroundProcessCalls } from "./background-process-tools.ts";
-import { allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile, sourceAllows } from "./tool-availability.ts";
+import { OWNER_QUESTION_PENDING_TOOL_NAMES, allowsCategory, executionProfile, subAgentAllows, taskToolSet, workflowAllows, type AgentResourcePhase, type ExecutionProfile, type TaskToolSet, type WorkflowExecutionProfile, sourceAllows } from "./tool-availability.ts";
 import type { AgentWaitCall } from "./agent-wait-tools.ts";
 import { WorkflowError, type WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { requireSubAgentExecution, snapshotSubAgentExecution, SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
@@ -134,7 +134,10 @@ export interface DriverDeps {
   budgetOverrides?: Partial<SelectorBudgetConfig>;
   /** 静态宿主工具族；Runtime 负责捕获族专属依赖，Driver 负责当前调用接缝。 */
   hostToolFamilies: readonly HostToolFamily[];
-  ownerQuestions?: { create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion };
+  ownerQuestions?: {
+    create(ctx: HostToolContext, questions: OwnerQuestionItem[]): OwnerQuestion;
+    wait(questionId: string, signal?: AbortSignal): Promise<OwnerQuestion>;
+  };
   backgroundProcesses?: BackgroundProcessCalls & { active(sessionId: string): boolean };
   /** Jev 的本地模拟服务与超时覆盖，仅宿主测试注入。 */
   jev?: JevRequestConfig;
@@ -178,9 +181,14 @@ export interface DriverDeps {
   parentInjection?: ParentDelivery["takeInjection"];
   parentInjectionRecheck?: (sessionId: string, resultTaskIds: string[], messageIds: string[]) => string | null;
   parentInjectionAccepted?: (taskId: string, resultTaskIds: string[], entryId: string, messageIds: string[]) => void;
-  beforeModelRequest?: (task: Task) => void;
+  beforeModelRequest?: (task: Task, messages: readonly AgentMessage[]) => { reportKeys: string[]; entryIds: string[] } | void;
   afterModelRequest?: (task: Task) => void;
   reportContext?: (task: Task) => AgentReportContext | null;
+  reportBoundary?: {
+    pending(task: Task): boolean;
+    prepare(task: Task): AgentReportContext | null;
+    bind(task: Task, batch: { reportKeys: string[]; entryIds: string[] }): void;
+  };
   subAgentRoles?: () => SubAgentRoleLibrary;
   agentWait?: {
     initialPhase(task: Task): AgentResourcePhase;
@@ -293,6 +301,10 @@ export class Driver {
   private injectionAccepted = false;
   private modelResponseAccepted = false;
   private reportContext: AgentReportContext | null = null;
+  private dynamicReportContexts: AgentReportContext[] = [];
+  private questionBatchBarrier: string | null = null;
+  private questionToolsReady = false;
+  private boundReportKeys = new Set<string>();
   private pinnedDefinition: SubAgentDefinitionSnapshot | null = null;
   private pinnedRoles: SubAgentRoleLibrary | null = null;
   private pinnedExecution: SubAgentExecutionSnapshot | null = null;
@@ -577,10 +589,13 @@ export class Driver {
       ownerQuestions: this.deps.ownerQuestions ? {
         create: (ctx, questions) => {
           const question = this.deps.ownerQuestions!.create(ctx, questions);
+          this.questionBatchBarrier = ctx.hostOpId;
+          this.questionToolsReady = false;
           const task = this.deps.store.getTask(ctx.taskId);
           if (task && this.currentTask?.id === task.id) this.refreshTaskTools(task);
           return question;
         },
+        wait: (questionId, signal) => this.deps.ownerQuestions!.wait(questionId, signal),
       } : undefined,
       backgroundProcesses: this.deps.backgroundProcesses ? {
         start: (ctx, command, signal) => this.deps.backgroundProcesses!.start(ctx, command, signal),
@@ -755,13 +770,19 @@ export class Driver {
         for (const guidance of list) this.guidanceJoining.add(guidance.sourceTaskId);
         return list;
       });
-      if (pending.length === 0) return decision || undefined;
+      if (pending.length === 0) return this.deps.reportBoundary?.pending(task) ? { action: "continue" } : decision || undefined;
       this.guidanceJoined = new Promise<void>(done => { this.guidanceJoinedResolve = done; });
       return { action: "continue" };
     };
     const prepareNextTurn = sdk.agent.prepareNextTurnWithContext;
     if (prepareNextTurn) {
       sdk.agent.prepareNextTurnWithContext = async (turn, signal) => {
+        // Prepare the next loadout only after the old batch settles; the call barrier remains until actual send.
+        if (this.questionBatchBarrier && !this.stopRequested && !signal?.aborted) {
+          if (!this.questionResultEntry()) throw new ContextSendBlocked("owner_question_result_unrecorded:问题结果未落入历史，拒绝继续执行");
+          this.questionToolsReady = true;
+          if (this.currentTask) this.refreshTaskTools(this.currentTask);
+        }
         const next = await prepareNextTurn(turn, signal);
         const task = this.currentTask;
         if (!task || this.stopRequested || signal?.aborted) return next || undefined;
@@ -792,6 +813,14 @@ export class Driver {
             } as any);
           }
         });
+        const reports = this.deps.reportBoundary?.prepare(task);
+        if (reports) {
+          this.appendMarker("ruukoto_agent_report_context", { taskId: task.id, ...reports });
+          this.dynamicReportContexts.push(structuredClone(reports));
+          this.guidanceSteered = true;
+          sdk.agent.steer({ role: "user", content: [{ type: "text", text: reports.text }], timestamp: Date.now(),
+            ruukotoTaskId: task.id, ruukotoReportKeys: reports.reportKeys } as any);
+        }
         return next || undefined;
       };
     }
@@ -813,7 +842,7 @@ export class Driver {
     // 目标停止后的接入阻断：监听先于 JSONL append 同步触发；已停止时让追加失败，
     // 把本轮收束成停止而不是把未核实的输入写进权威历史。
     sdk.subscribe((event) => {
-      if ((event.type === "message_start" || event.type === "message_end") && this.stopRequested && guidanceSourceId((event as { message?: unknown }).message)) {
+      if ((event.type === "message_start" || event.type === "message_end") && this.stopRequested && (guidanceSourceId((event as { message?: unknown }).message) || reportMessageKeys((event as { message?: unknown }).message).length > 0)) {
         this.guidanceContaminated = true;
         throw Object.assign(new Error("引导接入在目标停止后被阻断，本次运行按停止收束"), { code: "guidance_stopped_before_append" });
       }
@@ -945,7 +974,10 @@ export class Driver {
       try {
         this.checkBeforeSend(task, model, context, options);
         ({ model, options } = assembly.prepareSend(model, context, options));
-        this.deps.beforeModelRequest?.(task);
+        this.releaseQuestionBatch(context.messages);
+        this.bindReportInput(task, context.messages);
+        const binding = this.deps.beforeModelRequest?.(task, context.messages);
+        if (binding) this.appendMarker("ruukoto_agent_report_context", { taskId: task.id, ...binding, requestBinding: true });
       } catch (err) {
         if (err instanceof ContextSendBlocked) this.lastBlockedReason = err.message;
         throw err;
@@ -966,6 +998,7 @@ export class Driver {
       throw new ContextSendBlocked("browser_context_stale:浏览器交还后的新观察未进入上下文，拒绝发送旧请求");
     }
     const fresh = this.deps.store.getTask(task.id) ?? task;
+    if (fresh.interruptReason === "owner_interrupt") throw new ContextSendBlocked("owner_pause:拥有者已暂停当前任务，拒绝发送模型请求");
     this.refreshTaskTools(fresh);
     const workflowProblem = this.verifyWorkflowTask(task);
     if (workflowProblem) throw new ContextSendBlocked(`workflow_source_invalid:${workflowProblem}`);
@@ -1153,6 +1186,10 @@ export class Driver {
     this.recordResourcePhase(task);
     this.activeToolCalls.clear();
     this.modelResponseAccepted = false;
+    this.questionBatchBarrier = null;
+    this.questionToolsReady = false;
+    this.dynamicReportContexts = [];
+    this.boundReportKeys.clear();
     // Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
     this.pinnedSkills = this.resourcePhase === "conversation" ? referenceSnapshot?.taskId === task.id ? referenceSnapshot.skills : referenceSnapshot?.skills ? loadSkillLibrary() : null
       : this.profile.restricted && !this.profile.source && !this.profile.workflow ? null : this.allows("skills") ? loadSkillLibrary() : null;
@@ -1397,7 +1434,7 @@ export class Driver {
     const eligible = taskToolSet({
       registered: this.allToolNames,
       ownerQuestionsEnabled: Boolean(this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, task)),
-      ownerQuestionPending: ownerQuestionCreatedByTask(this.deps.store, task.id),
+      ownerQuestionPending: this.questionBatchBarrier !== null && !this.questionToolsReady,
       backgroundProcessesEnabled: Boolean(this.deps.backgroundProcesses && ownerQuestionTaskEligible(this.deps.store, task)),
       backgroundStartEnabled: task.accessMode === "full_access" && !task.planMode && this.resourcePhase === "execution",
       backgroundObservation: this.backgroundObservation,
@@ -1498,11 +1535,57 @@ export class Driver {
     let entries: ParsedSessionEntry[];
     try { entries = file ? parseSessionFile(file) : []; }
     catch { throw new ContextSendBlocked("agent_report_context_unrecorded:报告参考输入未落盘或历史不可解析"); }
-    const marker = entries.findLast(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" &&
-      (entry.data as { taskId?: string } | undefined)?.taskId === task.id);
+    const marker = entries.find(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" &&
+      isDeepStrictEqual(entry.data, { taskId: task.id, ...this.reportContext }));
     if (!marker || !isDeepStrictEqual(marker.data, { taskId: task.id, ...this.reportContext })) {
       throw new ContextSendBlocked("agent_report_context_unrecorded:报告参考输入未落盘或与本轮固定内容不同");
     }
+  }
+
+  private questionResultEntry(): ParsedSessionEntry | null {
+    if (!this.questionBatchBarrier || !this.sdk?.sessionFile) return null;
+    const op = this.deps.store.getToolOp(this.questionBatchBarrier);
+    const question = findOwnerQuestionByOp(this.deps.store, this.questionBatchBarrier);
+    if (!op?.sdkCallId || !question || question.status === "pending") return null;
+    return parseSessionFile(this.sdk.sessionFile).findLast(entry => entry.type === "message" &&
+      isQuestionResult(entry.message, op.sdkCallId!)) ?? null;
+  }
+
+  private releaseQuestionBatch(messages: readonly unknown[]): void {
+    if (!this.questionBatchBarrier) return;
+    const entry = this.questionResultEntry(), callId = this.deps.store.getToolOp(this.questionBatchBarrier)?.sdkCallId;
+    // SDK-only undefined metadata disappears in JSONL; compare the original call and actual answer text.
+    if (!this.questionToolsReady || !entry || !callId || !messages.some(message => isQuestionResult(message, callId) && messageText(message) === messageText(entry.message))) {
+      throw new ContextSendBlocked("owner_question_result_missing:本次请求缺少原提问结果，拒绝继续执行");
+    }
+    this.questionBatchBarrier = null;
+    this.questionToolsReady = false;
+    if (this.currentTask) this.refreshTaskTools(this.currentTask);
+  }
+
+  private bindReportInput(task: Task, messages: readonly unknown[]): void {
+    if (!this.deps.reportBoundary) return;
+    const batches = [...(this.reportContext ? [this.reportContext] : []), ...this.dynamicReportContexts];
+    if (batches.length === 0) return;
+    const file = this.sdk?.sessionFile;
+    const entries = file ? parseSessionFile(file) : [];
+    const reportKeys = new Set<string>(), entryIds = new Set<string>();
+    for (const batch of batches) {
+      const marker = entries.find(entry => entry.type === "custom" && entry.customType === "ruukoto_agent_report_context" &&
+        isDeepStrictEqual(entry.data, { taskId: task.id, ...batch }));
+      const dynamic = this.dynamicReportContexts.includes(batch);
+      const input = dynamic ? entries.find(entry => entry.type === "message" &&
+        isDeepStrictEqual(reportMessageKeys(entry.message), batch.reportKeys) && messageText(entry.message) === batch.text) : null;
+      const included = dynamic ? input && messages.some(message => isDeepStrictEqual(message, input.message))
+        : messages.some(message => messageText(message).includes(batch.text));
+      if (!marker || (!included && batch.reportKeys.some(key => !this.boundReportKeys.has(key)))) {
+        throw new ContextSendBlocked("agent_report_input_missing:报告正文未进入本次请求，拒绝声称已送达");
+      }
+      if (!included) continue;
+      for (const key of batch.reportKeys) { reportKeys.add(key); this.boundReportKeys.add(key); }
+      entryIds.add(input?.id ?? marker.id);
+    }
+    this.deps.reportBoundary.bind(task, { reportKeys: [...reportKeys], entryIds: [...entryIds] });
   }
 
   private acceptModelResponse(task: Task): void {
@@ -1637,6 +1720,7 @@ export class Driver {
     // 侧聊失败只结束本任务：上下文阻断/溢出也不暂停会话队列，新提交照常接纳
     if (this.profile.toolClass === "side") return;
     this.deps.store.withTx(() => {
+      if (this.deps.store.getSession(this.session.id)?.queuePauseReason === "owner_pause") return;
       this.deps.store.setSessionQueueState(this.session.id, "paused", reason);
       this.deps.store.appendEvent(
         { type: "session.queue_paused", sessionId: this.session.id, reason },
@@ -1686,7 +1770,11 @@ export class Driver {
   private async handleToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
     const current = this.currentTask;
     if (!current) return undefined;
+    if (this.deps.store.getTask(current.id)?.interruptReason === "owner_interrupt") return { block: true, reason: "拥有者已暂停当前任务，本次调用未执行。" };
     this.refreshTaskTools(this.deps.store.getTask(current.id) ?? current);
+    if (this.questionBatchBarrier && !OWNER_QUESTION_PENDING_TOOL_NAMES.has(event.toolName)) {
+      return { block: true, reason: "问题结果尚未进入下一次模型请求；本批调用未执行。读到回答或取消事实后重新判断。" };
+    }
     const workflowProblem = this.verifyWorkflowTask(current);
     if (workflowProblem) return { block: true, reason: `工作流步骤授权失效：${workflowProblem}` };
     // 工具可用性（架构工单 03）：不在本任务允许集合内的调用一律阻止（激活侧已过滤，
@@ -2047,6 +2135,9 @@ export class Driver {
               entryId: entry.id,
               sessionFile: file,
               role: String(entry.message?.role ?? "unknown"),
+              ...(entry.message?.role === "user" ? { inputPurpose: this.dynamicReportContexts.some(batch =>
+                isDeepStrictEqual(reportMessageKeys(entry.message), batch.reportKeys) && messageText(entry.message) === batch.text)
+                ? "internal_report" as const : this.deps.store.taskInputPurpose(task.id) } : {}),
               messageId,
             },
             { taskId: task.id, sessionId: task.sessionId },
@@ -2152,4 +2243,22 @@ function summarizeToolResult(result: any): string {
   } catch {
     return String(result).slice(0, 300);
   }
+}
+
+function reportMessageKeys(message: unknown): string[] {
+  if (!message || typeof message !== "object" || !("ruukotoReportKeys" in message)) return [];
+  const keys = message.ruukotoReportKeys;
+  return Array.isArray(keys) && keys.every((key: unknown) => typeof key === "string") ? keys : [];
+}
+
+function messageText(message: unknown): string {
+  if (!message || typeof message !== "object" || !("content" in message)) return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  return Array.isArray(content) ? content.map((part: unknown) => part && typeof part === "object" && "text" in part && typeof part.text === "string" ? part.text : "").join("") : "";
+}
+
+function isQuestionResult(message: unknown, sdkCallId: string): boolean {
+  return Boolean(message && typeof message === "object" && "role" in message && message.role === "toolResult" &&
+    "toolCallId" in message && message.toolCallId === sdkCallId && "toolName" in message && message.toolName === "ask_user");
 }

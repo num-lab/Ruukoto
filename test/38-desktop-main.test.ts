@@ -273,27 +273,27 @@ test("桌面同连接缺口重同步会重新核实 kept，合并触发不并发
     assert.equal(h.updates.filter(update => update.type === "state" && update.state === "online").length, 1);
     assert.equal(h.updates.filter(update => update.type === "snapshot").length, 2);
     assert.equal(h.updates.filter(update => update.type === "submission" && update.result.kind === "linked").length, 1);
-    assert.equal(h.fake.transports[0].requests.filter(request => request.op === "submit" || request.op === "continue").length, 0);
+    assert.equal(h.fake.transports[0].requests.filter(request => request.op === "submit").length, 0);
     assert.ok(h.fake.transports[0].requests.filter(request => request.op === "find_task").every(request => JSON.stringify(request.params).includes("original")));
   } finally { h.close(); }
 });
 
-for (const op of ["submit", "continue"] as const) {
+for (const op of ["submit"] as const) {
   test(`桌面 ${op} 在线丢答当场核实，在途重复点击和应用重启不新建任务`, async () => {
     let received: TaskView | null = null;
     let sends = 0;
     let release!: () => void;
     const blocked = new Promise<void>(done => { release = done; });
-    const script: FakeScript = { handlers: { [op]: async (params: import("@ruukoto/control/ops.ts").OpParams<"continue">) => {
+    const script: FakeScript = { handlers: { [op]: async (params: import("@ruukoto/control/ops.ts").OpParams<"submit">) => {
       sends++;
-      received = desktopTask({ requestId: params.request_id, resumesTaskId: op === "continue" ? params.task_id : null });
+      received = desktopTask({ requestId: params.request_id, resumesTaskId: null });
       await blocked;
       throw new ControlClientError("request_timeout", "应答丢失", "unknown");
     }, find_task: () => ({ task: received }) } };
     const h = desktopHarness(script);
     try {
       await h.start();
-      const params = { session_id: "session", input: "新输入", model_selection: selection, ...(op === "continue" ? { task_id: "source" } : {}) };
+      const params = { session_id: "session", input: "新输入", model_selection: selection };
       const sending = h.request("code", op, params);
       await waitFor("发送已开始", () => sends === 1);
       const stored = h.store.list().records[0];
@@ -337,9 +337,9 @@ test("桌面提交断线重连核实原任务；异实例保留且不重发", as
   } finally { h.close(); }
 });
 
-for (const op of ["submit", "continue"] as const) {
+for (const op of ["submit"] as const) {
   test(`桌面 ${op} 缺模型恢复先交付后清理，丢答／重载／重复确认不丢原文`, async () => {
-    const record = pendingRecord({ op, params: { session_id: "session", input: "原输入", request_id: "original", ...(op === "continue" ? { task_id: "source" } : {}) } });
+    const record = pendingRecord({ op, params: { session_id: "session", input: "原输入", request_id: "original" } });
     const script: FakeScript = { handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { find_task: () => ({ task: null }) } };
     const h = desktopHarness(script, [record]);
     try {
@@ -369,7 +369,6 @@ for (const op of ["submit", "continue"] as const) {
         writes.edit("session", "已有草稿");
         await writes.restore("original");
         assert.equal(writes.draft("session").text, "原输入\n\n已有草稿");
-        assert.equal(writes.draft("session").taskId, op === "continue" ? "source" : undefined);
         assert.equal(writes.blocked("session"), true);
         assert.equal(restarted.store.read("original").kind, "absent");
         await writes.restore("original");
@@ -832,7 +831,7 @@ for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实�
 
 
 test("Personal旧控制面IPC统一拒绝，业务只经宿主持有的新接口", async () => {
-  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode", "continue", "open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
+  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode", "open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
     const result = await handleRequest("personal", op, {}, async () => {}, unavailable);
     assert.equal(!result.ok && result.error.code, "op_not_allowed");
   }

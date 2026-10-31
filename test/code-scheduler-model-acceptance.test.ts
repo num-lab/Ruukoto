@@ -7,11 +7,12 @@ import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
-import { getCodeScheduleRun, type CodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
+import { parseSessionFile } from "@ruukoto/core/history.ts";
+import { getCodeScheduleRun, getCodeScheduleRunForTask, type CodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
 
-test("真实模型 Scheduled：提问、固定配置续接与单文件精确审批后整项结束", {
+test("真实模型 Scheduled：原Task等待回答后按固定配置精确审批单文件并结束", {
   skip: process.env.RUN_MODEL_CHECK !== "1" ? "真实模型仅在 RUN_MODEL_CHECK=1 时执行" : false,
   timeout: 180_000,
 }, async () => {
@@ -27,7 +28,8 @@ test("真实模型 Scheduled：提问、固定配置续接与单文件精确审�
   const agentDir = path.join(root, "agent"), workspace = path.join(root, "work"), models = path.join(agentDir, "models.json");
   fs.mkdirSync(agentDir, { mode: 0o700 }); fs.mkdirSync(workspace, { mode: 0o700 });
   const markerFile = path.join(workspace, "scheduled-acceptance.txt"), marker = `CODE_SCHEDULED_MODEL_${randomBytes(8).toString("hex")}`;
-  const questions = [{ question: "是否允许写入本次固定验收文件？", options: ["允许写入", "停止"] }];
+  const questions = [{ question: "是否允许写入本次固定验收文件？", options: ["允许写入", "停止"] }, { question: "本次验收口令？" }];
+  const answerToken = `SCHEDULED_ANSWER_${randomBytes(8).toString("hex")}`;
   const fileParams = { path: markerFile, operation: "write", content: marker, reason: "定时单文件权限验收" };
   const evidence: Record<string, unknown> = { status: "running", platform: process.platform, node: process.version, model: selected, sourceModelsSha256: sourceHash };
   let runtime: Runtime | undefined, failure = "", phase = "startup", clock = Date.now(), answered = false, asked = 0, writes = 0, requests = 0;
@@ -76,7 +78,7 @@ test("真实模型 Scheduled：提问、固定配置续接与单文件精确审�
     assert.ok(option?.available && option.thinkingLevels.length, "所选模型须有可用认证和思考档位");
     const selection = { ...rt.defaultSelection, thinkingLevel: option.thinkingLevels.includes("off") ? "off" as const : option.thinkingLevels[0] };
     const opened = await rt.openWorkspace({ cwd: workspace, createRequestId: "model-workspace" });
-    const instructions = `这是隔离目录中的定时验收。第一轮仅调用一次 ask_user，questions 原样为 ${JSON.stringify(questions)}，随后结束本轮。收到专用问题入口“允许写入”的回答后，仅调用一次 request_file_access，参数原样为 ${JSON.stringify(fileParams)}，等待这一个文件的拥有者审批；写入成功后回复 CODE_SCHEDULED_MODEL_OK 并结束。其他工具和目录不在本次任务范围。不能按此完成时停止并报告原因，不替换工具或参数。`;
+    const instructions = `这是隔离目录中的定时验收。第一轮仅调用一次 ask_user，questions 原样为 ${JSON.stringify(questions)}。ask_user 在原任务内等待专用入口回答。收到“允许写入”的回答后，仅调用一次 request_file_access，参数原样为 ${JSON.stringify(fileParams)}，等待这一个文件的拥有者审批；写入成功后回复 CODE_SCHEDULED_MODEL_OK 和拥有者给出的验收口令原文并结束。其他工具和目录不在本次任务范围。不能按此完成时停止并报告原因，不替换工具或参数。`;
     const config: CodeScheduleConfig = { title: "真实模型 Scheduled 验收", instructions, workspaceId: opened.session.projectId, permission: "confirm", modelSelection: selection,
       rule: { kind: "once", at: new Date(clock + 60_000).toISOString(), timeZone: "Asia/Tokyo", disambiguation: "compatible" } };
     const saved = await rt.saveCodeSchedule({ requestId: "model-plan", config });
@@ -88,43 +90,62 @@ test("真实模型 Scheduled：提问、固定配置续接与单文件精确审�
     const session = rt.getSession(run.sessionId);
     assert.equal(session.cwdReal, workspace); assert.equal(session.name, config.title);
     await assert.rejects(rt.submit({ sessionId: run.sessionId, requestId: "must-reject", input: "不能混入的人工输入", modelSelection: selection }), { code: "schedule_session_managed" });
-    await wait(() => rt.store.getTask(run.rootTaskId)!.status === "completed" && rt.listOwnerQuestions(run.sessionId).questions.length === 1);
+    await wait(() => rt.listOwnerQuestions(run.sessionId).questions.some(item => item.status === "pending"));
+    assert.equal(rt.store.getTask(run.rootTaskId)!.status, "running");
+    assert.equal(requests, 1, "waiting must issue no additional model requests");
+    assert.equal(rt.store.listTasksBySession(run.sessionId).length, 1);
+    assert.ok(rt.store.listAllOccupancy().some(held => held.taskId === run.rootTaskId));
     assert.equal(getCodeScheduleRun(rt.store, run.id)!.closedAt, null);
     assert.equal(fs.existsSync(markerFile), false);
     const question = rt.listOwnerQuestions(run.sessionId).questions[0];
     assert.deepEqual(question.questions, questions);
     answered = true; phase = "answer_and_approval";
-    const continuation = await rt.answerOwnerQuestion({ sessionId: run.sessionId, questionId: question.id, version: question.version, requestId: "model-answer", answers: [{ text: "允许写入", option: 0 }], modelSelection: selection });
-    await wait(() => rt.store.listConfirmationsByTask(continuation.id).some(confirmation => confirmation.status === "pending"));
-    const confirmations = rt.store.listConfirmationsByTask(continuation.id);
+    const answer = await rt.answerOwnerQuestion({ sessionId: run.sessionId, questionId: question.id, version: question.version, requestId: "model-answer", answers: [{ text: "允许写入", option: 0 }, { text: answerToken }] });
+    assert.equal(answer.taskId, run.rootTaskId);
+    assert.equal(answer.question.continuationTaskId, undefined);
+    assert.equal(rt.store.findTaskByRequest(run.sessionId, "model-answer"), null);
+    await wait(() => rt.store.listConfirmationsByTask(run.rootTaskId).some(confirmation => confirmation.status === "pending"));
+    const confirmations = rt.store.listConfirmationsByTask(run.rootTaskId);
     assert.equal(confirmations.length, 1);
     const confirmation = confirmations[0];
     assert.equal(confirmation.toolName, "request_file_access"); assert.deepEqual(confirmation.params, fileParams);
     assert.equal(fs.existsSync(markerFile), false, "批准前不得写入文件");
-    assert.equal(continuation.accessMode, "confirm"); assert.deepEqual(continuation.modelSelection, selection);
-    assert.equal(continuation.codeScheduleRunId, run.id);
+    const original = rt.store.getTask(run.rootTaskId)!;
+    assert.equal(original.accessMode, "confirm"); assert.deepEqual(original.modelSelection, selection);
+    assert.equal(getCodeScheduleRunForTask(rt.store, run.rootTaskId)!.id, run.id);
     rt.respondConfirmation(confirmation.id, "approved", confirmation.permissionVersion);
     phase = "terminal_and_history";
     await wait(() => getCodeScheduleRun(rt.store, run.id)!.closedAt !== null);
     assert.equal(getCodeScheduleRun(rt.store, run.id)!.status, "completed");
     assert.equal(fs.readFileSync(markerFile, "utf8"), marker);
     assert.deepEqual(fs.readdirSync(workspace), [path.basename(markerFile)], "只允许固定验收文件");
-    const tasks = [rt.store.getTask(run.rootTaskId)!, rt.store.getTask(continuation.id)!];
+    const tasks = rt.store.listTasksBySession(run.sessionId);
+    assert.equal(tasks.length, 1);
+    assert.ok(rt.readTaskReply(run.rootTaskId)!.text.includes(answerToken), "the model must read the actual free-text answer");
     for (const task of tasks) {
       assert.equal(task.status, "completed"); assert.equal(task.accessMode, config.permission); assert.deepEqual(task.modelSelection, selection);
     }
-    const history = fs.readFileSync(rt.store.getSession(run.sessionId)!.sessionFile!, "utf8");
+    const sessionFile = rt.store.getSession(run.sessionId)!.sessionFile!;
+    const history = fs.readFileSync(sessionFile, "utf8");
     assert.ok(history.includes(questions[0].question) && history.includes(marker), "完整题目和写入参数须保存在会话历史");
+    const answerEntry = parseSessionFile(sessionFile).filter(entry => entry.type === "message")
+      .map(entry => entry.message as { role?: string; toolName?: string; content?: { type: string; text?: string }[] } | undefined)
+      .find(message => message?.role === "toolResult" && message.toolName === "ask_user");
+    assert.ok(answerEntry?.content);
+    const result = JSON.parse(answerEntry.content.filter(part => part.type === "text").map(part => part.text).join("\n")) as { questionId: string; status: string; answers: { text: string; option?: number }[] };
+    assert.equal(result.questionId, question.id); assert.equal(result.status, "answered");
+    assert.deepEqual(result.answers, [{ text: "允许写入", option: 0 }, { text: answerToken }]);
     const records = tasks.flatMap(task => rt.store.listSelectionRecordsByTask(task.id));
     const snapshots = records.map(record => {
       assert.ok(record.promptArtifactId, "模型输入须有持久快照");
       const artifact = rt.store.getArtifact(record.promptArtifactId)!;
       return rt.artifacts.read(artifact.id, 0, artifact.byteCount);
     });
-    assert.ok(snapshots.some(snapshot => snapshot.includes(Buffer.from("允许写入")) && snapshot.includes(Buffer.from(marker))), "真实续接请求须包含回答和固定写入要求");
+    assert.ok(snapshots.some(snapshot => snapshot.includes(Buffer.from(answerToken)) && snapshot.includes(Buffer.from(marker))), "实际后续请求须包含专用入口答案和固定写入要求");
+    assert.ok(!snapshots[0].includes(Buffer.from(answerToken)), "the unique answer is absent before owner acceptance");
     assert.equal(rt.store.listAllOccupancy().length, 0);
     evidence.status = "passed"; evidence.effort = selection.thinkingLevel; evidence.permission = config.permission;
-    evidence.independentSession = true; evidence.workspaceMatches = true; evidence.activeSubmitRejected = true; evidence.approvalCount = confirmations.length;
+    evidence.independentSession = true; evidence.workspaceMatches = true; evidence.activeSubmitRejected = true; evidence.sameTaskAnswer = true; evidence.approvalCount = confirmations.length;
     evidence.tools = tasks.flatMap(task => rt.store.listToolOpsByTask(task.id)).map(op => ({ tool: op.toolName, isError: op.isError, effectUnknown: op.effectUnknown }));
     evidence.modelRequests = requests; evidence.promptSha256 = snapshots.map(snapshot => createHash("sha256").update(snapshot).digest("hex"));
     evidence.estimates = records.map(record => record.estimates); evidence.markerSha256 = createHash("sha256").update(marker).digest("hex");

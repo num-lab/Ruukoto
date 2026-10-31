@@ -105,7 +105,7 @@ test("附件分块校验、实例与会话隔离、原始元数据绑定和普�
   } finally { await t.shutdown(); }
 });
 
-test("附件图片使用既有视觉输入且历史无base64，空文件与继续来源均保留", async () => {
+test("new submissions retain image history and immutable original attachment provenance", async () => {
   const t = await startTestRuntime("owner-image", () => ({ kind: "text", text: "图片已读" }), { config: { product: codeProduct.runtime } });
   try {
     const sessionId = (await t.runtime.openWorkspace({ cwd: t.work[0], createRequestId: "image-workspace" })).session.id;
@@ -125,9 +125,13 @@ test("附件图片使用既有视觉输入且历史无base64，空文件与继�
     assert.equal((messages.find(entry => (entry.message as { role: string }).role === "user")!.message as { ruukotoAttachmentRefs: unknown[] }).ruukotoAttachmentRefs.length, 2);
     const branch = await t.runtime.branchSession({ sessionId, requestId: "image-branch" });
     assert.equal(branch.branchSource?.artifacts.filter(artifact => attachments.some(item => item.id === artifact.id)).length, 2);
-    t.runtime.store.withTx(() => t.runtime.store.db.prepare("UPDATE tasks SET status='interrupted' WHERE id=?").run(task.id));
-    const resumed = await t.client.request<TaskView>("continue", { session_id: sessionId, task_id: task.id, request_id: "image-continue", input: "继续", model_selection: selection });
-    await waitFor("继续图片完成", () => t.runtime.store.getTask(resumed.id)?.status === "completed");
+    await assert.rejects(t.client.request("submit", { session_id: sessionId, request_id: "image-bound", input: "再处理图片", model_selection: selection, attachments }), { code: "attachment_bound" });
+    const nextImage = upload(sessionId, PNG, "photo.png");
+    await t.client.request("put_attachment", nextImage);
+    const resumed = await t.client.request<TaskView>("submit", { session_id: sessionId, request_id: "image-next", input: "再处理图片", model_selection: selection, attachments: [{ id: nextImage.attachment_id, name: nextImage.name, size: nextImage.total_bytes }] });
+    await waitFor("new image task completes", () => t.runtime.store.getTask(resumed.id)?.status === "completed");
+    assert.equal(resumed.resumesTaskId, null);
+    assert.deepEqual(t.runtime.store.taskAttachments(task.id).map(item => item.id), attachments.map(item => item.id));
     assert.match(JSON.stringify(t.server.calls.at(-1)!.messages.at(-1)), /data:image\/png;base64/);
   } finally { await t.shutdown(); }
 });

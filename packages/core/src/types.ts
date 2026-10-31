@@ -19,7 +19,7 @@ import type { SubAgentExecutionSnapshot } from "./subagent-execution.ts";
 import type { WorkCopyHostSnapshot } from "./work-copy-host.ts";
 import { requireWorkspaceSnapshot, WorkspaceSnapshotError, type WorkspaceSnapshot } from "./workspace-snapshot.ts";
 
-export const PROTOCOL_VERSION = 48;
+export const PROTOCOL_VERSION = 49;
 
 export interface ModelSelection {
   provider: string;
@@ -638,8 +638,11 @@ export type MessageRecallPhase =
  * A recall request fixes one owner-input target. State and events commit transactionally;
  * the target, original text and attachments are fixed at acceptance rather than reread later.
  */
+export type MessageRecallPurpose = "queued" | "historical";
+
 export interface MessageRecall {
   id: string;
+  purpose: MessageRecallPurpose;
   sessionId: string;
   /** Client idempotency key, unique within the conversation. */
   requestId: string;
@@ -647,9 +650,9 @@ export interface MessageRecall {
   paramsDigest: string;
   /** Source Task of the recalled input. */
   targetTaskId: string;
-  /** Input acceptance sequence fixed when this request is accepted (getTaskInputSeq). */
+  /** Source input admission sequence fixed when the request is accepted. */
   inputSeq: number;
-  /** Target sequence observed by the caller, used to reject stale targets. */
+  /** Queue revision for retrieval, or input admission sequence for historical recall. */
   expectedRevision: number;
   /** Execution task to stop and verify: the guidance target or source Task itself. */
   execTaskId: string | null;
@@ -672,9 +675,9 @@ export interface MessageRecall {
   completionRevision: number | null;
   /** Next recall candidate computed at completion. */
   nextCandidateTaskId: string | null;
-  /** Whether this request still owns the current edit window. */
+  /** Whether this completed request still owns draft installation. */
   editOpen: boolean;
-  /** Queue state saved at request acceptance and restored when the edit window closes. */
+  /** Historical recall saves dispatch state until its edit window closes; retrieval leaves this null. */
   savedQueueState: "active" | "paused" | null;
   savedQueueReason: string | null;
   error: { code: string; message: string } | null;
@@ -691,6 +694,7 @@ export type PublicMessageRecall = Omit<MessageRecall, "originalInput" | "origina
 export interface TaskQueue {
   revision: number;
   tasks: Array<{ taskId: string; queueOrder: number }>;
+  retrievableTaskIds: string[];
 }
 
 /** 审批展示的权限范围（结构化、可验证；凭据只出现名称与用途，不含原值）。 */
@@ -1059,7 +1063,7 @@ export type PersistentEventBody =
   | { type: "session.context_compaction"; sessionId: string; requestId: string; status: SessionCompactionRequest["status"] }
   | { type: "tasks.model_selection_recorded"; sessionId: string; taskIds: string[]; modelSelection: ModelSelection }
   | { type: "task.attachments"; taskId: string; sessionId: string; attachments: AttachmentReference[] }
-  | { type: "task.queued"; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null; queueOrder: number }
+  | { type: "task.queued"; inputPurpose?: import("./views.ts").InputPurpose; taskId: string; sessionId: string; requestId: string; accessMode: AccessMode; parentTaskId?: string | null; sourcePermissionVersion?: number | null; planMode: boolean; modelSelection: ModelSelection | null; queueOrder: number }
   | { type: "task.started"; taskId: string; sessionId: string }
   | { type: "session.queue_changed"; sessionId: string; queue: TaskQueue }
   | { type: "task.guidance"; taskId: string; sessionId: string; guidance: TaskGuidance }
@@ -1101,7 +1105,7 @@ export type PersistentEventBody =
    */
   | { type: "task.output_fragment"; taskId: string; sessionId: string; messageId: string; text: string; totalBytes: number; truncated: boolean; partial: true; offset?: number; startedAt?: string; contentIndex?: number }
   | { type: "task.thinking"; taskId: string; sessionId: string; thinkingId: string; messageId: string; startedAt: string; endedAt: string | null; text: string; offset?: number }
-  | { type: "task.output_entry"; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
+  | { type: "task.output_entry"; inputPurpose?: import("./views.ts").InputPurpose; taskId: string; sessionId: string; entryId: string; sessionFile: string; role: string; messageId: string | null }
   /**
    * 工具/审批事件（线上载荷）：params 可能被替换为有界预览
    * （paramsTruncated=true，paramsBytes 为完整序列化字节数）；完整参数经

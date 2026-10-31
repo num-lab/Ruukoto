@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[In-task questions](../../proposed/feature/2026-10-30-coding-owner-question-wait.md) proposes changing answer waiting and answered-card placement within a task, while retaining question types, Skip and atomic submission. The proposal is not implemented.
+[In-task questions](2026-10-30-coding-owner-question-wait.md) changes answer waiting and answered-card placement within a task, while retaining question types, Skip and atomic submission. That decision owns the replacement execution and placement contracts; question types and answer validation remain here.
 
 ## Problem
 

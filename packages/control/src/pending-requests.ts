@@ -20,7 +20,7 @@ import { parseWorkflowControl, workflowLaunchDigest, type WorkflowLaunch } from 
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control" | "open_side_chat" | "submit_side_chat";
+  op: "submit" | "continue" | "message_recall" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control" | "open_side_chat" | "submit_side_chat";
   /** 完整原请求参数，包含请求键、业务输入及操作使用的原版本。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -54,12 +54,13 @@ export function validCodeScheduleParams(op: "code_schedule_save" | "code_schedul
 function validWorkflowParams(record: PendingRequest): boolean {
   const params = record.params;
   if (record.op === "code_schedule_save" || record.op === "code_schedule_control") return validCodeScheduleParams(record.op, params, record.requestId);
+  if (record.op === "message_recall") return params.request_id === record.requestId && typeof params.session_id === "string" && !!params.session_id && typeof params.task_id === "string" && !!params.task_id && Number.isSafeInteger(params.expected_revision) && Number(params.expected_revision) >= 0 && (params.purpose === "queued" || params.purpose === "historical");
   if (record.op === "session_background_end") return params.request_id === record.requestId && typeof params.session_id === "string" && params.session_id.trim().length > 0 && Object.keys(params).every(key => key === "session_id" || key === "request_id");
   if (record.op === "owner_question_answer" || record.op === "owner_question_cancel") {
     if (params.request_id !== record.requestId || typeof params.session_id !== "string" || !params.session_id.trim() ||
       typeof params.question_id !== "string" || !params.question_id.trim() || !Number.isSafeInteger(params.question_version) || (params.question_version as number) < 1) return false;
     if (record.op === "owner_question_answer") {
-      if (!Array.isArray(params.answers) || params.answers.length < 1 || params.answers.length > 3 || !params.model_selection) return false;
+      if (!Array.isArray(params.answers) || params.answers.length < 1 || params.answers.length > 3) return false;
       return params.answers.every((answer: unknown) => {
         if (typeof answer !== "object" || answer === null || Array.isArray(answer) || Object.keys(answer).some(key => !["text", "option", "options"].includes(key)) ||
           !("text" in answer) || typeof answer.text !== "string" || answer.text.length > 4096 || (answer.text !== "" && !answer.text.trim())) return false;
@@ -137,7 +138,7 @@ export class PendingRequestStore {
     catch { return { kind: "corrupt" }; }
     try {
       if (typeof raw?.requestId !== "string" || raw.requestId !== requestId ||
-        !["submit", "continue", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control", "open_side_chat", "submit_side_chat"].includes(raw.op) ||
+        !["submit", "continue", "message_recall", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control", "open_side_chat", "submit_side_chat"].includes(raw.op) ||
         typeof raw.params !== "object" || raw.params === null || Array.isArray(raw.params) ||
         typeof raw.instanceId !== "string" || !raw.instanceId ||
         typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)) return { kind: "corrupt" };

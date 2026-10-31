@@ -9,7 +9,7 @@ import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
  * 2. 任务运行中关闭 TUI，重连后看到仍在运行的任务/最新预览/最终历史，
  *    全程不自动新建任务；
  * 3. 审批：通知不抢焦点、详情查看、批准/拒绝、其他客户端已处理的失效展示；
- * 4. 中断与继续：/interrupt、/continue 的继续指令生成带 resumes 的新任务；
+ * 4. 中断与恢复：新消息创建独立任务，显式恢复队列后执行；
  * 5. 会话切换保留各自草稿。
  */
 
@@ -20,6 +20,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { ControlConnection } from "@ruukoto/control/connection.ts";
+import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
@@ -39,7 +40,7 @@ import {
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
-import type { Session, Task } from "@ruukoto/core/types.ts";
+import type { PublicMessageRecall, Session, Task } from "@ruukoto/core/types.ts";
 import type { HistoryPage } from "@ruukoto/core/history.ts";
 import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
@@ -907,13 +908,13 @@ test("中断与继续：新任务带 resumes 关联；会话切换保留各自�
     h.terminal.send("/interrupt\r");
     await waitFor("任务中断", () => [...h.state.tasks.values()][0]?.status === "interrupted");
 
-    // 继续模式：下一条输入作为继续指令
-    h.terminal.send("/continue\r");
-    await renderFlush();
+    // New input creates a Task while the owner pause remains in force.
     await submitViaEditor(h, "继续完成它");
     await waitFor("继续任务创建", () => [...h.state.tasks.values()].length === 2);
     const continued = [...h.state.tasks.values()][1]!;
-    assert.equal(continued.resumesTaskId, [...h.state.tasks.values()][0]!.id);
+    assert.equal(continued.resumesTaskId, null);
+    assert.equal(continued.status, "queued");
+    await submitViaEditor(h, "/resume-queue");
     await waitFor("继续任务完成", () => [...h.state.tasks.values()][1]?.status === "completed");
 
     // 草稿：A 会话输入，切到 B 再切回，草稿恢复
@@ -1182,7 +1183,7 @@ test("/skill 与 /skills：显式调用提交 /skill:<名称> 任务，列表展
   }
 });
 
-test("Plan 持续用于普通消息和继续，状态栏显示固定任务模式与默认值，重连不重复提交", async () => {
+test("Plan 持续用于普通消息和暂停后的新任务，状态栏显示固定任务模式与默认值，重连不重复提交", async () => {
   const held: Array<() => void> = [];
   const t = await startTestRuntime("tui-plan", async () => {
     await new Promise<void>((resolve) => held.push(resolve));
@@ -1222,9 +1223,9 @@ test("Plan 持续用于普通消息和继续，状态栏显示固定任务模式
     await interrupt(first.id);
     assert.ok(footer().startsWith("☷ Plan"), "中断后会话仍选中 Plan");
 
-    await submitViaEditor(h, "/continue");
+    await submitViaEditor(h, "/resume-queue");
     await submitViaEditor(h, "接着调研");
-    await waitFor("继续任务运行", () => active()?.resumesTaskId === first.id && held.length > 0);
+    await waitFor("继续任务运行", () => active()?.input === "接着调研" && active()?.resumesTaskId === null && held.length > 0);
     const second = active();
     assert.equal(second.planMode, true);
     assert.equal(second.accessMode, "auto-review");
@@ -1244,9 +1245,9 @@ test("Plan 持续用于普通消息和继续，状态栏显示固定任务模式
     await waitFor("重连恢复实际模式", () => footer().startsWith("☷ Plan · 会话默认 ⏵⏵ Full access"));
     assert.equal(h.state.tasks.size, 3, "重连不重复建任务");
     await interrupt(third.id);
-    await submitViaEditor(h, "/continue");
+    await submitViaEditor(h, "/resume-queue");
     await submitViaEditor(h, "按计划实现");
-    await waitFor("切换后继续运行", () => active()?.resumesTaskId === third.id && held.length > 0);
+    await waitFor("切换后继续运行", () => active()?.input === "按计划实现" && active()?.resumesTaskId === null && held.length > 0);
     assert.equal(active().planMode, false, "继续使用提交时的选择，不继承 Plan");
     assert.equal(active().accessMode, "full_access");
     assert.ok(footer().startsWith("⏵⏵ Full access") && !footer().includes("Plan"));
@@ -1942,4 +1943,87 @@ test("Coding 会话选择菜单与 /processes 都进入后台清单，返回不�
     if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
     else process.env.RUUKOTO_PRODUCT = saved;
   }
+});
+
+test("TUI ignores a completed recall state returned after switching backend instances", async () => {
+  const t = await startTestRuntime("tui-recall-instance", () => ({ kind: "text", text: "unused" }));
+  const apps: AppHarness[] = [];
+  let release!: () => void;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const h = await startApp(t, { sessionId }); apps.push(h);
+    const app = h.app as any;
+    const request = h.connection.request.bind(h.connection);
+    let queried!: () => void;
+    const querying = new Promise<void>(resolve => { queried = resolve; });
+    const delayed = new Promise<void>(resolve => { release = resolve; });
+    h.connection.request = async (op, params, timeoutMs) => {
+      if (op !== "message_recall_state") return request(op, params, timeoutMs);
+      queried(); await delayed;
+      return { candidate: null, open: null, receipt: { id: "old-recall", phase: "completed" }, edit: { recallId: "old-recall", completionRevision: 1, input: "old instance input", attachments: [] } } as any;
+    };
+    const applying = app.applyRecallReceipt(sessionId, { phase: "completed" }, "old-request");
+    await querying;
+    h.state.instanceId = "fresh-instance";
+    h.state.openSession(sessionId).draft = "fresh instance draft";
+    release(); await applying;
+    assert.equal(h.state.openSession(sessionId).draft, "fresh instance draft");
+  } finally { release?.(); quitAll(apps); await t.shutdown(); }
+});
+
+test("TUI ignores recall command state returned after switching backend instances", async () => {
+  const t = await startTestRuntime("tui-recall-command-instance", () => ({ kind: "text", text: "unused" }));
+  const apps: AppHarness[] = [];
+  let release: (() => void) | undefined;
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const h = await startApp(t, { sessionId }); apps.push(h);
+    const request = h.connection.request.bind(h.connection), originalInstance = h.state.instanceId;
+    const open: PublicMessageRecall = { id: "old-recall", sessionId, requestId: "old-request", purpose: "historical", paramsDigest: "digest", targetTaskId: "old-task", inputSeq: 1, expectedRevision: 1, execTaskId: null, phase: "blocked", stopTaskIds: [], sealedTaskIds: [], omittedEntryIds: [], historyFingerprint: null, completionRevision: null, nextCandidateTaskId: null, editOpen: false, savedQueueState: "active", savedQueueReason: null, error: null, createdAt: "2026-10-31T00:00:00.000Z", updatedAt: "2026-10-31T00:00:00.000Z" };
+    for (const command of ["cmdRecall", "cmdRecallVerify"] as const) {
+      h.state.instanceId = originalInstance;
+      let queried!: () => void;
+      const querying = new Promise<void>(resolve => { queried = resolve; });
+      const delayed = new Promise<void>(resolve => { release = resolve; });
+      const mutations: string[] = [];
+      h.connection.request = async (op, params, timeoutMs) => {
+        if (op === "message_recall" || op === "message_recall_verify") mutations.push(op);
+        if (op !== "message_recall_state") return request(op, params, timeoutMs);
+        queried(); await delayed;
+        return { candidate: { kind: "task", taskId: "old-task", inputSeq: 1 }, open: command === "cmdRecallVerify" ? open : null, receipt: null, edit: null };
+      };
+      const recalling = h.app[command]();
+      await querying;
+      h.state.instanceId = "fresh-instance";
+      release!(); await recalling;
+      assert.deepEqual(mutations, [], `${command} must not send the old instance's target to the replacement backend`);
+    }
+  } finally { release?.(); quitAll(apps); await t.shutdown(); }
+});
+
+test("TUI stop confirmation remains bound to its original backend instance", async () => {
+  const t = await startTestRuntime("tui-stop-confirm-instance", () => ({ kind: "text", text: "unused" }));
+  const apps: AppHarness[] = [];
+  try {
+    const { sessionId } = await createProjectSession(t.client, t.work[0]);
+    const h = await startApp(t, { sessionId }); apps.push(h);
+    const request = h.connection.request.bind(h.connection), originalInstance = h.state.instanceId;
+    const confirmedInstances: Array<string | null> = [];
+    h.connection.request = async (op, params, timeoutMs) => {
+      if (op === "resume_queue") {
+        if (!("stop_confirmed" in params) || !params.stop_confirmed) throw new ControlClientError("stop_unverified", "verify old execution", "rejected");
+        confirmedInstances.push(h.state.instanceId);
+        return (await request("get_session", { session_id: sessionId }));
+      }
+      return request(op, params, timeoutMs);
+    };
+    await h.app["cmdResumeQueue"]();
+    h.state.instanceId = "replacement";
+    h.terminal.send("\r"); await renderFlush();
+    assert.deepEqual(confirmedInstances, [], "old confirmation cannot release occupancy in a replacement instance");
+    h.state.instanceId = originalInstance;
+    await h.app["cmdResumeQueue"]();
+    h.terminal.send("\r"); await renderFlush();
+    assert.deepEqual(confirmedInstances, [originalInstance]);
+  } finally { quitAll(apps); await t.shutdown(); }
 });

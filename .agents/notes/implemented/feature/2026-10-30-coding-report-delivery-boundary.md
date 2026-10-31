@@ -1,14 +1,14 @@
 # Agent Note: Deliver Coding internal reports in the next model request
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
-Trusted host provenance already classifies internal reports as non-owner input, but fallback summaries share FIFO with user messages. The owner requires reports not to occupy the user queue and active tasks not to wait until termination to receive them. Hiding the panel, prioritizing fallbacks or calling steer alone cannot jointly establish timely delivery, reverified provenance and unique reporting.
+Trusted host provenance already classified internal reports as non-owner input, but fallback summaries shared FIFO with user messages. The owner requires reports not to occupy the user queue and active tasks not to wait until termination to receive them. Hiding the panel, prioritizing fallbacks or calling steer alone cannot jointly establish timely delivery, reverified provenance and unique reporting.
 
 Owner confirmation and implementation tracking belong to [the input-lifecycle issue](https://github.com/num-lab/Ruukoto/issues/30). [User queue controls](2026-10-30-coding-user-queue.md) owns manual pause; [in-task questions](2026-10-30-coding-owner-question-wait.md) owns answer waiting.
 
-## Proposal
+## Decision
 
 Handle only existing trusted `internal_report`: workflow final delivery, existing wait-related supplemental reports and parked aliases. Do not give ordinary unwaited SubAgent results/messages new automatic wakeup behavior or infer report identity from text/request-key prefixes.
 
@@ -46,9 +46,9 @@ During `ask_user` waiting, persist reports as pending without waking the task. O
 
 ## Related decision audit
 
-[Wait/report ownership](../../implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md) and [workflow final delivery](../../implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md) partially change from waiting-parent claims/independent FIFO to model-boundary admission, retaining groups, provenance, parking, consumption and unique final proof. [Internal-report display](../../implemented/feature/2026-10-14-internal-report-visibility.md) extends to user queues and dynamic report entries without changing trusted classification or reconstructible text. Existing notes retain decisions and link to the proposal.
+[Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) and [workflow final delivery](2026-10-13-workflow-owner-input-and-delivery.md) partially change from waiting-parent claims/independent FIFO to model-boundary admission, retaining groups, provenance, parking, consumption and unique final proof. [Internal-report display](2026-10-14-internal-report-visibility.md) extends to user queues and dynamic report entries without changing trusted classification or reconstructible text. Existing notes retain their original decisions and link to the superseding contract.
 
-[Queue guidance](../../implemented/feature/2026-10-28-coding-message-control.md) contributes only SDK boundaries, not owner identity or approval effects. [Complete history](../../implemented/architecture/2026-09-19-preserve-session-history.md) still requires reconstructible actual input. Personal report, IM and outbox decisions keep their scope; no note is completely absorbed or proposed for deletion.
+[Queue guidance](2026-10-28-coding-message-control.md) contributes only SDK boundaries, not owner identity or approval effects. [Complete history](../architecture/2026-09-19-preserve-session-history.md) still requires reconstructible actual input. Personal report, IM and outbox decisions keep their scope; no note is completely absorbed or proposed for deletion.
 
 ## Alternatives considered
 
@@ -56,10 +56,10 @@ During `ask_user` waiting, persist reports as pending without waking the task. O
 - Send reports through ordinary guidance: reuses persistence/SDK batches, but imports owner identity, fallback cancellation, approval invalidation and wait release. Reuse only the boundary, preserving separate report ownership.
 - Start a parallel tool-free summary: avoids waiting, but concurrently writes the same history and violates single execution/report claims. Do not use it here.
 
-## Acceptance criteria
+## Verification
 
-The issue's A3, A4 and A8 cover N-to-N+1 admission, late cutoffs, multiple original sources, parked transfers, actual input and valid-response proof, invalid sources, stop races and cold recovery. Inspect actual model requests and JSONL, not only calls to steer/claim. Different event/history arrival orders must not expose internal input as queue items or user bubbles.
+SDK and Runtime report regressions verify N-to-N+1 delivery, late cutoffs, independent sources, parked fallbacks and actual input/response consumption proof. Combined branch/compaction tests and real-model request/JSONL evidence verify reconstructible report input. The owner confirmed product acceptance on 2026-10-31; evidence and scope are recorded in [Issue #30](https://github.com/num-lab/Ruukoto/issues/30).
 
-## Risks
+## Consequences
 
-Reports can add a turn to an active task and precede queued owner input when idle. Continuous reports can delay user tasks; this proposal does not add a fairness scheduler. Dynamic input and multi-source claims broaden provenance/recovery changes; omitted consumers risk duplicate reports or unreconstructible input. Answer waits and long tool batches still delay reports as an explicitly confirmed safety boundary, without preemption.
+Reports can add a turn to an active task and precede queued owner input when idle. Continuous reports can delay user tasks; the design does not add a fairness scheduler. Dynamic input and multi-source claims broaden provenance/recovery changes; omitted consumers risk duplicate reports or unreconstructible input. Answer waits and long tool batches still delay reports as an explicitly confirmed safety boundary, without preemption.

@@ -171,7 +171,7 @@ export const CONVERSATION_TOOL_NAMES: ReadonlySet<string> = new Set([
   "wait", "present", "subagent_result", "workflow_query", "workflow_instructions", "history_search", "history_read", "read_artifact",
 ]);
 
-export const OWNER_QUESTION_PENDING_TOOL_NAMES: ReadonlySet<string> = new Set(["subagent_result", "workflow_query", "workflow_instructions"]);
+export const OWNER_QUESTION_PENDING_TOOL_NAMES: ReadonlySet<string> = new Set(["subagent_result", "workflow_query", "workflow_instructions", "process_status", "process_output"]);
 const BACKGROUND_OBSERVATION_TOOL_NAMES: ReadonlySet<string> = new Set(["process_status", "process_output", "process_stop", "wait", "ask_user", "browser", "present"]);
 
 /** 本任务允许的工具（任务开始时算一次）：已装配的工具减去任务收窄与关闭的 Web Search。 */
@@ -199,7 +199,7 @@ export function taskToolSet(input: {
   for (const name of input.registered) {
     const effect = input.mcpEffect(name);
     const reason =
-      input.ownerQuestionPending && !OWNER_QUESTION_PENDING_TOOL_NAMES.has(name) && name !== "process_status" && name !== "process_output" ? "问题已登记：结束本轮，回答将作为后续拥有者输入"
+      input.ownerQuestionPending && !OWNER_QUESTION_PENDING_TOOL_NAMES.has(name) ? "等待本批问题结果进入下一次请求，再决定后续业务操作"
       : name.startsWith("process_") && !input.backgroundProcessesEnabled ? "本任务不是拥有者的普通开发输入"
       : name === "process_start" && !input.backgroundStartEnabled ? "后台启动只开放完全访问的拥有者输入；先停止原后台并核实目录占用"
       : name === "ask_user" && !input.ownerQuestionsEnabled ? "本任务不是拥有者的普通开发输入"

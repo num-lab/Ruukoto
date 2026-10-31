@@ -111,6 +111,8 @@
  * message_recall_verify and message_recall_state. The message_recall.changed event and
  * snapshots expose pending recalls and open edit windows. Older clients must upgrade.
  * Effective history omits recalled input; original JSONL and audit facts remain unchanged.
+ * v49: user queue retrieval has an explicit purpose; owner answers return original-Task receipts,
+ * continue is removed, and dispatch resume cannot confirm managed-process stopping implicitly.
  */
 
 import {

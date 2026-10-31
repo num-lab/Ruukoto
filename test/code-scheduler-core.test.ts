@@ -8,7 +8,7 @@ import { Store } from "@ruukoto/core/store.ts";
 import {
   bindCodeScheduleTask, closeCodeScheduleRun, codeScheduleRunStopped, coalesceCodeScheduleRun, controlCodeSchedule,
   findCodeScheduleReceipt, getCodeSchedule, getCodeScheduleRun, getCodeScheduleRunForTask, getCodeScheduledTaskSource,
-  getCodingTaskOrigin, listCodeScheduleRuns, listCodeScheduleRunTasks, listCodeSchedules, listDueCodeSchedules,
+  listCodeScheduleRuns, listCodeScheduleRunTasks, listCodeSchedules, listDueCodeSchedules,
   parseCodeScheduleConfig, pauseCodeSchedule, registerCodeScheduleRun, saveCodeSchedule, updateCodeScheduleRun,
   type CodeScheduleConfig, type CodeSchedulePlan, type CodeScheduleRun,
 } from "@ruukoto/core/code-scheduler.ts";
@@ -152,8 +152,8 @@ test("悬空运行反链报损坏而不退回普通owner来源", t => {
   assert.throws(() => getCodeScheduledTaskSource(f.store, run.rootTaskId), { code: "schedule_corrupt" });
 });
 
-test("问题与回答保存真实调度来源，回答续接先绑定原运行且不能伪造owner来源", t => {
-  const f = fixture(t), { store } = f, run = f.admit(f.save().plan);
+test("定时问题回答沿原Task保存来源，不创建回答任务且拒绝伪造owner来源", t => {
+  const f = fixture(t), { store, db } = f, run = f.admit(f.save().plan);
   const questions = [{ question: "需要检查哪些目录？" }];
   const question = store.withTx(() => {
     store.transitionTask(run.rootTaskId, ["queued"], "running");
@@ -161,15 +161,19 @@ test("问题与回答保存真实调度来源，回答续接先绑定原运行�
     return createOwnerQuestion(store, { taskId: run.rootTaskId, sessionId: run.sessionId, projectId: f.config.workspaceId, hostOpId: "scheduled-question", questions });
   });
   assert.equal(question.source.kind, "coding-schedule");
-  assert.equal(getOwnerQuestion(store, question.id)!.source.kind, "coding-schedule");
-  const answerTask = f.child(run), answers = [{ text: "检查 src" }];
-  const input = { questionId: question.id, sessionId: run.sessionId, version: question.version, requestKey: answerTask.requestId, requestDigest: "answer", answers, taskId: answerTask.id };
-  assert.throws(() => store.withTx(() => consumeOwnerQuestion(store, { ...input, source: { kind: "coding-owner", sessionId: run.sessionId } })), { code: "question_source_invalid" });
-  store.withTx(() => consumeOwnerQuestion(store, { ...input, source: { ...getCodingTaskOrigin(store, answerTask.id), sessionId: run.sessionId } }));
+  const input = { questionId: question.id, sessionId: run.sessionId, version: question.version, requestKey: "answer", requestDigest: "answer", answers: [{ text: "检查 src" }] };
+  db.prepare("UPDATE owner_questions SET payload = ? WHERE id = ?").run(JSON.stringify({ ...question, source: { ...question.source, kind: "coding-owner" } }), question.id);
+  assert.throws(() => store.withTx(() => consumeOwnerQuestion(store, input)), { code: "question_source_invalid" });
+  db.prepare("UPDATE owner_questions SET payload = ? WHERE id = ?").run(JSON.stringify(question), question.id);
+  const receipt = store.withTx(() => consumeOwnerQuestion(store, input));
   const answered = getOwnerQuestion(store, question.id)!;
-  assert.equal(answered.answerSource!.kind, "coding-schedule");
-  assert.equal(answered.continuationTaskId, answerTask.id);
-  assert.equal(getCodeScheduleRunForTask(store, answerTask.id)!.id, run.id);
+  assert.equal(receipt.taskId, run.rootTaskId);
+  assert.equal(answered.source.kind, "coding-schedule");
+  assert.equal(answered.answerSource, undefined);
+  assert.equal(answered.continuationTaskId, undefined);
+  assert.ok(answered.answerSeq);
+  assert.equal(listCodeScheduleRunTasks(store, run.id).length, 1);
+  assert.equal(getCodeScheduleRunForTask(store, receipt.taskId!)!.id, run.id);
 });
 
 test("后台进程持久来源区分调度授权，伪造owner来源不能交接占用", t => {

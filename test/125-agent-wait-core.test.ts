@@ -405,10 +405,10 @@ test("工作流结果按运行终态代次登记，不把父轮写进delivery.ta
     assert.equal((f.store.db.prepare("SELECT json_extract(payload, '$.delivery.taskId') AS id FROM workflow_runs WHERE id = 'run'").get() as { id: null }).id, null);
     const other = f.task(), child = f.child("completed", other.id);
     const otherReport = f.store.withTx(() => registerAgentReport(f.store, { target: { kind: "task", taskId: child.id }, source: { ...f.source, taskId: other.id }, parentSessionId: f.parentSession.id }));
-    const seq = f.store.getMaxSeq();
-    assert.throws(() => f.store.withTx(() => claimAgentReports(f.store, { taskId: f.parent.id, keys: [report.key, otherReport.key] })), { code: "source_mismatch" });
-    assert.equal(f.store.getMaxSeq(), seq);
-    assert.equal(getAgentReport(f.store, otherReport.key)!.claimTaskId, null);
+    f.store.withTx(() => claimAgentReports(f.store, { taskId: f.parent.id, keys: [report.key, otherReport.key] }));
+    assert.equal(getAgentReport(f.store, otherReport.key)!.claimTaskId, f.parent.id);
+    assert.equal(getAgentReport(f.store, otherReport.key)!.source.taskId, other.id);
+    assert.equal(getAgentReport(f.store, report.key)!.source.taskId, f.parent.id);
   } finally { f.cleanup(); }
 });
 

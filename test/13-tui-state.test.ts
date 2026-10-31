@@ -412,7 +412,7 @@ test("Plan 默认值按版本更新，排队事件与重连快照保留任务独
   state.applySessionDefaultMode("sess_1", "full_access", 1);
   state.applyEvent(ev(9, { type: "session.default_mode_changed", sessionId: "sess_1", defaultAccessMode: "confirm", defaultAccessModeVersion: 3 }), "replay");
   assert.equal(state.sessions[0]!.defaultAccessMode, "plan");
-  state.applyEvent(ev(12, { type: "task.queued", taskId: "plan", sessionId: "sess_1", requestId: "r-plan", accessMode: "auto-review", planMode: true, modelSelection: snapshot().sessions[0]!.modelSelection!, queueOrder: 1 }), "live");
+  state.applyEvent(ev(12, { type: "task.queued", inputPurpose: "user", taskId: "plan", sessionId: "sess_1", requestId: "r-plan", accessMode: "auto-review", planMode: true, modelSelection: snapshot().sessions[0]!.modelSelection!, queueOrder: 1 }), "live");
   const queued = state.getTask("plan")!;
   assert.equal(queued.input, "", "仅凭事件标记即可识别其他客户端提交的 Plan");
   assert.equal(queued.planMode, true);

@@ -13,7 +13,6 @@
  *   ruukoto create-session <project> <cwd> [--confirm-tools a,b]
  *   ruukoto submit <session> <request-id> [--mode confirm|full_access|auto-review|plan]
  *                  [--grant <path>:<read|read_write>[:<用途>];...] <input...>
- *   ruukoto continue <task> <request-id> [--mode ...] [--grant ...] <input...>
  *   ruukoto switch-mode <task> <confirm|full_access|auto-review> [--grant ...]
  *   ruukoto status [task]                             任务/快照查询
  *   ruukoto events                                    订阅并打印事件流
@@ -421,10 +420,8 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       }));
       return 0;
     case "submit":
-    case "continue":
       print(await withClient(async (c) => {
-        const source = cmd === "continue" ? await c.request<{ task: Task }>("get_task", { task_id: positional[0] ?? "" }) : null;
-        const sessionId = source?.task.sessionId ?? positional[0] ?? "";
+        const sessionId = positional[0] ?? "";
         const requestId = positional[1] ?? "";
         const existing = await c.request<{ task: Task | null }>("find_task", { session_id: sessionId, request_id: requestId });
         if (existing.task && !existing.task.modelSelection) {
@@ -435,7 +432,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         const selection = flags["model"] ? parseSelection(flags["model"], flags["thinking"]) : existing.task?.modelSelection ?? session?.modelSelection;
         if (!selection) throw new Error("会话缺少模型选择，请先 set-model");
         try {
-          return await c.request(cmd, { session_id: sessionId, ...(source ? { task_id: source.task.id } : {}), request_id: requestId, input: positional.slice(2).join(" "), access_mode: parseMode(flags["mode"]), granted_paths: parseGrants(flags["grant"]), model_selection: selection });
+          return await c.request(cmd, { session_id: sessionId, request_id: requestId, input: positional.slice(2).join(" "), access_mode: parseMode(flags["mode"]), granted_paths: parseGrants(flags["grant"]), model_selection: selection });
         } catch (err) {
           console.error(
             requestOutcome(err) === "rejected"
@@ -490,7 +487,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       print(await withClient((c) => c.request("cancel", { task_id: positional[0] ?? "" })));
       return 0;
     case "resume-queue":
-      print(await withClient((c) => c.request("resume_queue", { session_id: positional[0] ?? "", ...(flags["model"] ? { model_selection: parseSelection(flags["model"], flags["thinking"]) } : {}) })));
+      print(await withClient((c) => c.request("resume_queue", { session_id: positional[0] ?? "", ...(flags["model"] ? { model_selection: parseSelection(flags["model"], flags["thinking"]) } : {}), ...(flags["stop-confirmed"] === "true" ? { stop_confirmed: true } : {}) })));
       return 0;
     case "confirm":
       print(
@@ -1262,14 +1259,14 @@ function defaultHelp(): string {
     "      ruukoto config [--offline]                    独立配置中心\n" +
     "      ruukoto server [启动参数]                     前台启动后台（start 为兼容别名，文档推荐 server）\n" +
     "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review|plan> |\n" +
-    "      create-project | create-session | submit | continue | switch-mode | status | events |\n" +
+    "      create-project | create-session | submit | switch-mode | status | events |\n" +
     "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop | web-search <on|off> |\n" +
     "      grant | service-grant list/show/revoke | work list/show/close | workflow（详情见 workflow help） | history-search | memory | selection-records |\n" +
     "      project set-instructions | project migration-preview | project migration-apply\n" +
     "      legacy-import（两产品分流）：ruukoto-code 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
     "      （main/应用数据/调度/平台绑定与必要凭据，目标为全新实例）。离线执行，要求源与目标后台均已停止；\n" +
     "      preview --from <源数据目录> [--plan 文件] | apply --plan 文件 | revert <导入ID> | list\n" +
-    "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/continue/switch-mode）；\n" +
+    "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/switch-mode）；\n" +
     "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +
     "旧拼法：ruukoto tui 仍可用，请迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo\n" +
     "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"

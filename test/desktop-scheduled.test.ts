@@ -98,7 +98,7 @@ test("定时通知等待整项关闭，首次任务结束与重连补发不提�
   const notifications = new DesktopNotifications(() => false, notice => notices.push(notice), () => {}, async () => { throw new Error("本例不需任务查询"); });
   notifications.update("code", { type: "snapshot", instanceChanged: false, result: { snapshot: fakeSnapshot({ codeScheduleRuns: [run] }), replay: [], seq: 0 } });
   const event = (seq: number, body: PersistentEvent["body"], kind: "live" | "replay" = "live") => notifications.update("code", { type: "event", kind, event: { seq, body, taskId: "taskId" in body ? body.taskId : "root", sessionId: "sessionId" in body ? body.sessionId : "session", createdAt: at } });
-  event(1, { type: "task.queued", taskId: "child", sessionId: "child-session", requestId: "delegated", accessMode: "confirm", planMode: false, modelSelection: selection, queueOrder: 1 });
+  event(1, { type: "task.queued", inputPurpose: "user", taskId: "child", sessionId: "child-session", requestId: "delegated", accessMode: "confirm", planMode: false, modelSelection: selection, queueOrder: 1 });
   event(2, { type: "code_schedule.task_bound", taskId: "child", sessionId: "child-session", runId: run.id });
   event(3, { type: "task.completed", taskId: "child", sessionId: "child-session" }); assert.equal(notices.length, 0);
   // 没有完整任务快照时，运行账本也必须压住根任务级通知。

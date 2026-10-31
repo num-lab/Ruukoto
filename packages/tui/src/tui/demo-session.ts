@@ -36,7 +36,7 @@ const NOW = "2026-09-22T10:00:00.000Z";
 
 // Note: 见 .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
 const BACKGROUND: BackgroundProcessView = { id: "bg_demo", sessionId: SESSION_ID, taskId: "task_completed000", command: "npm run check", source: { kind: "coding-owner", accessMode: "full_access" }, state: "stopped", exit: { code: 0, signal: null }, stopVerified: true, reason: null, stdoutBytes: 0, stderrBytes: 0, partial: false, version: 2, createdAt: NOW, updatedAt: NOW };
-const QUESTION: OwnerQuestionView = { id: "question_demo", sessionId: SESSION_ID, taskId: "task_completed000", version: 2, status: "answered", questions: [{ question: "是否保留当前配置？", options: ["保留", "调整"] }], answers: [{ text: "保留", option: 0 }], createdAt: NOW };
+const QUESTION: OwnerQuestionView = { id: "question_demo", hostOpId: "op_question_demo", sessionId: SESSION_ID, taskId: "task_completed000", version: 2, status: "answered", questions: [{ question: "是否保留当前配置？", options: ["保留", "调整"] }], answers: [{ text: "保留", option: 0 }], createdAt: NOW };
 
 const MODEL: ModelSelection = { provider: "demo", modelId: "demo-model", thinkingLevel: "medium" };
 const EDIT_STATS = editStatsFromResult("edit", false, { patch: "@@ -1 +1,3 @@\n-const old = true;\n+const first = true;\n+const second = true;\n+const third = true;" })!;

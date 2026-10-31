@@ -1,15 +1,17 @@
 /**
  * Persistent recall requests and source barriers serialize one target per conversation.
- * Requests fix the source Task, input sequence, parameter digest and idempotency key; changed parameters reject.
+ * Requests fix purpose, source Task, input sequence, parameter digest and idempotency key; changed parameters reject.
  * A partial unique index permits one pending request. Completed/rejected are terminal; only completion replaces the previous successful identity.
- * sealed_task_ids persists the source barrier, rechecked transactionally before derived registration, delivery, consumption or start; rejected requests create no barrier.
+ * Historical sealed_task_ids barriers are rechecked before derived registration, delivery, consumption or start; retrieval never seals execution.
  * This module owns persistence and pure predicates; runtime owns stopping, JSONL edits and progression.
- * Note: See .agents/notes/implemented/feature/2026-10-30-coding-message-recall.md
+ * Note: See .agents/notes/implemented/feature/2026-10-30-coding-user-queue.md
  */
 
 import { createHash } from "node:crypto";
 import type { AttachmentMetadata } from "./attachments.ts";
 import type { Store } from "./store.ts";
+import { listOwnerQuestions } from "./owner-questions.ts";
+import { HistoryReadError } from "./history.ts";
 import type { MessageRecall, MessageRecallPhase, PublicMessageRecall, Task } from "./types.ts";
 
 /**
@@ -22,8 +24,10 @@ export function publicMessageRecall(recall: MessageRecall): PublicMessageRecall 
 }
 
 function rowToRecall(row: any): MessageRecall {
+  if (row.purpose !== "queued" && row.purpose !== "historical") throw new HistoryReadError("history_corrupt", "撤回记录的用途无法核实，请保留档案并检查存储");
   return {
     id: String(row.id),
+    purpose: row.purpose,
     sessionId: String(row.session_id),
     requestId: String(row.request_id),
     paramsDigest: String(row.params_digest),
@@ -51,20 +55,20 @@ function rowToRecall(row: any): MessageRecall {
 }
 
 /** The parameter digest is the authority for detecting changed parameters under the same key. */
-export function recallParamsDigest(params: { sessionId: string; taskId: string; expectedRevision: number }): string {
-  return createHash("sha256").update(JSON.stringify([params.sessionId, params.taskId, params.expectedRevision])).digest("hex");
+export function recallParamsDigest(params: { sessionId: string; taskId: string; expectedRevision: number; purpose: MessageRecall["purpose"] }): string {
+  return createHash("sha256").update(JSON.stringify([params.sessionId, params.taskId, params.expectedRevision, params.purpose])).digest("hex");
 }
 
 export function insertMessageRecall(store: Store, recall: MessageRecall): void {
   store.db.prepare(
-    `INSERT INTO message_recalls (id, session_id, request_id, params_digest, target_task_id, input_seq,
+    `INSERT INTO message_recalls (id, purpose, session_id, request_id, params_digest, target_task_id, input_seq,
       expected_revision, exec_task_id, phase, stop_task_ids, sealed_task_ids, omitted_entry_ids,
       history_fingerprint, original_input, original_attachments, draft_attachments, completion_revision,
       next_candidate_task_id, edit_open, saved_queue_state, saved_queue_reason, error_code,
       error_message, payload, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
   ).run(
-    recall.id, recall.sessionId, recall.requestId, recall.paramsDigest, recall.targetTaskId, recall.inputSeq,
+    recall.id, recall.purpose, recall.sessionId, recall.requestId, recall.paramsDigest, recall.targetTaskId, recall.inputSeq,
     recall.expectedRevision, recall.execTaskId, recall.phase, JSON.stringify(recall.stopTaskIds),
     JSON.stringify(recall.sealedTaskIds), recall.omittedEntryIds === null ? null : JSON.stringify(recall.omittedEntryIds),
     recall.historyFingerprint === null ? null : JSON.stringify(recall.historyFingerprint),
@@ -170,14 +174,30 @@ export function recallInputSupported(store: Store, task: Task): boolean {
  * The latest accepted real owner input not successfully recalled, ordered by input acceptance.
  * Do not infer the candidate from the queue tail, visible messages or active task.
  */
-export function recallCandidate(store: Store, sessionId: string): { task: Task; inputSeq: number } | null {
+export type RecallCandidate =
+  | { kind: "task"; task: Task; inputSeq: number }
+  | { kind: "answer"; task: Task; questionId: string; inputSeq: number };
+
+export function recallCandidate(store: Store, sessionId: string): RecallCandidate | null {
   const recalled = recalledInputTaskIds(store, sessionId);
-  let best: { task: Task; inputSeq: number } | null = null;
+  let best: RecallCandidate | null = null;
   for (const task of store.listTasksBySession(sessionId)) {
     if (!isOwnerInputTask(store, task) || recalled.has(task.id)) continue;
     const inputSeq = store.getTaskInputSeq(task);
     if (inputSeq === null) continue;
-    if (!best || inputSeq > best.inputSeq) best = { task, inputSeq };
+    if (!best || inputSeq > best.inputSeq) best = { kind: "task", task, inputSeq };
+  }
+  let offset = 0;
+  for (;;) {
+    const questions = listOwnerQuestions(store, sessionId, 100, offset);
+    for (const question of questions) {
+      if (question.status !== "answered" || question.answerSeq === undefined) continue;
+      const task = store.getTask(question.taskId);
+      if (!task || !store.ordinaryCodeTask(task)) continue;
+      if (!best || question.answerSeq > best.inputSeq) best = { kind: "answer", task, questionId: question.id, inputSeq: question.answerSeq };
+    }
+    if (questions.length < 100) break;
+    offset += questions.length;
   }
   return best;
 }

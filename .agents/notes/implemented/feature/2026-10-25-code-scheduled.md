@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[User queue controls](../../proposed/feature/2026-10-30-coding-user-queue.md) proposes removing the continuation exception; [in-task questions](../../proposed/feature/2026-10-30-coding-owner-question-wait.md) proposes answering through the original waiting task. Neither is implemented; fixed provenance/configuration and Scheduled ordinary-submission restrictions remain.
+[User queue controls](2026-10-30-coding-user-queue.md) removes the continuation exception; [in-task questions](2026-10-30-coding-owner-question-wait.md) answers through the original waiting task. Those decisions own the changed interaction contracts; fixed provenance/configuration and Scheduled ordinary-submission restrictions remain.
 
 ## Problem
 

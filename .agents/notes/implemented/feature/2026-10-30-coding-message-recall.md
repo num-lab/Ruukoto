@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[User queue controls](../../proposed/feature/2026-10-30-coding-user-queue.md) proposes replacing the latest-candidate and edit-pause rules for queued input with independent retrieval of any unstarted item. Historical recall retains source sealing and append-only omission. The follow-up proposal is not implemented.
+[User queue controls](2026-10-30-coding-user-queue.md) replaces the latest-candidate and edit-pause rules for queued input with independent retrieval of any unstarted item. Historical recall retains source sealing and append-only omission. The follow-up owns the queued-retrieval contract; this note preserves historical recall and its retained guarantees.
 
 ## Problem
 

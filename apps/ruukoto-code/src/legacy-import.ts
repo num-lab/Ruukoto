@@ -46,12 +46,13 @@ export interface LegacyImportPlan {
 }
 
 const TABLE_POLICY: TablePolicy = {
+  task_browser_bindings: { policy: "exclude", reason: "Desktop browser connections belong to the original instance." },
   task_guidance: { policy: "exclude", reason: "引导路由与实际历史接入绑定原实例，非空源库明确拒绝" },
   code_schedules: { policy: "exclude", reason: "Coding 定时计划只属于原实例，非空源库明确拒绝" },
   code_schedule_runs: { policy: "exclude", reason: "Coding 调度运行与快照不能跨实例复制" },
   code_schedule_tasks: { policy: "exclude", reason: "Coding 定时来源归属不得丢弃或改为拥有者输入" },
   code_schedule_receipts: { policy: "exclude", reason: "Coding 计划写入回执只属于原实例" },
-  owner_questions: { policy: "exclude", reason: "问题与答案续接绑定原实例，非空源库明确拒绝" },
+  owner_questions: { policy: "exclude", reason: "Questions and answer receipts belong to the original instance; nonempty sources reject." },
   owner_question_receipts: { policy: "exclude", reason: "回答与取消回执只属于原实例" },
   background_processes: { policy: "exclude", reason: "后台执行与目录占用只属于原实例，非空源库明确拒绝" },
   background_process_closures: { policy: "exclude", reason: "会话后台关闭屏障只属于原实例" },

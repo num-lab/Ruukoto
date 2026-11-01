@@ -10,7 +10,7 @@ import { CodeScheduleRequestGuard } from "@ruukoto/control/code-schedule-request
 import type { OpParams } from "@ruukoto/control/ops.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
-import { configForSchedule, draftForSchedule, newScheduleDraft } from "../apps/desktop/src/renderer/scheduled-state.ts";
+import { configForSchedule, draftForSchedule, newScheduleDraft, scheduleProgress } from "../apps/desktop/src/renderer/scheduled-state.ts";
 import { DesktopNotifications, type DesktopNotice } from "../apps/desktop/src/main/notifications.ts";
 import { FakeTransport, fakeSnapshot } from "./helpers/fake-control.ts";
 
@@ -21,6 +21,20 @@ const workspace = { cwd: "/work", cwdReal: "/work", dev: 1, ino: 2 };
 const plan: CodeSchedulePlan = { id: "plan", config, workspace, version: 1, status: "active", nextDueAt: at, reason: null, createdAt: at, updatedAt: at };
 const receipt: CodeScheduleReceipt = { requestId: "save-one", operation: "create", digest: "digest", plan };
 const run: CodeScheduleRun = { id: "run", scheduleId: plan.id, planVersion: 1, snapshot: config, workspace, sessionId: "session", rootTaskId: "root", scheduledAt: at, coalescedFrom: at, coalescedThrough: at, status: "active", cancelRequested: false, reason: null, version: 1, createdAt: at, closedAt: null };
+
+test("Scheduled 进度按上一轮到下一轮的时间窗口计算并夹在 0 到 100", () => {
+  const base = Date.parse(at);
+  assert.equal(scheduleProgress(plan, base - 86_400_000), 0);
+  assert.equal(scheduleProgress(plan, base - 43_200_000), 50);
+  assert.equal(scheduleProgress(plan, base - 21_600_000), 75);
+  assert.equal(scheduleProgress(plan, base), 100);
+  assert.equal(scheduleProgress(plan, base + 60_000), 100);
+  assert.equal(scheduleProgress({ ...plan, status: "paused", nextDueAt: null }, base), null);
+  const once: CodeSchedulePlan = { ...plan, config: { ...config, rule: { kind: "once", at, timeZone: "Asia/Tokyo", disambiguation: "compatible" } }, createdAt: "2026-10-25T12:00:00.000Z", nextDueAt: at };
+  assert.equal(scheduleProgress(once, base - 21_600_000), 50);
+  const weekly: CodeSchedulePlan = { ...plan, config: { ...config, rule: { kind: "weekly", time: "09:00", weekdays: [1, 5], timeZone: "Asia/Tokyo", disambiguation: "compatible" } }, nextDueAt: "2026-10-30T00:00:00.000Z" };
+  assert.equal(scheduleProgress(weekly, Date.parse("2026-10-28T00:00:00.000Z")), 50);
+});
 
 test("Scheduled 表单固定保存时区，处理 DST 并保留模型、权限与星期", () => {
   const draft = { ...newScheduleDraft(selection), title: config.title, instructions: config.instructions, workspaceId: "workspace", repeat: "once" as const, date: "2027-03-14", time: "02:30", timeZone: "America/New_York" };
@@ -162,5 +176,5 @@ test("编辑草稿固定原版本；并发更新后保留草稿，核对当前�
   await model.scheduled.save(); assert.equal(writes[0].expected_version, 1); assert.equal(model.scheduled.needsReview, true); assert.equal(model.scheduled.draft!.instructions, "我的草稿");
   await model.scheduled.save(); assert.equal(writes.length, 1);
   await model.scheduled.open(plan.id, true); model.scheduled.reviewed(); await model.scheduled.save();
-  assert.equal(writes[1].expected_version, 2); assert.equal(writes[1].config.instructions, "我的草稿");
+  assert.equal(writes[1].expected_version, 2); assert.equal(writes[1].config.instructions, "我的草稿"); assert.equal(model.scheduled.message, null, "保存成功后直接回到详情，不显示说明");
 });

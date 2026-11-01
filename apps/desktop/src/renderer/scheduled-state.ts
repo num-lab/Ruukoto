@@ -58,6 +58,30 @@ export function scheduleReason(reason: string | null): string {
   return ({ running: "运行中", waiting_workspace: "等待工作区", queue_paused: "队列暂停，等待恢复", awaiting_confirmation: "等待审批", awaiting_answer: "等待回答", background_running: "后台进程尚未结束", awaiting_workflow: "工作流尚未结束", awaiting_report: "等待工作报告", awaiting_result: "等待派生工作结果", effect_unknown: "结果未知，已暂停；请检查原运行记录后恢复", stop_unverified: "停止尚未核实；请先在原会话核实停止", schedule_canceled: "计划已取消", workflow_failed: "工作流失败，请查看运行记录", schedule_workspace_invalid: "工作区不可用或已被替换，请核对目录后保存计划", model_unavailable: "模型不可用，请检查模型配置", model_auth_missing: "模型认证不可用，请检查模型配置", model_not_found: "模型已不在目录中，请重新选择", thinking_level_invalid: "Effort 不可用，请重新选择" } as Record<string, string>)[reason] ?? "计划需要处理，请核对配置与原运行记录。";
 }
 
+function occurrenceOn(rule: CodeScheduleConfig["rule"], date: Temporal.PlainDate): number | null {
+  if (rule.kind !== "weekly" && rule.kind !== "daily" || rule.kind === "weekly" && !rule.weekdays.includes(date.dayOfWeek)) return null;
+  return Temporal.PlainDateTime.from(`${date.toString()}T${rule.time}:00`).toZonedDateTime(rule.timeZone, { disambiguation: rule.disambiguation }).toInstant().epochMilliseconds;
+}
+// Note: See .agents/notes/implemented/feature/2026-11-01-desktop-scheduled-interface.md
+export function scheduleProgress(plan: CodeSchedulePlan, now = Date.now()): number | null {
+  if (plan.status !== "active" || !plan.nextDueAt) return null;
+  const next = Date.parse(plan.nextDueAt), rule = plan.config.rule;
+  if (!Number.isFinite(next)) return null;
+  if (now >= next) return 100;
+  let previous: number | null = null;
+  if (rule.kind === "once") previous = Date.parse(plan.createdAt);
+  else {
+    const date = Temporal.Instant.fromEpochMilliseconds(next).toZonedDateTimeISO(rule.timeZone).toPlainDate();
+    for (let index = 0; index < 10 && previous === null; index++) {
+      const candidate = occurrenceOn(rule, date.subtract({ days: index }));
+      if (candidate !== null && candidate < next) previous = candidate;
+    }
+  }
+  if (previous === null || !Number.isFinite(previous) || previous >= next) return null;
+  return Math.min(100, Math.max(0, Math.round((now - previous) / (next - previous) * 100)));
+}
+
+export type ScheduleDraftStep = 1 | 2 | 3 | 4;
 // Note: 见 .agents/notes/implemented/feature/2026-10-25-code-scheduled.md
 export class DesktopScheduled {
   plans: CodeSchedulePlan[] = [];
@@ -66,6 +90,7 @@ export class DesktopScheduled {
   selectedId: string | null = null;
   draft: ScheduleDraft | null = null;
   draftVersion: number | null = null;
+  draftStep: ScheduleDraftStep = 1;
   needsReview = false;
   message: string | null = null;
   entries: PendingInput[] = [];
@@ -128,8 +153,9 @@ export class DesktopScheduled {
     const previous = this.latestRuns.get(run.scheduleId);
     if (!previous || previous.createdAt < run.createdAt || previous.id === run.id && previous.version <= run.version) this.latestRuns.set(run.scheduleId, run);
   }
-  create(): void { if (this.blocked) return; this.selectedId = null; this.detail = null; this.draft = newScheduleDraft(this.model.newChatSelection(null)); this.draftVersion = null; this.needsReview = false; this.message = null; this.changed(); }
-  edit(): void { if (this.detail && !this.blocked) { this.draft = draftForSchedule(this.detail.plan.config); this.draftVersion = this.detail.plan.version; this.needsReview = false; this.changed(); } }
+  setDraftStep(step: ScheduleDraftStep): void { this.draftStep = step; this.changed(); }
+  create(): void { if (this.blocked) return; this.selectedId = null; this.detail = null; this.draft = newScheduleDraft(this.model.newChatSelection(null)); this.draftVersion = null; this.draftStep = 1; this.needsReview = false; this.message = null; this.changed(); }
+  edit(): void { if (this.detail && !this.blocked) { this.draft = draftForSchedule(this.detail.plan.config); this.draftVersion = this.detail.plan.version; this.draftStep = 1; this.needsReview = false; this.changed(); } }
   private reviewConflict(code: string): void {
     if (code === "schedule_version_conflict" && this.draft && this.selectedId) { this.needsReview = true; this.detail = null; this.message = "计划已被其他操作修改；草稿仍保留，请核对当前已保存配置后继续。"; void this.open(this.selectedId, true); }
   }
@@ -167,7 +193,7 @@ export class DesktopScheduled {
       if (generation !== this.generation) return;
       if (!response.ok) { this.message = response.error.message; return; }
       const result = response.value as CodeScheduleWriteOutcome;
-      if (result.kind === "accepted") { this.selectedId = result.receipt.plan.id; this.draft = null; this.message = "计划已保存。"; await this.load(); await this.open(result.receipt.plan.id); }
+      if (result.kind === "accepted") { this.selectedId = result.receipt.plan.id; this.draft = null; this.message = null; await this.load(); await this.open(result.receipt.plan.id); }
       else { this.message = result.kind === "pending_existing" ? "原保存结果待核实，草稿仍保留。" : result.reason; if (result.kind === "rejected") this.reviewConflict(result.code); }
     } catch { if (generation === this.generation) this.message = "保存结果待核实；请恢复连接后查看原请求，草稿仍保留。"; }
     finally { if (generation === this.generation) { this.busy = false; this.changed(); } }

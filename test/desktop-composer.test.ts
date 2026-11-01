@@ -12,6 +12,7 @@ import type { ModelSelection, Project, SelectionRecord, Session, SessionDefaultM
 import type { TaskView } from "@ruukoto/core/views.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
+import type { CodeSchedulePlan, CodeScheduleRun } from "@ruukoto/core/code-scheduler.ts";
 import type { DesktopAttachment } from "../apps/desktop/src/shared/bridge.ts";
 import { selectionBreakdown } from "@ruukoto/agent/context-selector.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
@@ -461,19 +462,46 @@ test("工作区菜单按名称筛选，空结果与未登记工作区都有明�
   assert.equal(attr(button(html, "选择工作区"), "aria-expanded"), "false");
 });
 
-test("Scheduled 表单顺序、周期与现有模型权限控件一致，选择工作区不创建会话", () => {
+test("Scheduled 列表使用摘要卡片和下次触发进度，不再提供手动刷新", () => {
+  const { model } = harness();
+  const config = { title: "定时检查", instructions: "检查目录", workspaceId: "workspace", permission: "confirm" as const, modelSelection: selection, rule: { kind: "daily" as const, time: "09:00", timeZone: "Asia/Tokyo", disambiguation: "compatible" as const } };
+  const plan: CodeSchedulePlan = { id: "plan", config, workspace: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, version: 1, status: "active", nextDueAt: at, reason: null, createdAt: "2026-10-15T00:00:00.000Z", updatedAt: at };
+  model.scheduled.plans = [plan];
+  const html = renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession() {} }));
+  assert.match(html, /定时检查/); assert.match(html, /检查目录/); assert.match(html, /每天 09:00/); assert.match(html, />Active</); assert.match(html, />Archived</);
+  assert.doesNotMatch(html, />刷新|>当前计划<|>历史</);
+  assert.match(html, /data-slot="tabs-list"/); assert.equal(elements(html).filter(element => attr(element, "data-slot") === "tabs-trigger" && attr(element, "data-state") === "active").length, 1, "Active/Archived 只有一个选中项");
+  const progress = elements(html).filter(element => attr(element, "role") === "progressbar");
+  assert.equal(progress.length, 1); assert.equal(attr(progress[0], "aria-valuenow"), "100");
+});
+
+test("Scheduled 详情把下次触发、任务内容和执行设置分层展示", () => {
+  const { model } = harness();
+  const config = { title: "定时检查", instructions: "检查目录", workspaceId: "workspace", permission: "confirm" as const, modelSelection: selection, rule: { kind: "daily" as const, time: "09:00", timeZone: "Asia/Tokyo", disambiguation: "compatible" as const } };
+  const plan: CodeSchedulePlan = { id: "plan", config, workspace: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, version: 1, status: "active", nextDueAt: at, reason: null, createdAt: "2026-10-15T00:00:00.000Z", updatedAt: at };
+  const run: CodeScheduleRun = { id: "run", scheduleId: plan.id, planVersion: 1, snapshot: config, workspace: plan.workspace, sessionId: "session", rootTaskId: "root", scheduledAt: at, coalescedFrom: at, coalescedThrough: at, status: "active", cancelRequested: false, reason: null, version: 1, createdAt: at, closedAt: null };
+  model.scheduled.selectedId = plan.id; model.scheduled.detail = { plan, runs: [run], activeRun: null, nextRunOffset: null };
+  const html = renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession(id) { assert.equal(id, "session"); } }));
+  for (const text of ["概览", "运行记录", "下次触发", "任务内容", "执行设置", "模型", "Effort", "High", "Asia/Tokyo"]) assert.match(html, new RegExp(text));
+  assert.match(html, /data-variant="destructive"/);
+  assert.equal(elements(html).filter(element => attr(element, "role") === "progressbar").length, 1);
+});
+
+test("Scheduled 新建流程分四步，模型与 Effort 分开选择", () => {
   const { model, transport } = harness();
   model.scheduled.draft = draftForSchedule({ title: "定时检查", instructions: "检查目录", workspaceId: "workspace", permission: "confirm", modelSelection: selection,
     rule: { kind: "weekly", time: "09:30", weekdays: [1, 5], timeZone: "Asia/Tokyo", disambiguation: "compatible" } });
   const render = () => renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession() {} }));
-  const html = render(), headings = ["Title", "Schedule", "Instructions", "Workspace", "Permission", "Model / Effort"];
-  assert.deepEqual(headings.map(text => html.indexOf(`>${text}<`)).toSorted((a, b) => a - b), headings.map(text => html.indexOf(`>${text}<`)));
-  assert.equal(elements(html).filter(element => element.tagName === "input" && attr(element, "type") === "checkbox").length, 7);
-  assert.match(html, /Asia\/Tokyo/); assert.match(html, /High/);
-  assert.equal(attr(button(html, "计划权限"), "aria-description"), "Ask for approval");
+  let html = render(); assert.match(html, /scheduled-page is-form/); assert.match(html, /scheduled-back/);
+  for (const text of ["任务", "时间", "执行", "确认", "要做什么？", "计划名称", "任务内容"]) assert.match(html, new RegExp(text));
+  assert.doesNotMatch(html, /Workspace|Permission|Model \/ Effort/);
+  model.scheduled.draftStep = 2; html = render(); assert.match(html, /什么时候执行？/); assert.match(html, /Asia\/Tokyo/);
+  assert.equal(elements(html).filter(element => element.tagName === "button" && attr(element, "aria-pressed") !== undefined).length, 10);
+  assert.equal(elements(html).filter(element => element.tagName === "input" && attr(element, "type") === "checkbox").length, 0);
+  model.scheduled.draftStep = 3; html = render(); assert.match(html, />模型</); assert.match(html, />Effort</); assert.match(html, /Current model/); assert.match(html, /High/);
+  assert.equal(elements(html).filter(element => element.tagName === "select").length, 3);
+  model.scheduled.draftStep = 4; html = render(); assert.match(html, /确认计划/); assert.match(html, /每周一、五 · 09:30/);
   assert.equal(transport.requests.length, 0);
-  model.scheduled.draft.repeat = "once";
-  assert.equal(elements(render()).filter(element => element.tagName === "input" && attr(element, "type") === "date").length, 1);
 });
 
 test("活动定时会话禁止普通输入、模型与权限修改", async () => {

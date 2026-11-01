@@ -22,6 +22,7 @@ MyGo has one native browser WebView per main conversation. Go's `browser.Manager
 | Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces; the server-selected latest recallable owner message offers recall and restores text/attachments to this client's draft |
 | PA conversation | Opens without adding a tab; complete user/Agent messages use role-aligned bubbles, consecutive same-role messages share one timestamp, and streaming fragments and execution traces stay hidden |
 | PA composer | Starts at one line and grows to at most one third of window height; no mode selector; the attachment button is disabled while PA file upload remains unavailable |
+| Scheduled | Lists Active/Archived plans as cards with title, Instructions summary, repeat rule and next-trigger progress; details separate overview and run records; create/edit uses one centered four-step column with separate model and Effort selectors, and successful saves return to details without a success notice |
 | Composer | Grows to at most one third of window height; steering targets the running task's next boundary; post-interrupt input is an ordinary new task |
 | Queue above composer | Shares the composer surface; drag or use arrow keys to reorder, turn input into guidance, retrieve any eligible unstarted message and announce position |
 | Inspector sidebar | Diffs, SubAgent progress, Git graph, read-only files and background logs |
@@ -114,6 +115,7 @@ There is no separate public begin-recovery action. Old recovery-started records 
 - [Shared history recovery](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [Desktop message actions](../../.agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md)
 - [Desktop Personal message bubbles](../../.agents/notes/implemented/feature/2026-11-01-desktop-personal-message-bubbles.md)
+- [Desktop Scheduled interface](../../.agents/notes/implemented/feature/2026-11-01-desktop-scheduled-interface.md)
 - [Desktop spotlight search](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 - [Personal tailscale https](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
 - [Home skills discovery](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)

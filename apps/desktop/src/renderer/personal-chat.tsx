@@ -1,27 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 import { ToggleGroup } from "radix-ui";
-import { ArrowUp, Loader2, Sparkles, Wrench } from "lucide-react";
-import type { PersonalDesktopMessage, PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
+import { ArrowUp, Loader2, Paperclip, Sparkles } from "lucide-react";
+import type { PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
 import type { PersonalState } from "./personal-state.ts";
 import { MarkdownText } from "./markdown.tsx";
-import { composerModes, ModeSelector, resizeComposerInput, submitOnEnter } from "./composer.tsx";
+import { resizeComposerInput, submitOnEnter } from "./composer.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "./components/ui/field.tsx";
 import { Bubble, BubbleContent } from "./components/ui/bubble.tsx";
 import { Message, MessageContent } from "./components/ui/message.tsx";
-import { Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceIcon, TraceLine, TraceTitle } from "./components/ui/trace.tsx";
+import { Trace } from "./components/ui/trace.tsx";
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 
 function Text({ children }: { children: string }) { return <div className="markdown"><MarkdownText>{children}</MarkdownText></div>; }
-function Activity({ label, text, running = false }: { label: string; text?: string; running?: boolean }) {
-  return <TraceCollapsible><TraceCollapsibleTrigger><TraceLine status={running ? "running" : undefined}><TraceIcon>{running ? <Loader2 className="animate-spin" /> : <Wrench />}</TraceIcon><TraceTitle>{label}</TraceTitle></TraceLine></TraceCollapsibleTrigger><TraceCollapsibleContent><pre className="whitespace-pre-wrap selectable-text">{text}</pre></TraceCollapsibleContent></TraceCollapsible>;
+function PersonalMessage({ model, message }: { model: PersonalState; message: PersonalTimelineEntry }) {
+  const body = model.bodies.get(message.entry);
+  const content = <><Text>{body ?? message.text}</Text>{message.partial && <p role="status">已记录片段</p>}{message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(message.entry)} onClick={() => void model.body(message.entry)}>读取完整内容</Button>}</>;
+  return <Message className="personal-message" align={message.role === "user" ? "end" : "start"}><MessageContent><Bubble variant="muted" align={message.role === "user" ? "end" : "start"}><BubbleContent>{content}</BubbleContent></Bubble></MessageContent></Message>;
 }
-function PersonalMessage({ model, message }: { model: PersonalState; message: PersonalDesktopMessage | PersonalTimelineEntry }) {
-  const entry = "entry" in message ? message.entry : undefined, body = entry === undefined ? undefined : model.bodies.get(entry);
-  const content = <><Text>{body ?? message.text}</Text>{message.partial && <p role="status">已记录片段</p>}{entry !== undefined && message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(entry)} onClick={() => void model.body(entry)}>读取完整内容</Button>}</>;
-  return <Message align={message.role === "user" ? "end" : "start"}><MessageContent>{message.role === "user" ? <Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble> : <>{(message.thinking || message.toolCalls?.length || message.role === "toolResult") && <Trace>{message.thinking && <Activity label="思考" text={message.thinking} />}{message.toolCalls?.map(call => <Activity key={call.id} label={call.name} text={call.arguments} />)}{message.role === "toolResult" && <Activity label={message.toolName ?? "工具结果"} text={body ?? message.text} />}</Trace>}{message.role !== "toolResult" && content}{message.role === "toolResult" && entry !== undefined && message.truncated && body === undefined && <Button variant="ghost" size="sm" disabled={!model.online || model.loadingBody.has(entry)} onClick={() => void model.body(entry)}>读取完整工具结果</Button>}</>}</MessageContent></Message>;
+
+type PersonalMessageGroup = { role: "user" | "assistant"; messages: PersonalTimelineEntry[] };
+// Note: See .agents/notes/implemented/feature/2026-11-01-desktop-personal-message-bubbles.md
+function personalMessageGroups(timeline: PersonalTimelineEntry[]): PersonalMessageGroup[] {
+  const groups: PersonalMessageGroup[] = [];
+  for (const entry of timeline) {
+    if (entry.role !== "user" && entry.role !== "assistant" || !entry.text.trim() && !entry.partial && !entry.truncated) continue;
+    const previous = groups.at(-1);
+    if (previous?.role === entry.role) previous.messages.push(entry);
+    else groups.push({ role: entry.role, messages: [entry] });
+  }
+  return groups;
 }
 
 function QuestionDialog({ model }: { model: PersonalState }) {
@@ -58,22 +68,23 @@ function Controls({ model }: { model: PersonalState }) {
 export function PersonalChat({ model, onConnect }: { model: PersonalState; onConnect: () => void }) {
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { const visible = () => { if (document.visibilityState === "visible") model.visible(); }; model.visible(); document.addEventListener("visibilitychange", visible); return () => document.removeEventListener("visibilitychange", visible); }, [model]);
-  useEffect(() => { resizeComposerInput(input.current); }, [model.draft]);
+  useEffect(() => { resizeComposerInput(input.current, 24); }, [model.draft]);
   useEffect(() => {
-    const resize = () => resizeComposerInput(input.current);
+    const resize = () => resizeComposerInput(input.current, 24);
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
   if (!model.identity) return <div className="empty-state"><div className="empty-symbol"><Sparkles /></div><h1>连接你的个人 Agent</h1><p>{model.status.error?.message ?? model.status.detail ?? "在设置中输入个人 Agent 地址并配对。"}</p><Button onClick={onConnect}>PA 远程连接</Button></div>;
+  const groups = personalMessageGroups(model.timeline);
   return <><MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className="conversation"><MessageScrollerViewport className="stream-scroll selectable-text" preserveScrollOnPrepend aria-label="个人会话消息" onScroll={event => { if (event.currentTarget.scrollTop < 40) void model.older(); }}><MessageScrollerContent className="agent-stream native-message-stream selectable-text">
     {model.historyMore && <MessageScrollerItem><Button variant="ghost" disabled={!model.online || model.loadingHistory} onClick={() => void model.older()}>加载更早消息</Button></MessageScrollerItem>}
-    {model.timeline.map(entry => <MessageScrollerItem key={entry.entry} messageId={String(entry.entry)}><PersonalMessage model={model} message={entry} /></MessageScrollerItem>)}
-    {model.activeMessage && <MessageScrollerItem messageId="personal-streaming"><PersonalMessage model={model} message={model.activeMessage} /></MessageScrollerItem>}
-    {model.live.tools.length > 0 && <MessageScrollerItem><Trace>{model.live.tools.map(tool => <Activity key={tool.callId} label={tool.name} text={tool.output} running={tool.status === "running"} />)}{model.live.toolCount > model.live.tools.length && <TraceLine><TraceTitle>更多工具状态将在后续记录中显示</TraceTitle></TraceLine>}</Trace></MessageScrollerItem>}
+    {groups.map(group => {
+      const first = group.messages[0], date = new Date(first.timestamp);
+      return <MessageScrollerItem key={first.entry} messageId={String(first.entry)}><div className={`personal-message-group ${group.role}`}><time className="personal-message-time" dateTime={date.toISOString()}>{date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>{group.messages.map(message => <PersonalMessage key={message.entry} model={model} message={message} />)}</div></MessageScrollerItem>;
+    })}
     <Controls model={model} />
-    {model.busy && <MessageScrollerItem><Trace><TraceLine status="running"><TraceIcon><Loader2 className="animate-spin" /></TraceIcon><TraceTitle>{model.live.inboxCount ? `${model.live.inboxCount} 条输入排队` : "正在处理"}</TraceTitle></TraceLine></Trace></MessageScrollerItem>}
   </MessageScrollerContent></MessageScrollerViewport></MessageScroller></MessageScrollerProvider>
   <div className="composer-wrap"><div className="composer-width">{!model.online && <div className="task-notice" role="status">{model.status.error?.message ?? model.status.detail ?? (model.identity.online ? "正在重新同步消息…" : "后台离线或正在维护。")}<Button variant="ghost" onClick={onConnect}>连接设置</Button></div>}{model.draftMismatch && <div className="task-notice" role="status">草稿属于原连接，已停止向新档案发送。<Button variant="ghost" onClick={() => model.discardDraft()}>放弃原草稿</Button></div>}{model.pending && <div className="task-notice" role="status">原输入{model.pendingResult?.kind === "missing" ? "尚未查到接纳记录" : "结果待核实"}。<Button variant="ghost" disabled={!model.online || model.checking} onClick={() => void model.reconcile()}>核实原输入</Button>{model.pendingResult?.kind === "missing" && <Button variant="outline" disabled={!model.online || model.checking} onClick={() => void model.reconcile(true)}>继续提交原输入</Button>}</div>}
-    <form className="surface-composer composer" onSubmit={event => { event.preventDefault(); void model.send(); }}><Textarea ref={input} aria-label="输入个人消息" rows={2} value={model.draft} readOnly={model.sending || model.draftMismatch} placeholder="描述你想做的事…" onChange={event => model.edit(event.target.value)} onKeyDown={event => submitOnEnter(event, model.canSend, () => void model.send())} /><div className="composer-actions"><div className="composer-left"><ModeSelector label="新输入的默认权限" value={model.mode} modes={composerModes.filter(mode => mode.value !== "plan")} disabled={!model.online || model.actionBusy} onChange={mode => { if (mode !== "plan") void model.setMode(mode); }} /></div><div className="composer-right"><Button size="icon" className="send-button" type="submit" disabled={!model.canSend} aria-label="发送个人消息" aria-busy={model.sending}>{model.sending ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button></div></div></form>
+    <form className="surface-composer composer personal-composer" onSubmit={event => { event.preventDefault(); void model.send(); }}><Textarea ref={input} aria-label="输入个人消息" rows={1} value={model.draft} readOnly={model.sending || model.draftMismatch} placeholder="描述你想做的事…" onChange={event => model.edit(event.target.value)} onKeyDown={event => submitOnEnter(event, model.canSend, () => void model.send())} /><div className="composer-actions"><div className="composer-left"><Button type="button" size="icon" variant="ghost" className="attachment-button" aria-label="添加附件" aria-description="PA 暂不支持附件" title="PA 暂不支持附件" disabled><Paperclip /></Button></div><div className="composer-right"><Button size="icon" className="send-button" type="submit" disabled={!model.canSend} aria-label="发送个人消息" aria-busy={model.sending}>{model.sending ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button></div></div></form>
   </div></div></>;
 }

@@ -112,12 +112,21 @@ test("PA统一连接：只存规范origin，先核实未知保存，配对码提
   assert.deepEqual(calls.filter(op => op.startsWith("desktop_personal_pair")), ["desktop_personal_pair", "desktop_personal_pair_reconcile", "desktop_personal_pair_restore"]);
 });
 
-test("PA视图：原生聊天复用消息与trace，附件/停止/Continue/Context/会话模型不出现", async t => {
+test("PA视图：完整消息按角色气泡分组，流式片段与trace不显示，输入区保持精简", async t => {
   const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  const timestamp = Date.UTC(2026, 0, 1, 9, 41);
+  f.state.entries.set(2, { entry: 2, conversation: 0, kind: "pi.assistant", role: "assistant", text: "完整回复一", thinking: "隐藏思考", toolCalls: [{ id: "call", name: "read_file", arguments: "{}", truncated: false }], partial: false, truncated: false, timestamp: timestamp + 1000 });
+  f.state.entries.set(3, { entry: 3, conversation: 0, kind: "pi.toolResult", role: "toolResult", text: "隐藏工具结果", partial: false, truncated: false, timestamp: timestamp + 2000 });
+  f.state.entries.set(4, { entry: 4, conversation: 0, kind: "pi.assistant", role: "assistant", text: "完整回复二", partial: false, truncated: false, timestamp: timestamp + 3000 });
+  f.state.entries.set(5, { entry: 5, conversation: 0, kind: "pi.assistant", role: "assistant", text: "", thinking: "空正文也不显示", partial: false, truncated: false, timestamp: timestamp + 4000 });
+  f.state.live.generation = { attempt: 1, message: { role: "assistant", text: "流式片段", partial: true, truncated: false, timestamp: timestamp + 5000 } };
   f.state.live.tools = [{ callId: "tool", name: "read_file", status: "running", output: "片段", truncated: true }]; f.state.live.toolCount = 1;
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.match(markup, /原输入/); assert.match(markup, /read_file/); assert.match(markup, /发送个人消息/); assert.match(markup, /新输入的默认权限/);
-  assert.doesNotMatch(markup, /附加文件|停止任务|发送并继续|Context|会话模型|Plan/);
+  assert.match(markup, /原输入/); assert.match(markup, /完整回复一/); assert.match(markup, /完整回复二/); assert.match(markup, /发送个人消息/); assert.match(markup, /aria-label="添加附件"/); assert.match(markup, /aria-description="PA 暂不支持附件"/); assert.match(markup, /rows="1"/);
+  assert.doesNotMatch(markup, /read_file|流式片段|隐藏思考|隐藏工具结果|空正文也不显示|新输入的默认权限|停止任务|发送并继续|Context|会话模型|Plan/);
+  assert.equal([...markup.matchAll(/class="personal-message-group /g)].length, 2);
+  assert.equal([...markup.matchAll(/class="personal-message-time"/g)].length, 2);
+  assert.equal([...markup.matchAll(/data-slot="bubble"/g)].length, 3);
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); let invalidated = false;
   settings.form = { dirty: true, phase: "ready", async save() { return true; }, discard() {}, invalidate() { invalidated = true; } };
   settings.observe("personal", { type: "personal_identity", identity } satisfies DesktopUpdate); assert.equal(invalidated, true); assert.equal(settings.form.dirty, true);

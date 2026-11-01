@@ -27,7 +27,7 @@ import { waitFor } from "./helpers/testkit.ts";
 type ModelOption = OpResult<"list_models">["models"][number];
 let server: ViteDevServer;
 let Composer: ComponentType<{ model: CodeState; session: Session }>;
-let composerInputHeight: (scrollHeight: number, viewportHeight: number) => number;
+let composerInputHeight: (scrollHeight: number, viewportHeight: number, minHeight?: number) => number;
 let Scheduled: ComponentType<{ model: CodeState; onOpenSession: (id: string) => void }>;
 type DraftValue = { workspaceId: string; text: string; mode: SessionDefaultMode; modelSelection: ModelSelection | null; attachments: DesktopAttachment[]; attaching?: boolean };
 let NewChatDraft: ComponentType<{ model: CodeState; workspaces: Project[]; value: DraftValue; fallbackSelection: ModelSelection | null; onChange: (value: DraftValue) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }>;
@@ -222,6 +222,9 @@ test("输入框随内容增高但不超过窗口高度的三分之一", () => {
   assert.equal(composerInputHeight(200, 900), 200);
   assert.equal(composerInputHeight(1000, 900), 300);
   assert.equal(composerInputHeight(1000, 120), 48);
+  assert.equal(composerInputHeight(20, 900, 24), 24);
+  assert.equal(composerInputHeight(40, 900, 24), 40);
+  assert.equal(composerInputHeight(1000, 900, 24), 300);
 });
 
 test("Desktop 模型切换保留支持的真实档位，否则选目录首档，不假设 Medium", () => {

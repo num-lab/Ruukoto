@@ -9,7 +9,7 @@ import type { NotifyTarget, Task } from "@ruukoto/core/types.ts";
 import { GITHUB_WEBHOOK_PATH } from "@ruukoto/channels/github/webhook.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import type { NotifyChannel } from "@ruukoto/channels/scheduler/runtime.ts";
-import { startMockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
+import { startMockMcp, withMcpDiscovery, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
 import { MockModelServer, type RecordedRequest } from "./helpers/mock-provider.ts";
 import { cleanupDirs, lastUserText, makeTestDirs, waitFor, writeModelsJson } from "./helpers/testkit.ts";
 import { completeCodingChild, seedCodingChild, seedCodingRole } from "./helpers/legacy-coding.ts";
@@ -74,7 +74,7 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
       return channel.behavior(input);
     },
   };
-  const server = new MockModelServer(async (req) => {
+  const server = new MockModelServer(withMcpDiscovery(async (req) => {
     const input = lastUserText(req);
     const lastUser = req.messages.findLastIndex((message) => message.role === "user");
     const results = req.messages.slice(lastUser + 1).filter((message) => message.role === "tool");
@@ -101,6 +101,9 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
       return { kind: "text", text: DRAFT };
     }
     if (input.startsWith("[SubAgent 委派 · 只读分析]")) return { kind: "text", text: "SUB-ANALYZE 完成" };
+    if (input.startsWith("[SubAgent 委派 · 独立执行]")) return results.length
+      ? { kind: "text", text: "SUB-MCP 完成" }
+      : { kind: "tool_calls", calls: [{ id: "child-pr", name: "mcp__github__get_pr", arguments: {} }] };
     if (input.startsWith("[编排器] 子任务")) {
       if (results.length === 0) {
         const sub = /用 subagent_result 按 work_id (\S+) 读取/.exec(input)!;
@@ -116,7 +119,7 @@ async function harness(prefix: string, beforeReview?: () => Promise<void>) {
       return { kind: "text", text: "已委派" };
     }
     return { kind: "text", text: "收到。" };
-  });
+  }));
   await writeModelsJson(dirs, await server.start());
   const config: RuntimeConfig = {
     product: personalProduct.runtime,
@@ -432,6 +435,9 @@ test("实例 MCP：普通子代理沿可信来源取得 MCP，main 自身工具�
   try {
     const rt = h.runtime;
     const main = rt.store.getAgentRole("main")!;
+    const chat = await rt.submit({ sessionId: main.sessionId, requestId: "chat-only", input: "只聊天", modelSelection: rt.defaultSelection });
+    await waitFor("普通主聊天完成", () => rt.store.getTask(chat.id)!.status === "completed");
+    assert.equal(h.mcp.hits.length, 0, "ordinary main chat does not discover MCP");
     const parent = await rt.submit({ sessionId: main.sessionId, requestId: "own-deleg", input: "分析这些材料", modelSelection: rt.defaultSelection });
     await waitFor("拥有者委派的工作完成", () => {
       const works = rt.store.listWorkDelegationsBySession(main.sessionId);
@@ -441,9 +447,13 @@ test("实例 MCP：普通子代理沿可信来源取得 MCP，main 自身工具�
     assert.ok(subCalls.length > 0);
     assert.ok(toolNames(subCalls[0]!).includes("tool_search"), "普通子代理沿来源搜索配置的 MCP");
     assert.ok(toolNames(subCalls[0]!).includes("bash"));
-    const parentCalls = h.server.calls.filter((call) => lastUserText(call) === "分析这些材料");
+    assert.deepEqual(h.mcp.hits.filter(hit => hit.rpcMethod === "tools/call").map(hit => hit.toolName), ["get_pr"]);
+    const parentCalls = h.server.calls.filter((call) => ["只聊天", "分析这些材料"].includes(lastUserText(call)));
     assert.ok(parentCalls.length > 0 && toolNames(parentCalls[0]!).length > 0, "main 自身按类别装配工具");
-    assert.ok(!toolNames(parentCalls[0]!).some((name) => name.startsWith("mcp_")), "main 自身任务不出现 MCP 工具");
+    for (const call of parentCalls) {
+      assert.ok(!toolNames(call).some(name => name === "tool_search" || name.startsWith("mcp_")), "main never receives MCP tools or discovery");
+      assert.doesNotMatch(call.system ?? "", /<mcp_servers>/);
+    }
     await waitFor("唤醒完成", () => {
       const child = rt.store.listTasksByWork(rt.store.listWorkDelegationsBySession(main.sessionId)[0]!.id)[0]!;
       const wake = rt.store.findTaskByRequest(main.sessionId, `wake:${child.id}`);

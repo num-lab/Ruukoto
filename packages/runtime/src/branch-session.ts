@@ -1,6 +1,7 @@
-/** 固定快照、准备独立文件后发布会话；请求回执跨后台重启保留。
- * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
- * Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
+/** Publish an independent history snapshot with request receipts that survive restart.
+ * Note: See .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ * Note: See .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
+ * Note: See .agents/notes/implemented/bug-fix/2026-11-01-branch-image-provenance.md
  */
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -69,8 +70,7 @@ export function snapshotSources(deps: BranchSessionDeps, source: Session, snapsh
       }
       calls.delete(message.toolCallId);
     }
-    // 引导输入的附件/图片绑定源 Task（无本分支 start marker）：按 joined 路由核实——
-    // 消息携带的源 ID 必须等于产物归属任务、路由已 joined 到本历史条且目标在分支任务内。
+    // Guidance has no source start marker here: its joined route must bind this entry to a task inside the snapshot.
     const guidanceVerified = (taskIdOfRef: string, entryId: string): boolean => {
       if (message.ruukotoSourceTaskId !== taskIdOfRef) return false;
       const route = store.getTaskGuidance(taskIdOfRef);
@@ -97,7 +97,8 @@ export function snapshotSources(deps: BranchSessionDeps, source: Session, snapsh
         const attachment = artifact && store.taskAttachments(artifact.taskId).some(ref => ref.id === artifact.id && ref.contentHash === artifact.contentHash);
         if (!artifact || artifact.sessionId !== raw.sessionId || artifact.taskId !== raw.taskId || artifact.mimeType !== raw.mimeType ||
             artifact.byteCount !== raw.byteCount || artifact.contentHash !== raw.contentHash || artifact.status !== "complete" ||
-            (!inherited && !tasks.has(artifact.taskId) && !guidanceVerified(artifact.taskId, entry.id) && (!attachment && (inbound?.taskId !== artifact.taskId || !inbound.artifactRefs.includes(artifact.id))))) {
+            (!inherited && ((!tasks.has(artifact.taskId) && !guidanceVerified(artifact.taskId, entry.id)) ||
+              (!attachment && (inbound?.taskId !== artifact.taskId || !inbound.artifactRefs.includes(artifact.id)))))) {
           throw new RuntimeApiError("image_reference_invalid", "历史图片缺少宿主核实的来源");
         }
         addArtifact(artifact.id, artifact.taskId);

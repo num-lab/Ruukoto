@@ -28,7 +28,8 @@ async function fixture(t: TestContext, responder: Responder = () => ({ kind: "te
   const scheduler = personalScheduler(() => harness, { authorize: async () => ({ permission: { mode: "auto-review", version: 1 }, proof: { authenticated: true } }), verifyCreator: async (_tx, plan) => { assert.deepEqual(plan.createdBy.authority.proof, { authenticated: true }); }, captureScope: async () => structuredClone(scope), verifyScope: async (_tx, saved) => { if (JSON.stringify(saved) !== JSON.stringify(scope)) throw new PersonalError("schedule_scope_changed", "配置已变化。"); }, configure: async (tx, conversationId) => { await configure(tx, conversationId, { model: { provider: provider.id, modelId: "mock-model" }, thinkingLevel: "off", extensions: [scheduler.extension], tools: [] }); }, settle: async () => ({ failed: false, facts: "全部外部工作已核实" }), send: async () => "sent", now: () => clock, ...overrides });
   const registry = createRegistry(); registry.install(scheduler.extension);
   const open = async () => {
-    harness = await Harness.open(await openNodeSqliteStorage(path.join(directory, "personal.sqlite")), { registry, models: recordedModels(provider, async () => undefined) }, context);
+    // Retry deadlines and durable sleeps must share the same clock.
+    harness = await Harness.open(await openNodeSqliteStorage(path.join(directory, "personal.sqlite")), { registry, models: recordedModels(provider, async () => undefined), now: () => clock }, context);
     await harness.root(context, { agent: { model: { provider: provider.id, modelId: "mock-model" }, thinkingLevel: "off", extensions: [scheduler.extension], tools: [] } });
     return harness;
   };

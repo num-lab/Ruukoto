@@ -791,7 +791,10 @@ for (const outcome of [false, "throws"] as const) {
       await assert.rejects(delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "replacement", request: "替代", target: ".", materials: null, readPaths: null, paramsDigest: "replacement" }), { code: "task_ending" });
       assert.equal(controlled.specs.length, 1);
       assert.equal(stops, 1);
-      await rt.resumeQueue(session.id);
+      await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
+      assert.equal(rt.store.getOccupancyByDir(session.cwdReal)?.taskId, parent.id);
+      assert.equal(rt.store.getOccupancyByDir(copyDir)?.taskId, host.id);
+      await rt.resumeQueue(session.id, undefined, true);
       await waitFor("父目录与副本队列恢复", () => rt.store.getTask(queued.id)!.status === "completed" && rt.store.getTask(copyTask.id)!.status === "completed");
       assert.equal(rt.store.getOccupancyByDir(session.cwdReal), null);
       assert.equal(rt.store.getOccupancyByDir(copyDir), null);

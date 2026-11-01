@@ -33,10 +33,10 @@ test("个人模型在线切换：在途原地址结束，同名模型后续请�
   await current.close();
   current = await openPersonalHarness({ directory, provider: personalProvider(next), modelId: next.modelId, modelVersions: [{ version: "first-version", revision: "first-file", config: original }, { version: "second-version", revision: "second-file", config: next }] });
   assert.equal(await current.answer("重启后请求", "reopened-request"), "新地址回答");
-  current.suspendSettings("skills", "managed");
-  assert.equal((await (await current.submit("等待技能配置", "suspended-request")).wait(context)).status, "unanswered");
+  current.suspendSettings("model", "*");
+  assert.equal((await (await current.submit("等待模型配置", "suspended-request")).wait(context)).status, "unanswered");
   assert.equal(second.calls.length, 2);
-  current.resumeSettings("skills", "managed");
+  current.resumeSettings("model", "*");
   const requests = (await current.main.entries({}, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.model-request");
   assert.match(JSON.stringify(requests), /personal-second-version/);
   assert.equal(first.calls.length, 1); assert.equal(second.calls.length, 2);

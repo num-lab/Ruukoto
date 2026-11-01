@@ -1,14 +1,5 @@
 import type { TaskView as Task } from "@ruukoto/core/views.ts";
-/**
- * 合成调试会话（`ruukoto --demo`）：不连后台，用一个假客户端喂出
- * 覆盖全部事件类型与界面状态的静态数据，用来调试 TUI 渲染。
- *
- * 目的：真实后台很难同时造出「运行中任务 + 待审批 + 队列暂停 + 各类终态 +
- * 各种工具结果 + 长输出截断」，逐个手搓成本高。这里一次给全。
- *
- * 边界：只用于调试展示。不执行任务、不读写数据目录、不需要拥有者令牌；
- * 命令会明确提示这是合成会话，避免被当成真实运行状态。
- */
+/** Offline TUI fixture covering every persistent event without executing tasks or accessing profile data. */
 
 import { ControlClientError, type ClientCloseInfo, type ControlTransport } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
@@ -29,6 +20,7 @@ import type { HistoryEntryView, HistoryPage } from "@ruukoto/core/history.ts";
 import { editStatsFromResult, sliceTextByBytes } from "@ruukoto/core/history.ts";
 import type { BackgroundProcessView } from "@ruukoto/core/background-processes.ts";
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
+import type { CodeSchedulePlan } from "@ruukoto/core/code-scheduler.ts";
 
 const PROJECT_ID = "proj_demo";
 const SESSION_ID = "sess_demo0000000000000000";
@@ -300,22 +292,38 @@ function demoBreakdown(): ContextBreakdown {
   };
 }
 
-/** 覆盖全部事件类型的事件流（seq 从 1 连续递增）。 */
+/** Every persistent event type appears with consecutive sequence numbers starting at one. */
 function demoEvents(): PersistentEvent[] {
   const entries = historyEntries();
   const answer = entries.find((entry) => entry.entryId === "entry_0002")!.text;
   const split = answer.indexOf("\n\n");
   const first = answer.slice(0, split);
   const second = answer.slice(split);
+  const schedule: CodeSchedulePlan = { id: "csch_demo", config: { title: "Review workspace", instructions: "Inspect pending changes", workspaceId: PROJECT_ID,
+    permission: "confirm", modelSelection: MODEL, rule: { kind: "once", at: NOW, timeZone: "UTC", disambiguation: "compatible" } },
+    workspace: { cwd: SESSION.cwd, cwdReal: SESSION.cwdReal, dev: 1, ino: 1 }, version: 1, status: "completed", nextDueAt: null, reason: null, createdAt: NOW, updatedAt: NOW };
   const bodies: PersistentEventBody[] = [
     { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "native", product: "ruukoto" },
     { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
     { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
     { type: "session.archive_changed", sessionId: SESSION_ID, archivedAt: null },
-    // agent-direction issue 07：会话工作区组织归属（仅展示归属，资料身份仍是原 projectId）
+    // Organizational membership changes display grouping, not data identity.
     { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
+    { type: "side_chat.bound", parentSessionId: SESSION_ID, sideSessionId: "sess_demoside" },
+    { type: "web_search.changed", version: 1, state: "enabled" },
+    { type: "code_schedule.changed", plan: schedule },
+    { type: "code_schedule.run_changed", run: { id: "crun_demo", scheduleId: schedule.id, planVersion: 1, snapshot: schedule.config, workspace: schedule.workspace,
+      sessionId: SESSION_ID, rootTaskId: "task_completed000", scheduledAt: NOW, coalescedFrom: NOW, coalescedThrough: NOW, status: "completed", cancelRequested: false, reason: null, version: 1, createdAt: NOW, closedAt: NOW } },
+    { type: "code_schedule.task_bound", taskId: "task_completed000", runId: "crun_demo", sessionId: SESSION_ID },
+    { type: "session.queue_changed", sessionId: SESSION_ID, queue: { revision: 1, tasks: [{ taskId: "task_queued000000", queueOrder: 1 }], retrievableTaskIds: ["task_queued000000"] } },
+    { type: "task.guidance", taskId: "task_canceled000", sessionId: SESSION_ID, guidance: { sourceTaskId: "task_canceled000", targetTaskId: "task_completed000", sessionId: SESSION_ID, acceptedSeq: 1, state: "canceled", entryId: null } },
+    { type: "message_recall.changed", sessionId: SESSION_ID, recall: { id: "recall_demo", purpose: "historical", sessionId: SESSION_ID, requestId: "recall_demo", paramsDigest: "demo",
+      targetTaskId: "task_canceled000", inputSeq: 1, expectedRevision: 1, execTaskId: null, phase: "rejected", stopTaskIds: [], sealedTaskIds: [], omittedEntryIds: null,
+      historyFingerprint: null, completionRevision: null, nextCandidateTaskId: null, editOpen: false, savedQueueState: null, savedQueueReason: null,
+      error: { code: "stale_candidate", message: "The recall candidate changed." }, createdAt: NOW, updatedAt: NOW } },
+    { type: "task.browser_wait", taskId: "task_running000000", sessionId: SESSION_ID, waiting: false },
     { type: "browser.binding_changed", sessionId: SESSION_ID, generation: "browser_demo", state: "ready", kind: "owned", failureCode: null },
     { type: "background_process.changed", process: BACKGROUND },
     { type: "background_process.closed", closure: { sessionId: SESSION_ID, requestKey: "close_demo", throughInputSeq: 1, processIds: [BACKGROUND.id], createdAt: NOW } },

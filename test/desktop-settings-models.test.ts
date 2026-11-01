@@ -290,15 +290,18 @@ test("Desktop 应答丢失保留原操作，核实失败仍待核实，读回只
   assert.equal(h.requests.filter(request => request.op === "save_model_catalog").length, 1);
 });
 
-test("Desktop 受影响提供方忙时拒绝写入，默认及会话引用阻止删除", async t => {
+test("Desktop allows busy provider renames, rejects execution changes and preserves referenced providers", async t => {
   const release = deferred();
   t.after(() => release.resolve());
   const h = await fixture(t, async () => { await release.promise; return { kind: "text", text: "done" }; });
   const source = (await h.runtime.openWorkspace({ cwd: h.work[0] })).session;
   const task = await h.client.request<OpResult<"submit">>("submit", { session_id: source.id, request_id: "desktop-model-busy", input: "wait", model_selection: primary });
   await waitFor("模型请求开始", () => h.server.calls.length === 1);
+  h.state.selectProvider("mock"); h.state.editProvider("name", "Renamed while busy");
+  assert.equal(await h.state.save(), true, h.state.message);
+  assert.equal(h.read().providers.mock.name, "Renamed while busy");
   const before = fs.readFileSync(h.file, "utf8");
-  h.state.selectProvider("mock"); h.state.editProvider("name", "Blocked");
+  h.state.editProvider("baseUrl", "https://changed.example/v1");
   assert.equal(await h.state.save(), false);
   assert.equal(fs.readFileSync(h.file, "utf8"), before);
   assert.match(h.state.message, /任务|使用|忙|提供方/);

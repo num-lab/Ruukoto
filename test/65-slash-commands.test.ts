@@ -63,7 +63,7 @@ function fake(opts: { view?: CommandEnv["view"]; replies?: Partial<Record<TuiOp,
 test("命令表：名字唯一；补全与帮助只列可见条目；已删除命令不再派发", async () => {
   const names = COMMANDS.map((c) => c.name);
   assert.equal(new Set(names).size, names.length, "名字唯一");
-  assert.deepEqual(COMMANDS.filter((c) => c.hidden).map((c) => c.name), []);
+  assert.deepEqual(COMMANDS.filter((c) => c.hidden).map((c) => c.name), ["detach"]);
 
   const help = commandHelpLines();
   assert.deepEqual(help.map((l) => /^  \/(\S+)/.exec(l)![1]), VISIBLE_COMMANDS.map((c) => c.name));
@@ -73,6 +73,7 @@ test("命令表：名字唯一；补全与帮助只列可见条目；已删除�
   const all = await complete.getSuggestions(["/"], 0, 1);
   assert.deepEqual(all!.items.map((i) => i.value), VISIBLE_COMMANDS.map((c) => `/${c.name}`));
   assert.equal(await complete.getSuggestions(["/gi"], 0, 3), null, "隐藏命令不补全");
+  assert.equal(await complete.getSuggestions(["/det"], 0, 4), null, "Draft-only commands stay out of completion");
 
   const f = fake();
   await f.run("/github");
@@ -90,7 +91,9 @@ test("/workflow 直接打开逐层侧栏，旧长命令不再发送协议字段"
 
 test("操作手册命令表：第一列列出的 /名字 与可见条目正好一致", () => {
   const usage = fs.readFileSync(new URL("../docs/usage.md", import.meta.url), "utf8");
-  const table = usage.slice(usage.indexOf("### 7.4 命令"));
+  const start = usage.indexOf("### 7.2 Commands");
+  assert.ok(start >= 0, "The usage guide contains the command section");
+  const table = usage.slice(start).split(/\n##? /)[0]!;
   const names = table
     .split("\n")
     .filter((l) => l.startsWith("| `/"))

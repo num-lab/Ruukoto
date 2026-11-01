@@ -9,6 +9,7 @@ const React = require('react');
 let cells = [], cursor = 0;
 const hook = {
   ...React,
+  useEffect() { cursor++; },
   useRef(value) { const index = cursor++; return cells[index] ??= { current: value }; },
   useState(initial) { const index = cursor++; if (!Object.hasOwn(cells, index)) cells[index] = initial; return [cells[index], value => { cells[index] = typeof value === 'function' ? value(cells[index]) : value; }]; },
   useMemo(callback, dependencies) { const index = cursor++; const prior = cells[index]; if (!prior || dependencies.some((value, offset) => !Object.is(value, prior.dependencies[offset]))) cells[index] = { value: callback(), dependencies }; return cells[index].value; },
@@ -31,6 +32,7 @@ const { Conversation, MessageEntry } = load('apps/desktop/src/renderer/conversat
   './approval-cards.tsx': dummy(['ApprovalCards']),
   './owner-question-cards.tsx': dummy(['OwnerQuestionCard', 'OwnerQuestionCards']),
   './components/ui/bubble.tsx': dummy(['Bubble', 'BubbleContent']),
+  './components/ui/button.tsx': dummy(['Button']),
   './components/ui/message.tsx': dummy(['Message', 'MessageContent']),
   './components/ui/message-scroller.tsx': dummy(['MessageScroller', 'MessageScrollerContent', 'MessageScrollerItem', 'MessageScrollerProvider', 'MessageScrollerViewport']),
 });
@@ -41,7 +43,7 @@ let items = [];
 const tasks = new Map();
 const opened = [];
 const session = { flow: { get items() { return items; } }, historyCursor: null };
-const model = { historyReady: () => true, target: 'code', status: { state: 'offline' }, view: { openSession: () => session, activeTaskFor: () => null, pendingApprovals: () => [], tasks, ownerQuestions: [] }, inspector: { toolResult() {}, openDiff: (sessionId, tool) => opened.push({ sessionId, tool }) } };
+const model = { historyReady: () => true, target: 'code', status: { state: 'offline' }, writes: { recallState: () => null }, view: { openSession: () => session, activeTaskFor: () => null, pendingApprovals: () => [], tasks, ownerQuestions: [], roleSessionIds: [], subAgentSessionIds: [], sessions: [] }, inspector: { toolResult() {}, openDiff: (sessionId, tool) => opened.push({ sessionId, tool }) } };
 const message = (key, text, extras = {}) => ({ kind: 'message', key, text, role: 'assistant', ...extras });
 const edit = (key, target) => ({ kind: 'tool', key, name: 'edit', target, entryId: null, status: 'done' });
 const before = message('before', '`p.ts`');

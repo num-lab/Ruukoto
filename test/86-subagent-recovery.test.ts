@@ -260,8 +260,11 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
       /待核实|正忙/,
     );
 
-    // —— 拥有者核实旧执行已退出：resume-queue 释放占用、解除暂停、Agent 回 idle ——
-    await rt.resumeQueue(d.agent.sessionId);
+    // Explicit stop confirmation releases retained occupancy and resumes the original work.
+    await assert.rejects(rt.resumeQueue(d.agent.sessionId), { code: "stop_unverified" });
+    assert.equal(rt.store.getSubAgent(d.agent.id)!.state, "unverified");
+    assert.equal(rt.store.listAllOccupancy().filter(o => o.taskId === seeded.id).length, 1);
+    await rt.resumeQueue(d.agent.sessionId, undefined, true);
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.taskId === seeded.id).length, 0, "旧执行占用已释放");
     assert.equal(rt.store.getSession(d.agent.sessionId)!.queueState, "active");
     const delivered = rt.store.getSubAgentMessage(pending.id)!;

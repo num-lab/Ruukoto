@@ -231,7 +231,9 @@ test("只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次�
     assert.equal(getWorkflowRun(recovered.store, run.id)!.status, "paused");
     assert.equal(recovered.store.getOccupancyByDir(recovered.store.getSession(old.sessionId)!.cwdReal)!.taskId, old.id);
     assert.equal(attempts, 0);
-    await recovered.resumeQueue(old.sessionId);
+    await assert.rejects(recovered.resumeQueue(old.sessionId), { code: "stop_unverified" });
+    assert.equal(recovered.store.getOccupancyByDir(recovered.store.getSession(old.sessionId)!.cwdReal)!.taskId, old.id);
+    await recovered.resumeQueue(old.sessionId, undefined, true);
     const paused = getWorkflowRun(recovered.store, run.id)!;
     await recovered.workflows!.control(run.id, "resume", paused.version, { action: "resume", clockConfirmed: true, stopsConfirmed: true });
     await waitFor("只读步骤恢复完成", () => getWorkflowRun(recovered!.store, run.id)!.status === "succeeded");
@@ -324,7 +326,9 @@ test("协调器登记宿主排队操作后真实崩溃，释放旧占用并核�
     assert.equal(recovered.store.listToolOpsByTask(snapshot.taskId).length, 0);
     assert.equal(recovered.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
     assert.equal(effects, 0);
-    await recovered.resumeQueue(session.id);
+    await assert.rejects(recovered.resumeQueue(session.id), { code: "stop_unverified" });
+    assert.equal(recovered.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
+    await recovered.resumeQueue(session.id, undefined, true);
     await recovered.workflows!.control(run.id, "resume", paused.version, { action: "resume", clockConfirmed: true, stopsConfirmed: true });
     await waitFor("原排队宿主操作收尾成功", () => getWorkflowRun(recovered!.store, run.id)!.status === "succeeded");
     assert.equal(effects, 1);

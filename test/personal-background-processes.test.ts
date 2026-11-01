@@ -20,6 +20,7 @@ import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegra
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
+import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalDirectoryClaimsDoc, acquirePersonalDirectory, personalDirectoriesConflict } from "../apps/ruukoto/src/personal-directory-claims.ts";
 import { PersonalBackgroundProcessDoc, PersonalBackgroundDoc } from "../apps/ruukoto/src/personal-background-processes.ts";
 import { toolOperations, toolResolve } from "../apps/ruukoto/src/personal-tools.ts";
@@ -106,9 +107,12 @@ test("个人后台：SDK规范化原始数字参数后接纳，恢复仍按实�
 });
 
 test("个人后台本机：认证socket与逐步CLI可查双流及结束，未决稳定键只查原回执", async t => {
-  const f = await fixture(t, undefined, false, true), p = await f.open(); await allow(p); await p.answer("启动", "cli-owner"); const background = await active(p); await p.close();
+  const f = await fixture(t, undefined, false, true);
   const values = { "model.json": f.model, "command.json": f.config, "tools.json": { version: 1, generation: "test", workspace: f.workspace, identity: f.config.identity, credentials: [] } };
-  for (const [name, value] of Object.entries(values)) fs.writeFileSync(path.join(f.directory, name), JSON.stringify(value) + "\n", { mode: 0o600 });
+  const profile = lockPersonalProfile(f.directory);
+  try { for (const [name, value] of Object.entries(values)) fs.writeFileSync(path.join(f.directory, name), JSON.stringify(value) + "\n", { mode: 0o600 }); }
+  finally { profile.release(); }
+  const p = await f.open(); await allow(p); await p.answer("启动", "cli-owner"); const background = await active(p); await p.close();
   const server = await startPersonalServer(f.directory); t.after(() => server.stop());
   const restored = (await personalControl<{ processes: Array<{ state: string; process_id: string }> }>(f.directory, "GET", "/background")).processes[0]; assert.equal(restored.state, "stopped"); assert.equal(restored.process_id, background.id);
   const answers = ["1", "2", "3", "5", "2", "2", "3"], transcript: string[] = [];

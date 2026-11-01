@@ -171,6 +171,36 @@ test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图
   } finally { await t.shutdown(); if (!mcpClosed) await mcp.close(); }
 });
 
+for (const change of ["configuration", "credential"] as const) test(`main delegation rejects MCP ${change} changes after its request starts`, async () => {
+  const mcp = await startMockMcp({ tools: [{ name: "read" }] });
+  let changeSource!: () => Promise<void>;
+  const t = await startTestRuntime(`main-mcp-${change}`, async request => {
+    assert.equal(lastUserText(request), "DELEGATE-MCP");
+    assert.ok(!toolNamesOf(request).some(name => name === "tool_search" || name.startsWith("mcp__")));
+    if (afterTool(request)) return { kind: "text", text: "Delegation rejected." };
+    await changeSource();
+    return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { request: "Read MCP", key: "changed", role: "probe" } }] };
+  }, { config: realTools() });
+  try {
+    const rt = t.runtime, main = rt.store.getAgentRole("main")!;
+    const credential = { name: "probe", host: mcp.host, header: "authorization", purpose: "mcp", secret: "original", scope: { operations: ["mcp"] } };
+    rt.credentials.upsert(credential);
+    await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, credential: "probe", tool_allowlist: ["read"] });
+    roleFile(t.dirs.agentDir, "probe", "tools: [mcp__probe__read]\n");
+    changeSource = async () => {
+      if (change === "configuration") await t.client.request("mcp_configure", { name: "probe", endpoint: `${mcp.url}?changed`, credential: "probe", tool_allowlist: ["read"] });
+      else rt.credentials.upsert({ ...credential, secret: "changed" });
+    };
+    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "delegate", input: "DELEGATE-MCP", modelSelection: rt.defaultSelection, accessMode: "full_access" });
+    assert.equal((await childDone(rt, parent.id)).status, "completed");
+    assert.equal(rt.store.listWorkDelegationsBySession(main.sessionId).length, 0);
+    const operation = rt.store.listToolOpsByTask(parent.id).find(op => op.toolName === "subagent_delegate")!;
+    assert.equal(operation.isError, true);
+    assert.match(operation.resultSummary!, /mcp__probe__read/);
+    assert.equal(mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 0);
+  } finally { await t.shutdown(); await mcp.close(); }
+});
+
 test("MCP 角色要求按官方实际注册表核实，停用服务不再提供工具", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "bad", inputSchema: { type: "string" } }, { name: "good" }] });
   const t = await startTestRuntime("mcp-registered-requirements", () => ({ kind: "text", text: "已核实工具" }), { config: realTools() });

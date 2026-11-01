@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
@@ -130,8 +131,18 @@ test("停止未核实摘要覆盖百项之外的执行和冷崩溃空结论，�
     assert.throws(() => rt.store.withTx(() => {
       const history = createWorkflowRun(rt.store, { ...base, id: "long-stop-history", requestKey: "long-stop-history", status: "running", scriptUnits: [], scriptStopVerified: true });
       registerWorkflowStep(rt.store, { runId: history.id, key: "old", ordinal: 1, kind: "agent", params: { request: "检查" }, dependsOn: [] });
+      const childSession = rt.store.createSession({ projectId: session.projectId, cwd: session.cwd, cwdReal: session.cwdReal,
+        cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: "stop-summary-child", confirmTools: [] });
+      const subAgentId = "stop-summary-agent", workId = "stop-summary-work";
+      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: subAgentId, parentSessionId: session.id,
+        sessionId: childSession.id, workDir: session.cwd, activeWorkId: workId, currentTaskId: null, state: "idle",
+        closedAt: null, closedBy: null, createdAt: childSession.createdAt });
+      rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: base.source.taskId, subAgentId,
+        requestKey: workId, paramsDigest: "stop-summary", canceledAt: null, canceledBy: null, cancelReason: null,
+        writeTarget: null, createdAt: childSession.createdAt });
       for (let i = 0; i < 101; i++) {
-        const child = rt.store.insertQueuedTask({ sessionId: session.id, requestId: "stop-child-" + i, input: "检查", modelSelection: rt.defaultSelection, submissionDigest: "stop-child-" + i }).task;
+        const child = rt.store.insertQueuedTask({ sessionId: childSession.id, requestId: "stop-child-" + i, input: "检查", modelSelection: rt.defaultSelection,
+          submissionDigest: "stop-child-" + i, parentTaskId: base.source.taskId, subAgentId, workId }).task;
         rt.store.transitionTask(child.id, ["queued"], "running"); rt.store.setTaskResult(child.id, "检查结束", "{}"); rt.store.endTask(child.id, ["running"], "completed");
         tasks.push(child.id);
         bindWorkflowExecution(rt.store, { id: "stop-execution-" + i, runId: history.id, stepKey: "old", taskId: child.id, kind: "agent", number: i + 1, status: "finished", units: [], stopVerified: i !== 0 });

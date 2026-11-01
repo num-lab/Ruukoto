@@ -6,12 +6,21 @@ import { activityGroups, activitySummary } from "../apps/desktop/src/renderer/ac
 import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
 const read = (path: string) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原生适配只追加", () => {
+test("Desktop preserves approved styles and primitives except explicitly superseded settings and selector scope", () => {
   const demo = "test/fixtures/desktop-baselines/approved-demo-v4/src";
   const gui = "apps/desktop/src/renderer";
   const styles = read(`${gui}/style.css`);
+  const approved = read(`${demo}/style.css`);
+  // Note: See .agents/notes/implemented/feature/2026-10-28-desktop-settings-demo-design.md
+  const retiredSettings = approved.slice(approved.indexOf(".settings-dialog .settings-tabs {"), approved.indexOf('.settings-dialog [data-slot="dialog-close"]'));
+  const retiredSettingsMedia = approved.split("\n").find(line => line.startsWith("@media (max-width: 540px) { .settings-dialog .settings-tabs {"));
+  assert.ok(retiredSettings && retiredSettingsMedia);
+  // Scheduled reuses the mode selector outside the composer's narrow container.
+  const currentBaseline = approved.replace(retiredSettings, "").replace(retiredSettingsMedia, "")
+    .replace("  .mode-selector > svg {", "  .composer .mode-selector > svg {")
+    .replace("  .mode-selector-label {", "  .composer .mode-selector-label {");
   let approvedOffset = 0;
-  for (const line of (read(`${demo}/style.css`) + read("test/fixtures/desktop-baselines/approved-demo-v4-glass.css")).split("\n")) {
+  for (const line of (currentBaseline + read("test/fixtures/desktop-baselines/approved-demo-v4-glass.css")).split("\n")) {
     const next = styles.indexOf(line, approvedOffset);
     assert.ok(next >= 0, `定稿样式须保持原文和顺序：${line}`);
     approvedOffset = next + line.length;
@@ -25,7 +34,7 @@ test("正式 GUI 复用拥有者定稿样式、官方组件与侧栏交互，原
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
   for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
   const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();
-  assert.deepEqual(fs.readdirSync(new URL(`../${gui}/components/ui/`, import.meta.url)).sort(), primitives);
+  assert.deepEqual(fs.readdirSync(new URL(`../${gui}/components/ui/`, import.meta.url)).sort(), [...primitives, "switch.tsx"].sort());
   for (const name of primitives) {
     const file = `components/ui/${name}`;
     const source = read(`${demo}/${file}`).replace(/(["'])@\/([^"']+)\1/g, (_match, quote: string, target: string) => {

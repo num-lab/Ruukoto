@@ -623,7 +623,9 @@ export class Driver {
     return { names: host.names, tools: [...coding, ...host.tools, ...mcp].filter(tool => sourceAllows(profile, tool.name)) };
   }
 
-  /** 只发现能力，不执行工具或改动父 Driver；入队方保存结果后仍须在执行前复核。 */
+  /** Discover delegable tools without exposing them to the parent; execution rechecks the saved selection.
+   * Note: See .agents/notes/implemented/bug-fix/2026-11-01-delegation-mcp-discovery.md
+   */
   async preflightSubAgent(source: WorkflowSource, definition: SubAgentDefinitionSnapshot, options: { tools?: string[]; verify?: boolean; workflow?: boolean } = {}): Promise<SubAgentExecutionSnapshot> {
     validateSubAgentRole(definition);
     const policy = subAgentAccessPolicy(source.accessMode, definition, options.verify);
@@ -649,10 +651,11 @@ export class Driver {
     const catalog = new Map((profile.categories.includes("mcp") ? this.mcpSession?.tools() ?? [] : []).filter(meta => {
       if (meta.service.cua) return false;
       if (this.currentTask?.id !== source.taskId) return true;
+      if (!this.profile.planMcp) return this.mcpConfigurations.get(meta.service.id) === `${meta.service.configVersion}:${meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) ?? "missing" : "anonymous"}`;
       const captured = this.currentMcpTools.get(meta.exposedName);
       return this.taskTools?.allowed.has(meta.exposedName) && captured?.service.configVersion === meta.service.configVersion && captured.toolSignature === meta.toolSignature && captured.credentialDigest === (meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null);
     }).map(meta => [meta.exposedName, { ...meta, credentialDigest: meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null }]));
-    const definitions = [...catalog.keys()].map(name => this.sdk!.getToolDefinition(name)!).filter(Boolean);
+    const definitions = [...(profile.categories.includes("mcp") && this.mcpSession ? ["tool_search"] : []), ...catalog.keys()].map(name => this.sdk!.getToolDefinition(name)!).filter(Boolean);
 
       const candidates = this.sourceTools({ ...profile, tools: undefined }, definitions).tools;
       const available = taskToolSet({ registered: candidates.map(tool => tool.name), plan: false,
@@ -697,10 +700,10 @@ export class Driver {
     this.hostToolNames = hostToolSet.names;
     this.allToolNames = allTools.map((t) => t.name);
     if (new Set(this.allToolNames).size !== allTools.length) throw new Error("工具装配存在重复名字");
-    this.mcpSession = this.deps.mcp && profile.planMcp ? new McpSession({
+    this.mcpSession = this.deps.mcp && (profile.planMcp || this.allows("subagent", profile)) ? new McpSession({
       ...this.deps.mcp, store: this.deps.mcp.store, credentials: this.deps.credentials, cua: this.deps.mcp.cua,
       task: () => this.currentTask,
-      discover: () => this.resourcePhase === "execution" || this.mcpPreflights > 0,
+      discover: () => profile.planMcp && this.resourcePhase === "execution" || this.mcpPreflights > 0,
       cuaAllowed: () => this.resourcePhase === "execution" && !!this.currentTask && ownerQuestionTaskEligible(this.deps.store, this.currentTask),
       direct: () => !!this.pinnedExecution && !this.pinnedExecution.tools.includes("tool_search") || !!this.pinnedDefinition?.tools && !this.pinnedDefinition.tools.includes("tool_search") || !!this.currentTask && !!this.deps.allowTaskTool && !this.deps.allowTaskTool(this.currentTask, "tool_search"),
       allow: meta => {
@@ -1435,7 +1438,7 @@ export class Driver {
     const allowTaskTool = this.deps.allowTaskTool;
     const subAgentTools = this.profile.subAgentTools;
     const eligible = taskToolSet({
-      registered: this.allToolNames,
+      registered: this.profile.planMcp ? this.allToolNames : this.allToolNames.filter(name => name !== "tool_search" && !name.startsWith("mcp__")),
       ownerQuestionsEnabled: Boolean(this.deps.ownerQuestions && ownerQuestionTaskEligible(this.deps.store, task)),
       ownerQuestionPending: this.questionBatchBarrier !== null && !this.questionToolsReady,
       backgroundProcessesEnabled: Boolean(this.deps.backgroundProcesses && ownerQuestionTaskEligible(this.deps.store, task)),

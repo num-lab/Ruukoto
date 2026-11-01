@@ -252,7 +252,9 @@ for (const interruption of ["pause", "restart"] as const) {
         rt.store.withTx(() => controlWorkflow(rt.store, run.id, "pause", getWorkflowRun(rt.store, run.id)!.version, { action: "pause" }));
         await rejected;
         assert.equal(rt.store.getTask(queued.id)!.status, "queued");
-        await rt.resumeQueue(session.id);
+        await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
+        assert.equal(rt.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
+        await rt.resumeQueue(session.id, undefined, true);
         rt.store.withTx(() => controlWorkflow(rt.store, run.id, "resume", getWorkflowRun(rt.store, run.id)!.version, { action: "resume" }));
       } else {
         await rt.stop("test_restart");
@@ -263,7 +265,9 @@ for (const interruption of ["pause", "restart"] as const) {
         assert.equal(getWorkflowExecution(rt.store, queued.id)!.status, "queued");
         assert.equal(rt.store.getTask(queued.id)!.modelSelection, null);
         assert.equal(rt.store.getSession(session.id)!.queuePauseReason, "occupancy_unverified");
-        await rt.resumeQueue(session.id);
+        await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
+        assert.equal(rt.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
+        await rt.resumeQueue(session.id, undefined, true);
       }
       const result = await rt.workflowHostOperation(input, execute);
       assert.deepEqual(await rt.workflowHostOperation(input, execute), result);
@@ -330,7 +334,9 @@ test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只�
     recovered = await Runtime.start(rt.config);
     assert.equal(recovered.store.getTask(queued.taskId)!.status, "queued");
     assert.equal(getWorkflowExecution(recovered.store, queued.taskId)!.status, "queued");
-    await recovered.resumeQueue(session.id);
+    await assert.rejects(recovered.resumeQueue(session.id), { code: "stop_unverified" });
+    assert.ok(recovered.store.getOccupancyByDir(session.cwdReal));
+    await recovered.resumeQueue(session.id, undefined, true);
     let effects = 0;
     const resumed = recovered;
     const execute = (execution: Parameters<Runtime["executeWorkCopy"]>[0]["execution"]) => {

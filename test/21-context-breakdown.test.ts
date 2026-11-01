@@ -66,7 +66,9 @@ test("breakdown 纯函数：分类占比工作示例", () => {
   assert.equal(b.windowUnavailableReason, null);
 
   const byKey = new Map(b.categories.map((c) => [c.key, c]));
-  assert.equal(byKey.size, 16, "十六个已知分类，包含执行资源和子代理角色");
+  assert.equal(byKey.size, 17, "Known categories include browser observations, execution resources and SubAgent roles");
+  assert.equal(byKey.get("browserObservation")!.label, "浏览器观察");
+  assert.equal(byKey.get("browserObservation")!.tokens, 0);
   assert.equal(byKey.get("subagentRoles")!.label, "子代理角色");
   assert.equal(byKey.get("subagentRoles")!.tokens, 0);
   assert.equal(byKey.get("resourcePhase")!.label, "执行资源");

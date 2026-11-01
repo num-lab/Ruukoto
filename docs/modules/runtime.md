@@ -100,6 +100,7 @@ Trusted reports arriving during request N wait for its tools to settle, then ent
 
 - Identical `(sessionId, requestId)` replay returns the original task; changed parameters produce `request_conflict`.
 - One execution entity owns a write target at a time; competitors wait or fail.
+- Branch and side-chat image snapshots require both source-task membership (including verified joined guidance) and an inbound/attachment binding; an image admitted in another conversation is not branch authority.
 - Task state, approval invalidation, occupancy changes and corresponding events finalize in one transaction, subject to verified stopping.
 - An owner interrupt commits `owner_pause` and stop intent before awaiting stop. Only explicit resume clears that pause; submissions, retrieval, reports and restart cannot. Resumption never reruns the interrupted task or confirms retained occupancy implicitly.
 - After backend restart, unfinished shared-runtime work becomes `interrupted` with `backend_restart`; pending approvals and unanswered questions become stale. An existing owner pause remains authoritative. Client disconnection alone leaves waits and work running.

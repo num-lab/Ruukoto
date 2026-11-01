@@ -180,7 +180,6 @@ For `execution_unavailable`, check the [native prerequisites](../deploy/native/R
 | `/resume-queue`, `/queue` | Resume dispatch / inspect, reorder, retrieve or steer ordinary queued messages |
 | `/steer <text>` | Route input at the running task's next boundary; queue at the head if missed |
 | `/recall [verify]` | Recall the latest input into the draft; `verify` rechecks unresolved stopping under the original request |
-| `/detach` | Remove attachments restored into the draft by recall |
 | `/model`, `/mode` | Choose model/effort or default mode for later new tasks |
 | `/status` | Current task details |
 | `/search <text>` | Literal search of effective conversation history, excluding recalled contributions |
@@ -193,7 +192,7 @@ For `execution_unavailable`, check the [native prerequisites](../deploy/native/R
 | `/qq <command>` | `status`, `enable`, `disable`, `groups`, `inbox`, `outbox`; last three are old group archives |
 | `/quit` | Exit client while backend work continues |
 
-Retrieving an unstarted message restores its text and attachments to the initiating draft without stopping the current task or changing the remaining queue's order or pause state. Historical `/recall` retains its stopping and edit-pause rules. If the latest owner input is a structured answer or Skip, historical recall rejects it rather than skipping back to the earlier requirement.
+Retrieving an unstarted message restores its text and attachments to the initiating draft without stopping the current task or changing the remaining queue's order or pause state. The draft-only `/detach` command removes restored attachments and is not listed in general help or completion. Historical `/recall` retains its stopping and edit-pause rules. If the latest owner input is a structured answer or Skip, historical recall rejects it rather than skipping back to the earlier requirement.
 
 An owner pause persists across new messages, retrieval, reports and backend restart. Explicit resume starts queued work; it never reruns an interrupted task. If old execution still holds directory occupancy, verify it stopped before confirming the separate stop-verification prompt. Headless `ruukoto-code resume-queue <session> --stop-confirmed` records that explicit confirmation; ordinary `resume-queue` cannot release it. New messages after interruption are independent tasks in the same conversation; `continue` and `/continue` are removed.
 

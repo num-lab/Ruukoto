@@ -32,6 +32,8 @@ Restart/same-key retry uses only that record and verified files. Verify an alrea
 
 The host-verified allow-list binds original task/session/artifact and branch range. Partial artifacts retain their captured byte limit/state; images retain immutable references/content verification; SubAgent results refer only to already completed tasks/artifacts. IDs in user/model prose are not authority.
 
+[Image provenance repair](../bug-fix/2026-11-01-branch-image-provenance.md) requires snapshot task membership and a hosted inbound/attachment binding together; neither fact substitutes for the other.
+
 Reads intersect existing history/artifact/image/result permissions with that allow-list. Revocation cannot be undone by branching; corrupt images reject the model call. Rebranching inherits only ancestor entries still inside the snapshot and their original limits, not every current ancestor object. Existing same-project access rules remain: this list is not a time snapshot of the entire project.
 
 Source eligibility never authorizes delegation, reuse, messaging, cancellation, closing, or integration. Source tasks are absent from new-session active lists and accumulated usage. The branch creates its own work through normal submission.

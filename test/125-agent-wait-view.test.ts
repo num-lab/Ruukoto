@@ -14,7 +14,7 @@ import { afterTool, connectAuthedClient, lastToolText, lastUserText, startTestRu
 
 initTheme("dark");
 
-test("控制面补报停车：原任务与别名都保留可信身份，实时和重连仅列出可执行排队任务", async () => {
+test("控制面补报停车：原任务与别名都保留可信身份，实时和重连仅列出拥有者排队输入", async () => {
   const t = await startTestRuntime("wait-parked-view", () => { throw new Error("停车夹具不得请求模型"); }, { workDirs: 1 });
   const clients = [t.client];
   try {
@@ -65,16 +65,21 @@ test("控制面补报停车：原任务与别名都保留可信身份，实时�
     assert.deepEqual(restored.queuedTasksFor(session.id).map(task => task.id), [owner.id]);
     assert.equal(restored.tasks.get(alias.id)?.reportParked, true);
     store.withTx(() => releaseAgentReports(store, parent.id, "parent_failed"));
-    await waitFor("失败后原任务重入队列", () => state.tasks.get(canonical.id)?.reportParked === false);
-    assert.deepEqual(new Set(state.queuedTasksFor(session.id).map(task => task.id)), new Set([canonical.id, owner.id]));
+    await waitFor("失败后原补报任务解除停车", () => state.tasks.get(canonical.id)?.reportParked === false);
+    assert.equal(state.tasks.get(canonical.id)?.status, "queued");
+    assert.deepEqual(state.queuedTasksFor(session.id).map(task => task.id), [owner.id]);
+    restored.applySnapshot(await again.handshake(), false);
+    assert.equal(restored.tasks.get(canonical.id)?.reportParked, false);
+    assert.deepEqual(restored.queuedTasksFor(session.id).map(task => task.id), [owner.id]);
     assert.equal(state.tasks.get(alias.id)?.reportParked, true, "归并别名始终停车");
     assert.equal(t.server.calls.length, 0);
   } finally { for (const client of clients) client.close(); await t.shutdown(); }
 });
 
 test("真实控制面等待：实时与重连含完整对象，TUI 状态与实际渲染区分等待和引导解除", async () => {
-  let releaseChild!: () => void;
+  let releaseChild!: () => void, releaseParent!: () => void;
   const childReady = new Promise<void>(resolve => { releaseChild = resolve; });
+  const parentReady = new Promise<void>(resolve => { releaseParent = resolve; });
   let parentPhase = 0, runId = "";
   const t = await startTestRuntime("wait-view", async request => {
     const input = lastUserText(request);
@@ -86,6 +91,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
       return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "workflow", run_id: runId }] } }] };
     }
     if (input.includes("WAIT_CHILD")) { await childReady; return { kind: "text", text: "后台完成" }; }
+    await parentReady;
     return { kind: "text", text: "新输入已处理" };
   }, { config: { product: codeProduct.runtime }, workDirs: 1 });
   const clients = [t.client], events: PersistentEvent[] = [];
@@ -117,14 +123,17 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     assert.equal(restored.tasks.get(parent.id)?.wait?.phase, "waiting", "重放不能回退等待阶段");
 
     const next = await t.runtime.submit({ sessionId: session.id, requestId: "owner-next", input: "新消息", modelSelection: t.runtime.defaultSelection, guidance: true });
-    // 显式引导解除等待：等待记录 owner_input 原因，父任务不中断而在下一边界接入后完成
+    // Guidance releases the wait before the parent finishes its next model boundary.
     await waitFor("等待已被引导解除", () => state.tasks.get(parent.id)?.wait?.reason === "owner_input");
     assert.equal(listAgentWaits(t.runtime.store, { taskId: parent.id })[0].reason, "owner_input");
-    rendered.setEntries(view.flow.items);
-    assert.match(stripTerminalSequences(rendered.render(100).join("\n")), /新输入打断等待，后台工作继续/);
     const resource = events.find(event => event.body.type === "task.resources_changed" && event.body.taskId === parent.id);
     assert.ok(resource, "资源阶段有持久事件");
+    assert.equal(state.tasks.get(parent.id)?.status, "running");
+    releaseParent();
     await waitFor("引导已接入且父轮完成", () => t.runtime.store.getTaskGuidance(next.id)?.state === "joined" && t.runtime.store.getTask(parent.id)?.status === "completed");
+    await waitFor("父轮终态已推送", () => state.tasks.get(parent.id)?.status === "completed");
+    rendered.setEntries(view.flow.items);
+    assert.match(stripTerminalSequences(rendered.render(100).join("\n")), /新输入打断等待，后台工作继续/);
     assert.equal(t.runtime.store.getTask(next.id)!.status, "canceled");
     assert.equal(t.runtime.store.getTask(next.id)!.interruptReason, "converted_to_guidance");
     const interrupted = await again.request<OpResult<"get_task">>("get_task", { task_id: parent.id });
@@ -132,7 +141,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     const waitOp = interrupted.toolOps.find(op => op.toolName === "wait")!;
     assert.equal(waitOp.effectUnknown, false);
     assert.equal(interrupted.task.effectUnknown, false);
-  } finally { releaseChild(); for (const client of clients) client.close(); await t.shutdown(); }
+  } finally { releaseParent(); releaseChild(); for (const client of clients) client.close(); await t.shutdown(); }
 });
 
 test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均不能调用 wait", async () => {

@@ -345,8 +345,11 @@ test("P1：occupancy_unverified 的角色会话不自动恢复（保留占用，
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(rt.store.listQueuedTasksFifo(main.sessionId).length, 1, "未核实前后续任务不运行");
 
-    // 拥有者核实并恢复后才允许后续任务运行
-    await rt.resumeQueue(main.sessionId);
+    // Ordinary resume cannot acknowledge retained execution on the owner's behalf.
+    await assert.rejects(rt.resumeQueue(main.sessionId), { code: "stop_unverified" });
+    assert.equal(rt.store.listAllOccupancy().length, 1);
+    assert.equal(rt.store.getSession(main.sessionId)!.queueState, "paused");
+    await rt.resumeQueue(main.sessionId, undefined, true);
     assert.equal(rt.store.listAllOccupancy().length, 0, "核实后遗留占用释放");
     await waitFor("后续任务完成", () => rt.store.getTask(next.id)!.status === "completed");
   } finally {

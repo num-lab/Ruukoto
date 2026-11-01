@@ -404,7 +404,10 @@ for (const phase of ["result_false", "result_throws", "ready", "call", "mode", "
         await new Promise((resolve) => setTimeout(resolve, 80));
         assert.equal(rt.store.getTask(continued.task.id)!.status, "queued");
         assert.equal(rt.store.getTask(copyTask.id)!.status, "queued");
-        await rt.resumeQueue(session.id);
+        await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
+        assert.ok(rt.store.getOccupancyByDir(session.cwdReal));
+        assert.ok(rt.store.getOccupancyByDir(copy.path));
+        await rt.resumeQueue(session.id, undefined, true);
         await waitFor("副本执行队列恢复", () => rt.store.getTask(continued.task.id)!.status === "completed" && rt.store.getTask(copyTask.id)!.status === "completed");
         assert.equal(rt.store.getOccupancyByDir(session.cwdReal), null);
         assert.equal(rt.store.getOccupancyByDir(copy.path), null);

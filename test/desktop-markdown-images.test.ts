@@ -24,7 +24,6 @@ test("Desktop 各 Markdown 正文渲染 HTML、保留图片地址并过滤危险
   const Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: boolean }> = (await server.ssrLoadModule("/conversation.tsx")).Conversation;
   const PersonalChat: ComponentType<{ model: PersonalState; onConnect: () => void }> = (await server.ssrLoadModule("/personal-chat.tsx")).PersonalChat;
   const FilePreview: ComponentType<{ file: { kind: "markdown"; path: string; content: string }; path: string; mode: "preview"; onMode: () => void; onFiles: () => void; onUrl: () => void }> = (await server.ssrLoadModule("/inspector-panels.tsx")).FilePreview;
-  const SkillBody: ComponentType<{ body: string }> = (await server.ssrLoadModule("/code-skills-settings.tsx")).SkillBody;
   const bridge = { request: async () => ({ ok: true as const, value: null }) };
   const code = new CodeState(bridge, noop);
   code.view.openSession("images").flow.installHistory([{ entryId: "image", role: "assistant", text: body, timestamp: "2026-10-25T00:00:00.000Z", taskId: null, inputPurpose: "user", parentId: null, offset: 0, totalBytes: Buffer.byteLength(body), truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: false, hasNonTextContent: false }], true, 1);
@@ -36,7 +35,6 @@ test("Desktop 各 Markdown 正文渲染 HTML、保留图片地址并过滤危险
     ["Code 子会话", createElement(Conversation, { model: code, sessionId: "images", child: true })],
     ["Personal", createElement(PersonalChat, { model: personal, onConnect: noop })],
     ["文件预览", createElement(FilePreview, { file: { kind: "markdown", path: "sample.md", content: body }, path: "sample.md", mode: "preview", onMode: noop, onFiles: noop, onUrl: noop })],
-    ["双端技能正文", createElement(SkillBody, { body })],
   ] as const) {
     const html = renderToStaticMarkup(element);
     assert.deepEqual([...html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"[^>]*>/g)].map(match => match[1]), sources, name);

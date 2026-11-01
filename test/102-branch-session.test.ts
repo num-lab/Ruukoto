@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { product } from "../apps/ruukoto-code/src/product.ts";
 import { parseSessionFile, parseSessionFileStrict, snapshotSessionHistory } from "@ruukoto/core/history.ts";
 import { getBranchRequest } from "@ruukoto/core/branch.ts";
+import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { checkpointFingerprint, COMPACTION_PROMPT_VERSION } from "@ruukoto/agent/compaction.ts";
 import { TASK_START_MARKER, TASK_END_MARKER, randomId, type Session } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
@@ -301,7 +302,8 @@ test("连续分支恢复原图片的实际模型 payload，伪造、缺失和损
     assert.ok(t.server.calls[0]!.messages.some(message => Array.isArray(message.content) && message.content.some((part: any) => part.type === "image_url" && part.image_url.url === `data:image/png;base64,${PNG.toString("base64")}`)));
     const own = await rt.createSession({ projectId: session.projectId, cwd: t.work[0]! });
     const forged = history(t, own); forged.task(); forged.user("伪造来源", [ref]);
-    await assert.rejects(() => rt.branchSession({ sessionId: own.id, requestId: "forged-image" }), (e: any) => e.code === "image_reference_invalid");
+    await assert.rejects(() => rt.branchSession({ sessionId: own.id, requestId: "forged-image" }), (error: unknown) => error instanceof RuntimeApiError && error.code === "image_reference_invalid");
+    assert.equal(rt.findBranchSession("forged-image").session, null);
     const before = t.server.calls.length;
     fs.writeFileSync(path.join(t.dirs.dataDir, "artifacts", `${image.id}.bin`), Buffer.from("损坏图片"));
     const bad = await rt.submit({ sessionId: b.id, requestId: "corrupt-image", input: "查看图片", modelSelection: rt.defaultSelection });
@@ -312,6 +314,49 @@ test("连续分支恢复原图片的实际模型 payload，伪造、缺失和损
     const missing = await rt.submit({ sessionId: c.id, requestId: "missing-image", input: "再看图片", modelSelection: rt.defaultSelection });
     await waitFor("缺失图片任务中断", () => rt.store.getTask(missing.id)!.status === "interrupted");
     assert.equal(t.server.calls.length, before);
+  } finally { await t.shutdown(); }
+});
+
+test("branch images require hosted provenance even when the artifact belongs to a source task", async () => {
+  const { t, session, h } = await fixture("branch-unbound-image");
+  try {
+    const rt = t.runtime;
+    const task = h.task();
+    const image = rt.artifacts.importImage({ id: randomId("art"), taskId: task.id, sessionId: session.id, name: "unbound-image",
+      mimeType: "image/png", byteCount: PNG.length, contentHash: createHash("sha256").update(PNG).digest("hex") }, PNG);
+    h.user("unbound image", [{ artifactId: image.id, taskId: task.id, sessionId: session.id, mimeType: image.mimeType, byteCount: image.byteCount, contentHash: image.contentHash }]);
+    await assert.rejects(() => rt.branchSession({ sessionId: session.id, requestId: "unbound-image" }), (error: unknown) => error instanceof RuntimeApiError && error.code === "image_reference_invalid");
+    assert.equal(rt.findBranchSession("unbound-image").session, null);
+    await assert.rejects(() => rt.openSideChat({ sessionId: session.id, requestId: "unbound-side-image" }), (error: unknown) => error instanceof RuntimeApiError && error.code === "image_reference_invalid");
+    assert.deepEqual(rt.sideChatBindings(), []);
+    assert.equal(t.server.calls.length, 0);
+  } finally { await t.shutdown(); }
+});
+
+test("branch images retain hosted attachments admitted through joined guidance", async () => {
+  const { t, session, h } = await fixture("branch-guidance-image");
+  try {
+    const rt = t.runtime, target = h.task("running");
+    h.user("original input");
+    const source = rt.store.withTx(() => rt.store.insertQueuedTask({ sessionId: session.id, requestId: "guidance-image", input: "image guidance", modelSelection: rt.defaultSelection, submissionDigest: "guidance-image" }).task);
+    const image = rt.artifacts.importImage({ id: randomId("art"), taskId: source.id, sessionId: session.id, name: "guidance.png",
+      mimeType: "image/png", byteCount: PNG.length, contentHash: createHash("sha256").update(PNG).digest("hex") }, PNG);
+    const attachment = { id: image.id, name: image.name, size: image.byteCount, taskId: source.id, sessionId: session.id, mimeType: image.mimeType!, contentHash: image.contentHash! };
+    rt.store.withTx(() => {
+      rt.store.appendEvent({ type: "task.attachments", taskId: source.id, sessionId: session.id, attachments: [attachment] }, { taskId: source.id, sessionId: session.id });
+      rt.store.acceptTaskGuidance(source.id, target.id, true);
+    });
+    const entryId = h.entry({ type: "message", message: { role: "user", content: source.input, timestamp: Date.now(), ruukotoSourceTaskId: source.id,
+      ruukotoMediaRefs: [{ artifactId: image.id, taskId: source.id, sessionId: session.id, mimeType: image.mimeType, byteCount: image.byteCount, contentHash: image.contentHash }] } });
+    rt.store.withTx(() => {
+      rt.store.recordTaskGuidanceEntry(source.id, target.id, entryId);
+      rt.store.endTask(target.id, ["running"], "completed");
+    });
+    const branch = await rt.branchSession({ sessionId: session.id, requestId: "joined-image" });
+    assert.deepEqual(branch.branchSource!.taskIds, [target.id]);
+    assert.deepEqual(branch.branchSource!.artifacts.map(item => item.id), [image.id]);
+    const repeated = await rt.branchSession({ sessionId: branch.id, requestId: "joined-image-again" });
+    assert.deepEqual(repeated.branchSource!.artifacts, branch.branchSource!.artifacts);
   } finally { await t.shutdown(); }
 });
 

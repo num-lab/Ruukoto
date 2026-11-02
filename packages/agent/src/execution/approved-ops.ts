@@ -218,6 +218,19 @@ export function sha256Hex(data: Buffer | string): string {
   return crypto.createHash("sha256").update(data).digest("hex");
 }
 
+/** 分块读取核对完整原文指纹，不将整个旧文件驻留内存；核对语义与整段哈希一致。 */
+function hashFdContent(fd: number): string {
+  const hash = crypto.createHash("sha256"), buffer = Buffer.alloc(64 * 1024);
+  let offset = 0;
+  for (;;) {
+    const count = fs.readSync(fd, buffer, 0, buffer.length, offset);
+    if (!count) break;
+    hash.update(buffer.subarray(0, count));
+    offset += count;
+  }
+  return hash.digest("hex");
+}
+
 export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
   let writing = false;
   try {
@@ -267,8 +280,7 @@ export function executeApprovedFileOp(req: FileOpRequest): FileOpOutcome {
           throw new ApprovedOpError("目标文件在等待期间已被替换，批准失效，请重新申请");
         }
         if (req.originalSha256 !== null) {
-          const original = fs.readFileSync(fd);
-          if (sha256Hex(original) !== req.originalSha256) {
+          if (hashFdContent(fd) !== req.originalSha256) {
             throw new ApprovedOpError("目标文件内容与批准时的原文版本不一致，批准失效，请重新申请");
           }
         }

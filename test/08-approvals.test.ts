@@ -107,6 +107,30 @@ test("文件写入开始后 fsync 失败保留真实改动并报告效果未知�
   } finally { fail.mock.restore(); syncBuiltinESMExports(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test("文件写入批准复核逐块核对完整原文：跨块边界的变化仍使批准失效", () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-file-chunks-")));
+  const file = path.join(root, "file.bin");
+  const original = Buffer.concat([Buffer.alloc(64 * 1024, 7), Buffer.from("尾块原文")]);
+  fs.writeFileSync(file, original);
+  const st = fs.statSync(file);
+  const request: FileOpRequest = { path: file, access: "read_write", content: "changed", targetDev: st.dev,
+    targetIno: st.ino, originalSha256: sha256Hex(original), protectedRoots: [] };
+  try {
+    // 第二块内的单字节变化：批准版本复核必须逐块发现，不误判一致。
+    const mutated = Buffer.from(original); mutated[64 * 1024 + 2] ^= 0xff;
+    fs.writeFileSync(file, mutated);
+    const rejected = executeApprovedFileOp(request);
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.effectUnknown, undefined);
+    assert.match(rejected.message, /原文版本不一致/);
+    assert.deepEqual(fs.readFileSync(file), mutated);
+    fs.writeFileSync(file, original);
+    const outcome = executeApprovedFileOp(request);
+    assert.equal(outcome.ok, true);
+    assert.equal(fs.readFileSync(file, "utf8"), "changed");
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("schema 直接替换：旧版本与较新版本均拒绝启动，不建表、不回填授权或改写数据", () => {
   for (const version of [1, 20, SCHEMA_VERSION - 2, SCHEMA_VERSION + 1]) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-schema-reject-"));

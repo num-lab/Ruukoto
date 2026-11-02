@@ -154,7 +154,7 @@ test("追加说明：模型 append 使用当前拥有者输入和工具原键，
     return { kind: "text", text: "收到" };
   });
   const p = await f.open(); target = await delegate(p); await until(() => f.model.calls.some(child));
-  assert.match(await p.answer("追加", "note-owner"), /note_accepted/);
+  assert.match(await p.answer("追加", "note-owner"), /已补充工作 \d+ 的说明/);
   const report = await p.main.submit({ type: "input", content: "追加", requestId: "report", entry: { kind: "ruukoto.work-report", data: {} } }, context); await report.wait(context);
   const work = (await p.harness.snapshot(PersonalWorkDoc, target.requestId, context))!;
   assert.equal(work.notes?.length, 1); assert.match(work.notes[0].requestId, /^personal-note-tool:/);

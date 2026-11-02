@@ -20,6 +20,7 @@ import type { PersonalBrowserConfig } from "./personal-browser-config.ts";
 import { personalBrowserControl, verifyBrowserControls } from "./personal-browser-controls.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, PersonalToolsDoc, PersonalWebSearchDoc, PersonalToolDoc, personalTools, personalArtifactReader, configureTools, verifyTools, toolOperations, toolUnresolved } from "./personal-tools.ts";
 import { PERSONAL_FILE_SEARCH, personalFileSearch } from "./personal-file-search.ts";
+import type { PersonalFileIo } from "./personal-file-io.ts";
 import { personalLocalInput, personalLocalPermission } from "./personal-local-records.ts";
 import { parsePersonalWebSearch, readPersonalWebSearch, type PersonalToolsConfig, type PersonalWebSearchConfig } from "./personal-tools-config.ts";
 import { personalToolControl, verifyToolControls } from "./personal-tools-controls.ts";
@@ -42,7 +43,7 @@ import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, veri
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
 import { PersonalPermissionsDoc, personalPermissions, permissionSnapshot } from "./personal-permissions.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
-import { personalWorkTools } from "./personal-work-tools.ts";
+import { personalWorkTools, personalWorkHandoff } from "./personal-work-tools.ts";
 import { personalWorkControls, verifyWorkMenu, verifyDelegationMenu } from "./personal-work-controls.ts";
 import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations } from "./personal-delegation.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
@@ -97,6 +98,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   mcpTimeouts?: McpTimeouts;
   mcpCuaHost?: Parameters<typeof personalMcp>[4];
   now?: () => number;
+  fileIo?: PersonalFileIo;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
   let harness: Harness | undefined;
@@ -161,7 +163,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const rawMcp = rawMcpRecord && await storage.document(rawMcpRecord.id, "current", context);
     const effectiveMcp = options.effectiveMcp ?? (savedMcpSelection && rawMcp?.value.config ? parsePersonalMcp(rawMcp.value.config) : options.mcp);
     let mcp = effectiveMcp && personalMcp(effectiveMcp, () => harness!, options.mcpTimeouts, { ...media, profile: lock.directory, supportsImages: () => currentModel.provider.getModels().find(model => model.id === currentModel.modelId)?.input.includes("image") === true }, options.mcpCuaHost, service => isSettingsSuspended("mcp", service));
-    let general = (options.tools || initialSearch) && personalTools(lock.directory, options.tools, options.provider, options.modelId, () => harness!, media, () => currentModel, initialSearch, () => isSettingsSuspended("web-search"));
+    let general = (options.tools || initialSearch) && personalTools(lock.directory, options.tools, options.provider, options.modelId, () => harness!, media, () => currentModel, initialSearch, () => isSettingsSuspended("web-search"), options.fileIo);
     browser = options.browser && personalBrowser(lock.directory, options.browser, () => harness!, { supportsImages: media.supportsImages, registerImage: media.registerImage, ...(!general ? { artifactReader: personalArtifactReader(lock.directory) } : {}) });
     const telegramSelection = await loadPersonalConfigurationSelection(storage, "telegram"), qqSelection = await loadPersonalConfigurationSelection(storage, "qq");
     const selectedTelegram = telegramSelection?.versions.some(value => value.config !== null) ? telegramSelection.effective.find(value => value.scope === "*")?.value.config : options.telegram;
@@ -558,7 +560,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     for (const value of providers) models.setRecordedProvider(value.provider);
     harness = await Harness.open(storage, { models, registry, settings: { followUpMode: "one-at-a-time", steeringMode: "one-at-a-time" }, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
     // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
-    unlocked = harness.closed.then(async () => { const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
+    unlocked = harness.closed.then(async () => { const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     await initializePersonalSettings(lock, harness);
     const initialImVersions = await harness.commit(async tx => ({ telegram: await effectivePersonalConfiguration(tx, "telegram", "*"), qq: await effectivePersonalConfiguration(tx, "qq", "*") }), context);
@@ -820,7 +822,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       get service() { return operations?.api(instance); },
       async updateWebSearch(config: PersonalWebSearchConfig, version: string, revision: string) {
         if (!general) {
-          general = personalTools(lock.directory, options.tools, options.provider, options.modelId, () => instance, media, () => currentModel, undefined, () => isSettingsSuspended("web-search"));
+          general = personalTools(lock.directory, options.tools, options.provider, options.modelId, () => instance, media, () => currentModel, undefined, () => isSettingsSuspended("web-search"), options.fileIo);
           registry.install({ ...media.extension, tools: [] });
           registry.install(general.extension);
         }
@@ -993,7 +995,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         const entry = await main.commit(tx => tx.entry(AssistantEntry, settled.answer), context);
         const message = entry?.model?.[0];
         if (message?.role !== "assistant") throw new PersonalError("answer_missing", "已结束输入的回答记录缺失，请保留档案并检查存储。");
-        return message.content.filter(part => part.type === "text").map(part => part.text).join("");
+        const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
+        // 纯工具调用让出由持久化交接事实识别；未解释的空文本保持原行为。
+        return text || await main.commit(tx => personalWorkHandoff(tx, settled.answer), context) || text;
       },
       async close() { await waitPersonalSettings({ profile: lock }); await pairing.close(); await entry.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked; },
     };

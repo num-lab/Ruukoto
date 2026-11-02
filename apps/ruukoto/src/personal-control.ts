@@ -22,6 +22,7 @@ import { once } from "node:events";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, type EntryRecord, type EntryId, type TaskId } from "@earendil-works/pi-durable";
+import { personalWorkHandoff } from "./personal-work-tools.ts";
 import { openPersonalHarness } from "./personal-harness.ts";
 import { parsePersonalModel, personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
@@ -457,6 +458,12 @@ export async function startPersonalServer(directory: string, options: { developm
             const entry = await tx.entry(AssistantEntry, record.answer);
             const message = entry && text(entry);
             if (!message) throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
+            // 纯工具调用让出由持久化交接事实识别；未解释的空文本保留缺失错误路径。
+            if (message.text === "") {
+              const handoff = await personalWorkHandoff(tx, record.answer);
+              if (handoff === undefined) throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
+              return { status: record.status, answer: handoff, truncated: false } satisfies PersonalInputStatus;
+            }
             return { status: record.status, answer: message.text, truncated: message.truncated } satisfies PersonalInputStatus;
           }, context);
         } else if (req.method === "POST" && ["/inputs", "/work/notes"].includes(url.pathname)) {

@@ -521,12 +521,12 @@ for (const stage of ["running", "unknown", "restored"] as const) test(`durable �
       release(); await unknown(p, ref);
       if (stage === "restored") { await p.close(); p = await f.open(); await unknown(p, ref); }
     }
-    assert.match(await p.answer("report", "report-source"), /report_registered/);
+    assert.match(await p.answer("report", "report-source"), /最终汇总安排/);
     const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
     await until(async () => (await p.harness.commit(tx => tx.task(report.taskId), context))?.state.status === "waiting");
     assert.equal(report.delivery, "waiting"); assert.equal(summaryCalls().length, 0);
     assert.equal(await p.answer("独立聊天", "independent"), "完成");
-    assert.match(await p.answer("report", "same-report"), /report_registered/);
+    assert.match(await p.answer("report", "same-report"), /最终汇总安排/);
     assert.equal((await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.taskId, report.taskId);
     if (stage === "running") release();
     else {

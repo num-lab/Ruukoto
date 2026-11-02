@@ -545,7 +545,7 @@ test("子检查：模型取消及时返回，停止未核实期间主聊天继�
   ref = await p.work.delegate({ requestId: "cancel-tool-child", sourceRequestId: "owner", content: "检查服务" });
   await until(async () => (await p.inspections!.list()).length === 1 && f.calls().some(call => call[0] === "stop-inspect"));
   const answer = await Promise.race([p.answer("模型取消", "cancel"), delay(2000).then(() => { throw new Error("模型取消占住主聊天"); })]);
-  assert.match(answer, /cancel_requested/);
+  assert.match(answer, /已登记工作 \d+ 的取消/);
   assert.notEqual((await p.work.status(ref)).task.state.status, "terminal");
   assert.equal(await p.answer("继续聊天", "chat"), "完成");
   const pending = (await p.inspections!.list())[0];
@@ -596,7 +596,7 @@ test("子检查：整项暂停/取消包含成员检查，封组报告等原停�
     const pending = (await p.inspections!.list())[0];
     if (action === "cancel_delegation") {
       assert.match(await p.answer(JSON.stringify({ action: "delegate", content: "绕过", delegation: ref.entryId }), "bypass"), /work_source_paused/);
-      assert.match(await p.answer(JSON.stringify({ action, delegation: ref.entryId }), "cancel"), /cancel_requested/);
+      assert.match(await p.answer(JSON.stringify({ action, delegation: ref.entryId }), "cancel"), /全部成员取消/);
     }
     assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, ref), context)).paused, true);
     assert.equal(await p.answer("继续聊天", "chat"), "聊天继续"); assert.equal(summaries, 0);

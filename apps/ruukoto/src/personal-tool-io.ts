@@ -12,6 +12,7 @@ export const PERSONAL_TOOL_CAPTURE_BYTES = 8 * 1024 * 1024;
 export const PERSONAL_HTTP_TIMEOUT_MS = 30_000;
 export type PersonalToolCredential = { name: string; host: string; header: string; env: string };
 export type PersonalFileRequest = FileOpRequest;
+export type PersonalFilePrepareInput = { path: string; access: "read" | "read_write"; content?: string; protectedRoots: string[] };
 export type PersonalToolIoResult = { effect: "returned" | "not_executed" | "no_write" | "effect_unknown"; code: string; bytes: Buffer; partial: boolean };
 export type PersonalHttpRequest = { method: string; url: string; headers: Record<string, string>; pinnedAddress: string; pinnedFamily: number; body?: string; credential?: PersonalToolCredential; credentialSha256?: string };
 export type PersonalHttpResult = PersonalToolIoResult & { headers: Record<string, string>; stopped: boolean; status?: number };
@@ -35,7 +36,7 @@ function readFileBytes(fd: number, capture: boolean) {
 }
 
 /** 只准备操作与对象身份，不授予权限；无保护根时按完全访问解析真实路径。 */
-export function preparePersonalFile(input: { path: string; access: "read" | "read_write"; content?: string; protectedRoots: string[] }): PersonalFileRequest {
+export function preparePersonalFile(input: PersonalFilePrepareInput): PersonalFileRequest {
   if (!path.isAbsolute(input.path) || !validText(input.path, 4096) || !["read", "read_write"].includes(input.access) || (input.access === "read_write" && (typeof input.content !== "string" || Buffer.byteLength(input.content) > PERSONAL_TOOL_CAPTURE_BYTES)) || (input.access === "read" && input.content !== undefined)) throw inputError();
   try {
     const resolved = input.protectedRoots.length ? restrictedResolve(input.path, { allowMissingLast: input.access === "read_write" }) : fs.existsSync(input.path) ? fs.realpathSync(input.path) : path.join(fs.realpathSync(path.dirname(input.path)), path.basename(input.path));

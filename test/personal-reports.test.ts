@@ -251,7 +251,7 @@ test("委托报告：多成员等待不占主聊天，封组在共用追加与�
   const p = await f.open(); await p.answer("multi", "owner"); const ref = await first(p);
   await until(() => f.model.calls.filter(child).length === 2);
   assert.equal((await report(p, ref)).delivery, "not_requested");
-  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "seal"), /report_registered/);
+  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "seal"), /最终汇总安排/);
   const saved = (await delegation(p, ref)).report!;
   assert.equal(saved.delivery, "waiting"); assert.equal(f.model.calls.filter(summary).length, 0);
   assert.equal(await p.answer("独立聊天", "chat"), "聊天：独立聊天");
@@ -261,7 +261,7 @@ test("委托报告：多成员等待不占主聊天，封组在共用追加与�
   await assert.rejects(p.work.append(member, { requestId: "host-note", content: "宿主说明", sourceRequestId: "owner" }), code("delegation_sealed"));
   for (const kind of ["local", "telegram"] as const) await assert.rejects(p.harness.commit(tx => appendPersonalWork(tx, member, { requestId: `${kind}-note`, content: "追加说明", source: { kind } }), context), code("delegation_sealed"));
   await assert.rejects(p.harness.commit(async tx => delegatePersonalAnalysis(tx, (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model!, { requestId: "host-member", content: "宿主续派", sourceRequestId: "owner" }, ref), context), code("delegation_sealed"));
-  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "seal-again"), /report_registered/);
+  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "seal-again"), /最终汇总安排/);
   assert.equal((await delegation(p, ref)).report!.taskId, saved.taskId);
   assert.equal(await p.harness.commit(tx => requestPersonalReport(tx, ref, saved.source.requestId, saved.modelCall), context), saved.taskId);
   analyzing.release(); await finishReport(p, ref);

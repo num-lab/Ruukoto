@@ -1,10 +1,9 @@
 import { personalSource } from "./personal-source.ts";
-import { AgentDoc, defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
+import { AgentDoc, AssistantEntry, defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type Cursor, type EntryId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { appendPersonalWork, personalWorkNoteSource, PersonalAgentsDoc, PersonalWorkDoc, personalWorkRef, personalWorkResult, personalWorkStatus, requestPersonalWorkCancel, closePersonalAgent } from "./personal-work.ts";
 import { PersonalAnalysisAdmission, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
-import type { EntryId } from "@earendil-works/pi-durable";
 import { requestPersonalReport, personalReportResult } from "./personal-report.ts";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-model-work.md
@@ -21,11 +20,13 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
   return source.source.requestId;
 }
 
+const YIELD = { terminate: true } as const;
+
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
 export function personalWorkTools(getHarness: () => Harness) {
   const tool = defineTool({
     name: "background_work",
-    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services/notice 是宿主当前事实，优先于 text 中旧子回答的解释；requiresVerification=false 表示不再等待核实，原 MCP 未知事实仍以 notice 为准，不据旧子回答恢复占用或重试；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效时只能查询或取消；任一成员说明来源的服务效果未知会暂停整个委托，原入口有效且未取消时仍可登记 report，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report，只登记封组，成员仍活动或效果未知时也可安排；宿主等全部成员及真实资源停止、必要效果核实后才生成并发送报告，封组后不能续派或追加。普通 MCP 结果未知可由拥有者结束原工作并保留未知后汇总，电脑调用仍须停止核实并接受新截图。report_result 分页读完整报告和发送状态。未知命令/服务及未恢复电脑调用会暂停报告；普通 MCP 人工收尾只允许汇总未知，不恢复原来源执行。阻塞解除后可重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。",
+    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services/notice 是宿主当前事实，优先于 text 中旧子回答的解释；requiresVerification=false 表示不再等待核实，原 MCP 未知事实仍以 notice 为准，不据旧子回答恢复占用或重试；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效时只能查询或取消；任一成员说明来源的服务效果未知会暂停整个委托，原入口有效且未取消时仍可登记 report，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report，只登记封组，成员仍活动或效果未知时也可安排；宿主等全部成员及真实资源停止、必要效果核实后才生成并发送报告，封组后不能续派或追加。普通 MCP 结果未知可由拥有者结束原工作并保留未知后汇总，电脑调用仍须停止核实并接受新截图。report_result 分页读完整报告和发送状态。未知命令/服务及未恢复电脑调用会暂停报告；普通 MCP 人工收尾只允许汇总未知，不恢复原来源执行。阻塞解除后可重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。report/append/cancel/cancel_delegation/close 是本轮结论性调用：宿主在该调用结束后直接让出本轮并按已登记事实向拥有者说明，调用后无需也不能再输出文本；继续安排工作或查询须在这些调用之前的轮次完成。",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 新登记须原入口有效且未取消，只登记封组，成员仍活动或效果未知时也可安排；宿主等成员及真实资源停止、必要效果核实后报告；普通 MCP 可由拥有者人工收尾并保留未知后汇总，电脑须停止核实并接受新截图。封组后不能续派或追加。" }),
       appData: Type.Optional(Type.Boolean({ description: "仅delegate：本次子工作确需应用数据时显式设true，默认无资格；复用身份不继承上次资格。" })),
@@ -95,15 +96,61 @@ export function personalWorkTools(getHarness: () => Harness) {
           await harness.abortTask(result.cancel.taskId, context);
           const status = await api.commit(tx => personalWorkStatus(tx, result.cancel!), context);
           const state = status.stopVerified ? "stopped" : status.task.state.status === "terminal" ? "stop_unverified" : "cancel_requested";
-          return { output: [{ type: "text" as const, text: JSON.stringify({ work, state, next: status.stopVerified ? "原工作已停止；用 result 查询其结果。身份未关闭，可用 list 查看。" : "已登记取消，停止仍须核实，保留占用；结束本轮，后续用 result 查询，不要重试或复用身份。" }) }] };
+          return { output: [{ type: "text" as const, text: JSON.stringify({ work, state, next: status.stopVerified ? "原工作已停止；用 result 查询其结果。身份未关闭，可用 list 查看。" : "已登记取消，停止仍须核实，保留占用；结束本轮，后续用 result 查询，不要重试或复用身份。" }) }], control: YIELD };
         }
-        return { output: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        // 结论性动作请求宿主让出本轮：单槽或全让出槽位的工具调用轮立即结束，混合轮按既有全票规则继续。
+        const output = [{ type: "text" as const, text: JSON.stringify(result) }];
+        if (["report", "append", "cancel_delegation", "close"].includes(action)) return { output, control: YIELD };
+        return { output };
       };
       try { return await execute(); } catch (error) {
         if (!(error instanceof PersonalError)) throw error;
-        return { isError: true, output: [{ type: "text", text: `${error.code}：${error.message}` }] };
+        // 来源/归属无法核实的错误只允许结束本轮并报告；可修正的输入或状态错误保留模型继续处理的机会。
+        const output = [{ type: "text" as const, text: `${error.code}：${error.message}` }];
+        if (["work_tool_inactive", "work_source_ambiguous", "work_source_invalid"].includes(error.code)) return { isError: true, output, control: YIELD };
+        return { isError: true, output };
       }
     },
   });
   return defineExtension({ name: "personal-model-work", tools: [tool] });
+}
+
+// 已结束输入的纯工具调用回答：只有每个槽位的持久化结果都带 control.terminate（宿主让出），才属于已识别的交接；
+// 其他无文本结束仍是未解释空回答，由调用方保留原错误路径。
+// Note: 见 .agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md
+export async function personalWorkHandoff(tx: Tx, answer: EntryId): Promise<string | undefined> {
+  const entry = await tx.entry(AssistantEntry, answer);
+  const message = entry?.model?.[0];
+  if (!entry || message?.role !== "assistant") return undefined;
+  const calls = message.content.filter(part => part.type === "toolCall");
+  if (!calls.length || message.content.some(part => part.type === "text" && part.text)) return undefined;
+  const wanted = new Set(calls.map(call => call.id));
+  const tasks = new Map<string, Awaited<ReturnType<Tx["task"]>>>();
+  let cursor: Cursor | undefined;
+  do {
+    const page = await tx.scanTasks({ kind: "pi.tool", conversationId: entry.conversationId }, 256, cursor);
+    for (const item of page.items) {
+      const input = item.input;
+      if (input && typeof input === "object" && !Array.isArray(input) && input.kind === "model" && typeof input.callId === "string" && wanted.has(input.callId)) tasks.set(input.callId, item);
+    }
+    cursor = page.next;
+  } while (cursor && tasks.size < wanted.size);
+  const facts: string[] = [];
+  for (const call of calls) {
+    const task = tasks.get(call.id);
+    const outcome = task && task.state.status !== "pending" && task.state.status !== "running" && task.state.status !== "waiting" ? task.state.outcome : undefined;
+    const result = outcome?.status === "completed" ? outcome.result : undefined;
+    if (!result || typeof result !== "object" || Array.isArray(result) || result.kind !== "model" || typeof result.entryId !== "number" || (result.control as { terminate?: unknown } | undefined)?.terminate !== true) return undefined;
+    const resultEntry = await tx.entry(result.entryId as EntryId);
+    const resultMessage = resultEntry?.model?.[0];
+    const resultText = resultMessage?.role === "toolResult" ? resultMessage.content.filter(part => part.type === "text").map(part => part.text).join("") : "";
+    const args = call.arguments && typeof call.arguments === "object" && !Array.isArray(call.arguments) ? call.arguments as Record<string, unknown> : {};
+    if (call.name === "background_work" && args.action === "report") facts.push(`已登记委托 ${args.delegation} 的最终汇总安排，全部成员停止并核实后自动回报原入口`);
+    else if (call.name === "background_work" && args.action === "append") facts.push(`已补充工作 ${args.work} 的说明，当前回答结束后依次处理`);
+    else if (call.name === "background_work" && args.action === "cancel") facts.push(`已登记工作 ${args.work} 的取消，停止与效果以原记录为准`);
+    else if (call.name === "background_work" && args.action === "cancel_delegation") facts.push(`已登记委托 ${args.delegation} 的全部成员取消，停止尚须核实`);
+    else if (call.name === "background_work" && args.action === "close") facts.push(`已关闭身份 ${args.agent}`);
+    else facts.push(resultText || `调用 ${call.name} 已结束本轮`);
+  }
+  return `本轮以工具调用让出：${facts.join("；")}。`;
 }

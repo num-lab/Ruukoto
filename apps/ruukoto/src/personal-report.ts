@@ -146,8 +146,10 @@ function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInp
           const entry = await tx.entry(AssistantEntry, settled.answer);
           const message = entry?.model?.[0];
           if (message?.role !== "assistant") throw new PersonalError("report_answer_missing", "报告完整回答缺失，未外发；请保留档案。");
-          report.answer = settled.answer;
           const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
+          // 无文本回答不能冒充报告正文，包括已识别的工具调用让出；保留未回答失败路径。
+          if (!text) { report.delivery = "unanswered"; return { status: "terminal", outcome: { status: "failed", error: { message: "主会话未产出报告正文，未外发；请查询原委托。" }, result: { delivery: "unanswered" } } }; }
+          report.answer = settled.answer;
           report.reply = platformText(text);
           report.delivery = "pending";
           return { status: "running", checkpoint: { phase: "send" } };

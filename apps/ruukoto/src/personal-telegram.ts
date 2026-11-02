@@ -6,6 +6,7 @@ import { personalTelegramApi, PersonalTelegramApiError, telegramOffset, telegram
 import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt as Receipt, type TelegramResult as Result, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { telegramPermissionControl, personalPermissionFor, PersonalPermissionsDoc, TELEGRAM_SERVICE_ACTIONS } from "./personal-permissions.ts";
 import { telegramWorkControl, telegramDelegationControl } from "./personal-work-controls.ts";
+import { personalWorkHandoff } from "./personal-work-tools.ts";
 export { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalMediaRejection, type PersonalMedia, type PersonalMediaDownload } from "./personal-media.ts";
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
@@ -110,8 +111,11 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
             value.delivery = answer === undefined ? "unanswered" : "canceled";
             return { status: "terminal", outcome: { status: "completed", result: { delivery: value.delivery } } };
           }
-          const characters = Array.from(answer);
-          value.reply = characters.length > 3900 ? characters.slice(0, 3900).join("") + "…（显示已截断，完整回答保留在个人会话中）" : answer || "本次回答没有文本内容，请从本机向导查看会话状态。";
+          // 纯工具调用让出由持久化交接事实识别；未解释的空文本保留原占位说明。
+          const handoff = answer === "" && settled.status === "done" && settled.answer !== undefined ? await personalWorkHandoff(tx, settled.answer) : undefined;
+          const final = answer || handoff || "本次回答没有文本内容，请从本机向导查看会话状态。";
+          const characters = Array.from(final);
+          value.reply = characters.length > 3900 ? characters.slice(0, 3900).join("") + "…（显示已截断，完整回答保留在个人会话中）" : final;
           value.delivery = "pending";
           return { status: "running", checkpoint: { phase: "send" } };
         }, context);

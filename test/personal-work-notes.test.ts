@@ -6,14 +6,15 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
-import { AgentDoc, ROOT_CONVERSATION_ID, type SubmissionId } from "@earendil-works/pi-durable";
+import { AgentDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type SubmissionId } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { checkPersonalInput, managePersonalWorks, pendingPersonalInputs, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
-import { PersonalWorkDoc, PersonalWorkTask, personalWorkResult, verifyPersonalWorkNotes, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
+import { appendPersonalWork, PersonalAgentsDoc, PersonalWorkDoc, PersonalWorkTask, personalWorkNoteSource, personalWorkResult, verifyPersonalWorkNotes, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
@@ -40,7 +41,7 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
   let server: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
   t.after(async () => { await server?.stop(); await p?.close(); await model.close(); fs.rmSync(directory, { recursive: true, force: true }); if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; });
   return { directory, config, model,
-    open: async () => p = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId }),
+    open: async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => p = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId, ...overrides }),
     start: async () => { await savePersonalConfig(directory, config); server = await startPersonalServer(directory); return server; },
   };
 }
@@ -70,11 +71,131 @@ test("追加说明：顺序接纳、去重与最后回答，同工作占用/权�
   assert.deepEqual(f.model.calls.filter(child).map(request => request.messages.at(-1)?.content), ["初始分析", "第一条", "第二条"]);
   assert.deepEqual((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!.permission, permission);
   await p.work.append(ref, note("第一条"));
-  await assert.rejects(p.work.append(ref, note("太迟")), code("work_inactive"));
+  assert.deepEqual(await p.work.append(ref, note("太迟")), { accepted: false, outcome: "completed" });
   const reused = await p.work.delegate({ content: "新工作", requestId: "reuse", sourceRequestId: "owner", agentId: ref.agentId });
-  await assert.rejects(p.work.append(ref, note("旧菜单")), code("work_inactive"));
+  assert.deepEqual(await p.work.append(ref, note("旧菜单")), { accepted: false, outcome: "completed" });
   await p.harness.waitForTask(reused.taskId, context); await p.close(); p = await f.open();
   assert.equal((await p.harness.commit(tx => personalWorkResult(tx, ref), context)).text, "回答:第二条");
+});
+
+test("追加说明：运行中说明排队接入同一运行共享回答，轮次结束后说明起新一轮", async t => {
+  const last = gate(t);
+  let target!: PersonalWorkRef;
+  const f = await fixture(t, async request => {
+    if (!child(request)) return { kind: "text", text: "收到" };
+    const content = request.messages.at(-1)?.content;
+    // 说明在首个工具轮仍在运行时接纳：排队后在边界接入同一运行；第二项说明在最后一个请求在途时接纳，轮次结束后起新一轮。
+    if (content === "初始分析") return { kind: "tool_calls", calls: [{ id: "first", name: "memory", arguments: { action: "search", query: "一" } }] };
+    if (request.messages.at(-1)?.role === "tool" && !request.messages.some(message => message.content === "接入说明")) { await p.work.append(target, note("接入说明")); return { kind: "tool_calls", calls: [{ id: "second", name: "memory", arguments: { action: "search", query: "二" } }] }; }
+    if (content === "接入说明") { await last.wait; return { kind: "text", text: "共享回答" }; }
+    if (content === "新一轮") return { kind: "text", text: "新一轮回答" };
+    return { kind: "text", text: `回答:${content}` };
+  });
+  const p = await f.open(); target = await delegate(p);
+  await until(() => f.model.calls.filter(child).length === 3);
+  assert.deepEqual(await p.work.append(target, note("新一轮")), { accepted: true }); last.release();
+  await p.harness.waitForTask(target.taskId, context);
+  const calls = f.model.calls.filter(child);
+  assert.equal(calls.length, 4);
+  const steered = calls[2];
+  assert.ok(steered.messages.some(message => message.role === "tool"), "同一运行应含工具结果");
+  assert.ok(steered.messages.some(message => message.role === "user" && message.content === "接入说明"), "同一运行应含接入的说明");
+  const original = (await p.harness.commit(tx => tx.submissionByRequest(target.agentId, `personal-work:${target.taskId}`), context))!;
+  const shared = (await p.harness.commit(tx => tx.submissionByRequest(target.agentId, `personal-work:${target.taskId}:note:接入说明`), context))!;
+  const second = (await p.harness.commit(tx => tx.submissionByRequest(target.agentId, `personal-work:${target.taskId}:note:新一轮`), context))!;
+  assert.equal(original.status, "done"); assert.equal(shared.status, "done"); assert.equal(second.status, "done");
+  assert.equal(original.answer, shared.answer, "同一运行的两个输入共享同一回答");
+  assert.notEqual(second.answer, shared.answer, "轮次结束后的说明起新一轮回答");
+  const entries = (await (await p.harness.conversation(target.agentId, context))!.entries({ order: "ascending" }, 256, undefined, context)).items;
+  assert.equal(entries.filter(entry => entry.kind === "pi.assistant").length, 4);
+  assert.equal((await p.harness.commit(tx => personalWorkResult(tx, target), context)).text, "新一轮回答");
+});
+
+test("追加说明：失败运行下的已接入、排队与未下发说明按原键记账且不重放", async t => {
+  const initial = gate(t), second = gate(t);
+  let target: PersonalWorkRef | undefined, inserted = false;
+  const f = await fixture(t, async request => {
+    if (!child(request)) return { kind: "text", text: "收到" };
+    const content = request.messages.at(-1)?.content;
+    if (content === "初始分析") await initial.wait;
+    if (content === "完成轮") await second.wait;
+    return { kind: "text", text: "完成" };
+  });
+  const original = PersonalWorkTask.definition.phases.run;
+  const p = await f.open();
+  t.mock.method(PersonalWorkTask.definition.phases, "run", async (...[task, runtime, context]: Parameters<typeof original>) => original(task, { ...runtime, conversation: async (id, context) => {
+    const conversation = await runtime.conversation(id, context); if (!conversation) return conversation;
+    return { ...conversation, abort: async (...args: Parameters<typeof conversation.abort>) => { if (!inserted) { inserted = true; await p.work.append(target!, note("收尾轮")); } await conversation.abort(...args); } };
+  } }, context));
+  target = await delegate(p); await until(() => f.model.calls.some(child));
+  await p.work.append(target, note("完成轮"));
+  initial.release(); await until(() => f.model.calls.filter(child).length === 2);
+  await p.work.append(target, note("排队轮"));
+  await until(async () => (await p.harness.commit(tx => tx.submissionByRequest(target!.agentId, `personal-work:${target!.taskId}:note:排队轮`), context)) !== undefined);
+  const live = await p.harness.commit(tx => personalWorkResult(tx, target!), context);
+  assert.deepEqual(live.notes?.map(note => [note.requestId, note.state]), [["完成轮", "placed"], ["排队轮", "queued"]], "已接纳/排队不等于模型已读");
+  delete process.env[f.config.apiKeyEnv];
+  second.release();
+  await p.harness.waitForTask(target.taskId, context);
+  assert.ok(inserted);
+  const result = await p.harness.commit(tx => personalWorkResult(tx, target!), context);
+  assert.equal(result.state, "failed"); assert.equal(result.text, undefined);
+  assert.deepEqual(result.notes?.map(note => [note.requestId, note.state]), [["完成轮", "done"], ["排队轮", "unanswered"], ["收尾轮", "not_submitted"]]);
+  await p.close(); await f.open();
+  assert.equal(f.model.calls.filter(child).length, 2);
+});
+
+test("追加说明：两项独立工作不交叉路由说明", async t => {
+  const f = await fixture(t);
+  const p = await f.open(); await p.answer("拥有者来源", "owner");
+  const first = await p.work.delegate({ content: "工作一", requestId: "one", sourceRequestId: "owner" });
+  const second = await p.work.delegate({ content: "工作二", requestId: "two", sourceRequestId: "owner" });
+  await p.work.append(first, note("一说明")); await p.work.append(second, note("二说明"));
+  await p.harness.waitForTask(first.taskId, context); await p.harness.waitForTask(second.taskId, context);
+  const entries = async (agentId: typeof first.agentId) => (await (await p.harness.conversation(agentId, context))!.entries({ order: "ascending" }, 256, undefined, context)).items;
+  assert.ok((await entries(first.agentId)).some(entry => entry.model?.[0]?.content === "一说明"));
+  assert.ok(!(await entries(first.agentId)).some(entry => entry.model?.[0]?.content === "二说明"));
+  assert.ok((await entries(second.agentId)).some(entry => entry.model?.[0]?.content === "二说明"));
+  assert.ok(!(await entries(second.agentId)).some(entry => entry.model?.[0]?.content === "一说明"));
+  assert.equal((await p.harness.commit(tx => personalWorkResult(tx, first), context)).text, "完成");
+});
+
+test("追加说明：终态旧版本工作按原顺序核实恢复，更新版本永不接受", async t => {
+  for (const version of [1, 3] as const) await t.test(`v${version}`, async t => {
+    const f = await fixture(t);
+    const p = await f.open(); const ref = await delegate(p);
+    await p.work.append(ref, note("旧说明"));
+    await p.harness.waitForTask(ref.taskId, context); await p.close();
+    const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+    const record = await storage.task(ref.taskId, context);
+    await storage.commit([{ type: "task", value: { ...record!, version } }], context);
+    await storage.close(context);
+    if (version === 1) {
+      const reopened = await f.open();
+      assert.equal((await reopened.harness.commit(tx => personalWorkResult(tx, ref), context)).state, "completed");
+      await reopened.close();
+    } else await assert.rejects(f.open(), code("work_ownership"));
+  });
+});
+
+test("追加说明：伪造来源、入口或占用在接纳时拒绝，不发起模型请求", async t => {
+  const initial = gate(t);
+  const f = await fixture(t, async request => { if (child(request)) await initial.wait; return { kind: "text", text: "完成" }; });
+  const p = await f.open(); const ref = await delegate(p); await until(() => f.model.calls.some(child));
+  const calls = f.model.calls.length;
+  await p.harness.commit(async tx => {
+    const source = await personalWorkNoteSource(tx, "owner");
+    assert.equal(source.kind, "input"); if (source.kind !== "input") return;
+    await assert.rejects(appendPersonalWork(tx, ref, { requestId: "forged-submission", content: "伪造来源", source: { ...source, submissionId: 999 as SubmissionId } }), code("work_original_entry_required"));
+    await assert.rejects(appendPersonalWork(tx, ref, { requestId: "forged-entry", content: "伪造入口", source: { ...source, entryId: 999 as EntryId } }), code("work_original_entry_required"));
+    await assert.rejects(appendPersonalWork(tx, { ...ref, agentId: (ref.agentId + 999) as ConversationId }, { requestId: "foreign-agent", content: "越权说明", source }), code("work_missing"));
+    const agent = (await tx.doc(PersonalAgentsDoc)).agents.find(agent => agent.id === ref.agentId)!;
+    const held = agent.work!; delete agent.work;
+    await assert.rejects(appendPersonalWork(tx, ref, { requestId: "stale-occupancy", content: "占用丢失", source }), code("work_ownership"));
+    agent.work = held;
+  }, context);
+  assert.equal(f.model.calls.length, calls);
+  initial.release(); await p.harness.waitForTask(ref.taskId, context);
 });
 
 test("追加说明：前轮失败停止后续说明，取消拦住新说明且收齐原占用", async t => {
@@ -88,7 +209,7 @@ test("追加说明：前轮失败停止后续说明，取消拦住新说明且�
     const done = await p.harness.waitForTask(ref.taskId, context);
     assert.equal(done.state.outcome.status, ending === "failed" ? "failed" : "aborted");
     assert.equal((await p.harness.commit(tx => personalWorkResult(tx, ref), context)).text, undefined);
-    await assert.rejects(p.work.append(ref, note("取消后")), code("work_inactive"));
+    assert.deepEqual(await p.work.append(ref, note("取消后")), { accepted: false, outcome: ending === "failed" ? "failed" : "aborted" });
     assert.equal(f.model.calls.filter(child).length, 1); assert.equal((await p.work.list())[0].work, undefined);
   });
 });

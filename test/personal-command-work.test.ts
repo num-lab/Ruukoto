@@ -207,7 +207,7 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未�
   assert.equal((await p.commands!.detail(ref, "stdout")).stopped, false);
   assert.equal((await p.harness.commit(tx => personalWorkResult(tx, work), context)).commands?.[0]?.requiresVerification, true);
   await assert.rejects(p.work.delegate(draft("other-member")), code("work_source_paused"));
-  await assert.rejects(p.work.append(work, { requestId: "append", content: "继续执行", sourceRequestId: "owner-source" }), code("work_source_paused"));
+  assert.deepEqual(await p.work.append(work, { requestId: "append", content: "继续执行", sourceRequestId: "owner-source" }), { accepted: true });
   assert.equal(await p.answer("独立聊天", "independent"), "完成");
   const independent = await p.work.delegate({ ...draft("independent"), sourceRequestId: "independent", content: "继续分析" });
   await p.harness.waitForTask(independent.taskId, context);
@@ -236,6 +236,7 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未�
   const canceledResult = await p.harness.commit(tx => personalWorkResult(tx, work), context);
   assert.equal(canceledResult.state, "aborted"); assert.equal(canceledResult.commands?.[0]?.operation, ref.taskId);
   assert.equal(canceledResult.commands?.[0]?.requiresVerification, false); assert.equal(canceledResult.commands?.[0]?.verifiedEffect, "applied");
+  assert.equal(canceledResult.notes?.[0]?.requestId, "append"); assert.match(canceledResult.notes?.[0]?.state ?? "", /^(not_submitted|unanswered)$/);
   const reused = await p.work.delegate({ ...draft("reuse", work.agentId), content: "继续分析" }); await p.harness.waitForTask(reused.taskId, context);
   assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "x\n");
   assert.equal((await p.harness.commit(tx => personalWorkResult(tx, reused), context)).commands?.length ?? 0, 0);
@@ -487,10 +488,11 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未�
   const progress = await p.harness.commit(tx => personalDelegationProgress(tx, group), context);
   assert.equal(progress.paused, true); assert.equal(progress.members.length, 2);
   await p.answer("新的独立说明", "fresh-note");
-  for (const [i, member] of progress.members.entries()) await assert.rejects(p.work.append(member.ref, { requestId: `append-${i}`, content: "继续执行", sourceRequestId: "fresh-note" }), code("work_source_paused"));
+  for (const [i, member] of progress.members.entries()) assert.deepEqual(await p.work.append(member.ref, { requestId: `append-${i}`, content: "继续执行", sourceRequestId: "fresh-note" }), { accepted: true });
   await assert.rejects(p.harness.commit(async tx => delegatePersonalAnalysis(tx, (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model!, { ...draft("continue-group"), sourceRequestId: "fresh-note", content: "续派成员" }, group), context), code("work_source_paused"));
   assert.equal(fs.existsSync(path.join(helper, "calls.log")), false); assert.equal((await p.inspections!.list()).length, 0);
   assert.equal(f.launches(), 1);
+  release(); assert.equal((await p.harness.waitForTask(progress.members[1].ref.taskId, context)).state.outcome.status, "failed");
 });
 
 for (const stage of ["running", "unknown", "restored"] as const) test(`durable 命令：封组登记不等待命令 ${stage}，效果和停止核实后才唯一汇总`, async t => {

@@ -9,13 +9,13 @@ import { isDeepStrictEqual } from "node:util";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type SubmissionId, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
+import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationHandle, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type Submission, type SubmissionId, type SubmissionRecord, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperationsIn, personalServiceResult, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
-import { requirePersonalDelegationOpen, requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
+import { requirePersonalDelegationActive, requirePersonalDelegationOpen, requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
 import { PersonalPendingInspectionsDoc, pendingWorkInspection } from "./personal-service-inspection.ts";
 import { personalSubAgentServices } from "./personal-services.ts";
 import { PERSONAL_COMMAND_WORK, personalCommandResult, personalWorkCommands, requirePersonalCommandsStopped, waitPersonalCommand } from "./personal-command-work.ts";
@@ -101,6 +101,12 @@ async function settleAppData(runtime: TaskRuntime<WorkInput, { phase: "run" }, W
   await waitWorkAppData(runtime, ids, context);
 }
 
+async function settleWorkResources(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, child: ConversationHandle, taskId: TaskId, context: Context, cancel: boolean) {
+  await child.abort(context, { background: true });
+  await Promise.all([settleCommands(runtime, taskId, context, cancel), settleServices(runtime, taskId, context, cancel), settleMcp(runtime, taskId, context), settleTools(runtime, taskId, context), settleAppData(runtime, taskId, context)]);
+  await waitForInspections(runtime, taskId, context);
+}
+
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-inspection.md
 async function waitForInspections(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
   while (true) {
@@ -119,7 +125,7 @@ async function waitForInspections(runtime: TaskRuntime<WorkInput, { phase: "run"
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-background-work.md
 export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResult>({
   name: "ruukoto.background-work",
-  version: 1,
+  version: 2,
   initial: () => ({ phase: "run" }),
   phases: {
     async run(task, runtime, context) {
@@ -129,73 +135,105 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
       await runtime.commit(async tx => { await occupancy(tx, task.input, task.id); return undefined; }, context);
       const child = await runtime.conversation(task.input.agentId, context);
       if (!child) throw new PersonalError("work_agent_missing", "后台工作的子会话缺失，已停止；请保留档案。");
+      const collect = (cancel: boolean) => settleWorkResources(runtime, child, task.id, context, cancel);
       if (work.cancelRequested) {
-        await child.abort(context, { background: true });
-        await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context), settleAppData(runtime, task.id, context)]);
-        await waitForInspections(runtime, task.id, context);
+        await collect(true);
         await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
         return;
       }
       // 原生受理不能与工作登记同 commit；恢复始终重接同一 submission。
+      // 唯一调度者：按接纳顺序向原子会话下发全部已接纳说明并守候到全部安置。
       // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-work-notes.md
-      let start = -1;
-      await runtime.commit(async tx => {
-        const work = await facts(tx, ref);
-        for (const [i, note] of (work.notes ?? []).entries()) if (await tx.submissionByRequest(ref.agentId, noteSubmissionKey(ref, note))) start = i;
-        return undefined;
-      }, context);
-      for (let index = start; ; index++) {
-        const latest = await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context);
-        const note = index < 0 ? undefined : latest?.notes?.[index];
-        if (index >= 0 && !note) throw new PersonalError("work_note_missing", "后台分析的追加记录缺失，已保留占用；请检查档案。");
-        const submission = await child.submit({ type: "input", content: note?.content ?? task.input.content, requestId: note ? noteSubmissionKey(ref, note) : `personal-work:${task.id}`, whenBusy: "reject" }, context);
+      type Tracked = { submission: Submission; wait: ReturnType<Submission["wait"]> };
+      const tracked = new Map<number, Tracked>();
+      const ORIGINAL = -1;
+      const submit = async (index: number, note?: WorkNote) => {
+        const submission = await child.submit({ type: "input", content: note?.content ?? task.input.content, requestId: note ? noteSubmissionKey(ref, note) : `personal-work:${task.id}`, whenBusy: index === ORIGINAL ? "reject" : "steer" }, context);
         await runtime.commit(async tx => {
           const work = await facts(tx, ref);
-          if (index < 0) work.submissionId = submission.id;
-          else work.notes![index].submissionId = submission.id;
+          if (index === ORIGINAL) {
+            if (work.submissionId !== undefined && work.submissionId !== submission.id) throw new PersonalError("work_note_missing", "后台工作的原输入引用不符，已保留占用；请检查档案。");
+            work.submissionId = submission.id;
+          } else {
+            const saved = work.notes?.[index];
+            if (saved?.requestId !== note!.requestId || (saved.submissionId !== undefined && saved.submissionId !== submission.id)) throw new PersonalError("work_note_missing", "后台分析的追加记录缺失，已保留占用；请检查档案。");
+            saved.submissionId = submission.id;
+          }
           return undefined;
         }, context);
-        const watch = await runtime.watchDoc(PersonalWorkDoc, task.input.requestId, context);
-        if (!watch) throw new PersonalError("work_missing", "后台工作的取消记录缺失，已保留占用；请检查档案。");
-        let settled;
-        try {
-          const canceled = new Promise<undefined>((resolve, reject) => {
-            const check = (value: typeof watch.value) => {
-              if (!value?.ref || value.ref.taskId !== task.id) reject(new PersonalError("work_missing", "后台工作的取消归属无法核实，已保留占用；请检查档案。"));
-              else if (value.cancelRequested) resolve(undefined);
-            };
-            watch.start(async value => { check(value); });
-            check(watch.value);
-            void watch.closed.then(() => reject(new PersonalError("work_wait_stopped", "后台工作等待已停止，请查询原工作；占用未核实前不能复用。")));
-          });
-          settled = await Promise.race([submission.wait(context), canceled]);
-        } finally { await watch.stop(); }
-        await child.abort(context, { background: true });
-        const cancel = !settled || !!(await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context))?.cancelRequested;
-        await Promise.all([settleCommands(runtime, task.id, context, cancel), settleServices(runtime, task.id, context, cancel), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context), settleAppData(runtime, task.id, context)]);
-        await waitForInspections(runtime, task.id, context);
-        let next = false;
-        await runtime.commit(async tx => {
-          const work = await facts(tx, ref);
-          if (work.cancelRequested) {
-            await release(tx, task.input, task.id);
-            return { status: "terminal", outcome: { status: "aborted" } };
+        tracked.set(index, { submission, wait: submission.wait(context) });
+      };
+      // 每次全部已下发输入安置后才统一收集资源；最终事务内重新核实取消、说明与归属，
+      // 收尾窗口内接纳的说明继续同一身份的工作，失败或取消下的未处理说明保留原键记录。
+      // Note: 见 .agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md
+      // 附着观察前先下发原输入：附着前的接纳或取消仍由每次迭代的快照核实覆盖。
+      await submit(ORIGINAL);
+      let wakeResolve: (() => void) | undefined, wakeReject: ((error: unknown) => void) | undefined;
+      // 原输入受理后运行必有 pi.live 记录；无记录则无法在排队后唤醒核实。
+      const liveWatch = await runtime.watchDoc(LiveDoc, task.input.agentId, context);
+      if (!liveWatch) throw new PersonalError("work_missing", "子会话的运行记录缺失，已保留占用；请检查档案。");
+      const workWatch = await runtime.watchDoc(PersonalWorkDoc, task.input.requestId, context);
+      if (!workWatch) throw new PersonalError("work_missing", "后台工作的取消记录缺失，已保留占用；请检查档案。");
+      const stopped = new PersonalError("work_wait_stopped", "后台工作等待已停止，请查询原工作；占用未核实前不能复用。");
+      try {
+        liveWatch.start(async () => wakeResolve?.());
+        void liveWatch.closed.then(() => wakeReject?.(stopped));
+        workWatch.start(async () => wakeResolve?.());
+        void workWatch.closed.then(() => wakeReject?.(stopped));
+        for (;;) {
+          const latest = await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context);
+          if (!latest?.ref || latest.ref.taskId !== task.id || latest.ref.agentId !== task.input.agentId) throw new PersonalError("work_missing", "后台工作的归属记录缺失，已保留占用；请检查档案。");
+          for (const [index, note] of (latest.notes ?? []).entries()) if (!tracked.has(index)) await submit(index, note);
+          const statuses = new Map<number, SubmissionRecord>();
+          for (const [index, value] of tracked) statuses.set(index, await value.submission.status(context));
+          const unsettled = [...statuses].filter(([, record]) => record.status === "queued" || record.status === "placed");
+          if (latest.cancelRequested) {
+            await collect(true);
+            await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
+            return;
           }
-          if (settled?.status === "done" && (work.notes?.length ?? 0) > index + 1) { next = true; return undefined; }
-          await release(tx, task.input, task.id);
-          return { status: "terminal", outcome: settled?.status === "done" ? { status: "completed", result: { submissionId: submission.id } } : { status: "failed", error: { message: "子会话未完成回答，后续说明未执行；请查询原输入记录。" }, result: { submissionId: submission.id } } };
-        }, context);
-        if (!next) return;
-      }
+          // 排队中的输入必须由仍在运行的会话接收；运行已结束而排队残留只说明上轮失败。
+          if ([...statuses.values()].some(record => record.status === "unanswered") || (unsettled.some(([, record]) => record.status === "queued") && !(await runtime.snapshot(LiveDoc, task.input.agentId, context))?.run)) {
+            await collect(true);
+            await runtime.commit(async tx => {
+              const work = await facts(tx, ref);
+              await release(tx, task.input, task.id);
+              if (work.cancelRequested) return { status: "terminal", outcome: { status: "aborted" } };
+              const last = [...statuses].reverse().find(([, record]) => record.status !== "queued")![1].id;
+              return { status: "terminal", outcome: { status: "failed", error: { message: "子会话未完成回答，后续说明未执行；请查询原输入记录。" }, result: { submissionId: last } } };
+            }, context);
+            return;
+          }
+          if (!unsettled.length) {
+            await collect(false);
+            let resume = false;
+            await runtime.commit(async tx => {
+              const work = await facts(tx, ref);
+              await occupancy(tx, task.input, task.id);
+              if (work.cancelRequested) {
+                await release(tx, task.input, task.id);
+                return { status: "terminal", outcome: { status: "aborted" } };
+              }
+              if ((work.notes?.length ?? 0) > tracked.size - 1) { resume = true; return undefined; }
+              await release(tx, task.input, task.id);
+              const last = tracked.get(Math.max(...tracked.keys()))!;
+              return { status: "terminal", outcome: { status: "completed", result: { submissionId: last.submission.id } } };
+            }, context);
+            if (!resume) return;
+            continue;
+          }
+          const wake = new Promise<void>((resolve, reject) => { wakeResolve = resolve; wakeReject = reject; });
+          try { await Promise.race([wake, ...unsettled.map(([index]) => tracked.get(index)!.wait)]); }
+          finally { wakeResolve = undefined; wakeReject = undefined; }
+        }
+      } finally { wakeResolve = undefined; wakeReject = undefined; await workWatch.stop(); await liveWatch.stop(); }
     },
   },
   async abort(task, runtime, context) {
     await runtime.commit(async tx => { await occupancy(tx, task.input, task.id); (await facts(tx, { ...task.input, taskId: task.id })).cancelRequested = true; return undefined; }, context);
     const child = await runtime.conversation(task.input.agentId, context);
     if (!child) throw new PersonalError("work_agent_missing", "取消时找不到子会话，占用仍保留；请检查档案。");
-    await child.abort(context, { background: true });
-    await Promise.all([settleCommands(runtime, task.id, context, true), settleServices(runtime, task.id, context, true), settleMcp(runtime, task.id, context), settleTools(runtime, task.id, context), settleAppData(runtime, task.id, context)]);
-    await waitForInspections(runtime, task.id, context);
+    await settleWorkResources(runtime, child, task.id, context, true);
     await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
   },
 });
@@ -287,35 +325,46 @@ export async function personalWorkNoteSource(tx: Tx, requestId: string, modelCal
   return { kind: "input", ...value.source, ...(modelCall === undefined ? {} : { modelCall }) };
 }
 
-export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { requestId: string; content: string; source: NoteSource }) {
+export type PersonalWorkAppendOutcome = { accepted: true } | { accepted: false; outcome: "completed" | "failed" | "aborted" | "faulted" | "orphaned" };
+
+// 接纳只核实说明身份与原工作归属；服务效果待核实等执行就绪由原工作的模型请求门禁把关。
+// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-work-notes.md
+// Note: 见 .agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md
+export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { requestId: string; content: string; source: NoteSource }): Promise<PersonalWorkAppendOutcome> {
   if (!input.requestId || input.requestId.length > 256 || !input.content.trim() || Buffer.byteLength(input.content) > 16384) throw new PersonalError("work_input_invalid", "请输入非空追加说明，每条最多 16 KiB。说明只补充当前分析，不改变权限。");
   const work = await facts(tx, ref);
   const existing = work.notes?.find(note => note.requestId === input.requestId);
   if (existing) {
     if (existing.content !== input.content || !isDeepStrictEqual(existing.source, input.source)) throw new PersonalError("work_request_conflict", "同一追加请求的内容或来源不同，请查询原工作；不要换键自动重试。");
-    return;
+    return { accepted: true };
   }
   const task = await tx.task(ref.taskId);
-  if (work.cancelRequested || !task || task.state.status === "terminal" || task.state.status === "completing" || task.abortRequested) throw new PersonalError("work_inactive", "原分析已结束或正在取消，未接纳说明；请查询原工作后决定下一步。");
+  if (task?.state.status === "terminal" || task?.state.status === "completing") return { accepted: false, outcome: task.state.outcome.status };
+  if (work.cancelRequested || !task || task.abortRequested) throw new PersonalError("work_inactive", "原分析已结束或正在取消，未接纳说明；请查询原工作后决定下一步。");
   if (work.source) { const origin = await personalSource(tx, work.source.requestId, { active: true }); if (origin.scheduled && origin.run.sealed) throw new PersonalError("work_source_sealed", "本次定时运行已封组，未接纳新说明；请查询原运行。新工作由拥有者另行提交。"); }
   await occupancy(tx, { ...ref, content: "" }, ref.taskId);
-  if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation);
+  if (work.delegation) await requirePersonalDelegationActive(tx, work.delegation);
   if (work.delegation) await requirePersonalDelegationOpen(tx, work.delegation);
   if (work.delegation && input.source.kind === "input") await requirePersonalDelegationInput(tx, work.delegation, input.source.requestId);
-  if (input.source.kind === "input") await requirePersonalServiceSourceReady(tx, input.source.requestId);
   if (input.source.kind === "input") { const source = await personalSource(tx, input.source.requestId, { active: true }); if (source.submission.id !== input.source.submissionId || source.entry.id !== input.source.entryId || (source.telegram && !samePersonalEntry(source.telegram, work.telegram))) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，请从原入口查询。"); }
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
-  if (work.source) await requirePersonalServiceSourceReady(tx, work.source.requestId);
   work.notes ??= [];
   const admission = (await tx.appendEntry(PersonalWorkNoteAdmission, ROOT_CONVERSATION_ID, { data: { ref: { ...ref }, ...input } })).id;
   work.notes.push({ ...input, admission });
+  return { accepted: true };
 }
 
+// Note: 见 .agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md
 export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enabled: boolean) {
   const work = await facts(tx, ref);
   if (!work.notes) return;
   if (!enabled || !Array.isArray(work.notes) || new Set(work.notes.map(note => note.requestId)).size !== work.notes.length) throw new PersonalError("work_note_invalid", "追加说明版本或请求关系无法核实，已停止恢复；请保留档案。");
+  const task = await tx.task(ref.taskId);
+  // 版本 2 起同一工作监督全部已接纳输入：原生键保持单调顺序，允许重叠输入与共享回答；
+  // 版本 1 的旧记录仍按逐轮顺序核实，运行中的旧版本工作须先在旧程序收尾后才可启用新配置。
+  const supervised = task !== undefined && task.version !== undefined && task.version >= 2;
   let previous = await tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`);
+  let gap = previous === undefined, allDone = previous?.status === "done";
   for (const note of work.notes) {
     if (work.delegation || note.admission !== undefined) {
       const admission = note.admission && await tx.entry(PersonalWorkNoteAdmission, note.admission);
@@ -343,15 +392,17 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
       }
     } else throw new PersonalError("work_note_invalid", "追加说明来源不受支持，已停止恢复；请保留档案。");
     const submission = await tx.submissionByRequest(ref.agentId, noteSubmissionKey(ref, note));
-    if (submission && previous?.status !== "done") throw new PersonalError("work_note_invalid", "追加说明越过了未完成的原轮次，已停止恢复；请保留档案。");
+    if (!supervised && submission && previous?.status !== "done") throw new PersonalError("work_note_invalid", "追加说明越过了未完成的原轮次，已停止恢复；请保留档案。");
+    if (supervised && submission && (gap || submission.id <= previous!.id)) throw new PersonalError("work_note_invalid", "追加说明越过了未接纳的原输入或原生键顺序不符，已停止恢复；请保留档案。");
     const entry = submission?.entry && await tx.entry(submission.entry);
     const message = entry && entry.model?.[0];
     if ((note.submissionId !== undefined && note.submissionId !== submission?.id) || (submission && (submission.type !== "input" || (submission.entry && (entry?.kind !== "pi.user" || message?.role !== "user" || message.content !== note.content))))) throw new PersonalError("work_note_invalid", "追加说明的原生输入关系不符，已停止恢复；请保留档案。");
-    previous = submission;
+    if (submission === undefined) { if (supervised) gap = true; else previous = submission; }
+    else { previous = submission; allDone &&= submission.status === "done"; }
   }
-  const task = await tx.task(ref.taskId);
   const result = task?.state.status === "terminal" && task.state.outcome.result;
-  if (task?.state.status === "terminal" && task.state.outcome.status === "completed" && (previous?.status !== "done" || !result || typeof result !== "object" || Array.isArray(result) || result.submissionId !== previous.id)) throw new PersonalError("work_note_invalid", "追加说明的最终回答无法核实，已停止恢复；请保留档案。");
+  const chain = supervised ? !gap && previous !== undefined && allDone : previous?.status === "done";
+  if (task?.state.status === "terminal" && task.state.outcome.status === "completed" && (!chain || !result || typeof result !== "object" || Array.isArray(result) || result.submissionId !== previous!.id)) throw new PersonalError("work_note_invalid", "追加说明的最终回答无法核实，已停止恢复；请保留档案。");
 }
 
 export async function requestPersonalWorkCancel(tx: Tx, ref: PersonalWorkRef) {
@@ -445,7 +496,7 @@ export async function personalServiceTranscriptFacts(tx: Tx, conversationId: Con
   return results;
 }
 
-export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; offset?: number; totalChars?: number; partial?: boolean; commands?: ReturnType<typeof personalCommandResult>[]; services?: ReturnType<typeof personalServiceResult>[]; notice?: string; nextOffset?: number };
+export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; offset?: number; totalChars?: number; partial?: boolean; commands?: ReturnType<typeof personalCommandResult>[]; services?: ReturnType<typeof personalServiceResult>[]; notice?: string; nextOffset?: number; notes?: { requestId: string; state: string }[] };
 
 export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 0, size = 4096): Promise<PersonalWorkResult> {
   const { task, submission, cancelRequested } = await personalWorkStatus(tx, ref);
@@ -455,7 +506,11 @@ export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 
   const unknownMcp = (await mcpOperations(tx)).filter(value => value.origin.work?.ref.taskId === ref.taskId && value.effect === "effect_unknown");
   const notice = [commands.length ? `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` : "", services.length ? `当前宿主服务事实（优先于历史子回答）：\n${services.map(service => service.verification).join("\n")}` : "", unknownMcp.length ? `原 MCP 调用结果未知：${unknownMcp.map(value => `${value.config.services.find(service => service.id === value.service)!.label}/${value.tool}${value.ended ? "（拥有者已人工结束工作，未知事实保留）" : "（等待拥有者人工收尾）"}`).join("、")}；同一来源不再执行。` : ""].filter(Boolean).join("\n");
   const executionFacts = { ...(commands.length ? { commands } : {}), ...(services.length ? { services } : {}), ...(notice ? { notice } : {}) };
-  if (state !== "completed") return { work: ref.taskId, state, ...executionFacts, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
+  // 已接纳说明按原请求键如实记账：接纳或排队不等于模型已读。
+  const noteFacts = [];
+  for (const note of (await facts(tx, ref)).notes ?? []) noteFacts.push({ requestId: note.requestId, state: (await tx.submissionByRequest(ref.agentId, noteSubmissionKey(ref, note)))?.status ?? "not_submitted" });
+  const notes = noteFacts.length ? { notes: noteFacts } : {};
+  if (state !== "completed") return { work: ref.taskId, state, ...executionFacts, ...notes, cancelRequested, next: task.state.status === "terminal" ? "工作未成功完成，后续已接纳说明未继续执行；请向拥有者报告，身份仍有占用时不要重试或复用。" : "工作尚未结束，请结束本轮，后续拥有者询问时再查询。" };
   const entry = submission?.status === "done" && submission.type === "input" ? await tx.entry(AssistantEntry, submission.answer) : undefined;
   const message = entry?.model?.[0];
   if (message?.role !== "assistant") throw new PersonalError("work_answer_missing", "原工作的完整回答缺失，请停止引用结果并报告拥有者检查档案。");
@@ -463,7 +518,7 @@ export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 
   let end = Math.min(text.length, offset + size);
   if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
   const partial = message.stopReason === "length";
-  return { work: ref.taskId, state, ...executionFacts, text: text.slice(offset, end), offset, totalChars: text.length, partial, ...(partial ? { next: "模型输出因长度限制截断，仅为已保存片段。请报告遗漏，不自动续写或重试外部操作。" } : {}), ...(end < text.length ? { nextOffset: end } : {}) };
+  return { work: ref.taskId, state, ...executionFacts, ...notes, text: text.slice(offset, end), offset, totalChars: text.length, partial, ...(partial ? { next: "模型输出因长度限制截断，仅为已保存片段。请报告遗漏，不自动续写或重试外部操作。" } : {}), ...(end < text.length ? { nextOffset: end } : {}) };
 }
 
 export type PersonalWorkSummary = { ref: PersonalWorkRef; label: string; content: string; state: string; cancelRequested: boolean; stopVerified: boolean; closed: boolean; notes: number; services?: ReturnType<typeof personalServiceResult>[] };
@@ -522,8 +577,8 @@ export function personalWork(harness: Harness, model: ModelRef | (() => ModelRef
       harness.resume();
       return ref;
     },
-    async append(ref: PersonalWorkRef, input: { requestId: string; content: string; sourceRequestId: string }) {
-      await harness.commit(async tx => appendPersonalWork(tx, ref, { requestId: input.requestId, content: input.content, source: await personalWorkNoteSource(tx, input.sourceRequestId) }), context);
+    async append(ref: PersonalWorkRef, input: { requestId: string; content: string; sourceRequestId: string }): Promise<PersonalWorkAppendOutcome> {
+      return await harness.commit(async tx => appendPersonalWork(tx, ref, { requestId: input.requestId, content: input.content, source: await personalWorkNoteSource(tx, input.sourceRequestId) }), context);
     },
     async list() { return (await harness.snapshot(PersonalAgentsDoc, context))?.agents ?? []; },
     async status(ref: PersonalWorkRef) {

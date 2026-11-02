@@ -224,7 +224,7 @@ export async function managePersonalWorks(io: PersonalCliIO, directory: string) 
         await personalControl(directory, "POST", `/work/cancel?work=${ref.taskId}`);
         io.write("原分析的取消请求已登记；请刷新核实停止。身份与历史保留，停止未核实前不能复用。\n");
       } else if (action === 5) {
-        const content = await io.question("补充当前分析的说明（当前回答结束后处理，/back 返回）：");
+        const content = await io.question("补充当前分析的说明（同一子 Agent 按接纳顺序处理，/back 返回）：");
         if (content === "/back") continue;
         const input = preparePersonalInput(directory, content, ref.taskId);
         await personalControl(directory, "POST", input.work === undefined ? "/inputs" : "/work/notes", input);

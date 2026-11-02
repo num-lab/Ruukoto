@@ -38,8 +38,8 @@ export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): 
     await originalWork(tx, ref, value);
     value.selection = { kind: "work", ref: { ...ref } };
     if (value.content.startsWith("补充：")) {
-      await appendPersonalWork(tx, ref, { requestId: value.requestId, content: value.content.slice(3), source: { kind: value.platform === "qq" ? "qq" : "telegram" } });
-      value.reply = "原分析已接纳说明，将在当前回答结束后按顺序处理；原权限保持。回复「刷新分析」查询状态。";
+      const outcome = await appendPersonalWork(tx, ref, { requestId: value.requestId, content: value.content.slice(3), source: { kind: value.platform === "qq" ? "qq" : "telegram" } });
+      value.reply = outcome.accepted ? "原分析已接纳说明，同一子 Agent 将按接纳顺序继续处理；原权限保持。回复「刷新分析」查询状态。" : "原分析在此说明接纳前已结束，未接纳说明；请发送 /工作 查询原结果，新的分析请另行交办。";
     } else if (value.content === "取消这项分析") {
       await requestPersonalWorkCancel(tx, ref);
       value.reply = "已登记此分析的取消请求；停止仍须核实。回复「刷新分析」查询原工作，身份和历史保留。";
@@ -56,7 +56,7 @@ export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): 
         value.reply = `原分析结果：${result.partial ? "模型输出因长度限制截断，以下仅为已保存片段。" : ""}\n${result.text || "（无文本内容）"}${result.nextOffset === undefined ? result.partial ? "\n已保存片段已读完，不能视为完整回答。" : "\n原回答已读完。" : "\n回复本消息选择「下一页结果」继续。"}`;
       }
       if (result.notice) value.reply = `${result.notice}\n${value.reply}`;
-    } else value.reply = `${personalWorkDescription(await personalWorkSummary(tx, ref))}。回复本消息选择：刷新分析、查看结果、取消这项分析、关闭此身份；追加说明请回复「补充：正文」，在当前回答结束后处理。关闭只适用未再复用且空闲的身份。`;
+    } else value.reply = `${personalWorkDescription(await personalWorkSummary(tx, ref))}。回复本消息选择：刷新分析、查看结果、取消这项分析、关闭此身份；追加说明请回复「补充：正文」，同一子 Agent 按接纳顺序继续处理。关闭只适用未再复用且空闲的身份。`;
   } catch (error) {
     if (!(error instanceof PersonalError)) throw error;
     delete value.selection;

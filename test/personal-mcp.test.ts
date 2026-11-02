@@ -258,7 +258,7 @@ test("durable MCP：子工具超时跨重启接回同 Task，未知效果保留�
   assert.equal(before.origin.work!.ref.taskId, work.taskId); assert.equal(before.effect, "effect_unknown"); assert.equal(before.remoteEnded, false);
   assert.equal(server.calls.length, 1);
   await assert.rejects(p.work.delegate({ requestId: "bypass", sourceRequestId: "owner-source", content: "换工具重试" }), code("work_source_paused"));
-  await assert.rejects(p.work.append(work, { requestId: "append", sourceRequestId: "owner-source", content: "继续" }), code("work_source_paused"));
+  assert.deepEqual(await p.work.append(work, { requestId: "append", sourceRequestId: "owner-source", content: "继续" }), { accepted: true });
   assert.equal(await p.answer("独立聊天", "independent"), "完成");
   await p.close(); p = await f.open(options);
   const resumed = await record(p, operation); assert.equal(resumed.operation, before.operation); assert.equal(resumed.admission, before.admission); assert.equal(server.calls.length, 1);

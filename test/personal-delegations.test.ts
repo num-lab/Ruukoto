@@ -121,7 +121,7 @@ test("分析委托：整项取消覆盖全部成员，拒绝续派追加，其�
   assert.match(definitions, /独立新工作/);
   assert.match(definitions, /省略 delegation/);
   const member = (await progress(p, ref)).members[0].ref;
-  await assert.rejects(p.work.append(member, { content: "旧说明", requestId: "late-note", sourceRequestId: "owner" }), code("work_inactive"));
+  assert.deepEqual(await p.work.append(member, { content: "旧说明", requestId: "late-note", sourceRequestId: "owner" }), { accepted: false, outcome: "aborted" });
   await p.harness.commit(tx => cancelPersonalDelegation(tx, ref), context);
   const registered = JSON.parse(await p.answer(args("delegate", { content: "复用身份新委托", agent: member.agentId }), "reuse")) as { agent: number; state: string };
   assert.equal(registered.state, "registered"); assert.equal(registered.agent, member.agentId);

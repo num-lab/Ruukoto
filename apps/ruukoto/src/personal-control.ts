@@ -449,7 +449,7 @@ export async function startPersonalServer(directory: string, options: { developm
             if (workId !== undefined) {
               const ref = await personalWorkRef(tx, workId);
               const note = (await tx.doc(PersonalWorkDoc, ref.requestId, null)).notes?.find(note => note.requestId === requestId);
-              return { status: note ? "done" : "missing", ...(note ? { answer: "原分析已接纳说明，将在当前回答结束后处理；请从后台分析查询状态和最终结果。" } : {}) } satisfies PersonalInputStatus;
+              return { status: note ? "done" : "missing", ...(note ? { answer: "原分析已接纳说明，同一子 Agent 将按接纳顺序继续处理；请从后台分析查询状态和最终结果。" } : {}) } satisfies PersonalInputStatus;
             }
             const record = await tx.submissionByRequest(instance.main.id, requestId);
             if (!record) return { status: "missing" } satisfies PersonalInputStatus;
@@ -471,18 +471,19 @@ export async function startPersonalServer(directory: string, options: { developm
           if ((url.pathname === "/work/notes") !== (input.work !== undefined)) throw new PersonalError("input_invalid", "追加说明须通过原工作入口提交，请重新打开向导。");
           // JSON 字符串编码保留孤立 UTF-16 代理的区别，直接 UTF-8 哈希会统一替换它们。
           const digest = personalInputDigest(input.input, input.work);
+          let appended = true;
           await instance.harness.commit(async tx => {
             const intent = await tx.doc(LocalInputDoc, input.requestId, digest);
             if (intent.digest !== digest || (intent.work !== undefined && intent.work !== input.work)) throw new PersonalError("input_conflict", "同一请求的正文不一致，已拒绝；请核实原消息。");
             if (input.work !== undefined) {
               intent.work = input.work;
-              await appendPersonalWork(tx, await personalWorkRef(tx, input.work), { requestId: input.requestId, content: input.input, source: { kind: "local" } });
+              appended = (await appendPersonalWork(tx, await personalWorkRef(tx, input.work), { requestId: input.requestId, content: input.input, source: { kind: "local" } })).accepted;
             }
           }, context);
           if (input.work === undefined) {
             const submission = await instance.submit(input.input, input.requestId);
             result = { status: (await submission.status(context)).status } satisfies PersonalInputStatus;
-          } else result = { status: "done", answer: "原分析已接纳说明，将在当前回答结束后处理。" } satisfies PersonalInputStatus;
+          } else result = { status: "done", answer: appended ? "原分析已接纳说明，同一子 Agent 将按接纳顺序继续处理。" : "原分析在此说明接纳前已结束，未接纳说明；请从后台分析查询原结果。" } satisfies PersonalInputStatus;
         } else if (req.method === "POST" && url.pathname === "/stop") {
           requestedStop = true;
           result = { stopping: true };

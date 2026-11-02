@@ -664,7 +664,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         const task = work.ref && await tx.task(work.ref.taskId);
         if (!work.ref || !work.source || !task || task.kind !== PersonalWorkTask.definition.name || !index.agents.some(agent => agent.id === work.ref?.agentId)) throw new PersonalError("work_record_missing", "后台工作的来源、执行或身份记录缺失，已停止恢复；请检查档案。");
         const input = task.input;
-        if (work.ref.requestId !== key || task.version !== PersonalWorkTask.definition.version || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !input || typeof input !== "object" || Array.isArray(input) || input.requestId !== key || input.agentId !== work.ref.agentId || typeof input.content !== "string") throw new PersonalError("work_ownership", "后台工作与原生执行的归属不符，已停止恢复；请检查档案。");
+        if (work.ref.requestId !== key || task.conversationId !== ROOT_CONVERSATION_ID || !task.background || task.owner !== undefined || !input || typeof input !== "object" || Array.isArray(input) || input.requestId !== key || input.agentId !== work.ref.agentId || typeof input.content !== "string") throw new PersonalError("work_ownership", "后台工作与原生执行的归属不符，已停止恢复；请检查档案。");
+        // 未结束的旧版本工作由 task_version 先行拒绝；终态记录按原版本规则核实，更新或非法版本永不接受。
+        if (!Number.isSafeInteger(task.version) || task.version < 1 || task.version > PersonalWorkTask.definition.version || task.state.status !== "terminal" && task.version !== PersonalWorkTask.definition.version) throw new PersonalError("work_ownership", "后台工作的原执行版本不受支持，已停止恢复；请保留档案。");
         const origin = await personalSource(tx, work.source.requestId, { invalidCode: "work_source_invalid" }), source = origin.submission;
         if (source.id !== work.source.submissionId || source.entry !== work.source.entryId) throw new PersonalError("work_record_missing", "后台工作的原来源无法核实，已停止恢复；请检查档案。");
         if (work.modelCall !== undefined || key.startsWith("personal-tool:")) {

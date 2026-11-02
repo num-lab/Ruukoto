@@ -462,6 +462,7 @@ test("子服务权限：跨轮保持首次模式，原菜单授权/撤销且本�
   assert.equal((await p.service!.status(revoked)).operation.decision, "pending"); assert.equal(f.starts(), 2);
   await p.close(); p = await f.open({ telegram: { ...f.telegram, generation: randomUUID() } });
   await done(p, revoked); assert.equal((await p.service!.status(revoked)).operation.consumed, false); assert.equal(f.starts(), 2);
+  await p.harness.waitForTask((await p.service!.status(revoked)).operation.work!.ref.taskId, context);
 });
 
 test("子服务检查：追加本机来源保留全来源，Telegram 不能管理混合检查", async t => {

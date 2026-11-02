@@ -88,6 +88,7 @@ Manual finalization adds facts; it never removes the original source's automatic
 - One instance owns one exclusive durable Harness; local, IM and desktop entries share its conversation facts.
 - IM approvals/questions require the bound owner in the original platform/private chat. An answer is not a tool approval.
 - Restart recovery reconciles pending work without repeating completed facts or replaying unknown external effects.
+- Accepted follow-up instructions keep the original work's SubAgent and stable native keys: the same task steers each accepted note into that conversation in admission order, supervises every submission through completion, cancellation or failure, and reports each note's real state instead of replaying it under a new key.
 - Sending retains destination and outcome identity across connection failures. An inconclusive sent operation is not automatically retried as if unsent.
 
 ## Design Rationale
@@ -100,3 +101,4 @@ Manual finalization adds facts; it never removes the original source's automatic
 - [Home skills discovery](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)
 - [Personal file operations worker](../../.agents/notes/implemented/architecture/2026-11-02-personal-file-io-worker.md)
 - [Personal main handoff yield](../../.agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md)
+- [Personal same-SubAgent work-note supervision](../../.agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md)

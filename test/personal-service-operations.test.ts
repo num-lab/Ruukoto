@@ -215,7 +215,7 @@ test("分析委托：终态成员说明或追加来源效果未知，整组续�
     await p.work.append(members[0].ref, { requestId: "accepted", sourceRequestId: origin === "note" ? "extra-source" : "owner", content: "后续说明" });
     const operation = await p.service!.request({ requestId: "unknown-member", unit: UNIT, mode: "full_access", sourceRequestId: origin === "note" ? "extra-source" : "continuation" }); await unknown(p, operation);
     assert.match(await p.answer("绕过", "bypass"), /work_source_paused/);
-    await assert.rejects(p.work.append(members[0].ref, { requestId: "bypass-note", sourceRequestId: "owner", content: "换方式" }), code("work_source_paused"));
+    assert.deepEqual(await p.work.append(members[0].ref, { requestId: "bypass-note", sourceRequestId: "owner", content: "换方式" }), { accepted: true });
     assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
     release(); await p.harness.waitForTask(members[0].ref.taskId, context);
     assert.equal(f.server.calls.filter(request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.content === "后续说明").length, 0);
@@ -288,9 +288,9 @@ test("服务工作：追加来源后来效果未知，不能借其他安全工�
   await until(() => f.server.calls.length === 3);
   await p.work.append(ref, { requestId: "accepted", content: "追加要求", sourceRequestId: "note-owner" });
   const operation = await p.service!.request({ requestId: "unknown-note-source", unit: UNIT, mode: "full_access", sourceRequestId: "note-owner" }); await unknown(p, operation);
-  await assert.rejects(p.work.append(ref, { requestId: "bypass", content: "换方式重试", sourceRequestId: "note-owner" }), code("work_source_paused"));
+  assert.deepEqual(await p.work.append(ref, { requestId: "bypass", content: "换方式重试", sourceRequestId: "note-owner" }), { accepted: true });
   release(); assert.equal((await p.harness.waitForTask(ref.taskId, context)).state.outcome.status, "failed");
-  assert.equal((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!.notes?.length, 1);
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!.notes?.length, 2);
   assert.equal(f.server.calls.length, 3); assert.equal(f.starts(), 1);
   assert.equal(await p.answer("其他独立聊天", "independent"), "收到");
 });
@@ -837,7 +837,7 @@ test("子服务：封组报告等原外部操作双事实，未知期间拒绝�
   assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).delivery, "waiting");
   assert.equal(await p.answer("其他聊天", "other"), "独立聊天");
   await assert.rejects(p.work.delegate({ content: "换方式", requestId: "retry-group", sourceRequestId: "owner" }), code("work_source_paused"));
-  await assert.rejects(p.work.append(work, { content: "再试", requestId: "append-paused", sourceRequestId: "owner" }), code("work_source_paused"));
+  await assert.rejects(p.work.append(work, { content: "再试", requestId: "append-paused", sourceRequestId: "owner" }), code("delegation_sealed"));
   await p.service!.resolve(ref, "applied", "独立确认原效果"); await delay(30);
   assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).delivery, "waiting");
   fs.rmSync(path.join(f.helper, "stop-query-fails")); await p.harness.waitForTask(await p.requestServiceStop(ref), context);

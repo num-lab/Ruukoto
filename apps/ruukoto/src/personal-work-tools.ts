@@ -26,7 +26,7 @@ const YIELD = { terminate: true } as const;
 export function personalWorkTools(getHarness: () => Harness) {
   const tool = defineTool({
     name: "background_work",
-    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，当前回答结束后依次处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services/notice 是宿主当前事实，优先于 text 中旧子回答的解释；requiresVerification=false 表示不再等待核实，原 MCP 未知事实仍以 notice 为准，不据旧子回答恢复占用或重试；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效时只能查询或取消；任一成员说明来源的服务效果未知会暂停整个委托，原入口有效且未取消时仍可登记 report，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report，只登记封组，成员仍活动或效果未知时也可安排；宿主等全部成员及真实资源停止、必要效果核实后才生成并发送报告，封组后不能续派或追加。普通 MCP 结果未知可由拥有者结束原工作并保留未知后汇总，电脑调用仍须停止核实并接受新截图。report_result 分页读完整报告和发送状态。未知命令/服务及未恢复电脑调用会暂停报告；普通 MCP 人工收尾只允许汇总未知，不恢复原来源执行。阻塞解除后可重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。report/append/cancel/cancel_delegation/close 是本轮结论性调用：宿主在该调用结束后直接让出本轮并按已登记事实向拥有者说明，调用后无需也不能再输出文本；继续安排工作或查询须在这些调用之前的轮次完成。",
+    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，同一子 Agent 按接纳顺序继续处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services/notice 是宿主当前事实，优先于 text 中旧子回答的解释；notes 逐项给出已接纳说明的原生受理状态：queued=已接纳待进入运行、placed=已入运行待答、done=已回答、unanswered=运行结束未答、not_submitted=工作先停未下发，queued/placed 不代表模型已读；requiresVerification=false 表示不再等待核实，原 MCP 未知事实仍以 notice 为准，不据旧子回答恢复占用或重试；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效时只能查询或取消；任一成员说明来源的服务效果未知会暂停整个委托，原入口有效且未取消时仍可登记 report，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report，只登记封组，成员仍活动或效果未知时也可安排；宿主等全部成员及真实资源停止、必要效果核实后才生成并发送报告，封组后不能续派或追加。普通 MCP 结果未知可由拥有者结束原工作并保留未知后汇总，电脑调用仍须停止核实并接受新截图。report_result 分页读完整报告和发送状态。未知命令/服务及未恢复电脑调用会暂停报告；普通 MCP 人工收尾只允许汇总未知，不恢复原来源执行。阻塞解除后可重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。report/append/cancel/cancel_delegation/close 是本轮结论性调用：宿主在该调用结束后直接让出本轮并按已登记事实向拥有者说明，调用后无需也不能再输出文本；继续安排工作或查询须在这些调用之前的轮次完成。",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 新登记须原入口有效且未取消，只登记封组，成员仍活动或效果未知时也可安排；宿主等成员及真实资源停止、必要效果核实后报告；普通 MCP 可由拥有者人工收尾并保留未知后汇总，电脑须停止核实并接受新截图。封组后不能续派或追加。" }),
       appData: Type.Optional(Type.Boolean({ description: "仅delegate：本次子工作确需应用数据时显式设true，默认无资格；复用身份不继承上次资格。" })),
@@ -79,8 +79,9 @@ export function personalWorkTools(getHarness: () => Harness) {
           }
           if (action === "append") {
             const ref = await personalWorkRef(tx, work as TaskId);
-            await appendPersonalWork(tx, ref, { requestId: `personal-note-tool:${api.taskId}`, content: content!, source: await personalWorkNoteSource(tx, source!, api.taskId) });
-            return { work, state: "note_accepted", next: "说明已归原工作，将在当前回答结束后处理；结束本轮，后续查询原结果。权限保持原范围。" };
+            const outcome = await appendPersonalWork(tx, ref, { requestId: `personal-note-tool:${api.taskId}`, content: content!, source: await personalWorkNoteSource(tx, source!, api.taskId) });
+            if (!outcome.accepted) return { work, state: outcome.outcome, next: "原工作在此说明接纳前已结束，未接纳说明；用 result 查询原结果与已接纳说明的处理情况，需要新的分析由拥有者另行交办。不要复用同一说明键重试。" };
+            return { work, state: "note_accepted", next: "说明已归原工作，同一子 Agent 按接纳顺序继续处理；结束本轮，后续查询原结果。权限保持原范围。" };
           }
           if (action === "list") {
             const agents = (await tx.doc(PersonalAgentsDoc)).agents;
@@ -146,7 +147,7 @@ export async function personalWorkHandoff(tx: Tx, answer: EntryId): Promise<stri
     const resultText = resultMessage?.role === "toolResult" ? resultMessage.content.filter(part => part.type === "text").map(part => part.text).join("") : "";
     const args = call.arguments && typeof call.arguments === "object" && !Array.isArray(call.arguments) ? call.arguments as Record<string, unknown> : {};
     if (call.name === "background_work" && args.action === "report") facts.push(`已登记委托 ${args.delegation} 的最终汇总安排，全部成员停止并核实后自动回报原入口`);
-    else if (call.name === "background_work" && args.action === "append") facts.push(`已补充工作 ${args.work} 的说明，当前回答结束后依次处理`);
+    else if (call.name === "background_work" && args.action === "append") facts.push(`已补充工作 ${args.work} 的说明，同一子 Agent 按接纳顺序处理`);
     else if (call.name === "background_work" && args.action === "cancel") facts.push(`已登记工作 ${args.work} 的取消，停止与效果以原记录为准`);
     else if (call.name === "background_work" && args.action === "cancel_delegation") facts.push(`已登记委托 ${args.delegation} 的全部成员取消，停止尚须核实`);
     else if (call.name === "background_work" && args.action === "close") facts.push(`已关闭身份 ${args.agent}`);

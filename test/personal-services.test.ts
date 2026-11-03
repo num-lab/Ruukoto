@@ -105,7 +105,7 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   assert.equal(requests.length, 6);
   assert.deepEqual(requests[1].payload, f.server.calls[0].raw);
   const names = f.server.calls[0].tools?.map(tool => (tool.function as { name: string }).name);
-  assert.deepEqual(names, ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual(names, ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   assert.match(JSON.stringify(requests[0].input), /4096/);
   assert.ok((await personal.main.agent(context)).extensions.some(extension => extension.name === "personal-service-inspect"));
 });

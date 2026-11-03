@@ -41,7 +41,9 @@ async function until<T>(fn: () => Promise<T | undefined>, message = "等待状�
 function sql(file: string, query: string) { const db = new DatabaseSync(file); try { return db.prepare(query).all().map(row => ({ ...row })); } finally { db.close(); } }
 
 test("应用数据：六工具真实SQLite接线，同轮多调用有独立回执及请求快照", async t => {
-  const f = await fixture(t, (_request, i) => [call("app_data_query", { mode: "schema" }), call("app_data_define_table", define), { kind: "tool_calls" as const, calls: [{ id: "one", name: "app_data_insert", arguments: { ...insert, records: [insert.records[0]] } }, { id: "two", name: "app_data_insert", arguments: { ...insert, records: [insert.records[1]] } }] }, call("app_data_update", { table: "todos", rows: [{ id: 1, expected_version: 1, set: { title: "绿茶" } }], reason: "更正" }), call("app_data_delete", { table: "todos", rows: [{ id: 2, expected_version: 1 }], reason: "完成" }), call("app_data_migrate", { expected_schema_version: 1, steps: [{ op: "add_field", table: "todos", field: { name: "memo", type: "text", nullable: true } }], reason: "增加备注" }), call("app_data_query", { mode: "rows", table: "todos" }), call("app_data_query", { mode: "changes" })][i] ?? { kind: "text", text: "已更新待办" });
+  // 同轮多调用归并在一个持久化批次里；整段输入最多四批，八项调用压缩为四批。
+  const batch = (...items: ReturnType<typeof call>[]) => ({ kind: "tool_calls" as const, calls: items.flatMap(item => item.calls) });
+  const f = await fixture(t, (_request, i) => [batch(call("app_data_query", { mode: "schema" }), call("app_data_define_table", define)), batch(call("app_data_insert", { ...insert, records: [insert.records[0]] }, "one"), call("app_data_insert", { ...insert, records: [insert.records[1]] }, "two")), batch(call("app_data_update", { table: "todos", rows: [{ id: 1, expected_version: 1, set: { title: "绿茶" } }], reason: "更正" }), call("app_data_delete", { table: "todos", rows: [{ id: 2, expected_version: 1 }], reason: "完成" })), batch(call("app_data_migrate", { expected_schema_version: 1, steps: [{ op: "add_field", table: "todos", field: { name: "memo", type: "text", nullable: true } }], reason: "增加备注" }), call("app_data_query", { mode: "rows", table: "todos" }, "rows"), call("app_data_query", { mode: "changes" }, "changes"))][i] ?? { kind: "text", text: "已更新待办" });
   assert.equal(await f.p.answer("保存并更新待办", "app-data-source"), "已更新待办");
   const ops = await f.operations(); assert.equal(ops.length, 6); assert.equal(new Set(ops.map(op => op.opId)).size, 6); assert.ok(ops.every(op => op.result?.effect === "committed"));
   assert.deepEqual(sql(f.file, 'SELECT title, memo, _version FROM todos'), [{ title: "绿茶", memo: null, _version: 2 }]);
@@ -149,12 +151,16 @@ test("应用数据：子工作显式资格，复用身份不继承，SDK规范�
     const text = String(request.messages.at(-1)?.content);
     return call("background_work", { action: "delegate", content: "处理业务表", ...(text.startsWith("复用:") ? { agent: Number(text.split(":")[1]) } : { appData: true }) });
   });
-  const first = JSON.parse(await f.p.answer("委派应用数据", "delegate-first")) as { agent: number; work: number };
+  // 纯安排批由宿主让出，工作与身份从已登记记录核实。
+  await f.p.answer("委派应用数据", "delegate-first");
+  const firstAgent = (await f.p.work.list()).find(agent => agent.work)!;
+  const first = { agent: firstAgent.id, work: firstAgent.work!.taskId };
   await f.p.harness.waitForTask(first.work as TaskId, context);
   assert.equal((await f.operations()).length, 1); assert.equal((await f.operations())[0].result?.effect, "committed");
   const child = await f.p.harness.snapshot(AgentDoc, first.agent as ConversationId, context);
   assert.ok(Array.isArray(child?.tools) && !child.tools.includes("app_data_define_table"));
-  const second = JSON.parse(await f.p.answer(`复用:${first.agent}`, "delegate-second")) as { work: number };
+  await f.p.answer(`复用:${first.agent}`, "delegate-second");
+  const second = { work: (await f.p.work.list()).find(agent => agent.id === first.agent)!.work!.taskId };
   await f.p.harness.waitForTask(second.work as TaskId, context); assert.equal((await f.operations()).length, 1);
   const requests = f.server.calls.filter(request => request.system?.includes("你是个人助手的子 Agent"));
   assert.ok(JSON.stringify(requests[0].tools).includes("app_data_define_table")); assert.ok(!JSON.stringify(requests.at(-1)!.tools).includes("app_data_define_table"));

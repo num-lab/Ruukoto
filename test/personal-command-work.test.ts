@@ -463,7 +463,8 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未�
       if (last?.role === "user" && last.content === "执行命令") return { kind: "tool_calls", calls: [{ id: "command", name: "run_command", arguments: { command: "echo x >> count" } }] };
       await waiting; return { kind: "text", text: "另一成员完成" };
     }
-    if (last?.role === "user" && last.content === "委派并检查") return { kind: "tool_calls", calls: ["执行命令", "等待成员"].map((content, i) => ({ id: `member-${i}`, name: "background_work", arguments: { action: "delegate", content } })) };
+    // 批内附查询调用不让出：原源未知效果在后续 service_inspect 批前已暂停，拒绝由回执文本承载。
+    if (last?.role === "user" && last.content === "委派并检查") return { kind: "tool_calls", calls: [...["执行命令", "等待成员"].map((content, i) => ({ id: `member-${i}`, name: "background_work", arguments: { action: "delegate", content } })), { id: "works", name: "background_work", arguments: { action: "list" } }] };
     if (last?.role === "tool" && !inspected) {
       await unknown(p, await original(p));
       inspected = true;

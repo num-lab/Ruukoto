@@ -17,6 +17,7 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
+import { PERSONAL_MAIN_TOOL_ROUNDS, PersonalCoordinationDoc } from "../apps/ruukoto/src/personal-coordination.ts";
 import { parsePersonalTelegram, readPersonalTelegram, savePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import { personalTelegramApi, telegramOffset, type TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
 import { configurePersonalTelegram, personalChildEnv } from "../apps/ruukoto/src/personal-cli.ts";
@@ -466,4 +467,139 @@ test("Telegram问题：多选标记跨分页阈值，取消选项后回到有效
   menu = await receive("下一页问题", Number(menu.platformMessageId)); assert.equal(menu.selection?.kind === "question-draft" && menu.selection.page, 1);
   menu = await receive("1", Number(menu.platformMessageId)); assert.equal(menu.selection?.kind, "question-draft"); assert.equal(menu.selection?.kind === "question-draft" && menu.selection.page, 0); assert.deepEqual(menu.selection?.kind === "question-draft" && menu.selection.selected, []); assert.doesNotMatch(menu.reply!, /页码无效/);
   await p.close(); await f.open();
+});
+
+test("Telegram协调：超预算输入切断按持久意图如实通知原入口，不伪造模型回答", { timeout: 30000 }, async t => {
+  let looping = false;
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "user") looping = content.includes("循环");
+    const results = request.messages.filter(message => message.role === "tool").length;
+    if (looping && (last?.role === "user" || last?.role === "tool")) return { kind: "tool_calls" as const, calls: [{ id: `d-${results}`, name: "background_work", arguments: { action: "delegate", content: `循环分析-${results}` } }, { id: `q-${results}`, name: "background_work", arguments: { action: "list" } }] };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  const p = await f.open();
+  await p.telegram.receive(update(11, 11, "循环"));
+  // 切断意图是宿主事实：原入口收到协调停止通知，而非 unanswered 静默或编造的模型回答。
+  await until(() => f.bot.sends.length > 0);
+  assert.match(String(f.bot.sends[0].text), /超出批次预算/);
+  const receipt = await settled(p, 11);
+  assert.equal(receipt.delivery, "sent");
+});
+
+test("Telegram协调：迟到的切断意图仍由回执补发通知，不随墙钟窗口终局", { timeout: 30000 }, async t => {
+  let looping = false, held = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  t.after(() => release());
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "user") looping = content.includes("循环");
+    const results = request.messages.filter(message => message.role === "tool").length;
+    if (looping && (last?.role === "user" || last?.role === "tool")) return { kind: "tool_calls" as const, calls: [{ id: `d-${results}`, name: "background_work", arguments: { action: "delegate", content: `循环分析-${results}` } }, { id: `q-${results}`, name: "background_work", arguments: { action: "list" } }] };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  // 协调评估在越界读数上被拖住：意图尚未落盘，回执按持久批次事实续命等待，不按超时丢弃通知。
+  const p = await f.open({ coordinationProbe: async (_record, stage, rounds) => { if (stage === "rounds" && (rounds ?? 0) > PERSONAL_MAIN_TOOL_ROUNDS) { held = true; await gate; } } });
+  await p.telegram.receive(update(12, 12, "循环"));
+  await until(() => held);
+  // 评估久拖期间回执保持活动：不提前终局为 unanswered。
+  await delay(2500);
+  assert.equal(f.bot.sends.length, 0);
+  release();
+  await until(() => f.bot.sends.length > 0);
+  assert.match(String(f.bot.sends[0].text), /超出批次预算/);
+  const receipt = await settled(p, 12);
+  assert.equal(receipt.delivery, "sent");
+});
+
+test("Telegram协调：调用前正文不冒充执行结果，被拒安排的提交事实送达原入口", { timeout: 30000 }, async t => {
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "tool") return { kind: "text", text: `回执:${content}` };
+    if (last?.role === "user" && content.includes("假委派")) return { kind: "tool_calls" as const, text: "已委派分析", calls: [{ id: "claim", name: "background_work", arguments: { action: "delegate", content: "分析", agent: 99999 } }] };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  const p = await f.open();
+  await p.telegram.receive(update(13, 13, "假委派"));
+  // IM 回执与本地回答同一优先序：正文保留，被拒绝调用的提交事实一并送达。
+  await until(() => f.bot.sends.length > 0);
+  assert.match(String(f.bot.sends[0].text), /已委派分析；本轮以工具调用让出/);
+  assert.match(String(f.bot.sends[0].text), /未生效/);
+  const receipt = await settled(p, 13);
+  assert.equal(receipt.delivery, "sent");
+});
+
+test("Telegram协调：长调用前正文先截断，提交事实在外发预算内完整送达", { timeout: 30000 }, async t => {
+  const prose = `已委派分析${"长".repeat(4000)}`;
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "tool") return { kind: "text", text: `回执:${content}` };
+    if (last?.role === "user" && content.includes("假委派")) return { kind: "tool_calls" as const, text: prose, calls: [{ id: "claim", name: "background_work", arguments: { action: "delegate", content: "分析", agent: 99999 } }] };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  const p = await f.open();
+  await p.telegram.receive(update(14, 14, "假委派"));
+  // 外发预算先让位给提交事实：长正文按剩余空间截断，拒绝事实绝不越过截断点丢失。
+  await until(() => f.bot.sends.length > 0);
+  const sent = String(f.bot.sends[0].text);
+  assert.ok(Array.from(sent).length <= 3900);
+  assert.match(sent, /未生效/);
+  const receipt = await settled(p, 14);
+  assert.equal(receipt.delivery, "sent");
+});
+
+test("Telegram协调：大批混合成败安排下外发回执保留聚合与拒绝存在", { timeout: 30000 }, async t => {
+  // 复现评审探针：24 项成功的 delegate 结果 JSON 足以耗尽外发预算，末位被拒调用不得被截掉。
+  const calls: { id: string; name: string; arguments: Record<string, unknown> }[] = Array.from({ length: 24 }, (_, i) => ({ id: `ok-${i}`, name: "background_work", arguments: { action: "delegate", content: `分析-${i}`, label: `分析员-${i}` } }));
+  calls.push({ id: "bad", name: "background_work", arguments: { action: "delegate" } });
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "tool") return { kind: "text", text: `回执:${content}` };
+    if (last?.role === "user" && content.includes("大批委派")) return { kind: "tool_calls" as const, calls };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  const p = await f.open();
+  await p.telegram.receive(update(15, 15, "大批委派"));
+  await until(() => f.bot.sends.length > 0);
+  const sent = String(f.bot.sends[0].text);
+  assert.ok(Array.from(sent).length <= 3900, `外发回执应在预算内:${Array.from(sent).length}`);
+  assert.match(sent, /共25项调用/);
+  assert.match(sent, /未生效/);
+  const receipt = await settled(p, 15);
+  assert.equal(receipt.delivery, "sent");
+});
+test("Telegram协调：登记未完成时同入口控制不被挂起的收件互斥阻塞", { timeout: 30000 }, async t => {
+  let looping = false, released = false, completionReached = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  t.after(() => { released = true; release(); });
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "user") looping = content.includes("循环");
+    const results = request.messages.filter(message => message.role === "tool").length;
+    if (looping && (last?.role === "user" || last?.role === "tool")) return { kind: "tool_calls" as const, calls: [{ id: `d-${results}`, name: "background_work", arguments: { action: "delegate", content: `循环分析-${results}` } }, { id: `q-${results}`, name: "background_work", arguments: { action: "list" } }] };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  // 第一条 IM 输入越预算，评估停在登记完成之前：意图已持久、取消登记缺席。
+  const p = await f.open({ coordinationProbe: async (record, stage) => { if (stage === "before-completion" && !released && record.requestId === `telegram:123:${OWNER}:16`) { completionReached = true; await gate; } } });
+  await p.telegram.receive(update(16, 16, "循环"));
+  await until(() => completionReached);
+  // 第二条输入照常接纳为排队——平台互斥在接纳后即释放，不被登记等待占住。
+  await p.telegram.receive(update(17, 17, "第二条"));
+  await until(async () => (await p.harness.snapshot(PersonalTelegramReceiptDoc, `telegram:123:${OWNER}:17`, context))?.receipt?.submissionId !== undefined);
+  const receipt17 = (await p.harness.snapshot(PersonalTelegramReceiptDoc, `telegram:123:${OWNER}:17`, context))!.receipt!;
+  assert.equal((await (await p.harness.submission(receipt17.submissionId!, context))!.status(context)).status, "queued");
+  // 同入口拥有者控制此时照常回执，登记仍未完成。
+  await p.telegram.receive(update(18, 18, "/帮助"));
+  await until(() => f.bot.sends.some(body => String(body.text).includes("拥有者操作")));
+  assert.equal((await p.harness.snapshot(PersonalCoordinationDoc, `telegram:123:${OWNER}:16`, context))!.cutoff!.cancelled, undefined);
+  // 登记与标记落成后第二条输入按序放置并应答。
+  released = true; release();
+  assert.equal((await settled(p, 16)).delivery, "sent");
+  assert.equal((await settled(p, 17)).delivery, "sent");
 });

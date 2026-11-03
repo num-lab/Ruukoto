@@ -16,6 +16,7 @@ import { CommandAdmission, PersonalCommandDoc } from "./personal-command-work.ts
 import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
+import { personalUnparkMode, type PersonalMainAdmission } from "./personal-coordination.ts";
 
 type Delivery = "waiting" | "local" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "blocked" | "unanswered";
 export type PersonalReportFacts = { taskId: TaskId; admission: EntryId; source: PersonalWorkSource; modelCall: TaskId; content: string; attempt: number; pauses: EntryId[]; submissionId?: SubmissionId; answer?: EntryId; reply?: string; delivery: Delivery; platformMessageId?: string; configurationVersion?: string };
@@ -43,7 +44,7 @@ async function verifyInput(tx: Tx, ref: PersonalDelegationRef, report: PersonalR
     if (entry?.kind !== INPUT_KIND || entry.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(entry.data, inputData(ref, report, attempt)) || message?.role !== "user" || message.content !== report.content) throw new PersonalError("report_input_invalid", "报告原输入或来源无法核实，已停止；请保留档案。");
   } else if (submission.status === "queued") {
     const queued = (await tx.doc(InboxDoc, ROOT_CONVERSATION_ID)).items.find(item => item.id === submission.id);
-    if (!queued || queued.mode !== "followUp" || queued.content !== report.content || !isDeepStrictEqual(queued.entry, { kind: INPUT_KIND, data: inputData(ref, report, attempt) })) throw new PersonalError("report_input_invalid", "报告排队原文或来源不符，已停止；请保留档案。");
+    if (!queued || queued.mode === "write" || personalUnparkMode(queued.mode) !== "followUp" || queued.content !== report.content || !isDeepStrictEqual(queued.entry, { kind: INPUT_KIND, data: inputData(ref, report, attempt) })) throw new PersonalError("report_input_invalid", "报告排队原文或来源不符，已停止；请保留档案。");
   }
   return submission;
 }
@@ -72,7 +73,7 @@ function canceled(reader: DocumentObserver, ref: PersonalDelegationRef, context:
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
-function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
   name: "ruukoto.delegation-report", version: 1, initial: () => ({ phase: "wait" }),
   phases: {
     async wait(current, runtime, context) {
@@ -127,7 +128,7 @@ function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInp
           let permitted = true;
           await runtime.commit(async tx => { const { value, report } = await reportFacts(tx, ref, current.id); if (!await verifyInput(tx, ref, report) && value.telegram && im && !im.isActive(value.telegram)) { permitted = false; report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: report.delivery } } }; } await requireReportReady(tx, ref); return undefined; }, context);
           if (!permitted) return;
-          const submission = await main.submit({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(ref, saved) }, whenBusy: "followUp" }, context);
+          const submission = await (admitInput ?? main.submit.bind(main))({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(ref, saved) }, whenBusy: "followUp" }, context);
           await runtime.commit(async tx => { const { value, report } = await reportFacts(tx, ref, current.id); await verifyInput(tx, ref, report); report.submissionId = submission.id; cancelNow = value.cancelRequested; return undefined; }, context);
           return submission;
         });
@@ -201,14 +202,14 @@ function personalReportTask(im?: PersonalImAccess) { return defineTask<ReportInp
     const main = await runtime.conversation(ROOT_CONVERSATION_ID, context);
     let admitted = false;
     if (saved) await runtime.commit(async tx => { admitted = !!await verifyInput(tx, current.input.delegation, saved); return undefined; }, context);
-    if (saved && main && admitted) { const submission = await main.submit({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(current.input.delegation, saved) }, whenBusy: "followUp" }, context); await submission.abort(context); }
+    if (saved && main && admitted) { const submission = await (admitInput ?? main.submit.bind(main))({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(current.input.delegation, saved) }, whenBusy: "followUp" }, context); await submission.abort(context); }
     await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); report.delivery = report.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: report.delivery } } }; }, context);
   },
 });
 
 }
 export const PersonalReportTask = personalReportTask();
-export function personalReports(im: PersonalImAccess) { return defineExtension({ name: "personal-delegation-reports", tasks: [personalReportTask(im)] }); }
+export function personalReports(im: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineExtension({ name: "personal-delegation-reports", tasks: [personalReportTask(im, admitInput)] }); }
 export const personalDelegationReports = defineExtension({ name: "personal-delegation-reports", tasks: [PersonalReportTask] });
 
 export async function requestPersonalReport(tx: Tx, ref: PersonalDelegationRef, sourceRequestId: string, modelCall: TaskId) {

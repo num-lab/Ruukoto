@@ -22,6 +22,7 @@ import { PERSONAL_COMMAND_WORK, personalCommandResult, personalWorkCommands, req
 
 import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, mcpOperations, mcpUnresolved, requireWorkMcpStopped, waitWorkMcp } from "./personal-mcp.ts";
 import { personalSource } from "./personal-source.ts";
+import { personalCoordinationCutoff } from "./personal-coordination.ts";
 import { scheduledConversation, SCHEDULE_SUMMARY_INPUT } from "./personal-scheduler-records.ts";
 import { LiveDoc } from "@earendil-works/pi-durable";
 
@@ -33,7 +34,7 @@ type WorkNote = { admission?: EntryId; requestId: string; content: string; sourc
 type WorkFacts = { appData?: boolean; delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
 type WorkInput = { requestId: string; agentId: ConversationId; content: string };
 const context = BACKGROUND_CONTEXT;
-const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
+export const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
 export const PersonalAgentsDoc = defineDoc<{ agents: AgentIndex[] }>({ kind: "ruukoto.subagents", scope: "session", version: 1, initial: () => ({ agents: [] }) });
 export const PersonalWorkDoc = defineDocFamily<WorkFacts, null>({ kind: "ruukoto.work", scope: "session", version: 1, family: true, initial: () => ({ fingerprint: "", cancelRequested: false }) });
 
@@ -161,7 +162,10 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
           }
           return undefined;
         }, context);
-        tracked.set(index, { submission, wait: submission.wait(context) });
+        const wait = submission.wait(context);
+        // The same promise rejoins the race when the loop lands on it; a close-time rejection in between must count as observed, not unhandled.
+        void wait.catch(() => undefined);
+        tracked.set(index, { submission, wait });
       };
       // 每次全部已下发输入安置后才统一收集资源；最终事务内重新核实取消、说明与归属，
       // 收尾窗口内接纳的说明继续同一身份的工作，失败或取消下的未处理说明保留原键记录。
@@ -252,6 +256,9 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
     return { ...work.ref };
   }
   const origin = await personalSource(tx, input.sourceRequestId, { active: true, invalidCode: "work_source_invalid" });
+  // A placed-but-cut-off input is still "active" until the cutoff settle lands; the fence keeps any
+  // admission (host or model path) out of its cancelled set.
+  if (await personalCoordinationCutoff(tx, input.sourceRequestId)) throw new PersonalError("work_source_invalid", "原工作输入已超出协调批次并停止，未接纳新子工作；请查询原工作。");
   const { submission: source, entry, telegram, permission } = origin;
   if (origin.scheduled && origin.run.sealed) throw new PersonalError("work_source_sealed", "定时运行已封组收尾，未接纳新子工作；请查询本次运行并结束本轮。");
   await requirePersonalServiceSourceReady(tx, input.sourceRequestId);
@@ -321,6 +328,7 @@ const noteSubmissionKey = (ref: PersonalWorkRef, note: WorkNote) => `personal-wo
 
 export async function personalWorkNoteSource(tx: Tx, requestId: string, modelCall?: TaskId): Promise<NoteSource> {
   const value = await personalSource(tx, requestId, { active: true, invalidCode: "work_source_invalid" });
+  if (await personalCoordinationCutoff(tx, requestId)) throw new PersonalError("work_source_invalid", "原工作输入已超出协调批次并停止，未接纳新子工作；请查询原工作。");
   if (value.scheduled) throw new PersonalError("work_source_invalid", "定时来源不能追加主聊天工作，请查询原运行。");
   return { kind: "input", ...value.source, ...(modelCall === undefined ? {} : { modelCall }) };
 }
@@ -346,7 +354,7 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   if (work.delegation) await requirePersonalDelegationActive(tx, work.delegation);
   if (work.delegation) await requirePersonalDelegationOpen(tx, work.delegation);
   if (work.delegation && input.source.kind === "input") await requirePersonalDelegationInput(tx, work.delegation, input.source.requestId);
-  if (input.source.kind === "input") { const source = await personalSource(tx, input.source.requestId, { active: true }); if (source.submission.id !== input.source.submissionId || source.entry.id !== input.source.entryId || (source.telegram && !samePersonalEntry(source.telegram, work.telegram))) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，请从原入口查询。"); }
+  if (input.source.kind === "input") { const source = await personalSource(tx, input.source.requestId, { active: true }); if (source.submission.id !== input.source.submissionId || source.entry.id !== input.source.entryId || (source.telegram && !samePersonalEntry(source.telegram, work.telegram))) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，请从原入口查询。"); if (await personalCoordinationCutoff(tx, input.source.requestId)) throw new PersonalError("work_source_inactive", "原工作输入已超出协调批次并停止，未接纳说明；请查询原工作。"); }
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
   work.notes ??= [];
   const admission = (await tx.appendEntry(PersonalWorkNoteAdmission, ROOT_CONVERSATION_ID, { data: { ref: { ...ref }, ...input } })).id;

@@ -6,6 +6,7 @@ import { personalTelegramApi, PersonalTelegramApiError, telegramOffset, telegram
 import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt as Receipt, type TelegramResult as Result, type TelegramControlInput } from "./personal-telegram-records.ts";
 import { telegramPermissionControl, personalPermissionFor, PersonalPermissionsDoc, TELEGRAM_SERVICE_ACTIONS } from "./personal-permissions.ts";
 import { telegramWorkControl, telegramDelegationControl } from "./personal-work-controls.ts";
+import { PERSONAL_MAIN_TOOL_ROUNDS, PersonalCoordinationDoc, personalCoordinationCutoffText, personalCoordinationRounds, type PersonalCoordinationCutoff, type PersonalMainAdmission } from "./personal-coordination.ts";
 import { personalWorkHandoff } from "./personal-work-tools.ts";
 export { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalMediaRejection, type PersonalMedia, type PersonalMediaDownload } from "./personal-media.ts";
@@ -29,7 +30,7 @@ async function receipt(tx: Tx, requestId: string, taskId: TaskId) {
 function active(config: PersonalTelegramConfig | PersonalQqConfig | undefined, value: Receipt) { return config?.enabled === true && config.generation === value.generation && config.botId === value.botId && config.ownerId === value.ownerId; }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
-export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, media?: PersonalMedia, qqConfig?: PersonalQqConfig, qqApi?: PersonalQqApi, scheduledControl?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, isSuspended: (platform: "telegram" | "qq") => boolean = () => false) {
+export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, media?: PersonalMedia, qqConfig?: PersonalQqConfig, qqApi?: PersonalQqApi, scheduledControl?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, isSuspended: (platform: "telegram" | "qq") => boolean = () => false, admitInput?: PersonalMainAdmission) {
   const locks = new Map<string, Promise<void>>(), switching = new Set<string>(), sends = new Map<PersonalQqApi, number>(), retired = new Set<PersonalQqApi>();
   const sending = new Set<Promise<unknown>>(), versions = new Map<string, string>();
   const configurationVersion = (source: { platform?: "qq" }) => versions.get(source.platform ?? "telegram");
@@ -95,7 +96,9 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           let permitted = false;
           await runtime.commit(async tx => { const value = await receipt(tx, current.input.requestId, current.id); permitted = !!await tx.submissionByRequest(ROOT_CONVERSATION_ID, current.input.requestId) || isActive(value) && active(personalEntryConfig(await tx.doc(PersonalTelegramDoc), value), value); if (!permitted) { value.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: value.delivery } } }; } return undefined; }, context);
           if (!permitted) return;
-          const submission = await main.submit({ type: "input", content, requestId: current.input.requestId, whenBusy: "followUp" }, context);
+          // Admission itself carries the registration barrier in-commit — nothing waits here, so
+          // the entry mutex stays available to same-channel controls while a cutoff is unfinished.
+          const submission = await (admitInput ?? main.submit.bind(main))({ type: "input", content, requestId: current.input.requestId, whenBusy: "followUp" }, context);
           await runtime.commit(async tx => { const receipt = (await tx.doc(PersonalTelegramReceiptDoc, current.input.requestId, null)).receipt; if (!receipt || receipt.taskId !== current.id) throw new PersonalError("telegram_receipt_missing", "原收件记录缺失，请保留档案。"); receipt.submissionId = submission.id; if (receipt.media) await media!.bind(tx, receipt.media.key, submission.id); return undefined; }, context);
           return submission;
         });
@@ -105,15 +108,40 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
         const message = entry?.model?.[0];
         if (settled.status === "done" && message?.role !== "assistant") throw new PersonalError("telegram_answer_missing", "IM 原输入的完整回答缺失，未发送；请保留档案。");
         const answer = message?.role === "assistant" ? message.content.filter(part => part.type === "text").map(part => part.text).join("") : undefined;
+        // A coordination-cutoff intent commits independently of the settle: a run fence-faulted at
+        // request prepare can go unanswered before the evaluator writes intent. An input whose
+        // persisted batch count is over budget always has that intent pending — the coordinator owns
+        // landing it through retries, dirty re-evaluations and the reopen sweep — so the receipt
+        // waits on the durable fact, never a wall-clock window. Inputs unanswered for any other
+        // reason still end unanswered.
+        let cutoff: PersonalCoordinationCutoff | undefined;
+        if (answer === undefined) for (;;) {
+          const doc = await runtime.snapshot(PersonalCoordinationDoc, current.input.requestId, context);
+          if (doc?.cutoff) { cutoff = doc.cutoff; break; }
+          const source = (await runtime.snapshot(PersonalTelegramReceiptDoc, current.input.requestId, context))?.receipt;
+          if (source?.submissionId !== undefined) {
+            const fallback = await runtime.snapshot(PersonalCoordinationDoc, `submission:${source.submissionId}`, context);
+            if (fallback?.cutoff) { cutoff = fallback.cutoff; break; }
+          }
+          let pending = false;
+          await runtime.commit(async tx => {
+            const record = await tx.submissionByRequest(ROOT_CONVERSATION_ID, current.input.requestId);
+            pending = record?.entry !== undefined && await personalCoordinationRounds(tx, ROOT_CONVERSATION_ID, record.entry) > PERSONAL_MAIN_TOOL_ROUNDS;
+            return undefined;
+          }, context);
+          if (!pending) break;
+          await runtime.sleep(runtime.now() + 50, context);
+        }
         await runtime.commit(async tx => {
           const value = await receipt(tx, current.input.requestId, current.id);
-          if (!active(personalEntryConfig(await tx.doc(PersonalTelegramDoc), value), value) || answer === undefined) {
+          if (!active(personalEntryConfig(await tx.doc(PersonalTelegramDoc), value), value) || answer === undefined && cutoff === undefined) {
             value.delivery = answer === undefined ? "unanswered" : "canceled";
             return { status: "terminal", outcome: { status: "completed", result: { delivery: value.delivery } } };
           }
-          // 纯工具调用让出由持久化交接事实识别；未解释的空文本保留原占位说明。
-          const handoff = answer === "" && settled.status === "done" && settled.answer !== undefined ? await personalWorkHandoff(tx, settled.answer) : undefined;
-          const final = answer || handoff || "本次回答没有文本内容，请从本机向导查看会话状态。";
+          // A call-bearing answer may be a host yield even when the model wrote text first; the
+          // persisted handoff reports committed facts rather than trusting the pre-call prose.
+          const handoff = message?.role === "assistant" && Array.isArray(message.content) && message.content.some(part => part.type === "toolCall") && settled.answer !== undefined ? await personalWorkHandoff(tx, settled.answer, 3900) : undefined;
+          const final = handoff ?? (answer || (cutoff ? personalCoordinationCutoffText(cutoff) : undefined) || "本次回答没有文本内容，请从本机向导查看会话状态。");
           const characters = Array.from(final);
           value.reply = characters.length > 3900 ? characters.slice(0, 3900).join("") + "…（显示已截断，完整回答保留在个人会话中）" : final;
           value.delivery = "pending";

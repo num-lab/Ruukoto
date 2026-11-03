@@ -30,6 +30,8 @@ export interface TextResponse {
 export interface ToolCallResponse {
   kind: "tool_calls";
   calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  /** Optional assistant text emitted before the tool-call deltas, as a real mixed message. */
+  text?: string;
 }
 
 export type MockResponse = TextResponse | ToolCallResponse;
@@ -112,7 +114,11 @@ export class MockModelServer {
             }
             out.push(JSON.stringify(chunk("mock-model", {}, scripted.finishReason ?? "stop")));
           } else {
-            // 同一条消息里的多个调用按真实流式协议各占一个 index（同 index 会被合并成一个调用）
+            for (const piece of (scripted.text ?? "").match(/.{1,16}/gs) ?? []) {
+              out.push(JSON.stringify(chunk("mock-model", { content: piece }, null)));
+            }
+            // Multiple calls in one message each own a stream index, as in the real protocol
+            // (deltas sharing one index merge into a single call).
             for (const [index, call] of scripted.calls.entries()) {
               const delta = {
                 tool_calls: [

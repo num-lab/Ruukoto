@@ -66,7 +66,7 @@ test("设置独立保存：HTTP 写断线保留未知效果，在线模型和离
   endpoint.listen(0, "127.0.0.1"); await once(endpoint, "listening");
   t.after(async () => { endpoint.closeAllConnections(); await new Promise<void>(resolve => endpoint.close(() => resolve())); });
   const address = endpoint.address(); assert.ok(address && typeof address === "object");
-  const model = new PersonalMockModelServer(request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "http-unknown", name: "http_request", arguments: { method: "POST", url: `http://127.0.0.1:${address.port}/write`, body: "one-write" } }] } : { kind: "text", text: "完成" });
+  const model = new PersonalMockModelServer(request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "http-unknown", name: "http_request", arguments: { method: "POST", url: `http://127.0.0.1:${address.port}/write`, body: "one-write" } }] } : { kind: "text", text: "完成" });
   f.config.baseUrl = await model.start(); await savePersonalConfig(f.directory, f.config); t.after(() => model.close());
   const stat = fs.statSync(f.workspace), tools = { version: 1 as const, generation: "tools-first", workspace: f.workspace, identity: { dev: stat.dev, ino: stat.ino }, credentials: [] };
   await savePersonalTools(f.directory, tools);
@@ -75,7 +75,19 @@ test("设置独立保存：HTTP 写断线保留未知效果，在线模型和离
   const instance = await openPersonalHarness({ profile, provider: personalProvider(f.config), modelId: f.config.modelId, tools, mcp });
   t.after(() => instance.close());
   await instance.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  // HTTP 写入只保留在子 Agent：断线写入经委派工作驱动。
   await instance.answer("执行拥有者明确选择的写入", "original-http-write");
+  await instance.work.delegate({ requestId: "http-write-child", sourceRequestId: "original-http-write", content: "执行写入" });
+  // 断线写入记为 effect_unknown 并暂停原源：子工作停在未决状态，等待以操作记录与原工具任务终结为准。
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const settled = await instance.harness.commit(async tx => {
+      const value = (await toolOperations(tx)).find(item => item.effect === "effect_unknown");
+      return !!value && (await tx.task(value.operation))?.state.status === "terminal";
+    }, context);
+    if (settled) break;
+    assert.ok(Date.now() < deadline, "等待写入操作未知效果超时"); await new Promise(resolve => setTimeout(resolve, 10));
+  }
   const operations = await instance.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))) as { operation: number; effect: string; stopped: boolean }[], context);
   const operation = operations[0]; assert.equal(operation.effect, "effect_unknown"); assert.equal(operation.stopped, false);
   await instance.harness.commit(async tx => { assert.equal((await tx.task(operation.operation as Parameters<typeof tx.task>[0]))?.state.status, "terminal"); }, context);

@@ -23,6 +23,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, type EntryRecord, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { personalWorkHandoff } from "./personal-work-tools.ts";
+import { personalCoordinationCutoff, personalCoordinationCutoffText } from "./personal-coordination.ts";
 import { openPersonalHarness } from "./personal-harness.ts";
 import { parsePersonalModel, personalProvider } from "./personal-model.ts";
 import { lockPersonalProfile } from "./personal-profile.ts";
@@ -454,16 +455,21 @@ export async function startPersonalServer(directory: string, options: { developm
             const record = await tx.submissionByRequest(instance.main.id, requestId);
             if (!record) return { status: "missing" } satisfies PersonalInputStatus;
             if (record.type !== "input") throw new PersonalError("input_conflict", "原请求对应其他操作，请保留记录并检查。");
-            if (record.status !== "done") return { status: record.status } satisfies PersonalInputStatus;
+            if (record.status !== "done") {
+              const cutoff = await personalCoordinationCutoff(tx, record.requestId) ?? await personalCoordinationCutoff(tx, `submission:${record.id}`);
+              return cutoff ? { status: record.status, answer: personalCoordinationCutoffText(cutoff) } : { status: record.status } satisfies PersonalInputStatus;
+            }
             const entry = await tx.entry(AssistantEntry, record.answer);
             const message = entry && text(entry);
             if (!message) throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
-            // 纯工具调用让出由持久化交接事实识别；未解释的空文本保留缺失错误路径。
-            if (message.text === "") {
+            // A call-bearing answer may be a host yield even when the model wrote text first; the
+            // persisted handoff reports committed facts, never the pre-call prose as an outcome.
+            const raw = entry?.model?.[0];
+            if (raw?.role === "assistant" && Array.isArray(raw.content) && raw.content.some(part => part.type === "toolCall")) {
               const handoff = await personalWorkHandoff(tx, record.answer);
-              if (handoff === undefined) throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
-              return { status: record.status, answer: handoff, truncated: false } satisfies PersonalInputStatus;
+              if (handoff !== undefined) return { status: record.status, answer: handoff, truncated: false } satisfies PersonalInputStatus;
             }
+            if (message.text === "") throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
             return { status: record.status, answer: message.text, truncated: message.truncated } satisfies PersonalInputStatus;
           }, context);
         } else if (req.method === "POST" && ["/inputs", "/work/notes"].includes(url.pathname)) {

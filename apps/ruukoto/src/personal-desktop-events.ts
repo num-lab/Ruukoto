@@ -5,6 +5,7 @@ import type { Duplex } from "node:stream";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { personalDesktopMessage, personalTimeline, personalTimelineEntry } from "./personal-history.ts";
+import { personalUnparkMode } from "./personal-coordination.ts";
 import type { PersonalDesktopBlock, PersonalDesktopChange, PersonalDesktopEvent, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopMessage, PersonalDesktopTool } from "@ruukoto/view/personal-protocol.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -42,7 +43,7 @@ function tool(slot: ToolSlot | NestedToolSlot): PersonalDesktopTool {
 export function personalDesktopLive(snapshot: SnapshotEvent): PersonalDesktopLive {
   const slots = [...snapshot.tools, ...snapshot.nestedTools];
   const generation = snapshot.generation, message = generation?.message && currentMessage(generation.message);
-  const result: PersonalDesktopLive = { ...(snapshot.agent.model ? { model: snapshot.agent.model } : {}), ...(snapshot.run ? { run: { inputs: [...snapshot.run.inputs.slice(0, 64)], total: snapshot.run.inputs.length } } : {}), ...(generation ? { generation: { attempt: generation.attempt, ...(message ? { message: { ...message, partial: true } } : {}), ...(generation.retry ? { retry: { at: generation.retry.at, error: generation.retry.error.slice(0, TEXT_LIMIT) } } : {}), ...(generation.deferred ? { deferred: generation.deferred } : {}) } } : {}), tools: [], toolCount: slots.length, inbox: snapshot.inbox.slice(0, 64).map(item => ({ id: item.id, mode: item.mode })), inboxCount: snapshot.inbox.length };
+  const result: PersonalDesktopLive = { ...(snapshot.agent.model ? { model: snapshot.agent.model } : {}), ...(snapshot.run ? { run: { inputs: [...snapshot.run.inputs.slice(0, 64)], total: snapshot.run.inputs.length } } : {}), ...(generation ? { generation: { attempt: generation.attempt, ...(message ? { message: { ...message, partial: true } } : {}), ...(generation.retry ? { retry: { at: generation.retry.at, error: generation.retry.error.slice(0, TEXT_LIMIT) } } : {}), ...(generation.deferred ? { deferred: generation.deferred } : {}) } } : {}), tools: [], toolCount: slots.length, inbox: snapshot.inbox.slice(0, 64).map(item => ({ id: item.id, mode: personalUnparkMode(item.mode) })), inboxCount: snapshot.inbox.length };
   let bytes = Buffer.byteLength(JSON.stringify(result));
   for (const slot of slots.slice(0, 32)) {
     const projected = tool(slot), size = Buffer.byteLength(JSON.stringify(projected));
@@ -72,7 +73,7 @@ export function personalDesktopEvent(event: Exclude<AgentEvent, SnapshotEvent>):
       return { type: event.type, ...call(event), ...(output ? { output: "set" in output ? { set: output.set.slice(0, TEXT_LIMIT) } : { ...(output.trimStart === undefined ? {} : { trimStart: output.trimStart }), ...(output.append === undefined ? {} : { append: output.append.slice(0, TEXT_LIMIT) }) } } : {}), truncated: (output ? "set" in output ? output.set.length : output.append?.length ?? 0 : 0) > TEXT_LIMIT };
     }
     case "tool_execution_end": { const entry = event.entry && personalTimelineEntry(event.entry), result = event.result && JSON.stringify(event.result.structuredOutput ?? ""); return { type: event.type, ...call(event), ...(entry ? { entry } : {}), ...(result !== undefined ? { result: { text: result.slice(0, TEXT_LIMIT), truncated: result.length > TEXT_LIMIT, isError: event.result!.isError } } : {}) }; }
-    case "inbox_update": return { type: event.type, items: event.items.slice(0, 64).map(item => ({ id: item.id, mode: item.mode })), total: event.items.length };
+    case "inbox_update": return { type: event.type, items: event.items.slice(0, 64).map(item => ({ id: item.id, mode: personalUnparkMode(item.mode) })), total: event.items.length };
     case "submission": return { type: event.type, record: { id: event.record.id, status: event.record.status, ...("entry" in event.record && event.record.entry !== undefined ? { entry: event.record.entry } : {}), ...("answer" in event.record && event.record.answer !== undefined ? { answer: event.record.answer } : {}) } };
     case "agent_changed": return { type: event.type, ...(event.agent.model ? { model: event.agent.model } : {}) };
     case "auto_retry_start": return { type: event.type, attempt: event.attempt, at: event.at, errorMessage: event.errorMessage.slice(0, TEXT_LIMIT) };

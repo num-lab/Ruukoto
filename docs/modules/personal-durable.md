@@ -4,6 +4,8 @@
 
 `apps/ruukoto/src/personal-*.ts` owns the Personal product's Pi 1.3.0 durable runtime: one main conversation, persistent analysis, schedules, memory and local/IM/remote entry points. It provides command workers, browser tools, application-data access, approvals and structured owner questions. File reads/writes prepare, revalidate and execute on one dedicated worker thread (`worker/personal-file-worker.mjs`, built by `npm run build:worker`), so slow disks never block the main event loop or lengthen durable transactions; a worker lost mid-write preserves an unknown effect instead of assuming stop.
 
+Waiting business tools run only inside SubAgents: main model requests never offer them and their main-conversation execution is refused before any effect, so waiting operations never hold the main generation. Each owner input may commit at most four persisted tool-call batches; a noncompliant overrun stops the input through a durable cutoff that cancels exactly the work it admitted, appends a public marker with the cancellation registration, and notifies the original local or IM entry factually — cancellation registered is never reported as physically stopped — while a compliant model simply answers in prose once the offer is empty. While a cutoff's cancellation registration is unfinished, new main submissions are admitted durably as queued — accepted immediately, never self-placed — and the coordinator places the queue itself once registration completes; queued inputs are parked so that foreign writes such as background compaction summaries can never advance them ahead of a pending registration, and a run that ends without a boundary likewise leaves the queue to the coordinator, which applies the same final boundary its callers would have.
+
 [Deployment](deploy.md) owns systemd configuration; [runtime](runtime.md) describes the separate Coding engine; [execution](execution.md) describes shared native primitives.
 
 ## Public Interfaces
@@ -22,7 +24,7 @@
 | Questions | `ask_user`: one to three structured questions and continuation after answers |
 | Scheduling | `schedule_create`, `schedule_query`, `schedule_cancel`: timed work in independent conversations |
 | Memory/history | `memory`, `history_search`, `history_read`: versioned facts and history lookup |
-| Files/network | `read_file`, `write_file`, `web_search`, `http_request`: access within granted scope, with approvals where required |
+| Files/network | `read_file`, `write_file`, `web_search`, `http_request`, `list_files`, `search_files`, `read_artifact`: child-side access within granted scope, with approvals where required |
 | Browser | `browser`: browser operation and screenshots |
 | Application data | `app_data_*`: dedicated business database access |
 | MCP | `mcp_tools`, `mcp_call`, `read_mcp_result`: eligible discovery, calls and original results; Pi handles transport/paging |
@@ -101,4 +103,5 @@ Manual finalization adds facts; it never removes the original source's automatic
 - [Home skills discovery](../../.agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md)
 - [Personal file operations worker](../../.agents/notes/implemented/architecture/2026-11-02-personal-file-io-worker.md)
 - [Personal main handoff yield](../../.agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md)
+- [Personal bounded main coordination](../../.agents/notes/implemented/architecture/2026-11-03-personal-coordination-cutoff.md)
 - [Personal same-SubAgent work-note supervision](../../.agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md)

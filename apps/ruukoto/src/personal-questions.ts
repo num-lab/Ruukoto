@@ -15,6 +15,7 @@ import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc, s
 import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
 import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess, type PersonalImSender } from "./personal-im-api.ts";
+import { personalUnparkMode, type PersonalMainAdmission } from "./personal-coordination.ts";
 
 export type PersonalOwnerAnswer = { [K in keyof OwnerAnswer]: OwnerAnswer[K] };
 export type PersonalQuestionItem = { [K in keyof OwnerQuestionItem]: OwnerQuestionItem[K] };
@@ -116,7 +117,7 @@ export async function personalQuestionSubmission(tx: Tx, value: PersonalQuestion
     if (entry?.kind !== PERSONAL_QUESTION_INPUT || entry.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(entry.data, inputData(value)) || !entry.model?.some(message => message.role === "user" && message.content === answer.content)) throw invalid();
   } else if (submission.status === "queued") {
     const queued = (await tx.doc(InboxDoc, ROOT_CONVERSATION_ID)).items.find(item => item.id === submission.id);
-    if (!queued || queued.mode !== "followUp" || queued.content !== answer.content || !isDeepStrictEqual(queued.entry, { kind: PERSONAL_QUESTION_INPUT, data: inputData(value) })) throw invalid();
+    if (!queued || queued.mode === "write" || personalUnparkMode(queued.mode) !== "followUp" || queued.content !== answer.content || !isDeepStrictEqual(queued.entry, { kind: PERSONAL_QUESTION_INPUT, data: inputData(value) })) throw invalid();
   }
   return submission;
 }
@@ -149,7 +150,7 @@ async function verifyQuestionAnswer(tx: Tx, value: PersonalQuestion) {
   } else if (answer.telegram || value.origin.telegram) throw invalid();
 }
 
-function questionTask(im?: PersonalImAccess) { return defineTask<{ question: string; requestId: string }, { phase: "admit" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function questionTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineTask<{ question: string; requestId: string }, { phase: "admit" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
   name: "ruukoto.question-continuation", version: 1, initial: () => ({ phase: "admit" }),
   phases: {
     async admit(current, runtime, callContext) {
@@ -163,7 +164,7 @@ function questionTask(im?: PersonalImAccess) { return defineTask<{ question: str
         let permitted = true;
         await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id); await verifyQuestionAnswer(tx, value); if (!await personalQuestionSubmission(tx, value) && value.answer!.telegram && (!await telegramSourceActive(tx, value.answer!.telegram!) || im && !im.isActive(value.answer!.telegram!))) { value.answer!.delivery = "canceled"; permitted = false; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; } return undefined; }, callContext);
         if (!permitted) return;
-        const submission = await main.submit({ type: "input", requestId: keyFor(current.id), content: saved.answer!.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext);
+        const submission = await (admitInput ?? main.submit.bind(main))({ type: "input", requestId: keyFor(current.id), content: saved.answer!.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext);
         await runtime.commit(async tx => { const value = await personalQuestion(tx, saved.id); await personalQuestionSubmission(tx, value); value.answer!.submissionId = submission.id; return undefined; }, callContext);
         return submission;
       });
@@ -195,7 +196,7 @@ function questionTask(im?: PersonalImAccess) { return defineTask<{ question: str
     },
     async verify(current, runtime, callContext) { await runtime.commit(async tx => { const answer = (await personalQuestion(tx, current.input.question)).answer!; answer.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext); },
   },
-  async abort(current, runtime, callContext) { const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!; let admitted = false; await runtime.commit(async tx => { admitted = !!await personalQuestionSubmission(tx, await personalQuestion(tx, saved.id)); return undefined; }, callContext); if (admitted && saved.answer) { const submission = await runtime.conversation(ROOT_CONVERSATION_ID, callContext); const original = submission && await submission.submit({ type: "input", requestId: keyFor(current.id), content: saved.answer.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext); await original?.abort(callContext); } await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; answer.delivery = answer.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: answer.delivery } } }; }, callContext); },
+  async abort(current, runtime, callContext) { const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!; let admitted = false; await runtime.commit(async tx => { admitted = !!await personalQuestionSubmission(tx, await personalQuestion(tx, saved.id)); return undefined; }, callContext); if (admitted && saved.answer) { const submission = await runtime.conversation(ROOT_CONVERSATION_ID, callContext); const original = submission && await (admitInput ?? submission.submit.bind(submission))({ type: "input", requestId: keyFor(current.id), content: saved.answer.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext); await original?.abort(callContext); } await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; answer.delivery = answer.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: answer.delivery } } }; }, callContext); },
 }); }
 export const PersonalQuestionTask = questionTask();
 
@@ -211,7 +212,7 @@ export async function verifyPersonalQuestionRequest(tx: Tx, conversationId: Conv
   const live = await tx.doc(LiveDoc, conversationId);
   for (const id of (await tx.doc(PersonalQuestionsDoc)).ids) { const value = await personalQuestion(tx, id), input = await personalQuestionSubmission(tx, value); if (input && live.run?.inputs.includes(input.id)) await personalQuestionSource(tx, keyFor(value.answer!.taskId), true); }
 }
-export function personalQuestions(getHarness: () => Harness, im?: PersonalImAccess) {
+export function personalQuestions(getHarness: () => Harness, im?: PersonalImAccess, admitInput?: PersonalMainAdmission) {
   const ask = defineTool({ name: "ask_user", description: "登记1–3题业务澄清并立即返回pending；拥有者从本机问题菜单或原私聊 /问题 逐题选择、输入或跳过，最后核对提交。有选项也允许自由输入；multiple开启多选，推荐仅展示。每会话只保留一批待答问题。成功后结束本轮，回答作为后续拥有者输入；待答期间普通聊天继续，业务回答不批准操作。", parameters: Type.Object({ questions: Type.Array(Type.Object({ question: Type.String({ minLength: 1, maxLength: 2000 }), options: Type.Optional(Type.Array(Type.Union([Type.String({ minLength: 1, maxLength: 200 }), Type.Object({ label: Type.String({ minLength: 1, maxLength: 200 }), description: Type.Optional(Type.String({ maxLength: 500 })), recommended: Type.Optional(Type.Boolean()) }, { additionalProperties: false })]), { minItems: 2, maxItems: 5, description: "选项名互异；省略时自由输入。" })), multiple: Type.Optional(Type.Boolean({ description: "true须有options；省略或false为单选。" })) }, { additionalProperties: false }), { minItems: 1, maxItems: 3 }) }, { additionalProperties: false }), replay: "safe", executionMode: "sequential", async execute(input, api, callContext) {
     const questions = parsed(() => parseOwnerQuestions(input.questions));
     const live = await api.snapshot(LiveDoc, api.conversationId, callContext), candidate = live?.run?.inputs.length === 1 ? await getHarness().submission(live.run.inputs[0], callContext) : undefined, sourceRequestId = (await candidate?.status(callContext))?.requestId;
@@ -229,7 +230,7 @@ export function personalQuestions(getHarness: () => Harness, im?: PersonalImAcce
     }, callContext);
     return { output: [{ type: "text", text: JSON.stringify({ status: "pending", message: "结束本轮，回答将作为后续拥有者输入。" }) }] };
   } });
-  return defineExtension({ name: PERSONAL_QUESTIONS, tools: [ask], tasks: [questionTask(im)], hooks: [hook(ToolTask, { async beforeTool(call, api, callContext) { const names = await getHarness().commit(tx => personalQuestionToolNames(tx, api.conversationId, [call.name]), callContext); if (!names.includes(call.name)) return { block: "本轮已登记问题，只可查询后台状态；请输出说明并结束本轮，收到实际回答后再继续。" }; } })] });
+  return defineExtension({ name: PERSONAL_QUESTIONS, tools: [ask], tasks: [questionTask(im, admitInput)], hooks: [hook(ToolTask, { async beforeTool(call, api, callContext) { const names = await getHarness().commit(tx => personalQuestionToolNames(tx, api.conversationId, [call.name]), callContext); if (!names.includes(call.name)) return { block: "本轮已登记问题，只可查询后台状态；请输出说明并结束本轮，收到实际回答后再继续。" }; } })] });
 }
 export async function verifyPersonalQuestions(tx: Tx, keys: string[], receiptKeys: string[], enabled: boolean, definition?: ToolRegistration) {
   const ids = (await tx.doc(PersonalQuestionsDoc)).ids;

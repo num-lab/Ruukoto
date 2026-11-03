@@ -14,6 +14,7 @@ import { PersonalDelegationDoc } from "../apps/ruukoto/src/personal-delegation.t
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import { BrowserManager, BrowserError, type BrowserBinding } from "@ruukoto/agent/browser-manager.ts";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
+import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { parsePersonalBrowser, savePersonalBrowser } from "../apps/ruukoto/src/personal-browser-config.ts";
 import { browserOperations, browserResolve, PERSONAL_BROWSER, type PersonalBrowserOperation } from "../apps/ruukoto/src/personal-browser.ts";
@@ -45,6 +46,14 @@ const respond: Responder = request => {
   return { kind: "text", text: last?.role === "tool" ? text : "完成" };
 };
 async function until(check: () => boolean | Promise<boolean>) { const deadline = Date.now() + 15000; while (!await check()) { assert.ok(Date.now() < deadline, "组合验证等待超时"); await delay(5); } }
+// 等待业务工具只保留在子 Agent：文件与产物调用经委派工作驱动，子回答回显工具结果文本。
+async function workText(p: PersonalHarness, input: Parameters<PersonalHarness["work"]["delegate"]>[0]) {
+  const work = await p.work.delegate(input);
+  await p.harness.waitForTask(work.taskId, context);
+  let text = "", offset: number | undefined = 0;
+  do { const page = await p.harness.commit(tx => personalWorkResult(tx, work, offset), context); text += page.text ?? ""; offset = page.nextOffset; } while (offset !== undefined);
+  return { work, text };
+}
 function binding(): BrowserBinding { return { sessionId: String(ROOT_CONVERSATION_ID), generation: "integration-browser", kind: "owned", state: "ready", profileDir: null, socketDir: "", cliSession: "", cdpUrl: null, targetId: null, chrome: null, daemon: null, dashboard: null, chromePending: false, daemonPending: false, dashboardPending: false, lockDir: null, pauseTaskId: null, pauseAfterSeq: null, outcomeUnknown: false, failureCode: null, dashboardUrl: null, headed: false }; }
 
 async function fixture(t: TestContext, options: { general?: boolean; browser?: boolean; imageInput?: boolean; responder?: Responder } = {}) {
@@ -89,8 +98,7 @@ test("个人组合：截图经真实media/provider恢复，无general也能读�
   assert.match(JSON.stringify(f.model.calls.at(-1)!.raw), new RegExp(png.toString("base64")));
   const originalEntries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   assert.doesNotMatch(JSON.stringify(originalEntries), new RegExp(png.toString("base64")));
-  const read = JSON.parse(await p.answer(invoke("read_artifact", { artifact: operation.artifact.id }), "read-screenshot")) as { base64: string; mime: string };
-  assert.equal(read.base64, png.toString("base64")); assert.equal(read.mime, "image/png");
+  // read_artifact 等等待业务工具只保留在子 Agent；主会话产物由本机控制面按原字节核实导出。
   await p.close(); const server = await f.server();
   const listed = await personalControl<{ items: { artifact: string; mime: string }[] }>(f.directory, "GET", "/tools/artifacts");
   assert.ok(listed.items.some(value => value.artifact === operation.artifact!.id && value.mime === "image/png"));
@@ -106,7 +114,10 @@ test("个人组合：已配置浏览器不阻断委托汇报，参考轮次只�
     if (last?.role === "user" && String(last.content).startsWith("宿主委托汇总参考")) return { kind: "tool_calls", calls: [{ id: "report-result", name: "background_work", arguments: { action: "result", work } }] };
     return respond(request, index);
   } }), p = await f.open(); await f.mode("full_access");
-  const registered = JSON.parse(await p.answer(invoke("background_work", { action: "delegate", content: "只返回已完成" }), "browser-report-owner")) as { work: number; delegation: EntryId };
+  // 纯安排批由宿主让出；工作与委托从已登记记录核实。
+  await p.answer(invoke("background_work", { action: "delegate", content: "只返回已完成" }), "browser-report-owner");
+  const agent = (await p.work.list()).find(value => value.work)!;
+  const registered = { work: agent.work!.taskId, delegation: (await p.harness.snapshot(PersonalWorkDoc, agent.work!.requestId, context))!.delegation!.entryId };
   work = registered.work;
   assert.ok(toolNames(f.model.calls[0]).includes("browser"));
   await p.answer(invoke("background_work", { action: "report", delegation: registered.delegation }), "browser-report-seal");
@@ -120,13 +131,17 @@ test("个人组合：已配置浏览器不阻断委托汇报，参考轮次只�
 
 test("个人组合：read_file沿本次授权原字节返回视觉块与可重建产物", async t => {
   const f = await fixture(t, { general: true, browser: false }), p = await f.open(), filename = path.join(f.workspace, "picture.png"); fs.writeFileSync(filename, png);
-  await p.answer(invoke("read_file", { path: filename }), "read-picture");
+  await p.answer("读图", "read-picture");
+  const read = await workText(p, { requestId: "read-picture-work", sourceRequestId: "read-picture", content: invoke("read_file", { path: filename }) });
   const operation = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx)))[0] as { artifact: { id: string }; approval: string; effect: string }, context);
   assert.equal(operation.approval, "unneeded"); assert.equal(operation.effect, "returned");
-  assert.match(JSON.stringify(f.model.calls.at(-1)!.raw), new RegExp(png.toString("base64")));
-  const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
+  const childCalls = f.model.calls.filter(request => request.system?.includes("你是个人助手的子 Agent"));
+  assert.match(JSON.stringify(childCalls.at(-1)!.raw), new RegExp(png.toString("base64")));
+  const child = await p.harness.conversation(read.work.agentId, context);
+  const entries = (await child!.entries({ order: "ascending" }, 256, undefined, context)).items;
   assert.match(JSON.stringify(entries), /ruukotoImage/); assert.doesNotMatch(JSON.stringify(entries), new RegExp(png.toString("base64")));
-  assert.equal(JSON.parse(await p.answer(invoke("read_artifact", { artifact: operation.artifact.id }), "read-image-bytes")).base64, png.toString("base64"));
+  const reread = await workText(p, { requestId: "read-bytes-work", sourceRequestId: "read-picture", agentId: read.work.agentId, content: invoke("read_artifact", { artifact: operation.artifact.id }) });
+  assert.equal(JSON.parse(reread.text).base64, png.toString("base64"));
 });
 
 test("个人组合：认证本机HTTP选择模式只影响以后接纳的输入", async t => {
@@ -145,7 +160,8 @@ test("个人组合：纯文字模型在截图前明确拒绝，文件图片保�
   const screenshot = await p.answer(browser("screenshot"), "unsupported-screenshot");
   assert.match(screenshot, /image_input_unsupported/); assert.equal(f.calls(), 0); assert.equal((await f.operations()).length, 0);
   const filename = path.join(f.workspace, "photo.png"); fs.writeFileSync(filename, png);
-  const result = JSON.parse(await p.answer(invoke("read_file", { path: filename }), "unsupported-file")) as { code: string; artifact: string };
+  await p.answer("读图", "unsupported-file");
+  const result = JSON.parse((await workText(p, { requestId: "unsupported-read-work", sourceRequestId: "unsupported-file", content: invoke("read_file", { path: filename }) })).text) as { code: string; artifact: string };
   assert.equal(result.code, "image_input_unsupported"); assert.ok(result.artifact); assert.ok(f.model.calls.every(request => !JSON.stringify(request.raw).includes('"type":"image_url"')));
 });
 

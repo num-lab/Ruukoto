@@ -15,6 +15,7 @@ import { acquirePersonalDirectory } from "../apps/ruukoto/src/personal-directory
 import { preparePersonalFile } from "../apps/ruukoto/src/personal-tool-io.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { toolOperations, type PersonalToolOperation } from "../apps/ruukoto/src/personal-tools.ts";
+import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalMockModelServer as MockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -85,11 +86,13 @@ test("文件工作线程：宿主写入执行中工作线程丢失保留未知�
   const mode = async (value: "auto-review" | "confirm" | "full_access") => p!.harness.commit(async tx => { const doc = await tx.doc(PersonalPermissionsDoc); doc.mode = value; doc.version++; }, context);
 
   // 停顿工作线程执行宿主文件请求：无关 Session 提交与宿主查询在停顿中照常完成，证明慢速准备/执行不占事务。
+  // 文件工具只保留在子 Agent：读调用经委派工作驱动。
   const stalled = openPersonalFileIo({ stallMs: 400 });
   p = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId, tools, fileIo: stalled });
   await mode("full_access");
   const target = path.join(workspace, "held"); fs.writeFileSync(target, "旧内容");
-  const reading = p.answer(`tool:{"name":"read_file","args":{"path":${JSON.stringify(target)}}}`, "stall-read");
+  await p.answer("读取停顿", "stall-read");
+  const readWork = await p.work.delegate({ requestId: "stall-read-work", sourceRequestId: "stall-read", content: `tool:{"name":"read_file","args":{"path":${JSON.stringify(target)}}}` });
   await until(() => operations().then(values => values.length > 0));
   let unrelated = false;
   const commit = p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).version++; }, context).then(() => { unrelated = true; });
@@ -98,7 +101,8 @@ test("文件工作线程：宿主写入执行中工作线程丢失保留未知�
   const observation = (await operations()).at(-1)!;
   assert.equal(observation.kind, "read_file"); assert.equal(observation.observation, undefined);
   await commit;
-  assert.match(await reading, /file_returned/);
+  await p.harness.waitForTask(readWork.taskId, context);
+  assert.match(await p.harness.commit(tx => personalWorkResult(tx, readWork), context).then(value => value.text ?? ""), /file_returned/);
   assert.equal((await operations()).at(-1)!.effect, "returned");
   await p.close(); p = undefined;
 
@@ -109,8 +113,10 @@ test("文件工作线程：宿主写入执行中工作线程丢失保留未知�
     close: () => Promise.resolve(),
   };
   p = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId, tools, fileIo: lost });
-  const failed = await p.answer(`tool:{"name":"write_file","args":{"path":${JSON.stringify(target)},"content":"派发后丢答"}}`, "lost-write");
-  assert.match(failed, /effect_unknown|file_io_worker_lost/);
+  await p.answer("写入丢失", "lost-write");
+  // 丢失写入记为 effect_unknown 并暂停原源：子工作本身停在未决状态，等待以操作记录为准。
+  await p.work.delegate({ requestId: "lost-write-work", sourceRequestId: "lost-write", content: `tool:{"name":"write_file","args":{"path":${JSON.stringify(target)},"content":"派发后丢答"}}` });
+  await until(async () => { const values = await operations(); return values.some(value => value.kind === "write_file" && value.effect === "effect_unknown"); });
   const record = (await operations()).at(-1)!;
   assert.equal(record.kind, "write_file"); assert.equal(record.started, true);
   assert.equal(record.effect, "effect_unknown"); assert.equal(record.code, "file_io_worker_lost");

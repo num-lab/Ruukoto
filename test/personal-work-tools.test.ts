@@ -56,12 +56,12 @@ test("模型工作：实际委派不阻塞主聊天，分页读原结果，复�
     return { kind: "text", text: "继续聊天" };
   });
   const p = await f.open();
-  const registered = JSON.parse(await p.answer("委派", "owner-a")) as { work: number; agent: number; state: string };
-  assert.equal(registered.state, "registered");
-  const work = await ref(p); assert.equal(registered.work, work.taskId);
+  // 纯安排批由宿主以持久化事实让出；登记的工作、身份与委托从原记录核实。
+  assert.match(await p.answer("委派", "owner-a"), /让出/);
+  const work = await ref(p);
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.source!.requestId, "owner-a");
   assert.equal(await p.answer("继续", "chat"), "继续聊天");
   assert.match(await p.answer(`查询:${work.taskId}:0`, "running"), /running|waiting/);
-  assert.equal((await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.source!.requestId, "owner-a");
   release(); await p.harness.waitForTask(work.taskId, context);
   const first = JSON.parse(await p.answer(`查询:${work.taskId}:0`, "page1")) as { text: string; offset: number; totalChars: number; nextOffset: number };
   const second = JSON.parse(await p.answer(`查询:${work.taskId}:${first.nextOffset}`, "page2")) as { text: string; offset: number; totalChars: number; nextOffset?: number };
@@ -70,8 +70,9 @@ test("模型工作：实际委派不阻塞主聊天，分页读原结果，复�
   assert.equal(second.offset, first.nextOffset); assert.equal(second.totalChars, answer.length);
   const sliced = JSON.parse(await p.answer(`查询:${work.taskId}:1`, "slice")) as { text: string; offset: number; totalChars: number };
   assert.equal(sliced.offset, 1); assert.equal(sliced.totalChars, answer.length); assert.equal(sliced.text, answer.slice(1, 4097));
-  const next = JSON.parse(await p.answer(`复用:${work.agentId}`, "reuse")) as { work: number; agent: number };
-  assert.equal(next.agent, work.agentId); await p.harness.waitForTask(next.work as TaskId, context);
+  assert.match(await p.answer(`复用:${work.agentId}`, "reuse"), /让出/);
+  const next = (await p.work.list()).map(agent => agent.work).find(value => value && value.taskId !== work.taskId)!;
+  assert.equal(next.agentId, work.agentId); await p.harness.waitForTask(next.taskId, context);
   assert.match(await p.answer("列表", "list"), /分析员/);
   assert.match(await p.answer(`关闭:${work.agentId}`, "close"), /已关闭身份/);
   assert.match(await p.answer(`复用:${work.agentId}`, "closed-reuse"), /subagent_closed/);

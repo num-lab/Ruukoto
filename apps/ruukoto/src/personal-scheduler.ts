@@ -6,6 +6,7 @@ import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type
 import { firstDue, latestAtOrBefore, nextAfter, parseRule, RuleError } from "@ruukoto/channels/scheduler/time.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess } from "./personal-im-api.ts";
+import type { PersonalMainAdmission } from "./personal-coordination.ts";
 import { telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity } from "./personal-telegram-records.ts";
 import { personalWorkResult, personalWorkStatus, requestPersonalWorkCancel } from "./personal-work.ts";
@@ -16,6 +17,8 @@ export type PersonalScheduleBody = { requestId: string; label: string; instructi
 type RunInput = { runId: string };
 export type PersonalScheduleRuntime = TaskRuntime<RunInput, { phase: "run" } | { phase: "summarize" }, object, object>;
 export type PersonalSchedulerDeps = {
+  /** Barrier-carrying main-input admission; applied only when the run's conversation is the root. */
+  admitInput?: PersonalMainAdmission;
   authorize(tx: Tx, actor: PersonalScheduleActor): Promise<PersonalScheduleAuthority>;
   verifyCreator(tx: Tx, plan: PersonalSchedule): Promise<void>;
   captureScope(tx: Tx): Promise<PersonalScheduleScope>;
@@ -64,7 +67,7 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
           try {
             submission = await withPersonalImEntry(deps.im, plan.telegram ?? {}, async () => {
             await runtime.commit(async tx => { const run = await personalScheduleRun(tx, saved.id); const live = await personalSchedule(tx, run.planId); if (run.cancelRequested || live.canceled) throw new PersonalError("schedule_run_inactive", "定时计划已取消，未执行。"); await deps.verifyScope(tx, live.scope); if (!await tx.submissionByRequest(run.conversationId, run.requestId) && live.telegram && (!await telegramSourceActive(tx, live.telegram) || deps.im && !deps.im.isActive(live.telegram))) throw new PersonalError("schedule_run_inactive", "原定时入口已失效，未执行。"); return undefined; }, taskContext);
-            const submission = await conversation.submit({ type: "input", content: plan.instruction, requestId: saved.requestId, entry: { kind: SCHEDULE_INPUT, data: { runId: saved.id, admission: saved.admission } }, whenBusy: "reject" }, taskContext);
+            const submission = await (conversation.id === ROOT_CONVERSATION_ID && deps.admitInput ? deps.admitInput : conversation.submit.bind(conversation))({ type: "input", content: plan.instruction, requestId: saved.requestId, entry: { kind: SCHEDULE_INPUT, data: { runId: saved.id, admission: saved.admission } }, whenBusy: "reject" }, taskContext);
             await runtime.commit(async tx => { const run = await personalScheduleRun(tx, saved.id); const input = await tx.submissionByRequest(run.conversationId, run.requestId); if (input?.id !== submission.id) throw new PersonalError("schedule_record_invalid", "定时输入接纳无法核实，请保留档案。"); run.submissionId = submission.id; if (input.entry) run.entryId = input.entry; return undefined; }, taskContext);
             return submission;
             });
@@ -108,7 +111,7 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
           let active = true;
           await runtime.commit(async tx => { const plan = await personalSchedule(tx, run.planId); if (plan.canceled || !await tx.submissionByRequest(run.conversationId, `personal-schedule-summary:${run.id}`) && plan.telegram && (!await telegramSourceActive(tx, plan.telegram) || deps.im && !deps.im.isActive(plan.telegram))) { active = false; return finish(tx, run.id, "canceled", "原定时入口已失效，未开始新的汇总；原结果保留。"); } return undefined; }, taskContext);
           if (!active) return;
-          const submission = await conversation.submit({ type: "input", requestId: `personal-schedule-summary:${run.id}`, content: run.summary!.content, entry: { kind: SCHEDULE_SUMMARY_INPUT, data: { runId: run.id, admission: run.summary!.admission } }, whenBusy: "reject" }, taskContext);
+          const submission = await (conversation.id === ROOT_CONVERSATION_ID && deps.admitInput ? deps.admitInput : conversation.submit.bind(conversation))({ type: "input", requestId: `personal-schedule-summary:${run.id}`, content: run.summary!.content, entry: { kind: SCHEDULE_SUMMARY_INPUT, data: { runId: run.id, admission: run.summary!.admission } }, whenBusy: "reject" }, taskContext);
           await runtime.commit(async tx => { (await personalScheduleRun(tx, run.id)).summary!.submissionId = submission.id; return undefined; }, taskContext);
           return submission;
         });

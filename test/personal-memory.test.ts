@@ -144,11 +144,14 @@ test("个人参考：未知显式技能只阻断本轮，后续普通主聊天�
 test("记忆：来源产物丢失仍可从可信管理列表撤销，模型读取保持拒绝", async t => {
   const workspace = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-memory-source-"))); t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
   const filename = path.join(workspace, "reference.txt"); fs.writeFileSync(filename, "偏好来源原文");
-  const f = await fixture(t, (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "read-source", name: "read_file", arguments: { path: filename } }] } : { kind: "text", text: "已收到" });
+  // 文件读取只保留在子 Agent：来源产物经委派工作生成。
+  const f = await fixture(t, request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "read-source", name: "read_file", arguments: { path: filename } }] } : { kind: "text", text: "已收到" });
   await f.p.close();
   const stat = fs.statSync(workspace);
   await f.open({ tools: parsePersonalTools({ version: 1, generation: "memory-source", workspace, identity: { dev: stat.dev, ino: stat.ino }, credentials: [] }) });
   await f.p.answer("读取偏好资料", "artifact-source");
+  const sourceWork = await f.p.work.delegate({ requestId: "read-source-work", sourceRequestId: "artifact-source", content: "读取偏好资料" });
+  await f.p.harness.waitForTask(sourceWork.taskId, context);
   const artifact = await f.p.harness.commit(async tx => (await personalArtifactEntries(tx))[0].artifact.id, context);
   const memory = await f.p.harness.commit(tx => changePersonalMemory(tx, f.directory, ROOT_CONVERSATION_ID, "artifact-memory", { action: "create", category: "preference", content: "有资料来源的偏好", sources: [{ kind: "artifact", artifact }] }), context);
   fs.rmSync(path.join(f.directory, "artifacts", `${artifact}.bin`));

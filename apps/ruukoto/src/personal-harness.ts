@@ -49,6 +49,7 @@ import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDeleg
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
 import { personalDelegationReports, personalReportRequest, verifyPersonalReports, personalReports } from "./personal-report.ts";
 import { personalInspectionControls, telegramInspectionControl, verifyInspectionControls, type PersonalInspectionRef } from "./personal-inspection-controls.ts";
+import { PersonalCoordinationDoc, personalCoordinationCutoff, personalCoordinationCutoffText, personalMainAdmit, startPersonalCoordination, type PersonalCoordinationProbe, type PersonalMainAdmission, type PersonalProgressionProbe } from "./personal-coordination.ts";
 
 import { personalServiceControls, verifyServiceControls } from "./personal-service-controls.ts";
 import { PERSONAL_COMMAND_WORK, PersonalCommandDoc, PersonalCommandsDoc, personalCommandWork, personalCommandsFingerprint, personalCommandConfiguration, capturePersonalCommandHostBaseline, personalCommandConfigBlockers, configurePersonalCommands, verifyPersonalCommands, personalCommandsIn, personalCommandClaimActive } from "./personal-command-work.ts";
@@ -99,6 +100,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   mcpCuaHost?: Parameters<typeof personalMcp>[4];
   now?: () => number;
   fileIo?: PersonalFileIo;
+  coordinationProbe?: PersonalCoordinationProbe;
+  progressionProbe?: PersonalProgressionProbe;
 }) {
   const lock = options.profile ?? lockPersonalProfile(options.directory);
   let harness: Harness | undefined;
@@ -174,10 +177,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (telegramConfig?.enabled) { try { telegramApi = personalTelegramApi(telegramConfig.apiBase, telegramToken(telegramConfig)); } catch (error) { if (!(error instanceof PersonalError) || error.code !== "telegram_credentials_changed") throw error; process.stderr.write("[ruukoto:personal] Telegram 凭据不可用，该入口未连接；后台管理和其他入口仍可使用。\n"); } }
     const inspectionControls = personalInspectionControls(service?.config, () => harness!);
     const serviceControls = personalServiceControls(() => harness!, () => operations?.api(harness!));
-    const telegram = personalTelegram(telegramConfig, telegramApi, async (tx, value) => await personalQuestionControl(tx, value) || await personalBackgroundControl(tx, value, background) || await personalOwnerControl(tx, value, commands) || await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, !!mcp) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler), platform => isSettingsSuspended(platform));
-    const scheduler = personalScheduler(() => harness!, { authorize: authorizePersonalSchedule, verifyCreator: (tx, plan) => verifyPersonalScheduleCreator(tx, plan, scheduleTools.tools?.find(tool => tool.name === "schedule_create")), captureScope: tx => capturePersonalScheduleScope(tx, service?.config.policyPath), verifyScope: verifyPersonalScheduleScope, configure: configurePersonalScheduledConversation, settle: (run, runtime, taskContext, cancel) => settlePersonalScheduledRun(run, runtime, taskContext, cancel, browser?.stop), im: telegram, prepareSend: (plan, text, signal) => preparePersonalScheduledReport(harness!, plan, text, signal, telegram), send: (plan, text, signal) => sendPersonalScheduledReport(harness!, plan, text, signal, telegram), now: options.now });
+    // Admission is the barrier: the coordinator's `held` joins the queue-or-place decision inside
+    // one Session commit. Before the coordinator starts (early open tasks) queue-only is the safe
+    // admission — never self-place, never advance the queue ahead of unknown coordination state.
+    const admitInput: PersonalMainAdmission = (draft, callContext) => coordination ? coordination.admit(draft, callContext) : personalMainAdmit(harness!, draft, () => true, options.now ?? (() => Date.now()), callContext);
+    const telegram = personalTelegram(telegramConfig, telegramApi, async (tx, value) => await personalQuestionControl(tx, value) || await personalBackgroundControl(tx, value, background) || await personalOwnerControl(tx, value, commands) || await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, !!mcp) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler), platform => isSettingsSuspended(platform), admitInput);
+    const scheduler = personalScheduler(() => harness!, { admitInput, authorize: authorizePersonalSchedule, verifyCreator: (tx, plan) => verifyPersonalScheduleCreator(tx, plan, scheduleTools.tools?.find(tool => tool.name === "schedule_create")), captureScope: tx => capturePersonalScheduleScope(tx, service?.config.policyPath), verifyScope: verifyPersonalScheduleScope, configure: configurePersonalScheduledConversation, settle: (run, runtime, taskContext, cancel) => settlePersonalScheduledRun(run, runtime, taskContext, cancel, browser?.stop), im: telegram, prepareSend: (plan, text, signal) => preparePersonalScheduledReport(harness!, plan, text, signal, telegram), send: (plan, text, signal) => sendPersonalScheduledReport(harness!, plan, text, signal, telegram), now: options.now });
     const scheduleTools = personalScheduleTools(() => harness!, scheduler), scheduledWork = personalScheduledWork(() => harness!);
-    const reports = personalReports(telegram), questions = personalQuestions(() => harness!, telegram);
+    const reports = personalReports(telegram, admitInput), questions = personalQuestions(() => harness!, telegram, admitInput);
     const registry = createRegistry();
     registry.install(questions);
     const qqExtension = defineExtension({ name: "personal-qq" });
@@ -524,6 +531,16 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       cursor = page.next;
     } while (cursor);
+    do {
+      const page = await storage.scanDocuments({ kind: PersonalCoordinationDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, cursor, context);
+      for (const record of page.items) {
+        const saved = await storage.document(record.id, "current", context);
+        const cutoff = saved?.value.cutoff;
+        const ref = (value: unknown) => !!value && typeof value === "object" && !Array.isArray(value) && typeof (value as { requestId?: unknown }).requestId === "string" && typeof (value as { taskId?: unknown }).taskId === "number" && typeof (value as { agentId?: unknown }).agentId === "number";
+        if (!saved || saved.version !== 1 || record.key === undefined || cutoff !== undefined && (typeof cutoff !== "object" || cutoff === null || Array.isArray(cutoff) || cutoff.version !== 1 || !Array.isArray(cutoff.targets) || !cutoff.targets.every(ref) || typeof cutoff.submission !== "number" || cutoff.cancelled !== undefined && (!Array.isArray(cutoff.cancelled) || !cutoff.cancelled.every(ref)) || cutoff.marker !== undefined && typeof cutoff.marker !== "number")) throw new PersonalError("coordination_record_invalid", "协调核实记录版本不受支持，已停止恢复；请保留档案。");
+      }
+      cursor = page.next;
+    } while (cursor);
     const questionKeys: string[] = [], questionReceiptKeys: string[] = [];
     for (const [kind, keys] of [[PersonalQuestionDoc.definition.kind, questionKeys], [PersonalQuestionReceiptDoc.definition.kind, questionReceiptKeys]] as const) {
       let cursor;
@@ -560,7 +577,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     for (const value of providers) models.setRecordedProvider(value.provider);
     harness = await Harness.open(storage, { models, registry, settings: { followUpMode: "one-at-a-time", steeringMode: "one-at-a-time" }, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
     // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
-    unlocked = harness.closed.then(async () => { const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
+    let coordination: { close: () => Promise<void>; admit: PersonalMainAdmission } | undefined;
+    unlocked = harness.closed.then(async () => { const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); try { await coordination?.close(); } catch { process.stderr.write("[ruukoto:personal] Coordination watcher failed to stop; please inspect the profile before restarting.\n"); } if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     await initializePersonalSettings(lock, harness);
     const initialImVersions = await harness.commit(async tx => ({ telegram: await effectivePersonalConfiguration(tx, "telegram", "*"), qq: await effectivePersonalConfiguration(tx, "qq", "*") }), context);
@@ -708,6 +726,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const tools = [...questions.tools!, ...appData.extension.tools!, ...memory.tools!, ...history.tools!, ...skills.extension.tools!, ...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(background?.extension.tools ?? []), ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service!.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: currentModel.provider.id, modelId: currentModel.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { (await tx.doc(PersonalConfigurationDoc)).initializedWithoutRoot = false; await initializeAppData(tx); await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
+    coordination = await startPersonalCoordination(harness, storage!, context, options.coordinationProbe, options.progressionProbe, options.now);
     await harness.commit(tx => skills.prepare(tx, main.id), context);
     if (mcp) await harness.commit(tx => configureMcp(tx, mcp!.config), context);
     if (general?.config) await harness.commit(tx => configureTools(tx, general!.config!), context);
@@ -987,21 +1006,27 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       },
       async submit(input: string, requestId: string) {
         await instance.commit(tx => personalLocalInput(tx, requestId, input), context);
-        return main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
+        return admitInput({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
       },
       async answer(input: string, requestId: string) {
         await instance.commit(tx => personalLocalInput(tx, requestId, input), context);
-        const submission = await main.submit({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
+        const submission = await admitInput({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
         const settled = await submission.wait(context);
-        if (settled.status !== "done" || settled.type !== "input") throw new PersonalError("input_unanswered", "本次输入未获得完整回答，请查看工作状态后决定下一步。");
+        if (settled.status !== "done" || settled.type !== "input") {
+          const cutoff = await instance.commit(async tx => await personalCoordinationCutoff(tx, settled.requestId) ?? await personalCoordinationCutoff(tx, `submission:${settled.id}`), context);
+          if (cutoff) throw new PersonalError("input_coordination_cutoff", personalCoordinationCutoffText(cutoff));
+          throw new PersonalError("input_unanswered", "本次输入未获得完整回答，请查看工作状态后决定下一步。");
+        }
         const entry = await main.commit(tx => tx.entry(AssistantEntry, settled.answer), context);
         const message = entry?.model?.[0];
         if (message?.role !== "assistant") throw new PersonalError("answer_missing", "已结束输入的回答记录缺失，请保留档案并检查存储。");
         const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
-        // 纯工具调用让出由持久化交接事实识别；未解释的空文本保持原行为。
-        return text || await main.commit(tx => personalWorkHandoff(tx, settled.answer), context) || text;
+        // A call-bearing answer may be a host yield even when the model wrote text first; pre-call
+        // prose never counts as a call's committed outcome, so the persisted handoff decides.
+        const handoff = message.content.some(part => part.type === "toolCall") ? await main.commit(tx => personalWorkHandoff(tx, settled.answer), context) : undefined;
+        return handoff ?? text;
       },
-      async close() { await waitPersonalSettings({ profile: lock }); await pairing.close(); await entry.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked; },
+      async close() { await waitPersonalSettings({ profile: lock }); await pairing.close(); await entry.close(); await coordination?.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked; },
     };
     await recoverPersonalSettings({ profile: lock, instance: publicApi });
     instance.resume();

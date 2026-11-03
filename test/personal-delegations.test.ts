@@ -93,8 +93,9 @@ test("分析委托：同轮多成员、跨轮继续及原权限固定，历史�
   await p.answer("multi", "owner"); const ref = await first(p); await finish(p, ref);
   assert.equal((await progress(p, ref)).total, 2); assert.equal((await progress(p, ref)).state, "idle");
   await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context);
-  const result = JSON.parse(await p.answer(args("delegate", { content: "后续检查", delegation: ref.entryId }), "follow-up")) as { work: number; delegation: number };
-  assert.equal(result.delegation, ref.entryId); await finish(p, ref);
+  // 纯安排批由宿主让出；续派成员从已登记委托成员核实。
+  await p.answer(args("delegate", { content: "后续检查", delegation: ref.entryId }), "follow-up");
+  await finish(p, ref);
   const saved = (await p.harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!;
   const member = saved.members.at(-1)!; const work = (await p.harness.snapshot(PersonalWorkDoc, member.requestId, context))!;
   assert.equal(work.source!.requestId, "owner"); assert.equal(work.instructionSource!.requestId, "follow-up"); assert.deepEqual(work.permission, { mode: "auto-review", version: 1 });
@@ -123,9 +124,12 @@ test("分析委托：整项取消覆盖全部成员，拒绝续派追加，其�
   const member = (await progress(p, ref)).members[0].ref;
   assert.deepEqual(await p.work.append(member, { content: "旧说明", requestId: "late-note", sourceRequestId: "owner" }), { accepted: false, outcome: "aborted" });
   await p.harness.commit(tx => cancelPersonalDelegation(tx, ref), context);
-  const registered = JSON.parse(await p.answer(args("delegate", { content: "复用身份新委托", agent: member.agentId }), "reuse")) as { agent: number; state: string };
-  assert.equal(registered.state, "registered"); assert.equal(registered.agent, member.agentId);
+  // 纯安排批由宿主让出；复用身份的新委托成员从已登记记录核实。
+  await p.answer(args("delegate", { content: "复用身份新委托", agent: member.agentId }), "reuse");
   const reused = await first(p); assert.notEqual(reused.entryId, ref.entryId);
+  const reusedMember = (await p.harness.snapshot(PersonalDelegationDoc, String(reused.entryId), context))!.delegation!.members[0];
+  const reusedWork = (await p.harness.snapshot(PersonalWorkDoc, reusedMember.requestId, context))!;
+  assert.equal(reusedWork.ref!.agentId, member.agentId);
   assert.equal(await p.answer("继续独立聊天", "chat"), "继续聊天");
   release(); await finish(p, other); await finish(p, reused);
   assert.equal((await p.harness.snapshot(PersonalAgentsDoc, context))!.agents.find(agent => agent.id === member.agentId)!.closed, false);

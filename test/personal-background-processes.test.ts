@@ -24,6 +24,7 @@ import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalDirectoryClaimsDoc, acquirePersonalDirectory, personalDirectoriesConflict } from "../apps/ruukoto/src/personal-directory-claims.ts";
 import { PersonalBackgroundProcessDoc, PersonalBackgroundDoc } from "../apps/ruukoto/src/personal-background-processes.ts";
 import { toolOperations, toolResolve } from "../apps/ruukoto/src/personal-tools.ts";
+import { openPersonalFileIo, type PersonalFileIo } from "../apps/ruukoto/src/personal-file-io.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { managePersonalBackground } from "../apps/ruukoto/src/personal-background-cli.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
@@ -48,7 +49,7 @@ async function fixture(t: TestContext, respond?: Responder, real = false, short 
   let personal: PersonalHarness | undefined;
   t.after(async () => { await personal?.close(); await server.close(); t.mock.restoreAll(); syncBuiltinESMExports(); Object.defineProperty(process, "platform", platform); if (oldKey === undefined) delete process.env[model.apiKeyEnv]; else process.env[model.apiKeyEnv] = oldKey; fs.rmSync(root, { recursive: true, force: true }); });
   return { directory, workspace, server, config, model, launches: () => launches, stops: () => stops, output: (bytes: Buffer) => observer!.data("stdout", bytes), failStop: (value: boolean) => { failStop = value; },
-    async open(overrides: Pick<Parameters<typeof openPersonalHarness>[0], "openStorage" | "telegram" | "qq"> = {}) { personal = await openPersonalHarness({ ...overrides, directory, commands: config, provider: personalProvider(model), modelId: model.modelId, tools: { version: 1, generation: "test", workspace, identity: config.identity, credentials: [] } }); return personal; },
+    async open(overrides: Pick<Parameters<typeof openPersonalHarness>[0], "openStorage" | "telegram" | "qq" | "fileIo"> = {}) { personal = await openPersonalHarness({ ...overrides, directory, commands: config, provider: personalProvider(model), modelId: model.modelId, tools: { version: 1, generation: "test", workspace, identity: config.identity, credentials: [] } }); return personal; },
   };
 }
 async function active(p: PersonalHarness) { const index = await p.harness.snapshot(PersonalBackgroundDoc, context); assert.equal(index!.ids.length, 1); return (await p.harness.snapshot(PersonalBackgroundProcessDoc, index!.ids[0], context))!.process!; }
@@ -56,7 +57,14 @@ async function allow(p: PersonalHarness) { await p.harness.commit(async tx => { 
 
 test("个人后台：跨轮保留独立Task和目录，原字节日志可读；同轮业务工具被挡，停止核实后写入恢复", async t => {
   let workspace = "";
-  const f = await fixture(t, (request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: "sleep 300" } }, { id: "write", name: "write_file", arguments: { path: path.join(workspace, "blocked.txt"), content: "bad" } }] } : request.messages.at(-1)?.role === "user" && request.messages.at(-1)?.content === "恢复写入" ? { kind: "tool_calls", calls: [{ id: "resume-write", name: "write_file", arguments: { path: path.join(workspace, "resume.txt"), content: "after-stop" } }] } : { kind: "text", text: "已接纳" }); workspace = f.workspace; fs.writeFileSync(path.join(workspace, "resume.txt"), "before-stop");
+  // 等待业务工具只在子 Agent 内执行；恢复写入经委派工作完成。
+  const f = await fixture(t, (request, index) => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "resume-write", name: "write_file", arguments: { path: path.join(workspace, "resume.txt"), content: "after-stop" } }] } : { kind: "text", text: "已恢复" };
+    if (index === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: "sleep 300" } }, { id: "write", name: "write_file", arguments: { path: path.join(workspace, "blocked.txt"), content: "bad" } }] };
+    const last = request.messages.at(-1);
+    if (last?.role === "user" && String(last.content).includes("恢复写入")) return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "恢复写入" } }] };
+    return { kind: "text", text: "已接纳" };
+  }); workspace = f.workspace; fs.writeFileSync(path.join(workspace, "resume.txt"), "before-stop");
   const p = await f.open(); await allow(p); await p.answer("启动服务", "start-source");
   let process = await active(p);
   assert.equal(process.state, "running"); assert.equal(process.stopped, false); assert.equal(f.launches(), 1); assert.equal(fs.existsSync(path.join(workspace, "blocked.txt")), false);
@@ -68,7 +76,9 @@ test("个人后台：跨轮保留独立Task和目录，原字节日志可读；�
   await p.answer("后续普通聊天", "later-owner"); assert.equal(f.launches(), 1); assert.equal((await active(p)).state, "running");
   await p.background!.stop(process.id); await until(async () => (await active(p)).stopped);
   process = await active(p); assert.equal(process.state, "stopped"); assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 0);
-  await p.answer("恢复写入", "after-stop-owner"); assert.equal(fs.readFileSync(path.join(workspace, "resume.txt"), "utf8"), "after-stop");
+  await p.answer("恢复写入", "after-stop-owner");
+  // 纯安排批让出后由子工作完成写入：以终态文件内容核实，避免与工作登记终结竞速。
+  await until(async () => fs.readFileSync(path.join(workspace, "resume.txt"), "utf8") === "after-stop");
 });
 
 test("个人后台：交接后取消创建轮不停止独立后台，后续显式停止才释放", async t => {
@@ -177,13 +187,20 @@ test("个人后台：日志事实提交失败关闭Harness并停止原unit，后
 
 test("个人文件claim：同步写入效果未知保留认领，人工核实同commit释放并可恢复", async t => {
   let target = "";
-  const f = await fixture(t, (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "write", name: "write_file", arguments: { path: target, content: "new-content" } }] } : { kind: "text", text: "已接纳" });
-  target = path.join(f.workspace, "unknown.txt"); fs.writeFileSync(target, "old-content"); const identity = fs.statSync(target), originalWrite = nodeFs.writeSync;
-  const mockedWrite = t.mock.method(nodeFs, "writeSync", (fd: number, buffer: string | Buffer, ...args: unknown[]) => { const stat = nodeFs.fstatSync(fd); if (stat.dev === identity.dev && stat.ino === identity.ino) throw Object.assign(new Error("injected-file-write-failure"), { code: "EIO" }); return Reflect.apply(originalWrite, nodeFs, [fd, buffer, ...args]); }); syncBuiltinESMExports();
-  const p = await f.open(); await allow(p); await p.answer("写文件", "file-owner");
+  // 写入只在子 Agent 内执行；首个子请求发出写调用。
+  const f = await fixture(t, (request, _index) => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "write", name: "write_file", arguments: { path: target, content: "new-content" } }] } : { kind: "text", text: "已接纳" });
+  target = path.join(f.workspace, "unknown.txt"); fs.writeFileSync(target, "old-content");
+  // 文件执行经独立 worker：注入派发丢失让在途写入保留未知效果，本进程内 fs 拦截无法到达 worker。
+  const io = openPersonalFileIo(); t.after(() => io.close());
+  const lost: PersonalFileIo = { prepare: input => io.prepare(input), execute: () => Promise.reject(new PersonalError("file_io_worker_lost", "文件工作线程在任务应答前已结束，原执行结果未能核实；请保留档案并查询原操作。")), close: () => io.close() };
+  const p = await f.open({ fileIo: lost }); await allow(p); await p.answer("写文件", "file-owner");
+  // 丢失写入记为 effect_unknown 并暂停原源：子工作停在未决状态，等待以操作记录为准。
+  await p.work.delegate({ requestId: "write-child", sourceRequestId: "file-owner", content: "写入目标文件" });
+  await until(async () => (await p.harness.commit(async tx => (await toolOperations(tx)).map(value => ({ id: value.operation, effect: value.effect, stopped: value.stopped })), context)).length > 0);
   const operation = await p.harness.commit(async tx => (await toolOperations(tx)).map(value => ({ id: value.operation, effect: value.effect, stopped: value.stopped }))[0], context); assert.equal(operation.effect, "effect_unknown"); assert.equal(operation.stopped, true);
   assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 1);
-  mockedWrite.mock.restore(); syncBuiltinESMExports(); await p.harness.commit(tx => toolResolve(tx, operation.id, "not_applied", "独立核实文件写入失败"), context);
+  assert.equal(fs.readFileSync(target, "utf8"), "old-content");
+  await p.harness.commit(tx => toolResolve(tx, operation.id, "not_applied", "独立核实文件写入失败"), context);
   assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 0); await p.close(); await f.open();
 });
 

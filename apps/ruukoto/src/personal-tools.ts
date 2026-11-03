@@ -391,6 +391,9 @@ export function personalArtifactReader(profile: string) {
 }
 
 async function personalReadTool(tx: Tx, api: Pick<ToolExecutionApi, "conversationId" | "taskId">, name: string) {
+  // Waiting business tools are migrated to child agents; a main-conversation call is refused here, before
+  // any admission or effect, so the refusal stays an ordinary handled tool error and afterTool still runs.
+  if (api.conversationId === ROOT_CONVERSATION_ID) throw new PersonalError("personal_tool_main_ineligible", "原主会话已移交等待业务工具，未执行；请用 background_work 协调子 Agent 处理。");
   const doc = await tx.doc(AgentDoc, api.conversationId), live = await tx.doc(LiveDoc, api.conversationId), task = await tx.task(api.taskId), generation = task?.owner && await tx.task(task.owner), input = task?.input;
   if ((name === "list_files" || name === "search_files") && (!Array.isArray(doc.extensions) || !doc.extensions.includes(PERSONAL_FILE_SEARCH))) throw new PersonalError("file_search_extension_missing", "文件检索扩展缺失，未扫描；请结束本轮并报告拥有者。");
   if (!Array.isArray(doc.extensions) || (name !== "read_artifact" && !doc.extensions.includes(PERSONAL_TOOLS)) || !Array.isArray(doc.tools) || !doc.tools.includes(name) || task?.kind !== "pi.tool" || task.conversationId !== api.conversationId || task.abortRequested || task.state.status === "terminal" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || !generation || generation.id !== live.run?.taskId || generation.abortRequested || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("tool_inactive", "读取不属于活动工具，请结束本轮并报告拥有者。");

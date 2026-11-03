@@ -11,6 +11,7 @@ import { toolOperations } from "../apps/ruukoto/src/personal-tools.ts";
 import { type PersonalWebSearchConfig } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { appendPersonalConfiguration, personalConfigurationDigest, personalConfigurationVersions } from "../apps/ruukoto/src/personal-settings-records.ts";
 import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "../apps/ruukoto/src/personal-schedule-scope.ts";
+import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 
@@ -44,18 +45,32 @@ test("搜索独立更新：无资料目录可用，停用保留在途原证据�
   p = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId });
   const enabled: PersonalWebSearchConfig = { version: 1, generation: "search-enabled", enabled: true, apiKeyEnv: "STANDALONE_SEARCH_KEY" };
   await save(p, directory, enabled, "search-enabled");
-  const agent = await p.harness.snapshot(AgentDoc, p.main.id, context);
-  assert.ok(Array.isArray(agent?.tools) && agent.tools.includes("web_search"));
-  assert.ok(Array.isArray(agent?.tools) && !agent.tools.includes("read_file") && !agent.tools.includes("http_request"));
+  // web_search 等等待业务工具已移交子 Agent：主请求不开放，子身份按原配置执行。
+  assert.equal(await p.answer("工具清单", "tool-list"), "正常聊天");
+  const mainTools = model.calls.at(-1)!.tools?.map(tool => (tool.function as { name: string }).name) ?? [];
+  assert.ok(!mainTools.includes("web_search") && !mainTools.includes("read_file") && !mainTools.includes("http_request"));
+  const search = async (query: string, sourceRequestId: string, requestId: string) => {
+    const work = await p!.work.delegate({ requestId, sourceRequestId, content: `search:${query}` });
+    await p!.harness.waitForTask(work.taskId, context);
+    let text = "", offset: number | undefined = 0;
+    do { const page = await p!.harness.commit(tx => personalWorkResult(tx, work, offset), context); text += page.text ?? ""; offset = page.nextOffset; } while (offset !== undefined);
+    return { work, text };
+  };
   p.suspendSettings("web-search", "*");
-  assert.match(await p.answer("search:待核实保存", "suspended-search"), /search_settings_waiting/); assert.equal(searches, 0);
+  await p.answer("待核实保存", "suspended-search");
+  const suspended = await search("待核实保存", "suspended-search", "suspended-search-work");
+  assert.match(suspended.text, /search_settings_waiting/); assert.equal(searches, 0);
+  const childAgent = await p.harness.snapshot(AgentDoc, suspended.work.agentId, context);
+  assert.ok(Array.isArray(childAgent?.tools) && childAgent.tools.includes("web_search"));
   assert.equal(await p.answer("搜索等待时聊天", "chat-during-search-settings"), "正常聊天");
   p.resumeSettings("web-search", "*");
   const scope = await p.harness.commit(tx => capturePersonalScheduleScope(tx), context);
-  const pending = p.answer("search:持有请求", "in-flight"); await started;
+  await p.answer("持有请求", "in-flight");
+  const pending = search("持有请求", "in-flight", "in-flight-work"); await started;
   await save(p, directory, { ...enabled, generation: "search-disabled", enabled: false }, "search-disabled");
-  release(); assert.match(await pending, /example.com/); assert.equal(searches, 1);
-  assert.match(await p.answer("search:后续拒绝", "disabled-search"), /search_credentials_missing/); assert.equal(searches, 1);
+  release(); assert.match((await pending).text, /example.com/); assert.equal(searches, 1);
+  await p.answer("后续拒绝", "disabled-search");
+  assert.match((await search("后续拒绝", "disabled-search", "disabled-search-work")).text, /search_credentials_missing/); assert.equal(searches, 1);
   assert.equal(await p.answer("正常聊天", "unrelated-chat"), "正常聊天");
   const operations = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))), context);
   assert.equal(operations[0].effect, "returned"); assert.equal(operations[0].searchConfig.generation, "search-enabled"); assert.equal(operations[0].config, undefined);

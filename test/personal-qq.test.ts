@@ -438,3 +438,21 @@ test("QQ配对：候选证据提交失败后停止连接并释放实例锁，不
   await assert.doesNotReject(p.close());
   lockPersonalProfile(f.options.directory).release();
 });
+
+test("QQ协调：超预算输入切断按持久意图如实通知原入口，不伪造模型回答", { timeout: 30000 }, async t => {
+  let looping = false;
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "user") looping = content.includes("循环");
+    const results = request.messages.filter(message => message.role === "tool").length;
+    if (looping && (last?.role === "user" || last?.role === "tool")) return { kind: "tool_calls" as const, calls: [{ id: `d-${results}`, name: "background_work", arguments: { action: "delegate", content: `循环分析-${results}` } }, { id: `q-${results}`, name: "background_work", arguments: { action: "list" } }] };
+    return { kind: "text", text: `普通:${content}` };
+  });
+  await f.open();
+  // 切断意图是宿主事实：QQ 原入口收到协调停止通知，而非 unanswered 静默或编造的模型回答。
+  const { value } = await f.receive("循环");
+  assert.equal(value.delivery, "sent");
+  assert.match(value.reply!, /超出批次预算/);
+  assert.ok(f.sends().some(send => JSON.stringify(send.params.message).includes("超出批次预算")));
+});

@@ -14,7 +14,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord";
-import { AgentDoc, ROOT_CONVERSATION_ID, type TaskId } from "@earendil-works/pi-durable";
+import { AgentDoc, ROOT_CONVERSATION_ID, type ConversationId, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
@@ -76,6 +76,14 @@ async function mode(p: PersonalHarness, mode: "auto-review" | "confirm" | "full_
 async function operations(p: PersonalHarness) { return p.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))) as PersonalToolOperation[], context); }
 async function record(p: PersonalHarness, id: TaskId) { return (await p.harness.snapshot(PersonalToolDoc, String(id), context))!.operation!; }
 async function first(p: PersonalHarness) { await until(async () => (await operations(p)).length > 0); return (await operations(p))[0]; }
+// 等待业务工具只保留在子 Agent：测试用委派工作驱动，与真实入口一致；子回答回显工具结果文本。
+async function invoked(p: PersonalHarness, input: string, requestId: string, sourceRequestId: string, agentId?: ConversationId) {
+  const work = await p.work.delegate({ requestId, sourceRequestId, content: input, ...(agentId === undefined ? {} : { agentId }) });
+  await p.harness.waitForTask(work.taskId, context);
+  let text = "", offset: number | undefined = 0;
+  do { const page = await p.harness.commit(tx => personalWorkResult(tx, work, offset), context); text += page.text ?? ""; offset = page.nextOffset; } while (offset !== undefined);
+  return { work, text };
+}
 async function remote(t: TestContext, handler: http.RequestListener) {
   const server = http.createServer(handler); server.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); assert.ok(address && typeof address === "object");
@@ -96,6 +104,7 @@ test("durable 工具：网络与完全访问文件不检查无关资料目录或
   });
   const url = await remote(t, (_request, response) => { requests++; response.end("local-response"); });
   const p = await f.open({ tools: { ...f.tools, search: { apiKeyEnv: "TOOLS_SCOPE_TEST_KEY" } } });
+  await p.answer("工具来源", "tools-src");
   const readdir = nodeFs.readdirSync;
   let scans = 0;
   t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
@@ -103,51 +112,54 @@ test("durable 工具：网络与完全访问文件不检查无关资料目录或
     return Reflect.apply(readdir, nodeFs, args);
   }); syncBuiltinESMExports();
   const target = path.join(f.outside, "data.txt"); fs.writeFileSync(target, "original");
+  // 来源输入在接纳时冻结当前模式；每个模式先提交新来源，工作的权限才沿用该模式。
   for (const moved of [false, true]) {
     if (moved) fs.renameSync(f.workspace, f.workspace + "-moved");
-    await mode(p, "full_access");
-    assert.equal(JSON.parse(await p.answer(invoke("read_file", { path: target }), `read-${moved}`)).code, "file_returned");
-    assert.equal(JSON.parse(await p.answer(invoke("write_file", { path: target, content: "updated" }), `write-${moved}`)).code, "file_returned");
+    await mode(p, "full_access"); await p.answer("工具来源", `file-src-${moved}`);
+    assert.equal(JSON.parse((await invoked(p, invoke("read_file", { path: target }), `read-${moved}`, `file-src-${moved}`)).text).code, "file_returned");
+    assert.equal(JSON.parse((await invoked(p, invoke("write_file", { path: target, content: "updated" }), `write-${moved}`, `file-src-${moved}`)).text).code, "file_returned");
     for (const access of ["auto-review", "full_access"] as const) {
-      await mode(p, access);
-      assert.equal(JSON.parse(await p.answer(invoke("http_request", { url }), `http-${access}-${moved}`)).code, "http_returned");
-      assert.equal(JSON.parse(await p.answer(invoke("web_search", { query: "scope" }), `search-${access}-${moved}`)).code, "returned");
+      await mode(p, access); await p.answer("工具来源", `net-src-${access}-${moved}`);
+      assert.equal(JSON.parse((await invoked(p, invoke("http_request", { url }), `http-${access}-${moved}`, `net-src-${access}-${moved}`)).text).code, "http_returned");
+      assert.equal(JSON.parse((await invoked(p, invoke("web_search", { query: "scope" }), `search-${access}-${moved}`, `net-src-${access}-${moved}`)).text).code, "returned");
     }
   }
   assert.equal(scans, 0); assert.equal(requests, 4); assert.equal(searches, 4); assert.equal(fs.readFileSync(target, "utf8"), "updated");
 });
 
 test("durable 完全访问检索：不扫描保护树，仍核实逻辑cwd身份", { timeout: 30_000 }, async t => {
-  const f = await fixture(t), p = await f.open(); await mode(p, "full_access");
+  const f = await fixture(t), p = await f.open(); await mode(p, "full_access"); await p.answer("工具来源", "tools-src");
   fs.writeFileSync(path.join(f.outside, "visible.txt"), "visible");
   const readdir = nodeFs.readdirSync; let scans = 0;
   t.mock.method(nodeFs, "readdirSync", (...args: Parameters<typeof nodeFs.readdirSync>) => {
     if (String(args[0]) === f.directory) { scans++; throw new Error("不应枚举无关保护树"); }
     return Reflect.apply(readdir, nodeFs, args);
   }); syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
-  const listed = JSON.parse(await p.answer(invoke("list_files", { path: f.outside }), "full-search"));
+  const listed = JSON.parse((await invoked(p, invoke("list_files", { path: f.outside }), "full-search", "tools-src")).text);
   assert.equal(listed.effect, "returned"); assert.deepEqual(listed.result.entries, [{ path: "visible.txt" }]); assert.equal(scans, 0);
   fs.renameSync(f.workspace, f.workspace + "-original"); fs.mkdirSync(f.workspace);
-  const changed = JSON.parse(await p.answer(invoke("list_files", { path: f.outside }), "replaced-cwd"));
+  const changed = JSON.parse((await invoked(p, invoke("list_files", { path: f.outside }), "replaced-cwd", "tools-src")).text);
   assert.equal(changed.code, "tools_directory_changed"); assert.equal(changed.effect, "not_executed"); assert.equal(scans, 0);
 });
 
 test("durable 文件检索：资料根、撤权、子来源、原流产物与重开", { timeout: 60_000 }, async t => {
-  const f = await fixture(t), p = await f.open();
+  const f = await fixture(t), p = await f.open(); await p.answer("工具来源", "tools-src");
   fs.writeFileSync(path.join(f.workspace, "source.txt"), "needle first\nneedle second\n");
   fs.writeFileSync(path.join(f.outside, "private.txt"), "outside needle\n");
-  const listed = JSON.parse(await p.answer(invoke("list_files", {}), "list-source")) as { operation: TaskId; artifact: string; result: { root: string; scanComplete: boolean; entries: Array<{ path: string }> } };
+  const listed = JSON.parse((await invoked(p, invoke("list_files", {}), "list-source", "tools-src")).text) as { operation: TaskId; artifact: string; result: { root: string; scanComplete: boolean; entries: Array<{ path: string }> } };
   assert.equal(listed.result.root, f.workspace); assert.equal(listed.result.scanComplete, true); assert.deepEqual(listed.result.entries, [{ path: "source.txt" }]);
-  const found = JSON.parse(await p.answer(invoke("search_files", { query: "needle", limit: 1 }), "search-source")) as { artifact: string; result: { capturedCount: number; previewTruncated: boolean; partial: boolean; entries: Array<{ path: string; line: number }> } };
+  const searched = await invoked(p, invoke("search_files", { query: "needle", limit: 1 }), "search-source", "tools-src");
+  const found = JSON.parse(searched.text) as { artifact: string; result: { capturedCount: number; previewTruncated: boolean; partial: boolean; entries: Array<{ path: string; line: number }> } };
   assert.deepEqual(found.result.entries.map(value => [value.path, value.line]), [["source.txt", 1]]); assert.equal(found.result.capturedCount, 2); assert.equal(found.result.previewTruncated, true); assert.equal(found.result.partial, false);
-  assert.match(await p.answer(invoke("read_artifact", { artifact: found.artifact }), "read-search-proof"), /needle second/);
-  assert.match(await p.answer(invoke("list_files", { path: f.outside }), "deny-outside"), /file_search_path_denied/);
+  // 产物只对本会话可读：沿用产生产物的子 Agent 身份读取原流。
+  assert.match((await invoked(p, invoke("read_artifact", { artifact: found.artifact }), "read-search-proof", "tools-src", searched.work.agentId)).text, /needle second/);
+  assert.match((await invoked(p, invoke("list_files", { path: f.outside }), "deny-outside", "tools-src")).text, /file_search_path_denied/);
   assert.equal((await operations(p)).length, 2);
   await p.harness.commit(tx => toolGrant(tx, f.directory, f.outside), context);
-  const granted = JSON.parse(await p.answer(invoke("search_files", { path: f.outside, query: "outside" }), "granted-search")) as { result: { entries: Array<{ path: string }> } };
+  const granted = JSON.parse((await invoked(p, invoke("search_files", { path: f.outside, query: "outside" }), "granted-search", "tools-src")).text) as { result: { entries: Array<{ path: string }> } };
   assert.deepEqual(granted.result.entries.map(value => value.path), ["private.txt"]);
   await p.harness.commit(async tx => toolRevoke(tx, (await tx.doc(PersonalToolsDoc)).grants[0].id), context);
-  assert.match(await p.answer(invoke("list_files", { path: f.outside }), "revoked-search"), /file_search_path_denied/);
+  assert.match((await invoked(p, invoke("list_files", { path: f.outside }), "revoked-search", "tools-src")).text, /file_search_path_denied/);
   await p.answer("检索子工作资料", "child-search-owner");
   const child = await p.work.delegate({ requestId: "child-search", sourceRequestId: "child-search-owner", content: invoke("search_files", { query: "needle" }) });
   await p.harness.waitForTask(child.taskId, context);
@@ -162,15 +174,17 @@ test("durable 文件检索：资料根、撤权、子来源、原流产物与重
 
 test("durable 通用工具：主子会话沿目录权限读写，二进制产物分页与请求输入可重建", { timeout: 60_000 }, async t => {
   const f = await fixture(t), p = await f.open(), target = path.join(f.workspace, "data");
+  await p.answer("工具来源", "tools-src");
   const bytes = Buffer.concat([Buffer.from([0, 255, 0xc3, 0x28]), Buffer.from("长原文".repeat(1500))]); fs.writeFileSync(target, bytes);
-  const read = JSON.parse(await p.answer(invoke("read_file", { path: target }), "main-read")) as { operation: TaskId; artifact: string; base64: string; nextOffset: number };
+  const readCall = await invoked(p, invoke("read_file", { path: target }), "main-read", "tools-src");
+  const read = JSON.parse(readCall.text) as { operation: TaskId; artifact: string; base64: string; nextOffset: number };
   const chunks = [Buffer.from(read.base64, "base64")];
   for (let offset: number | undefined = read.nextOffset; offset !== undefined;) {
-    const page = JSON.parse(await p.answer(invoke("read_artifact", { artifact: read.artifact, offset }), `artifact:${offset}`)) as { base64: string; nextOffset?: number };
+    const page = JSON.parse((await invoked(p, invoke("read_artifact", { artifact: read.artifact, offset }), `artifact:${offset}`, "tools-src", readCall.work.agentId)).text) as { base64: string; nextOffset?: number };
     chunks.push(Buffer.from(page.base64, "base64")); offset = page.nextOffset;
   }
   assert.deepEqual(Buffer.concat(chunks), bytes); assert.equal((await record(p, read.operation)).approval, "unneeded");
-  assert.equal(JSON.parse(await p.answer(invoke("write_file", { path: target, content: "主会话修改" }), "main-write")).effect, "returned");
+  assert.equal(JSON.parse((await invoked(p, invoke("write_file", { path: target, content: "主会话修改" }), "main-write", "tools-src")).text).effect, "returned");
   assert.equal(fs.readFileSync(target, "utf8"), "主会话修改");
   await p.answer("拥有者交给子工作读写", "owner-source");
   const childRead = await p.work.delegate({ requestId: "child-read", sourceRequestId: "owner-source", content: invoke("read_file", { path: target }) });
@@ -180,7 +194,8 @@ test("durable 通用工具：主子会话沿目录权限读写，二进制产物
   assert.equal(fs.readFileSync(target, "utf8"), "子会话修改");
   const childOps = (await operations(p)).filter(value => value.origin.conversationId === childRead.agentId);
   assert.deepEqual(childOps.map(value => value.effect), ["returned", "returned"]); assert.deepEqual(childOps.map(value => value.origin.work!.ref.taskId), [childRead.taskId, childWrite.taskId]);
-  for (const request of f.model.calls) assert.match(JSON.stringify(request.tools), /read_file/);
+  for (const request of f.model.calls.filter(request => request.system?.includes("你是个人助手的子 Agent"))) assert.match(JSON.stringify(request.tools), /read_file/);
+  for (const request of f.model.calls.filter(request => !request.system?.includes("你是个人助手的子 Agent"))) assert.doesNotMatch(JSON.stringify(request.tools), /read_file|write_file|http_request|web_search|read_artifact|list_files|search_files/);
   const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   const payloads = entries.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence).flatMap(value => value.payload === undefined ? [] : [value.payload]);
   const mainCalls = f.model.calls.filter(request => !request.system?.includes("你是个人助手的子 Agent"));
@@ -201,7 +216,8 @@ for (const outcome of ["approve", "reject", "invalid", "failure", "length", "err
     return { kind: "text", text: outcome === "invalid" ? "无效审查回复" : JSON.stringify({ decision: outcome === "error" ? "approve" : outcome, reason: "审查理由" }) };
   }, outcome === "error");
   const p = await f.open(), target = path.join(f.outside, "data"); fs.writeFileSync(target, "外部原文");
-  const input = invoke("read_file", { path: target }), answer = p.answer(input, "review-source");
+  await p.answer("工具来源", "tools-src");
+  const input = invoke("read_file", { path: target }), answer = invoked(p, input, "review-source", "tools-src");
   void answer.catch(() => undefined);
   const initial = await first(p);
   await until(async () => !!(await record(p, initial.operation)).review?.decision);
@@ -210,41 +226,44 @@ for (const outcome of ["approve", "reject", "invalid", "failure", "length", "err
     assert.equal(reviewed.review!.decision, "ask_owner"); assert.equal(reviewed.approval, "pending"); assert.equal(reviewed.started, false);
     await p.harness.commit(tx => toolDecide(tx, initial.operation, "rejected", f.directory), context);
   }
-  const result = JSON.parse(await answer) as { effect: string; preview?: string };
+  const completed = await answer;
+  const result = JSON.parse(completed.text) as { effect: string; preview?: string };
   assert.equal(result.effect, outcome === "approve" ? "returned" : "not_executed");
   if (outcome === "approve") assert.equal(result.preview, "外部原文");
   const calls = f.model.calls.filter(reviewRequest); assert.equal(calls.length, 1); assert.deepEqual(calls[0].tools ?? [], []);
-  const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.tool-review");
+  const child = (await p.harness.conversation(completed.work.agentId, context))!;
+  const entries = (await child.entries({ order: "ascending" }, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.tool-review");
   const payloads = entries.map(entry => entry.data).filter((data): data is { [key: string]: JsonValue } => !!data && typeof data === "object" && !Array.isArray(data) && "payload" in data);
-  assert.equal(payloads.length, 1); assert.deepEqual(payloads[0].payload, calls[0].raw); assert.match(JSON.stringify(payloads[0].input), /外部原文|read_file/); assert.ok(JSON.stringify(payloads[0].input).includes(JSON.stringify(input).slice(1, -1)));
+  assert.equal(payloads.length, 1); assert.deepEqual(payloads[0].payload, calls[0].raw); assert.match(JSON.stringify(payloads[0].input), /外部原文|read_file/); assert.ok(JSON.stringify(payloads[0].input).includes("工具来源"));
   await p.close(); await f.open();
 });
 
 test("durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效", { timeout: 60_000 }, async t => {
-  const f = await fixture(t), p = await f.open(), target = path.join(f.outside, "data"); fs.writeFileSync(target, "owner-only"); await mode(p, "confirm");
-  const answer = p.answer(invoke("read_file", { path: target }), "approved");
+  const f = await fixture(t), p = await f.open(), target = path.join(f.outside, "data"); fs.writeFileSync(target, "owner-only"); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const answer = invoked(p, invoke("read_file", { path: target }), "approved", "tools-src");
   void answer.catch(() => undefined);
   const pending = await first(p); assert.equal(pending.started, false); assert.equal(pending.approval, "pending");
   await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
-  assert.equal(JSON.parse(await answer).preview, "owner-only");
+  assert.equal(JSON.parse((await answer).text).preview, "owner-only");
   await assert.rejects(p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context), code("tool_decision_invalid"));
   await p.harness.commit(tx => toolGrant(tx, f.directory, f.outside), context);
-  assert.equal(JSON.parse(await p.answer(invoke("read_file", { path: target }), "granted")).approval, "unneeded");
+  assert.equal(JSON.parse((await invoked(p, invoke("read_file", { path: target }), "granted", "tools-src")).text).approval, "unneeded");
   const id = (await p.harness.snapshot(PersonalToolsDoc, context))!.grants[0].id;
   await p.harness.commit(tx => toolRevoke(tx, id), context);
-  const revokedAnswer = p.answer(invoke("read_file", { path: target }), "revoked");
+  const revokedAnswer = invoked(p, invoke("read_file", { path: target }), "revoked", "tools-src");
   void revokedAnswer.catch(() => undefined);
   await until(async () => (await operations(p)).length === 3);
   const revoked = (await operations(p))[2]; assert.equal(revoked.started, false); assert.equal(revoked.approval, "pending");
   await p.harness.commit(tx => toolGrant(tx, f.directory, f.outside), context);
   await assert.rejects(p.harness.commit(tx => toolDecide(tx, revoked.operation, "approved", f.directory), context), code("tool_permission_changed"));
-  await p.close(); await revokedAnswer.catch(() => undefined);
+  await p.close(); await revokedAnswer.then(() => undefined, () => undefined);
 });
 
-test("durable 产物：子会话不能读主会话产物，原字节损坏时恢复明确拒绝", { timeout: 60_000 }, async t => {
+test("durable 产物：会话不能读其他会话产物，原字节损坏时恢复明确拒绝", { timeout: 60_000 }, async t => {
   const f = await fixture(t), p = await f.open(), target = path.join(f.workspace, "data"); fs.writeFileSync(target, "original-bytes");
-  const firstRead = JSON.parse(await p.answer(invoke("read_file", { path: target }), "artifact-source")) as { artifact: string };
-  const work = await p.work.delegate({ requestId: "artifact-bypass", sourceRequestId: "artifact-source", content: invoke("read_artifact", { artifact: firstRead.artifact }) });
+  await p.answer("工具来源", "tools-src");
+  const firstRead = JSON.parse((await invoked(p, invoke("read_file", { path: target }), "artifact-source", "tools-src")).text) as { artifact: string };
+  const work = await p.work.delegate({ requestId: "artifact-bypass", sourceRequestId: "tools-src", content: invoke("read_artifact", { artifact: firstRead.artifact }) });
   await p.harness.waitForTask(work.taskId, context);
   const result = await p.harness.commit(tx => personalWorkResult(tx, work), context); assert.match(result.text ?? "", /artifact_forbidden/);
   await p.close(); fs.writeFileSync(path.join(f.directory, "artifacts", `${firstRead.artifact}.bin`), "corrupt");
@@ -272,7 +291,8 @@ test("durable HTTP：响应后观察提交前强杀，恢复不重发并暂停�
         }; return storage;
       }});
     await p.harness.commit(async tx => {(await tx.doc(PersonalPermissionsDoc)).mode='full_access';}, BACKGROUND_CONTEXT);
-    await p.answer(input.content,'owner-source');
+    await p.answer('工具来源','owner-source');
+    await p.work.delegate({requestId:'crash-tool',sourceRequestId:'owner-source',content:input.content});
   `;
   const worker = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_TOOLS_CRASH: JSON.stringify({ directory: f.directory, model: f.config, tools: f.tools, content: input }) }, stdio: ["ignore", "pipe", "pipe"] });
   let output = "", errors = ""; worker.stdout.on("data", value => { output += String(value); }); worker.stderr.on("data", value => { errors += String(value); });
@@ -311,11 +331,15 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
     const work = await p.work.delegate({ requestId: `snapshot-${access}`, sourceRequestId: `mode-${access}`, content: "子快照", agentId: beforeWork.agentId });
     await p.harness.waitForTask(work.taskId, context);
     const childCall = f.model.calls.findLast(child)!;
-    for (const request of [mainCall, childCall]) for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) assert.ok(JSON.stringify(request.tools).includes(JSON.stringify(name)));
+    // 等待业务工具已移交子会话：主请求不再提供，子请求保留完整清单。
+    for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) {
+      assert.ok(JSON.stringify(childCall.tools).includes(JSON.stringify(name)));
+      assert.ok(!JSON.stringify(mainCall.tools).includes(JSON.stringify(name)));
+    }
     evidence.after[access] = { main: estimate(mainCall), child: estimate(childCall) };
   }
   for (const request of [beforeMain, beforeChild]) assert.doesNotMatch(JSON.stringify(request.tools ?? []), /read_file|write_file|http_request|web_search/);
-  assert.match(JSON.stringify(beforeMain.tools), /read_artifact/);
+  assert.doesNotMatch(JSON.stringify(beforeMain.tools ?? []), /read_artifact/);
   assert.ok(!beforeChild.tools?.some(tool => (tool.function as { name: string }).name === "read_artifact"));
   t.diagnostic(JSON.stringify({ estimatedTokens: evidence }));
 });
@@ -333,8 +357,10 @@ test("durable HTTP：未知写入禁止原来源改用 MCP，独立来源可用�
     return respond(request, 0);
   });
   const mcp = parsePersonalMcp({ version: 4, generation: "test-mcp", services: [{ id: "test", label: "测试服务", endpoint: endpoint + "/mcp", enabled: true, tools: [{ name: "act", inputSchema: { type: "object", properties: {}, additionalProperties: false } }], toolEffects: { act: "unknown" } }] });
-  const p = await f.open({ mcp }); await mode(p, "full_access");
-  assert.match(await p.answer(invoke("http_request", { url: endpoint + "/write", method: "POST", body: "write" }), "source"), /work_source_paused/);
+  const p = await f.open({ mcp }); await mode(p, "full_access"); await p.answer("工具来源", "tools-src");
+  // 原工作在自己的未知写入核实前被暂停：子会话的下一个模型请求在准备阶段被拒绝，MCP 绕行永远到不了端点。
+  await p.work.delegate({ requestId: "source", sourceRequestId: "tools-src", content: invoke("http_request", { url: endpoint + "/write", method: "POST", body: "write" }) });
+  await until(async () => !!(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "tools-src"), context)) && writes === 1);
   assert.equal(writes, 1); assert.equal(mcpRequests, 0);
   assert.match(await p.answer(invoke("mcp_call", mcpArgs), "independent-same-endpoint"), /connect_failed/);
   assert.ok(mcpRequests > 0); assert.equal((await first(p)).effect, "effect_unknown");
@@ -342,7 +368,8 @@ test("durable HTTP：未知写入禁止原来源改用 MCP，独立来源可用�
 
 test("durable 工具恢复：SDK转换后的数字文本写入与原始调用可跨重启核实", { timeout: 60_000 }, async t => {
   const f = await fixture(t), p = await f.open(), target = path.join(f.workspace, "data"); fs.writeFileSync(target, "before");
-  const result = JSON.parse(await p.answer(invoke("write_file", { path: target, content: 123 }), "coerced-write")) as { operation: TaskId; effect: string };
+  await p.answer("工具来源", "tools-src");
+  const result = JSON.parse((await invoked(p, invoke("write_file", { path: target, content: 123 }), "coerced-write", "tools-src")).text) as { operation: TaskId; effect: string };
   assert.equal(result.effect, "returned"); assert.equal(fs.readFileSync(target, "utf8"), "123");
   assert.equal((await record(p, result.operation)).params.content, "123");
   await p.close(); const restored = await f.open(); assert.equal((await record(restored, result.operation)).effect, "returned"); assert.equal(fs.readFileSync(target, "utf8"), "123");
@@ -368,11 +395,12 @@ test("durable 搜索：SDK失败意图计入5次额度，普通视图有界且�
     return respond(request, 0);
   });
   const tools = parsePersonalTools({ ...f.tools, search: { apiKeyEnv: "TOOLS_SEARCH_TEST_KEY" } }), p = await f.open({ tools });
-  assert.match(await p.answer("five-invalid-then-valid", "quota-source"), /search_limit/); assert.equal(fetches, 0);
-  const first = JSON.parse(await p.answer(invoke("web_search", { query: "valid" }), "search-valid")) as { operation: TaskId; artifact: string; result: { items: { url: string; summary: string }[]; totalResults: number; fieldsTruncated: boolean }; preview?: string; base64?: string };
+  await p.answer("工具来源", "tools-src");
+  assert.match((await invoked(p, "five-invalid-then-valid", "quota-source", "tools-src")).text, /search_limit/); assert.equal(fetches, 0);
+  const first = JSON.parse((await invoked(p, invoke("web_search", { query: "valid" }), "search-valid", "tools-src")).text) as { operation: TaskId; artifact: string; result: { items: { url: string; summary: string }[]; totalResults: number; fieldsTruncated: boolean }; preview?: string; base64?: string };
   assert.equal(first.result.items.length, 5); assert.equal(first.result.totalResults, 7); assert.equal(first.result.fieldsTruncated, true); assert.equal(first.preview, undefined); assert.equal(first.base64, undefined);
   assert.ok(first.result.items.every(item => item.summary.length === 2000));
-  const second = JSON.parse(await p.answer(invoke("web_search", { query: "invalid-url" }), "search-invalid-url")) as { result: { items: { url: string }[]; dropped: number } };
+  const second = JSON.parse((await invoked(p, invoke("web_search", { query: "invalid-url" }), "search-invalid-url", "tools-src")).text) as { result: { items: { url: string }[]; dropped: number } };
   assert.equal(second.result.items.length, 4); assert.equal(second.result.dropped, 1); assert.ok(second.result.items.every(item => item.url.startsWith("https://"))); assert.equal(fetches, 2);
   const saved = await record(p, first.operation); assert.deepEqual(saved.view, first.result);
   const chunks: Buffer[] = []; let offset: number | undefined = 0;
@@ -383,7 +411,8 @@ test("durable 搜索：SDK失败意图计入5次额度，普通视图有界且�
 
 test("durable 审查证据：独立损坏档案启动拒绝且不增加模型请求", { timeout: 60_000 }, async t => {
   const f = await fixture(t), p = await f.open(), target = path.join(f.outside, "data"); fs.writeFileSync(target, "reviewed");
-  const result = JSON.parse(await p.answer(invoke("read_file", { path: target }), "review-source")) as { operation: TaskId; effect: string };
+  await p.answer("工具来源", "tools-src");
+  const result = JSON.parse((await invoked(p, invoke("read_file", { path: target }), "review-source", "tools-src")).text) as { operation: TaskId; effect: string };
   assert.equal(result.effect, "returned");
   const payloadEntry = (await record(p, result.operation)).review?.payloadEntry; assert.ok(payloadEntry);
   await p.close();
@@ -424,7 +453,8 @@ test("durable 文件写入：写后强杀保留未知，原同步调用已结束
         }; return storage;
       }});
     await p.harness.commit(async tx => {(await tx.doc(PersonalPermissionsDoc)).mode='full_access';}, BACKGROUND_CONTEXT);
-    await p.answer(input.content,'file-owner-source');
+    await p.answer('工具来源','file-owner-source');
+    await p.work.delegate({requestId:'write-tool',sourceRequestId:'file-owner-source',content:input.content});
   `;
   const worker = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_TOOLS_CRASH: JSON.stringify({ directory: f.directory, model: f.config, tools: f.tools, content: invoke("write_file", { path: target, content: "已写入一次" }) }) }, stdio: ["ignore", "pipe", "pipe"] });
   let output = "", errors = ""; worker.stdout.on("data", value => { output += String(value); }); worker.stderr.on("data", value => { errors += String(value); });
@@ -450,7 +480,8 @@ test("durable 本机入口：真实认证接口完成工具审批、授权撤销
   const server = await startPersonalServer(f.directory);
   try {
     const requestId = randomUUID();
-    await personalControl(f.directory, "POST", "/inputs", { requestId, input: invoke("read_file", { path: target }) });
+    // 业务工具由主输入的委派批让出后落到子工作执行；原输入以交接事实收尾。
+    await personalControl(f.directory, "POST", "/inputs", { requestId, input: invoke("background_work", { action: "delegate", content: invoke("read_file", { path: target }) }) });
     let id: TaskId | undefined;
     await until(async () => { const page = await personalControl<{ items: Array<{ operation: TaskId; canDecide: boolean }> }>(f.directory, "GET", "/tools/operations?offset=0"); id = page.items[0]?.operation; return !!page.items[0]?.canDecide; });
     const detail = await personalControl<{ summary: { operation: TaskId }; text: string }>(f.directory, "GET", `/tools/operation?operation=${id}&offset=0`);
@@ -461,8 +492,9 @@ test("durable 本机入口：真实认证接口完成工具审批、授权撤销
       f.directory, String(id),
     ], { signal: t.signal, timeout: 15_000, killSignal: "SIGKILL" });
     await until(async () => (await personalControl<PersonalInputStatus>(f.directory, "GET", `/input?requestId=${requestId}`)).status === "done");
-    const artifacts = await personalControl<{ items: Array<{ artifact: string; partial: boolean }> }>(f.directory, "GET", "/tools/artifacts?offset=0");
-    assert.equal(artifacts.items.length, 1); assert.equal(artifacts.items[0].partial, false);
+    let artifacts: { items: Array<{ artifact: string; partial: boolean }> } = { items: [] };
+    await until(async () => { artifacts = await personalControl<{ items: Array<{ artifact: string; partial: boolean }> }>(f.directory, "GET", "/tools/artifacts?offset=0"); return artifacts.items.length === 1; });
+    assert.equal(artifacts.items[0].partial, false);
     const destination = path.join(f.root, "api-export");
     await personalControl(f.directory, "POST", "/tools/export", { artifact: artifacts.items[0].artifact, destination });
     assert.equal(fs.readFileSync(destination, "utf8"), "本机接口原字节");

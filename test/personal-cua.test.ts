@@ -17,6 +17,7 @@ import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { mcpUnresolved, mcpSourceBlocker, PersonalMcpDoc, verifyMcp, waitWorkMcp, PersonalMcpConfigDoc } from "../apps/ruukoto/src/personal-mcp.ts";
 import { mcpResponseEnded } from "@ruukoto/agent/mcp/transport.ts";
 import { personalCuaLinux, type CuaLinuxGeneration } from "../apps/ruukoto/src/personal-cua-linux.ts";
+import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { personalSettingsExternalBlockers } from "../apps/ruukoto/src/personal-settings-blockers.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
@@ -46,6 +47,7 @@ async function fixture(t: TestContext, images = true, cua = true) {
   return { directory, config, model, host, open, calls, stoppedScopes, setDefinitions(tools: object[]) { fs.writeFileSync(schema, JSON.stringify(tools)); }, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
 }
 const input = (tool: string, args: Record<string, unknown> = {}) => "调用:" + JSON.stringify({ service: "desktop", tool, arguments: args });
+
 test("Personal Cua：持续连接、真实固定目标与受限定义进入模型历史，旧证据不串调用", async t => {
   const baseline = await fixture(t, true, false), plain = await baseline.open(); await baseline.full(plain);
   await plain.answer("工具清单", "baseline-list");
@@ -129,7 +131,11 @@ test("Personal Cua：未决电脑调用不会破坏独立HTTP目标检查，恢�
   const server = http.createServer((_request, response) => response.end("独立HTTP成功")); server.listen(0, "127.0.0.1"); await once(server, "listening");
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
   const address = server.address(); assert.ok(address && typeof address !== "string");
-  const answer = await p.answer(`HTTP:http://127.0.0.1:${address.port}/independent`, "independent");
+  // HTTP 请求只保留在子 Agent：独立目标检查经委派工作驱动。
+  await p.answer("独立HTTP检查", "independent");
+  const httpWork = await p.work.delegate({ requestId: "independent-http", sourceRequestId: "independent", content: `HTTP:http://127.0.0.1:${address.port}/independent` });
+  await p.harness.waitForTask(httpWork.taskId, context);
+  const answer = await p.harness.commit(tx => personalWorkResult(tx, httpWork), context).then(value => value.text ?? "");
   assert.ok(answer.includes("独立HTTP成功"), answer);
   await p.mcp!.recoverCua(unknown.operation, "stop");
   f.setImageMode("invalid"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"));

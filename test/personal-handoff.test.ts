@@ -110,10 +110,9 @@ test("交接门禁：委派保持未封组，封组调用让出并经持久化�
     return { kind: "text", text: `普通:${content}` };
   }, false);
   const p = await f.open();
-  // delegate 不让出：模型回执作为本轮文本，工作登记但未封组。
-  const registered = JSON.parse((await p.answer("委派", "owner-a")).replace(/^回执:/, "")) as { work: number; agent: number; delegation: number; state: string };
-  assert.equal(registered.state, "registered");
-  delegation = registered.delegation;
+  // delegate 属纯安排批：宿主按持久化事实让出，工作登记但委托未封组。
+  assert.match(await p.answer("委派", "owner-a"), /让出/);
+  delegation = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref.entryId;
   assert.equal((await p.harness.snapshot(PersonalDelegationDoc, String(delegation), context))!.delegation!.report, undefined);
   // 封组让出：回答来自持久化交接事实而非空回答错误。
   const answer = await p.answer("封组", "owner-seal");
@@ -139,7 +138,8 @@ test("交接门禁：混合轮否决让出仍登记封组，两个后续输入�
     return { kind: "text", text: `普通:${content}` };
   }, false);
   const p = await f.open();
-  delegation = (JSON.parse((await p.answer("甲", "owner-a")).replace(/^回执:/, "")) as { delegation: number }).delegation;
+  assert.match(await p.answer("甲", "owner-a"), /让出/);
+  delegation = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref.entryId;
   // 混合轮：report 有终止标记但不可用槽位否决；运行继续，登记效果仍已提交。
   const answer = await p.answer("混合", "owner-mixed");
   assert.equal(answer.startsWith("回执:"), true);
@@ -167,18 +167,19 @@ test("交接门禁：持有批准不吞权限，恢复后原操作可消费且�
   const p = await f.open();
   await p.harness.commit(async tx => { const doc = await tx.doc(PersonalPermissionsDoc); doc.mode = "confirm"; doc.version++; }, context);
   const target = path.join(f.outside, "held"); fs.writeFileSync(target, "旧内容");
-  const held = p.answer("写入", "owner-write");
+  // 等待业务工具只在子工作执行：委派登记后子会话持有审批，主会话不被占用。
+  await p.answer("准备", "owner-prep");
+  const held = await p.work.delegate({ requestId: "child-write", sourceRequestId: "owner-prep", content: "写入" });
   await until(async () => (await p.harness.commit(tx => toolOperations(tx), context)).length > 0);
   const pending = await p.harness.commit(async tx => JSON.parse(JSON.stringify((await toolOperations(tx))[0])) as PersonalToolOperation, context);
   assert.equal(pending.approval, "pending");
-  // 批准持有期间后续输入接纳为独立运行：主会话运行串行，它不得吞并持有中的运行，也保持自身来源。
+  // 批准持有期间后续输入接纳为独立运行：子工作等待不占用主会话，追问先完成，批准后再核实写入。
   const follow = await p.main.submit({ type: "input", content: "追问", requestId: "follow-question", whenBusy: "followUp" }, context);
   assert.equal((await follow.status(context)).requestId, "follow-question");
-  assert.notEqual((await follow.status(context)).status, "done");
-  await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
-  assert.match(await held, /file_returned|held/);
-  assert.equal(fs.readFileSync(target, "utf8"), "已写入");
   assert.equal((await follow.wait(context)).status, "done");
+  await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
+  await p.harness.waitForTask(held.taskId, context);
+  assert.equal(fs.readFileSync(target, "utf8"), "已写入");
   const followId = (await follow.status(context)).answer!;
   const followAnswer = await p.main.commit(tx => tx.entry(AssistantEntry, followId), context);
   assert.equal(textOf(followAnswer?.model?.[0]), "普通:追问");
@@ -195,8 +196,9 @@ test("交接门禁：让出后轮崩溃重开不重复登记、来源不失效�
     return { kind: "text", text: `普通:${content}` };
   }, false);
   const p = await f.open();
-  const registered = JSON.parse((await p.answer("委派", "owner-a")).replace(/^回执:/, "")) as { work: number };
-  const requestId = await p.harness.commit(async tx => { const input = (await tx.task(registered.work as TaskId))?.input; return input && typeof input === "object" && !Array.isArray(input) ? String(input.requestId) : ""; }, context);
+  assert.match(await p.answer("委派", "owner-a"), /让出/);
+  const registered = (await p.work.list())[0].work!;
+  const requestId = await p.harness.commit(async tx => { const input = (await tx.task(registered.taskId as TaskId))?.input; return input && typeof input === "object" && !Array.isArray(input) ? String(input.requestId) : ""; }, context);
   assert.equal(requestId.startsWith("personal-tool:"), true);
   assert.equal((await p.work.list()).length, 1);
   // 真未解释空回答：模型文本为空且无让出事实，识别不声称为交接。

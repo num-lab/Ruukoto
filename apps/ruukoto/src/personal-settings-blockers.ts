@@ -8,6 +8,7 @@ import { mcpUnresolved, PersonalMcpConfigDoc, PersonalMcpDoc } from "./personal-
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc } from "./personal-service-inspection.ts";
 import { personalServiceUnresolved, PersonalServiceOperationDoc } from "./personal-service-operations.ts";
 import { toolUnresolved, PersonalToolDoc, PersonalToolsDoc } from "./personal-tools.ts";
+import { fileIoJobUnresolved, PersonalFileIoDoc, PersonalFileJobDoc, verifyPersonalFileIoStorage, type PersonalFileJobRecord } from "./personal-file-io.ts";
 
 export type PersonalExternalSettingsBlocker = { kind: "tool-unresolved" | "browser-unresolved" | "mcp-unresolved" | "command-unresolved" | "service-unresolved" | "inspection-unresolved" | "app-data-unresolved"; operation: TaskId } | { kind: "browser-session-unresolved"; conversation: ConversationId };
 type Family = "tool" | "browser" | "mcp" | "command" | "service" | "inspection" | "app-data";
@@ -59,6 +60,7 @@ export async function personalSettingsExternalBlockers(source: { storage: Storag
   const blockers: PersonalExternalSettingsBlocker[] = [];
   const add = (blocker: PersonalExternalSettingsBlocker | undefined) => { if (blocker && blockers.length < 32) blockers.push(blocker); };
   if ("storage" in source) {
+    await verifyPersonalFileIoStorage(source.storage);
     const storage = source.storage, populated = new Map<string, Set<string>>(), pendingInspections = new Set<string>();
     for (const [family, kind, property] of [
       ["tool", "ruukoto.tool-operation", "operation"], ["browser", "ruukoto.browser-operation", "operation"], ["mcp", "ruukoto.mcp", "operation"], ["command", "ruukoto.command", "command"], ["service", "ruukoto.service-operation", "operation"], ["inspection", "ruukoto.service-execution", "inspection"], ["app-data", "ruukoto.app-data-operation", "operation"],
@@ -76,6 +78,23 @@ export async function personalSettingsExternalBlockers(source: { storage: Storag
           const blocker = operationBlocker(family, value, record.key);
           if (family === "inspection" && blocker) pendingInspections.add(record.key);
           add(blocker);
+        }
+        cursor = page.next;
+      } while (cursor);
+    }
+    {
+      const keys = new Set<string>(); populated.set("ruukoto.file-io-job", keys);
+      let cursor: Cursor | undefined;
+      do {
+        const page = await storage.scanDocuments({ kind: PersonalFileJobDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, cursor, context);
+        for (const record of page.items) {
+          const saved = await storage.document(record.id, "current", context);
+          if (!saved || saved.version !== 1 || record.key === undefined) throw invalid();
+          const job = saved.value.job as PersonalFileJobRecord | undefined;
+          if (job === undefined) { if (Object.keys(saved.value).length) throw invalid(); continue; }
+          if (!object(job) || job.id !== record.key || !Array.isArray(job.events) || !Number.isSafeInteger(job.seq)) throw invalid();
+          keys.add(record.key);
+          if (fileIoJobUnresolved(job) && job.operation !== undefined) add({ kind: "tool-unresolved", operation: job.operation });
         }
         cursor = page.next;
       } while (cursor);
@@ -147,6 +166,13 @@ export async function personalSettingsExternalBlockers(source: { storage: Storag
       }
       cursor = page.next;
     } while (cursor);
+  }
+  const fileIndex = await harness.snapshot(PersonalFileIoDoc, context);
+  if (fileIndex && (!Array.isArray(fileIndex.jobs) || fileIndex.jobs.some(jobId => typeof jobId !== "string") || new Set(fileIndex.jobs).size !== fileIndex.jobs.length)) throw invalid();
+  for (const jobId of fileIndex?.jobs ?? []) {
+    const job = (await harness.snapshot(PersonalFileJobDoc, String(jobId), context))?.job;
+    if (!job || job.id !== jobId || !Array.isArray(job.events) || !Number.isSafeInteger(job.seq)) throw invalid();
+    if (fileIoJobUnresolved(job) && job.operation !== undefined) add({ kind: "tool-unresolved", operation: job.operation });
   }
   return blockers;
 }

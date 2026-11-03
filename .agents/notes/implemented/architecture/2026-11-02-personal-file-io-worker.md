@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Per-job bounded workers with durable lifecycle evidence](2026-11-03-personal-file-io-jobs.md) partially supersedes this note: the single cached worker and permanently-dead-client dispatch below are replaced by one bounded worker per job with durable job records, while the worker bundle, `execArgv` and admission-ordering facts still apply per job. Lost replies were never stop proof under either design, and the per-job worker stays `ref`'d until its real exit instead of following the idle-client ref/unref cycle described below.
+
 ## Problem
 
 Personal `read_file`/`write_file` preparation, revalidation and execution ran synchronous `fs` scans and content hashing on the host event loop, some of it inside or adjacent to durable Session transactions. A slow or large target could starve the main loop and lengthen every co-resident transaction, violating the Personal responsiveness gate that an unrelated Session commit or control request must still complete while file I/O is outstanding.

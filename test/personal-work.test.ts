@@ -133,6 +133,7 @@ test("后台工作：工作登记写失败，身份/Task/占用全不提交，�
   } });
   await assert.rejects(personal.work.delegate(draft("failed-commit")), error => error === cause || error instanceof SessionFailed);
   await personal.harness.closed;
+  await personal.close();
   const reopened = await f.open();
   assert.equal((await reopened.work.list()).length, 0);
   assert.equal((await reopened.harness.inspect(context)).tasks.length, 0);

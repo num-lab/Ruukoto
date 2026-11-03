@@ -20,7 +20,7 @@ Use the GitHub Issue and current role as the handoff entry. The [development wor
 | Command | Scope and output |
 | --- | --- |
 | `npm run build` | Native supervisors, tool/script workers and WASM, then both products' `dist/*.tgz`; applications run source through tsx |
-| `npm run build:worker` | Shared `worker.mjs`, `background-worker.mjs`, Personal command, file-search and file-operation workers; file search has separate read-only roots |
+| `npm run build:worker` | Shared `worker.mjs`, `background-worker.mjs`, Personal command, file-search and file-operation workers; file search has separate read-only roots. File-operation regressions: `npx tsx --test test/personal-file-io.test.ts test/personal-tools.test.ts test/personal-tool-io.test.ts test/personal-tool-fifo.test.ts` |
 | `npm run desktop:mygo` / `npm run desktop:mygo:build` | Build and launch / only build MyGo; macOS arm64 and Go ≥ 1.27.1; see [desktop development](desktop-development.md) |
 | `npm run desktop:build` | Build three desktop targets, inspect artifacts and ad-hoc sign `dist/mac-arm64/Ruukoto.app`; root build does not package Electron |
 | `npm start`, `npm run personal:durable` | Personal menu, default `~/.ruukoto-durable/`; `RUUKOTO_PERSONAL_DIR` selects a profile; see [management](usage.md#25-personal-agent-management) |
@@ -81,6 +81,8 @@ Without `core.hooksPath`, linked worktrees share a hooks directory. Setup instal
 CI runs macOS and Linux with Node 24.15.0 and a 90-minute job limit. It installs rg, prepares Linux native namespaces and delegated user scopes, then runs `npm run setup -- --skip-hooks` and `npm run check`. Missing Python/PTY is a failure, not a reason to skip terminal cases. `ELECTRON_SKIP_BINARY_DOWNLOAD=1` avoids downloading or running Electron; desktop types, lint and pure logic still run.
 
 `worker/` is generated. The agent package pins QuickJS core and release-sync WASM; lockfiles determine `node_modules/`. Build workers before targeted Personal command, search and file-operation tests; real Linux stopping has separate acceptance. Databases, tokens and credentials stay in product or temporary test profiles, never the worktree.
+
+The file-I/O regression set exercises actual FIFO stalls, worker exits and SIGKILL recovery, not only delayed Promises. Run it on macOS and an isolated Linux checkout before accepting lifecycle changes. Defaults are a 120-second job deadline, a 5-second termination grace and four occupied slots per profile; neither deadline nor termination request releases a started worker. Preserve the approved-capacity-denial/old-key counterexample, original unknown-write claims, and stop/reopen evidence. The [Personal lifecycle](modules/personal-durable.md#file-operation-lifecycle) explains the recovery limits.
 
 ## External Acceptance
 

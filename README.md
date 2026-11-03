@@ -16,7 +16,7 @@ See the [architecture](docs/architecture.md) for their separate runtimes and sha
 
 ## Quick Start
 
-Use an ordinary macOS or Linux account with Node ≥ 24.15, Git, ripgrep (`rg`), Bash and Python 3 with PTY support. Linux native tests also require the [sandbox prerequisites](deploy/native/README.md), which CI prepares automatically. Restricted execution uses native sandboxes. Personal file search and Personal file operations have their own workers built by `build:worker`.
+Use an ordinary macOS or Linux account with Node ≥ 24.15, Git, ripgrep (`rg`), Bash and Python 3 with PTY support. Linux native tests also require the [sandbox prerequisites](deploy/native/README.md), which CI prepares automatically. Restricted execution uses native sandboxes. Personal file search and Personal file operations have their own workers built by `build:worker`; file operations run one bounded worker per job — see the [durable module](docs/modules/personal-durable.md) for the lifecycle and capacity facts.
 
 ```bash
 npm run setup       # Install both lockfiles, check prerequisites and install the commit hook

@@ -27,22 +27,23 @@ import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
 const code = (value: string) => (error: unknown) => error instanceof PersonalError && error.code === value;
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, cleanup?: () => void | Promise<void>) {
   const root = fs.realpathSync(fs.mkdtempSync("/tmp/rk-settings-blockers-")), directory = path.join(root, "p"), workspace = path.join(root, "workspace");
   fs.mkdirSync(workspace);
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: "http://127.0.0.1:1", modelId: "mock-model", apiKeyEnv: `SETTINGS_BLOCKER_${randomUUID().replaceAll("-", "_").toUpperCase()}`, contextWindow: 4096, maxTokens: 128 };
   process.env[config.apiKeyEnv] = "test-only";
   await savePersonalConfig(directory, config);
-  t.after(() => { delete process.env[config.apiKeyEnv]; fs.rmSync(root, { recursive: true, force: true }); });
+  t.after(async () => { await cleanup?.(); delete process.env[config.apiKeyEnv]; fs.rmSync(root, { recursive: true, force: true }); });
   isolateSkillHome(t);
   return { root, directory, workspace, config };
 }
 
 test("设置在线查询：不扫描无关待答问题与目录认领，损坏引用在原问题入口报告", async t => {
-  const f = await fixture(t), model = new PersonalMockModelServer(request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "是否继续" }] } }] } : { kind: "text", text: "等待回答" });
+  let cleanup: (() => Promise<void>) | undefined;
+  const f = await fixture(t, async () => { await cleanup?.(); }), model = new PersonalMockModelServer(request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: [{ question: "是否继续" }] } }] } : { kind: "text", text: "等待回答" });
   f.config.baseUrl = await model.start(); await savePersonalConfig(f.directory, f.config); t.after(() => model.close());
   const profile = lockPersonalProfile(f.directory), instance = await openPersonalHarness({ profile, provider: personalProvider(f.config), modelId: f.config.modelId });
-  t.after(() => instance.close());
+  cleanup = () => instance.close();
   const read = () => dispatchPersonalSettings({ profile, instance }, { v: 1, op: "settings.read" }) as Promise<{ blockers: { kind: string }[] }>;
   await instance.answer("发起提问", "settings-pending-question");
   const id = (await instance.harness.snapshot(PersonalQuestionsDoc, context))!.ids[0], question = (await instance.harness.snapshot(PersonalQuestionDoc, id, context))!.question!;

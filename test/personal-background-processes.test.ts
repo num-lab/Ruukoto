@@ -8,6 +8,7 @@ import { once } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { test, type TestContext } from "node:test";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
@@ -24,7 +25,7 @@ import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalDirectoryClaimsDoc, acquirePersonalDirectory, personalDirectoriesConflict } from "../apps/ruukoto/src/personal-directory-claims.ts";
 import { PersonalBackgroundProcessDoc, PersonalBackgroundDoc } from "../apps/ruukoto/src/personal-background-processes.ts";
 import { toolOperations, toolResolve } from "../apps/ruukoto/src/personal-tools.ts";
-import { openPersonalFileIo, type PersonalFileIo } from "../apps/ruukoto/src/personal-file-io.ts";
+import { openPersonalFileIo } from "../apps/ruukoto/src/personal-file-io.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { managePersonalBackground } from "../apps/ruukoto/src/personal-background-cli.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
@@ -190,13 +191,18 @@ test("个人文件claim：同步写入效果未知保留认领，人工核实同
   // 写入只在子 Agent 内执行；首个子请求发出写调用。
   const f = await fixture(t, (request, _index) => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "write", name: "write_file", arguments: { path: target, content: "new-content" } }] } : { kind: "text", text: "已接纳" });
   target = path.join(f.workspace, "unknown.txt"); fs.writeFileSync(target, "old-content");
-  // 文件执行经独立 worker：注入派发丢失让在途写入保留未知效果，本进程内 fs 拦截无法到达 worker。
-  const io = openPersonalFileIo(); t.after(() => io.close());
-  const lost: PersonalFileIo = { prepare: input => io.prepare(input), execute: () => Promise.reject(new PersonalError("file_io_worker_lost", "文件工作线程在任务应答前已结束，原执行结果未能核实；请保留档案并查询原操作。")), close: () => io.close() };
-  const p = await f.open({ fileIo: lost }); await allow(p); await p.answer("写文件", "file-owner");
+  // File execution runs in a dedicated worker: really terminate the dispatched worker so the in-flight write keeps an unknown effect.
+  const marker = path.join(f.workspace, "file-job-entered");
+  const env = { RK_FILE_IO_HOLD: target, RK_FILE_IO_PHASE: "execute", RK_FILE_IO_STALL_MS: "30000", RK_FILE_IO_MARKER: marker, RK_FILE_IO_BUNDLE: new URL("../worker/personal-file-worker.mjs", import.meta.url).href };
+  const prior = Object.entries(env).map(([key, value]) => [key, process.env[key], value] as const); Object.assign(process.env, env);
+  t.after(() => prior.forEach(([key, value]) => { if (value === undefined) delete process.env[key]; else process.env[key] = value; }));
+  fs.mkdirSync(f.directory, { recursive: true });
+  const realIo = openPersonalFileIo({ profile: fs.realpathSync(f.directory), script: fileURLToPath(new URL("./helpers/personal-file-io-fifo-worker.mjs", import.meta.url)), workerProbe: (worker, meta) => { if (meta.phase === "execute" && (meta.request as { path?: string }).path === target) void until(() => Promise.resolve(fs.existsSync(`${marker}.${meta.id}`))).then(() => worker.terminate()).catch(() => undefined); } });
+  t.after(() => realIo.close().catch(() => undefined));
+  const p = await f.open({ fileIo: realIo }); await allow(p); await p.answer("写文件", "file-owner");
   // 丢失写入记为 effect_unknown 并暂停原源：子工作停在未决状态，等待以操作记录为准。
   await p.work.delegate({ requestId: "write-child", sourceRequestId: "file-owner", content: "写入目标文件" });
-  await until(async () => (await p.harness.commit(async tx => (await toolOperations(tx)).map(value => ({ id: value.operation, effect: value.effect, stopped: value.stopped })), context)).length > 0);
+  await until(async () => (await p.harness.commit(async tx => (await toolOperations(tx)).some(value => value.observation !== undefined), context)));
   const operation = await p.harness.commit(async tx => (await toolOperations(tx)).map(value => ({ id: value.operation, effect: value.effect, stopped: value.stopped }))[0], context); assert.equal(operation.effect, "effect_unknown"); assert.equal(operation.stopped, true);
   assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 1);
   assert.equal(fs.readFileSync(target, "utf8"), "old-content");

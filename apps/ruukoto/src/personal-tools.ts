@@ -1,8 +1,8 @@
 import { mediaArtifacts, type PersonalImageRegistrar } from "./personal-media.ts";
 import { imageMime } from "@ruukoto/agent/artifacts.ts";
 import { browserOperations } from "./personal-browser.ts";
-/** 通用操作保存精确接纳与开始事实；safe 重放只返回原观察，不重新执行。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md
+/** General operations retain exact admission and start facts; safe replay returns the original observation without execution.
+ * Note: See .agents/notes/implemented/architecture/2026-10-17-personal-tools-access-artifacts.md
  */
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -21,11 +21,11 @@ import { PersonalError } from "./personal-error.ts";
 import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 import { personalReadPath, personalSystemPath, parsePersonalTools, parsePersonalWebSearch, verifyPersonalTools, type PersonalToolsConfig, type PersonalWebSearchConfig } from "./personal-tools-config.ts";
 import { preparePersonalHttp, executePersonalHttp, type PersonalFilePrepareInput, type PersonalFileRequest, type PersonalHttpRequest } from "./personal-tool-io.ts";
-import { openPersonalFileIo, type PersonalFileIo } from "./personal-file-io.ts";
+import { openPersonalFileIo, createPersonalFileIoRecorder, fileIoJobStopped, fileIoJobNotDispatched, fileIoJobUnresolved, personalFileIoJobs, personalFileIoSourceBlocker, personalFileIoWorkBlocker, personalFileJobStopped, personalFileIoAttemptError, verifyPersonalFileIo, PersonalFileIoError, type PersonalFileIo, type PersonalFileJobContext, type PersonalFileJobId, type PersonalFileJobPhase, type PersonalFileJobRecord, type PersonalFileIoStopLinker, type PersonalFileReservation, PersonalFileIoDoc, PersonalFileJobDoc, PersonalFileIoAdmission, PersonalFileIoLifecycle } from "./personal-file-io.ts";
 import { savePersonalArtifact, readPersonalArtifact, exportPersonalArtifact, loadPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
 import { telegramSourceActive, permissionSnapshot } from "./personal-permissions.ts";
 import { requestTavily, validateParams, WebSearchError } from "@ruukoto/agent/web-search-transport.ts";
-import { personalWorkInspectionSource } from "./personal-work.ts";
+import { personalWorkInspectionSource, PersonalWorkDoc } from "./personal-work.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { personalSource, personalSourceSubmission } from "./personal-source.ts";
 import { FILE_SEARCH_DEFINITIONS, FILE_SEARCH_TOOL_NAMES, FileSearchError, fileSearchParams, type FileSearchName } from "@ruukoto/agent/file-search.ts";
@@ -42,17 +42,17 @@ type Grant = { id: string; path: string; dev: number; ino: number; revoked: bool
 type Prepared = { kind: "file"; request: { [K in keyof FileOpRequest]: FileOpRequest[K] } } | { kind: "http"; request: PersonalHttpRequest } | { kind: "search"; request: Params } | { kind: "file_search"; execution: PreparedPersonalFileSearch };
 type Review = { claim: EntryId; payloadEntry?: EntryId; decision?: ReviewDecision; reason?: string; observation?: EntryId };
 type Effect = "returned" | "not_executed" | "no_write" | "effect_unknown";
-export type PersonalToolOperation = { operation: TaskId; admission: EntryId; origin: PersonalToolOrigin; kind: Kind; params: Params; config?: PersonalToolsConfig; searchConfig?: PersonalWebSearchConfig; searchVersion?: string; grantVersion: number; prepared: Prepared; approval: "pending" | "approved" | "rejected" | "unneeded"; decisionEntry?: EntryId; actor?: string; review?: Review; started: boolean; startEntry?: EntryId; directoryClaim?: EntryId; stopped: boolean; effect: Effect; code: string; artifact?: PersonalArtifact; observation?: EntryId; status?: number; headers?: Record<string, string>; view?: JsonValue; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopEvidence?: { evidence: string; entry: EntryId; actor?: string } };
+export type PersonalToolOperation = { operation: TaskId; admission: EntryId; origin: PersonalToolOrigin; kind: Kind; params: Params; config?: PersonalToolsConfig; searchConfig?: PersonalWebSearchConfig; searchVersion?: string; grantVersion: number; prepared: Prepared; approval: "pending" | "approved" | "rejected" | "unneeded"; decisionEntry?: EntryId; actor?: string; review?: Review; started: boolean; startEntry?: EntryId; directoryClaim?: EntryId; stopped: boolean; effect: Effect; code: string; artifact?: PersonalArtifact; observation?: EntryId; status?: number; headers?: Record<string, string>; view?: JsonValue; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopEvidence?: { evidence: string; entry: EntryId; actor?: string; fileEvent?: EntryId; fileJob?: PersonalFileJobId }; fileIoVersion?: 1; fileJob?: PersonalFileJobId; fileJobUnverified?: boolean };
 export const PersonalWebSearchDoc = defineDoc<{ config?: PersonalWebSearchConfig }>({ kind: "ruukoto.web-search", scope: "session", version: 1, initial: () => ({}) });
 export const PersonalToolsDoc = defineDoc<{ config?: PersonalToolsConfig; operations: TaskId[]; grants: Grant[]; grantVersion: number }>({ kind: "ruukoto.tools", scope: "session", version: 1, initial: () => ({ operations: [], grants: [], grantVersion: 1 }) });
 export const PersonalToolDoc = defineDocFamily<{ operation?: PersonalToolOperation }, null>({ kind: "ruukoto.tool-operation", scope: "session", version: 1, family: true, initial: () => ({}) });
-export const ToolAdmission = defineEntry<Pick<PersonalToolOperation, "operation" | "origin" | "kind" | "params" | "config" | "searchConfig" | "searchVersion" | "grantVersion" | "prepared" | "approval">>("ruukoto.tool-admission");
-const ToolStart = defineEntry<{ operation: TaskId; admission: EntryId }>("ruukoto.tool-start");
+export const ToolAdmission = defineEntry<Pick<PersonalToolOperation, "operation" | "origin" | "kind" | "params" | "config" | "searchConfig" | "searchVersion" | "grantVersion" | "prepared" | "approval" | "fileIoVersion">>("ruukoto.tool-admission");
+const ToolStart = defineEntry<{ operation: TaskId; admission: EntryId; fileJob?: PersonalFileJobId }>("ruukoto.tool-start");
 const ToolObservation = defineEntry<{ operation: TaskId; admission: EntryId; effect: Effect; code: string; stopped: boolean; artifact?: PersonalArtifact; status?: number; headers?: Record<string, string>; view?: JsonValue }>("ruukoto.tool-observation");
 const ToolDecision = defineEntry<{ operation: TaskId; decision: "approved" | "rejected"; actor?: string }>("ruukoto.tool-decision");
 const ToolReview = defineEntry<{ operation: TaskId; policy: string; input: JsonValue; model?: { provider: string; modelId: string }; payload?: JsonValue; decision?: ReviewDecision; reason?: string }>("ruukoto.tool-review");
 const ToolGrant = defineEntry<{ id: string; path: string; dev: number; ino: number; revoked: boolean; version: number }>("ruukoto.tool-grant");
-const ToolResolution = defineEntry<{ operation: TaskId; effect?: "applied" | "not_applied"; evidence: string; actor?: string }>("ruukoto.tool-resolution");
+const ToolResolution = defineEntry<{ operation: TaskId; effect?: "applied" | "not_applied"; evidence: string; actor?: string; fileJob?: PersonalFileJobId; fileEvent?: EntryId }>("ruukoto.tool-resolution");
 const context = BACKGROUND_CONTEXT;
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue;
 const readonlyTool = (value: PersonalToolOperation) => value.kind === "read_file" || value.kind === "web_search" || value.prepared.kind === "file_search" || value.prepared.kind === "http" && ["GET", "HEAD"].includes(value.prepared.request.method) && value.prepared.request.body === undefined;
@@ -62,16 +62,43 @@ export async function toolOperation(tx: Tx, operation: TaskId) {
   return value;
 }
 export async function toolOperations(tx: Tx) { const values: PersonalToolOperation[] = []; for (const id of (await tx.doc(PersonalToolsDoc)).operations) values.push(await toolOperation(tx, id)); return values; }
+function interruptedFileAttempt(value: PersonalToolOperation, jobs: PersonalFileJobRecord[]): PersonalFileJobRecord | undefined {
+  return jobs.filter(job => job.operation === value.operation && job.phase !== "prepare" && !(job.phase === "revalidate" && value.kind === "read_file" && value.origin.permission.mode === "auto-review" && value.review && job.result?.ok === true && job.settle?.outcome === "result" && job.settle.entry < value.review.claim)).at(-1);
+}
 export const toolUnresolved = (value: Readonly<PersonalToolOperation>) => value.started && (!value.stopped || value.effect === "effect_unknown" && !value.resolution);
-export async function toolSourceBlocker(tx: Tx, requestId: string) {
+export async function toolSourceBlocker(tx: Tx, requestId: string, excludeOperation?: TaskId) {
   const source = await personalSourceSubmission(tx, requestId);
   if (!source) return;
-  for (const value of await toolOperations(tx)) if (value.origin.sources.includes(source.id) && toolUnresolved(value)) return { tool: String(value.operation), admission: value.admission };
+  for (const value of await toolOperations(tx)) if (value.operation !== excludeOperation && value.origin.sources.includes(source.id) && toolUnresolved(value)) return { tool: String(value.operation), admission: value.admission };
+  const job = await personalFileIoSourceBlocker(tx, source.id, excludeOperation);
+  if (job) return { tool: job.operation === undefined ? "file" : String(job.operation), admission: job.admission };
 }
 export async function requireWorkToolsStopped(tx: Tx, taskId: TaskId) {
-  if ((await toolOperations(tx)).some(value => value.origin.work?.ref.taskId === taskId && toolUnresolved(value))) throw new PersonalError("work_stop_unverified", "原工具效果或外部请求结束未核实，保留占用；请由拥有者查询原操作。");
+  if ((await toolOperations(tx)).some(value => value.origin.work?.ref.taskId === taskId && toolUnresolved(value)) || await personalFileIoWorkBlocker(tx, taskId)) throw new PersonalError("work_stop_unverified", "原工具效果或外部请求结束未核实，保留占用；请由拥有者查询原操作。");
 }
-export async function waitWorkTools(reader: DocumentObserver, ids: TaskId[], context: Context) { for (const id of ids) await waitTool(reader, id, value => !toolUnresolved(value), context); }
+export async function waitWorkTools(reader: DocumentObserver, ids: TaskId[], workTaskId: TaskId, context: Context) {
+  for (const id of ids) await waitTool(reader, id, value => !toolUnresolved(value), context);
+  for (;;) {
+    const index = await reader.watchDoc(PersonalFileIoDoc, context);
+    const jobs = index?.value?.jobs ?? [];
+    await index?.stop();
+    const pending: PersonalFileJobId[] = [];
+    for (const id of jobs) {
+      const peek = await reader.watchDoc(PersonalFileJobDoc, id, context);
+      const job = peek?.value?.job;
+      await peek?.stop();
+      if (job && job.origin?.work?.ref.taskId === workTaskId && fileIoJobUnresolved(job)) pending.push(id);
+    }
+    if (!pending.length) return;
+    await Promise.all(pending.map(id => waitFileIoJob(reader, id, context)));
+  }
+}
+async function waitFileIoJob(reader: DocumentObserver, id: PersonalFileJobId, context: Context) {
+  const watch = await reader.watchDoc(PersonalFileJobDoc, id, context);
+  if (!watch) throw new PersonalError("tool_missing", "原工具等待记录缺失，已保留占用；请检查档案。");
+  try { await new Promise<void>((resolve, reject) => { const check = (value: typeof watch.value) => { if (!value?.job) reject(new PersonalError("tool_missing", "原工具记录缺失，请保留档案。")); else if (!fileIoJobUnresolved(value.job)) resolve(); }; watch.start(async value => check(value)); check(watch.value); void watch.closed.then(() => reject(new PersonalError("tool_wait_stopped", "原工具等待已停止，请查询原操作。"))); }); }
+  finally { await watch.stop(); }
+}
 async function waitTool(reader: DocumentObserver, id: TaskId, ready: (value: Readonly<PersonalToolOperation>) => boolean, context: Context) {
   const watch = await reader.watchDoc(PersonalToolDoc, String(id), context);
   if (!watch) throw new PersonalError("tool_missing", "原工具等待记录缺失，已保留占用；请检查档案。");
@@ -80,7 +107,7 @@ async function waitTool(reader: DocumentObserver, id: TaskId, ready: (value: Rea
 }
 export async function configureTools(tx: Tx, config: PersonalToolsConfig) {
   const doc = await tx.doc(PersonalToolsDoc);
-  if (doc.config && !isDeepStrictEqual(doc.config, config) && (await toolOperations(tx)).some(toolUnresolved)) throw new PersonalError("tools_config_pending", "原工具仍待核实，未更改配置；请先查询原操作。");
+  if (doc.config && !isDeepStrictEqual(doc.config, config) && ((await toolOperations(tx)).some(toolUnresolved) || (await personalFileIoJobs(tx)).some(fileIoJobUnresolved))) throw new PersonalError("tools_config_pending", "原工具仍待核实，未更改配置；请先查询原操作。");
   if (!isDeepStrictEqual(doc.config, config)) await tx.appendEntry(ToolConfiguration, ROOT_CONVERSATION_ID, { data: { config } });
   doc.config = config;
 }
@@ -114,7 +141,7 @@ async function within(tx: Tx, config: PersonalToolsConfig, target: string, acces
   }
   return false;
 }
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-24-operation-specific-checks.md
 async function active(tx: Tx, value: PersonalToolOperation, profile: string, fileCurrent?: PersonalFileRequest) {
   const doc = await tx.doc(PersonalToolsDoc);
   if (value.kind === "web_search" && value.searchConfig) {
@@ -135,7 +162,7 @@ async function active(tx: Tx, value: PersonalToolOperation, profile: string, fil
   }
   if (value.prepared.kind === "file") {
     const pinned = value.prepared.request;
-    // 慢速复核由文件工作线程在事务外产出；审批决定不再做内容复核，以消费前复核为准。
+    // Workers revalidate file content outside the transaction; approval decisions defer content checks until consumption.
     if (fileCurrent !== undefined && !isDeepStrictEqual(fileCurrent, pinned)) throw new PersonalError("tool_target_changed", "原文件或内容已变化，本次批准失效，未执行；请查询原操作。");
     if (value.approval === "unneeded" && value.origin.permission.mode !== "full_access" && !await within(tx, value.config!, pinned.path, pinned.access, profile)) throw new PersonalError("tool_permission_changed", "原资料不在当前允许范围，未执行；请查询原操作。");
   }
@@ -170,28 +197,40 @@ export async function toolResolve(tx: Tx, id: TaskId, effect: "applied" | "not_a
 export async function toolVerifyStop(tx: Tx, id: TaskId, evidence: string, actor?: ToolActor) {
   const value = await toolOperation(tx, id); if (actor) await toolOriginal(tx, id, actor);
   if (!evidence.trim() || evidence.length > 8192 || !value.started || value.code === "started" || value.stopped || value.stopEvidence) throw new PersonalError("tool_stop_invalid", "请独立核实原外部请求已结束并提供证据，最多8192字符；本地断线不能证明远端结束。");
+  if (value.fileJob !== undefined) {
+    const job = (await tx.doc(PersonalFileJobDoc, value.fileJob, null)).job;
+    if (!job || !fileIoJobStopped(job)) throw new PersonalError("file_io_stop_unverified", "原文件工作线程尚未核实退出，档案锁与容量仍保留；请核实原执行或修复存储后再次请求停止。");
+  }
   const entry = await tx.appendEntry(ToolResolution, ROOT_CONVERSATION_ID, { data: { operation: id, evidence, ...(actor ? { actor: actor.requestId } : {}) } });
   value.stopEvidence = { evidence, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) }; value.stopped = true;
   if (value.directoryClaim && !toolUnresolved(value)) await releasePersonalDirectory(tx, { kind: "file", operation: value.operation });
 }
-function summary(value: PersonalToolOperation, actor?: ToolActor) { return { operation: value.operation, kind: value.kind, target: value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? value.prepared.request.url : value.prepared.kind === "file_search" ? value.prepared.execution.request.cwd : "Web Search", approval: value.approval, effect: value.effect, code: value.code, stopped: value.stopped, canDecide: value.approval === "pending" && !value.started && !value.observation && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canResolve: value.effect === "effect_unknown" && value.code !== "started" && !value.resolution, canVerifyStop: value.started && value.code !== "started" && !value.stopped, ...(value.artifact ? { artifact: value.artifact.id, partial: value.artifact.partial } : {}) }; }
+function summary(value: PersonalToolOperation, actor?: ToolActor) { return { operation: value.operation, kind: value.kind, target: value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? value.prepared.request.url : value.prepared.kind === "file_search" ? value.prepared.execution.request.cwd : "Web Search", approval: value.approval, effect: value.effect, code: value.code, stopped: value.stopped, canDecide: value.approval === "pending" && !value.started && !value.observation && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canResolve: value.effect === "effect_unknown" && value.code !== "started" && !value.resolution, canVerifyStop: value.started && value.code !== "started" && !value.stopped && !value.fileJobUnverified, ...(value.artifact ? { artifact: value.artifact.id, partial: value.artifact.partial } : {}) }; }
 export async function toolList(tx: Tx, offset = 0, actor?: ToolActor) { const values = (await toolOperations(tx)).reverse().filter(value => !actor || samePersonalEntry(value.origin.telegram, actor)); return { items: values.slice(offset, offset + 8).map(value => summary(value, actor)), ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) }; }
 export async function toolDetail(tx: Tx, id: TaskId, offset = 0, actor?: ToolActor) { const value = await toolOperation(tx, id), text = JSON.stringify(value, null, 2); return { summary: summary(value, actor), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) }; }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-25-personal-request-configuration.md
+// Note: See .agents/notes/implemented/architecture/2026-10-25-personal-request-configuration.md
 export function personalTools(profile: string, configValue: PersonalToolsConfig | undefined, provider: Provider, modelId: string, getHarness: () => Harness, images?: PersonalImageRegistrar, selectModel = () => ({ provider, modelId }), searchValue?: PersonalWebSearchConfig, isSearchSuspended = () => false, fileIoOption?: PersonalFileIo) {
   const config = configValue && parsePersonalTools(configValue);
-  // 慢速文件准备/复核/执行一律经固定工作线程；首次使用时创建，随宿主关闭。
+  // Slow file preparation, revalidation and execution use fixed workers, created lazily and closed with the host.
   let fileIo = fileIoOption;
-  const io = () => fileIo ??= openPersonalFileIo();
+  const io = () => fileIo ??= openPersonalFileIo({ profile });
+  const fileRecorder = createPersonalFileIoRecorder(getHarness, personalFileJobStopLinker);
+  const fileContext = (phase: PersonalFileJobPhase, operation: TaskId, origin: PersonalToolOrigin, signal?: AbortSignal): PersonalFileJobContext => ({ phase, profile, operation, origin: copyJson(origin) as PersonalToolOrigin, signal, record: fileRecorder });
   let searchConfig = searchValue ?? (config ? { version: 1 as const, generation: config.generation, enabled: !!config.search, ...(config.search ? { apiKeyEnv: config.search.apiKeyEnv } : {}) } : undefined);
   const reviewModels = createModels(); reviewModels.setProvider(provider);
+  const fileJobStoppedValue = (jobId?: PersonalFileJobId) => jobId === undefined ? Promise.resolve(false) : getHarness().commit(async tx => personalFileJobStopped(tx, jobId), context);
   async function observe(id: TaskId, result: { effect: Effect; code: string; stopped: boolean; artifact?: PersonalArtifact; status?: number; headers?: Record<string, string>; view?: JsonValue }) {
     await getHarness().commit(async tx => {
       const value = await toolOperation(tx, id);
-      Object.assign(value, result);
+      if (value.observation) return;
+      const fileJob = value.fileJob === undefined ? undefined : (await tx.doc(PersonalFileJobDoc, value.fileJob, null)).job;
+      const stopped = value.fileIoVersion === 1 ? value.started ? !!fileJob && fileIoJobStopped(fileJob) : !(await personalFileIoJobs(tx)).some(job => job.operation === id && fileIoJobUnresolved(job)) : result.stopped || value.stopped;
+      const effect = value.fileIoVersion === 1 && fileJob && fileIoJobNotDispatched(fileJob) ? "not_executed" : result.effect;
+      Object.assign(value, { ...result, effect, stopped });
+      if (stopped && value.fileJob !== undefined) value.fileJobUnverified = false;
       if (value.directoryClaim && !toolUnresolved(value)) await releasePersonalDirectory(tx, { kind: "file", operation: value.operation });
-      value.observation = (await tx.appendEntry(ToolObservation, value.origin.conversationId, { data: { operation: id, admission: value.admission, ...result } })).id;
+      value.observation = (await tx.appendEntry(ToolObservation, value.origin.conversationId, { data: { operation: id, admission: value.admission, ...result, effect, stopped } })).id;
     }, context);
   }
   const revalidateFileInput = (request: PersonalFileRequest): PersonalFilePrepareInput => ({ path: request.path, access: request.access, ...(request.content === undefined ? {} : { content: request.content }), protectedRoots: request.protectedRoots });
@@ -199,7 +238,7 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
     const saved = (await getHarness().snapshot(PersonalToolDoc, String(id), context))!.operation!;
     const reviewable = saved.kind === "read_file" || saved.kind === "http_request" && saved.prepared.kind === "http" && ["GET", "HEAD"].includes(saved.prepared.request.method) && !saved.prepared.request.credential && saved.prepared.request.body === undefined && Object.keys(saved.prepared.request.headers).length === 0;
     if (saved.origin.permission.mode !== "auto-review" || !reviewable || saved.approval !== "pending") return;
-    if (saved.review) return; // 已认领但未结束的审查在恢复后转人工，不重发模型请求。
+    if (saved.review) return; // An unfinished claimed review falls back to the owner after recovery; no model request is replayed.
     const taskInput = await getHarness().commit(async tx => {
       const entry = await tx.entry(saved.origin.source.entryId);
       return entry?.model?.filter(message => message.role === "user").map(message => typeof message.content === "string" ? message.content : message.content.filter(part => part.type === "text").map(part => part.text).join("")).join("\n") ?? "";
@@ -271,7 +310,11 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
           await api.commit(async tx => { if (source.permission.mode !== "full_access" && !await within(tx, config!, root, "read", profile)) throw new PersonalError("file_search_path_denied", "检索目录不在当前资料范围，未扫描；请由拥有者先通过资料授权入口开放。"); }, callContext);
           prepared = { kind: "file_search", execution: await preparePersonalFileSearch(profile, String(api.taskId), { name: kind, params, cwd: config!.workspace, executable: personalSearchExecutable(), roots: [current] }, source.permission.mode) };
         }
-        else if (kind === "read_file" || kind === "write_file") prepared = { kind: "file", request: await io().prepare({ path: String(params.path), access: kind === "read_file" ? "read" : "read_write", ...(kind === "write_file" ? { content: String(params.content) } : {}), protectedRoots: source.permission.mode === "full_access" ? [] : personalProtectedRoots(profile) }) };
+        else if (kind === "read_file" || kind === "write_file") {
+          const priorJob = await api.commit(async tx => (await personalFileIoJobs(tx)).find(job => job.operation === api.taskId), callContext);
+          if (priorJob) throw personalFileIoAttemptError(priorJob);
+          prepared = { kind: "file", request: await io().prepare({ path: String(params.path), access: kind === "read_file" ? "read" : "read_write", ...(kind === "write_file" ? { content: String(params.content) } : {}), protectedRoots: source.permission.mode === "full_access" ? [] : personalProtectedRoots(profile) }, fileContext("prepare", api.taskId, source, callContext.abortSignal)) };
+        }
         else if (kind === "http_request") {
           const credential = params.credential === undefined ? undefined : config!.credentials.find(value => value.name === params.credential);
           if (params.credential !== undefined && !credential) throw new PersonalError("tool_credentials_missing", "具名凭据不可用，未发送请求；请由拥有者配置，不能降级匿名。");
@@ -290,29 +333,39 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
             if (effective?.config && references?.configurations?.webSearch !== effective.version) throw new PersonalError("search_config_changed", "原模型响应的搜索配置已变化，未接纳请求；请结束本轮并使用当前搜索配置。");
           }
           const allowed = source.permission.mode === "full_access" || kind === "web_search" || prepared.kind === "file_search" || prepared.kind === "file" && await within(tx, config!, prepared.request.path, prepared.request.access, profile);
-          const admitted = { operation: api.taskId, origin: source, kind, params, ...(config ? { config } : {}), ...(searchSelection ? { searchConfig: searchSelection } : {}), ...(searchVersion ? { searchVersion } : {}), grantVersion: doc.grantVersion, prepared, approval: allowed ? "unneeded" as const : "pending" as const };
+          const admitted = { operation: api.taskId, origin: source, kind, params, ...(config ? { config } : {}), ...(searchSelection ? { searchConfig: searchSelection } : {}), ...(searchVersion ? { searchVersion } : {}), grantVersion: doc.grantVersion, prepared, ...(prepared.kind === "file" ? { fileIoVersion: 1 as const } : {}), approval: allowed ? "unneeded" as const : "pending" as const };
           const admission = await tx.appendEntry(ToolAdmission, api.conversationId, { data: admitted });
           (await tx.doc(PersonalToolDoc, String(api.taskId), null)).operation = { ...admitted, admission: admission.id, started: false, stopped: true, effect: "not_executed", code: allowed ? "ready" : "awaiting_approval" }; doc.operations.push(api.taskId);
         }, callContext);
       } else if (!isDeepStrictEqual([prior.operation.kind, prior.operation.params, prior.operation.origin.conversationId], [kind, params, api.conversationId])) throw new PersonalError("tool_request_conflict", "原工具参数不符，未重发；请保留档案。");
       let saved = (await harness.snapshot(PersonalToolDoc, String(api.taskId), context))!.operation!;
-      if (saved.started && !saved.observation) await observe(api.taskId, { effect: readonlyTool(saved) ? "no_write" : "effect_unknown", code: "interrupted", stopped: saved.prepared.kind === "file_search" ? await stopPersonalFileSearch(profile, saved.prepared.execution) : saved.prepared.kind !== "http" });
+      const attempt = !saved.started && !saved.observation && saved.fileIoVersion === 1 ? await harness.commit(async tx => interruptedFileAttempt(saved, await personalFileIoJobs(tx)), context) : undefined;
+      if (saved.started && !saved.observation) await observe(api.taskId, { effect: readonlyTool(saved) ? "no_write" : "effect_unknown", code: "interrupted", stopped: saved.prepared.kind === "file_search" ? await stopPersonalFileSearch(profile, saved.prepared.execution) : saved.prepared.kind === "file" ? await fileJobStoppedValue(saved.fileJob) : saved.prepared.kind !== "http" });
+      else if (attempt) await observe(api.taskId, { effect: "not_executed", code: personalFileIoAttemptError(attempt).code, stopped: fileIoJobStopped(attempt) });
       else if (!saved.observation) {
-        await review(api.taskId, callContext, saved.prepared.kind === "file" ? await io().prepare(revalidateFileInput(saved.prepared.request)) : undefined);
+        const reviewFile = saved.prepared.kind === "file" && saved.kind === "read_file" && saved.origin.permission.mode === "auto-review" && saved.approval === "pending" && !saved.review;
+        await review(api.taskId, callContext, reviewFile && saved.prepared.kind === "file" ? await io().prepare(revalidateFileInput(saved.prepared.request), fileContext("revalidate", api.taskId, saved.origin, callContext.abortSignal)) : undefined);
         await waitTool(api, api.taskId, value => value.approval !== "pending" || !!value.observation, callContext);
         saved = (await harness.snapshot(PersonalToolDoc, String(api.taskId), context))!.operation!;
         if (saved.observation) throw new PersonalError("tool_permission_changed", "原操作已失效，请查询原记录。工具未执行。");
         if (saved.approval === "rejected") await observe(api.taskId, { effect: "not_executed", code: "rejected", stopped: true });
+        else if (saved.fileJob !== undefined) {
+          const attempt = await api.commit(async tx => { const job = (await tx.doc(PersonalFileJobDoc, saved.fileJob!, null)).job; if (!job) throw new PersonalError("file_io_record_invalid", "文件操作的原身份、阶段或生命周期证据无法核实，已停止恢复；请保留档案并查询原操作。"); return copyJson(job) as PersonalFileJobRecord; }, callContext);
+          await observe(api.taskId, { effect: "not_executed", code: personalFileIoAttemptError(attempt).code, stopped: fileIoJobStopped(attempt) });
+        }
         else {
-          // 复核在事务外完成；短事务只核对版本与决定、登记认领与开始事实。
-          const fileCurrent = saved.prepared.kind === "file" ? await io().prepare(revalidateFileInput(saved.prepared.request)) : undefined;
-          await api.commit(async tx => { const value = await toolOperation(tx, api.taskId); if (value.started || value.observation || !["approved", "unneeded"].includes(value.approval)) throw new PersonalError("tool_approval_consumed", "原批准已消费，未重发。"); await active(tx, value, profile, fileCurrent); if (value.kind === "write_file" && value.prepared.kind === "file") { const request = value.prepared.request; value.directoryClaim = await acquirePersonalDirectory(tx, { kind: "file", operation: value.operation }, { path: request.path, dev: request.targetDev!, ino: request.targetIno! }); } value.started = true; value.stopped = false; value.effect = "effect_unknown"; value.code = "started"; value.startEntry = (await tx.appendEntry(ToolStart, api.conversationId, { data: { operation: api.taskId, admission: value.admission } })).id; }, callContext);
+          // Revalidation completes outside the transaction; the short commit checks versions and decisions and records claim and start facts.
+          const fileCurrent = saved.prepared.kind === "file" ? await io().prepare(revalidateFileInput(saved.prepared.request), fileContext("revalidate", api.taskId, saved.origin, callContext.abortSignal)) : undefined;
+          let ticket: PersonalFileReservation | undefined;
+          if (saved.prepared.kind === "file") ticket = await io().reserve(saved.prepared.request, fileContext("execute", api.taskId, saved.origin, callContext.abortSignal));
+          try { await api.commit(async tx => { const value = await toolOperation(tx, api.taskId); if (value.started || value.observation || !["approved", "unneeded"].includes(value.approval)) throw new PersonalError("tool_approval_consumed", "原批准已消费，未重发。"); ticket?.assertReady(); await active(tx, value, profile, fileCurrent); ticket?.assertReady(); if (value.kind === "write_file" && value.prepared.kind === "file") { const request = value.prepared.request; value.directoryClaim = await acquirePersonalDirectory(tx, { kind: "file", operation: value.operation }, { path: request.path, dev: request.targetDev!, ino: request.targetIno! }); } ticket?.assertReady(); value.started = true; value.stopped = false; value.effect = "effect_unknown"; value.code = "started"; value.startEntry = (await tx.appendEntry(ToolStart, api.conversationId, { data: { operation: api.taskId, admission: value.admission, ...(ticket ? { fileJob: ticket.id } : {}) } })).id; if (ticket) { value.fileJob = ticket.id; value.fileJobUnverified = true; } }, callContext); }
+          catch (error) { if (ticket) await ticket.release(); throw error; }
           let result: { effect: Effect; code: string; bytes: Buffer; partial: boolean; stopped?: boolean; status?: number; headers?: Record<string, string>; view?: JsonValue };
           if (saved.prepared.kind === "file_search") {
             const observed = await executePersonalFileSearch(profile, saved.prepared.execution, callContext.abortSignal);
             result = { ...observed, view: json(observed.view) };
           }
-          else if (saved.prepared.kind === "file") result = { ...await io().execute(saved.prepared.request), stopped: true };
+          else if (saved.prepared.kind === "file") result = { ...await ticket!.execute(), stopped: true };
           else if (saved.prepared.kind === "http") result = await executePersonalHttp(saved.prepared.request, callContext.abortSignal);
           else {
             const secret = process.env[(saved.searchConfig?.apiKeyEnv ?? saved.config?.search?.apiKeyEnv)!];
@@ -320,7 +373,7 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
             try { const response = await requestTavily({ credential: { header: "Authorization", secret } }, params, callContext.abortSignal); result = { effect: "returned", code: "returned", bytes: response.response, partial: response.partial, stopped: true, view: json(response.result) }; }
             catch (error) { if (!(error instanceof WebSearchError)) throw error; result = { effect: "no_write", code: error.code, bytes: error.capture?.body ?? Buffer.alloc(0), partial: error.capture?.partial ?? true, stopped: true }; }
           }
-          // 产物发布先于观察提交；任何持久化失败都向上失败，原 started 使恢复不能重发。
+          // Publish artifacts before committing observations; persistence failures propagate and the start fact forbids replay.
           const artifact = result.bytes.length || kind !== "write_file" ? await savePersonalArtifact(profile, result.bytes, { partial: result.partial, mime: (kind === "read_file" ? imageMime(result.bytes) : undefined) ?? result.headers?.["content-type"] ?? (kind === "web_search" ? "application/json" : "application/octet-stream") }) : undefined;
           await observe(api.taskId, { effect: result.effect, code: result.code, stopped: result.stopped === true && (result.effect !== "effect_unknown" || saved.prepared.kind !== "http"), ...(artifact ? { artifact } : {}), ...(result.status === undefined ? {} : { status: result.status }), ...(result.headers ? { headers: result.headers } : {}), ...(result.view ? { view: result.view } : {}) });
         }
@@ -330,7 +383,7 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
       if (!(error instanceof PersonalError) && !callContext.abortSignal?.aborted) throw error;
       const saved = (await harness.snapshot(PersonalToolDoc, String(api.taskId), context))?.operation;
       if (!saved) return { isError: true, output: [{ type: "text" as const, text: error instanceof PersonalError ? `${error.code}：${error.message}` : "工具已停止，请报告拥有者。" }] };
-      if (!saved.observation) await observe(api.taskId, { effect: saved.started ? readonlyTool(saved) ? "no_write" : "effect_unknown" : "not_executed", code: error instanceof PersonalError ? error.code : "canceled", stopped: !saved.started || (saved.prepared.kind === "file_search" ? await stopPersonalFileSearch(profile, saved.prepared.execution) : saved.prepared.kind !== "http") });
+      if (!saved.observation) await observe(api.taskId, { effect: saved.started ? saved.fileIoVersion === 1 && error instanceof PersonalFileIoError && error.dispatched === false ? "not_executed" : readonlyTool(saved) ? "no_write" : "effect_unknown" : "not_executed", code: error instanceof PersonalError ? error.code : "canceled", stopped: !saved.started || (saved.prepared.kind === "file_search" ? await stopPersonalFileSearch(profile, saved.prepared.execution) : saved.prepared.kind === "file" ? saved.fileIoVersion === 1 ? error instanceof PersonalFileIoError && error.stopped === true : true : saved.prepared.kind !== "http") });
     }
     const value = (await harness.snapshot(PersonalToolDoc, String(api.taskId), context))!.operation!;
     if (images?.supportsImages?.() === false && value.kind === "read_file" && value.artifact && !value.artifact.partial && imageMime(loadPersonalArtifact(profile, value.artifact))) return { isError: true, output: [{ type: "text" as const, text: JSON.stringify({ ...summary(value), code: "image_input_unsupported", next: "当前模型不支持图片，未提供缺图视觉请求；原字节已保存为artifact。请结束本轮并报告拥有者，由拥有者配置支持图片的模型后再读取。" }) }] };
@@ -360,8 +413,14 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
     async recover() {
       const values = await getHarness().commit(async tx => copyJson(await toolOperations(tx)) as PersonalToolOperation[], context);
       for (const value of values) {
-        if (!value.started) continue;
-        const stopped = value.prepared.kind === "file_search" && !value.stopped ? await stopPersonalFileSearch(profile, value.prepared.execution) : value.prepared.kind !== "http";
+        if (!value.started) {
+          if (!value.observation && value.fileIoVersion === 1) {
+            const attempt = await getHarness().commit(async tx => interruptedFileAttempt(value, await personalFileIoJobs(tx)), context);
+            if (attempt) await observe(value.operation, { effect: "not_executed", code: personalFileIoAttemptError(attempt).code, stopped: fileIoJobStopped(attempt) });
+          }
+          continue;
+        }
+        const stopped = value.prepared.kind === "file_search" ? value.stopped || await stopPersonalFileSearch(profile, value.prepared.execution) : value.prepared.kind === "file" ? await fileJobStoppedValue(value.fileJob) : value.prepared.kind !== "http";
         if (!value.observation) await observe(value.operation, { effect: readonlyTool(value) ? "no_write" : "effect_unknown", code: "interrupted", stopped });
         else if (value.prepared.kind === "file_search" && !value.stopped && stopped) await getHarness().commit(async tx => {
           const current = await toolOperation(tx, value.operation), evidence = "原生执行身份与持久停止回执已核实。";
@@ -373,6 +432,24 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
     async close() { if (fileIo) await fileIo.close(); },
   };
 }
+export const personalFileJobStopLinker: PersonalFileIoStopLinker = async (tx, job, event, entry) => {
+  if (job.operation === undefined) return;
+  const value = (await tx.doc(PersonalToolDoc, String(job.operation), null)).operation;
+  if (event.kind === "admit" && job.phase === "execute") {
+    if (!value || value.fileIoVersion !== 1 || value.prepared.kind !== "file" || !isDeepStrictEqual(value.origin, job.origin) || !isDeepStrictEqual(value.prepared.request, job.request) || value.fileJob !== undefined && value.fileJob !== job.id) throw new PersonalError("file_io_record_invalid", "文件操作的原身份、阶段或生命周期证据无法核实，已停止恢复；请保留档案并查询原操作。");
+    value.fileJob = job.id;
+    return;
+  }
+  if (!value || !fileIoJobStopped(job) || event.kind === "admit" || !["result", "exit", "host-ended", "release"].includes(event.kind)) return;
+  if (job.phase === "execute" && value.fileJob === job.id) value.fileJobUnverified = false;
+  if (!value.stopped && (value.started ? job.phase === "execute" && value.fileJob === job.id : value.observation !== undefined && !(await personalFileIoJobs(tx)).some(other => other.operation === value.operation && fileIoJobUnresolved(other)))) {
+    const evidence = `file_job_${event.kind}`;
+    const resolution = await tx.appendEntry(ToolResolution, value.origin.conversationId, { data: { operation: value.operation, evidence, fileJob: job.id, fileEvent: entry } });
+    value.stopEvidence = { evidence, entry: resolution.id, fileEvent: entry, fileJob: job.id }; value.stopped = true;
+  }
+  if (value.directoryClaim && !toolUnresolved(value)) await releasePersonalDirectory(tx, { kind: "file", operation: value.operation });
+};
+
 export async function personalArtifactEntries(tx: Tx, conversationId = ROOT_CONVERSATION_ID) {
   const tools = (await toolOperations(tx)).filter(value => value.artifact && (conversationId === ROOT_CONVERSATION_ID || value.origin.conversationId === conversationId)).map(value => ({ artifact: value.artifact!, kind: value.kind as string, target: value.prepared.kind === "file" ? value.prepared.request.path : value.prepared.kind === "http" ? value.prepared.request.url : value.prepared.kind === "file_search" ? value.prepared.execution.request.cwd : "Web Search" }));
   const browser = (await browserOperations(tx)).filter(value => value.artifact && (conversationId === ROOT_CONVERSATION_ID || value.origin.conversationId === conversationId)).map(value => ({ artifact: value.artifact!, kind: "browser", target: "浏览器截图" }));
@@ -425,7 +502,8 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
       const request = value.prepared.execution.request, params = fileSearchParams(request.name, value.params);
       if (request.name !== value.kind || request.cwd !== value.config!.workspace || !isDeepStrictEqual(request.params, value.params) || value.prepared.execution.spec.mode !== value.origin.permission.mode || request.roots?.length !== 1 || request.roots[0].path !== path.resolve(request.cwd, params.path ?? ".")) throw invalid();
     }
-    if (!admission || admission.conversationId !== value.origin.conversationId || !isDeepStrictEqual(admission.data, { operation: value.operation, origin: value.origin, kind: value.kind, params: value.params, ...(value.config ? { config: value.config } : {}), ...(value.searchConfig ? { searchConfig: value.searchConfig } : {}), ...(value.searchVersion ? { searchVersion: value.searchVersion } : {}), grantVersion: value.grantVersion, prepared: value.prepared, approval: admission.data.approval }) || !["pending", "unneeded"].includes(admission.data.approval) || tool?.kind !== "pi.tool" || tool.owner !== value.origin.generation || tool.conversationId !== value.origin.conversationId || !assistant || assistant.byTaskId !== value.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== value.kind || !isDeepStrictEqual(normalized, value.params)) throw invalid();
+    if (!admission || admission.conversationId !== value.origin.conversationId || !isDeepStrictEqual(admission.data, { operation: value.operation, origin: value.origin, kind: value.kind, params: value.params, ...(value.config ? { config: value.config } : {}), ...(value.searchConfig ? { searchConfig: value.searchConfig } : {}), ...(value.searchVersion ? { searchVersion: value.searchVersion } : {}), grantVersion: value.grantVersion, prepared: value.prepared, ...(value.fileIoVersion === 1 ? { fileIoVersion: 1 } : {}), approval: admission.data.approval }) || !["pending", "unneeded"].includes(admission.data.approval) || tool?.kind !== "pi.tool" || tool.owner !== value.origin.generation || tool.conversationId !== value.origin.conversationId || !assistant || assistant.byTaskId !== value.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== value.kind || !isDeepStrictEqual(normalized, value.params)) throw invalid();
+    if (value.prepared.kind === "file" && value.fileIoVersion !== 1 && (value.observation === undefined || toolUnresolved(value) || (await tx.task(value.operation))?.state.status !== "terminal")) throw new PersonalError("file_io_legacy_pending", "原版本文件操作尚未完成或核实，未启用新的文件执行方式；请先使用原版本处理原工作并保留档案。");
     const original = await personalSource(tx, value.origin.source.requestId), source = original.submission;
     if (source.id !== value.origin.source.submissionId || source.entry !== value.origin.source.entryId) throw invalid();
     if (value.origin.work) {
@@ -434,7 +512,7 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
     if (value.origin.telegram && (!isDeepStrictEqual(original.telegram, value.origin.telegram) || !isDeepStrictEqual(value.origin.permission, { mode: value.origin.telegram.mode, version: value.origin.telegram.version }))) throw invalid();
     if (original.scheduled && (!isDeepStrictEqual(original.permission, value.origin.permission) || !isDeepStrictEqual(original.telegram, value.origin.telegram))) throw invalid();
     if (!["auto-review", "confirm", "full_access"].includes(value.origin.permission.mode) || !Number.isSafeInteger(value.origin.permission.version) || value.origin.permission.version < 1 || !["pending", "approved", "rejected", "unneeded"].includes(value.approval) || !["not_executed", "no_write", "returned", "effect_unknown"].includes(value.effect) || typeof value.started !== "boolean" || typeof value.stopped !== "boolean" || value.started !== !!value.startEntry || value.started && !["approved", "unneeded"].includes(value.approval) || value.started && !value.observation && value.code !== "started" || !value.started && value.effect !== "not_executed") throw invalid();
-    if (value.startEntry) { const entry = await tx.entry(ToolStart, value.startEntry); if (!entry || entry.conversationId !== value.origin.conversationId || entry.id <= value.admission || !isDeepStrictEqual(entry.data, { operation: value.operation, admission: value.admission })) throw invalid(); }
+    if (value.startEntry) { const entry = await tx.entry(ToolStart, value.startEntry); if (!entry || entry.conversationId !== value.origin.conversationId || entry.id <= value.admission || !isDeepStrictEqual(entry.data, { operation: value.operation, admission: value.admission, ...(value.fileJob ? { fileJob: value.fileJob } : {}) })) throw invalid(); }
     if (value.decisionEntry) { const entry = await tx.entry(ToolDecision, value.decisionEntry); if (!entry || entry.id <= value.admission || !isDeepStrictEqual(entry.data, { operation: value.operation, decision: value.approval, ...(value.actor ? { actor: value.actor } : {}) })) throw invalid(); }
     else if ((value.approval === "approved" || value.approval === "rejected") && value.review?.decision !== (value.approval === "approved" ? "approve" : "reject")) throw invalid();
     if (value.review) {
@@ -447,11 +525,22 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
     }
     if (value.observation) { const entry = await tx.entry(ToolObservation, value.observation); if (!entry || entry.conversationId !== value.origin.conversationId || entry.id <= (value.startEntry ?? value.admission) || !isDeepStrictEqual(entry.data, { operation: value.operation, admission: value.admission, effect: value.effect, code: value.code, stopped: entry.data.stopped, ...(value.artifact ? { artifact: value.artifact } : {}), ...(value.status === undefined ? {} : { status: value.status }), ...(value.headers ? { headers: value.headers } : {}), ...(value.view ? { view: value.view } : {}) }) || value.stopped !== (entry.data.stopped || !!value.stopEvidence)) throw invalid(); }
     else if (value.artifact || value.effect === "returned") throw invalid();
-    for (const proof of [value.resolution, value.stopEvidence]) if (proof) { const entry = await tx.entry(ToolResolution, proof.entry); if (!entry || entry.id <= (value.observation ?? value.admission) || !isDeepStrictEqual(entry.data, { operation: value.operation, ...(proof === value.resolution ? { effect: value.resolution!.effect } : {}), evidence: proof.evidence, ...(proof.actor ? { actor: proof.actor } : {}) })) throw invalid(); }
+    for (const proof of [value.resolution, value.stopEvidence]) if (proof) {
+      const entry = await tx.entry(ToolResolution, proof.entry);
+      const { fileJob: proofJob, fileEvent: proofEvent, ...proofData } = (entry?.data ?? {}) as { fileJob?: PersonalFileJobId; fileEvent?: EntryId } & Record<string, unknown>;
+      if (!entry || proofJob !== undefined && value.started && proofJob !== value.fileJob || entry.id <= (proofJob !== undefined ? value.startEntry ?? value.admission : value.observation ?? value.admission) || !isDeepStrictEqual(proofData, { operation: value.operation, ...(proof === value.resolution ? { effect: value.resolution!.effect } : {}), evidence: proof.evidence, ...(proof.actor ? { actor: proof.actor } : {}) })) throw invalid();
+      if (proofJob !== undefined || proofEvent !== undefined || "fileEvent" in proof) {
+        if (proof !== value.stopEvidence || proofEvent === undefined || value.stopEvidence.fileEvent !== proofEvent || value.stopEvidence.fileJob !== proofJob || value.started && proofJob !== value.fileJob || proofEvent >= entry.id) throw invalid();
+        const event = await tx.entry(PersonalFileIoLifecycle, proofEvent), job = (await tx.doc(PersonalFileJobDoc, proofJob!, null)).job;
+        if (!event || !job || job.operation !== value.operation || !isDeepStrictEqual(job.origin, value.origin) || event.conversationId !== value.origin.conversationId || event.data.jobId !== proofJob || !isDeepStrictEqual(event.data.host, job.host) || !["result", "exit", "host-ended", "release"].includes(event.data.kind) || !job.events.includes(proofEvent)) throw invalid();
+      }
+    }
     if (value.artifact) await readPersonalArtifact(profile, value.artifact);
+    if (value.fileIoVersion !== undefined && value.fileIoVersion !== 1 || value.fileIoVersion === 1 && value.prepared.kind !== "file" || (value.fileJob !== undefined && (typeof value.fileJob !== "string" || !value.fileJob || value.fileIoVersion !== 1)) || (value.fileJobUnverified !== undefined && (typeof value.fileJobUnverified !== "boolean" || value.fileJob === undefined)) || value.fileJobUnverified === true && value.stopped) throw invalid();
+    if (value.fileJob !== undefined) { const job = (await tx.doc(PersonalFileJobDoc, value.fileJob, null)).job; if (!job || job.phase !== "execute" || job.operation !== value.operation || !isDeepStrictEqual(job.origin, value.origin) || value.prepared.kind !== "file" || !isDeepStrictEqual(job.request, value.prepared.request)) throw new PersonalError("file_io_record_invalid", "文件操作的原身份、阶段或生命周期证据无法核实，已停止恢复；请保留档案并查询原操作。"); }
   }
   let cursor: Cursor | undefined;
-  const configs: Array<{ id: EntryId; config: PersonalToolsConfig }> = [], grants: Array<{ id: EntryId; data: Omit<Grant, "entry"> }> = [], starts = new Set<TaskId>(), decisions = new Set<TaskId>();
+  const configs: Array<{ id: EntryId; config: PersonalToolsConfig }> = [], grants: Array<{ id: EntryId; data: Omit<Grant, "entry"> }> = [], starts = new Set<TaskId>(), decisions = new Set<TaskId>(), fileIoEntries = new Set<EntryId>();
   do { const conversations = await tx.scanConversations({}, 256, cursor); for (const conversation of conversations.items) { let next: Cursor | undefined; do { const page = await tx.scanEntries({ conversationId: conversation.id, order: "ascending" }, 256, next); for (const entry of page.items) {
     if (ToolConfiguration.is(entry)) { if (conversation.id !== ROOT_CONVERSATION_ID) throw invalid(); configs.push({ id: entry.id, config: parsePersonalTools(entry.data.config) }); }
     if (ToolGrant.is(entry)) { if (conversation.id !== ROOT_CONVERSATION_ID) throw invalid(); grants.push({ id: entry.id, data: entry.data }); }
@@ -461,7 +550,48 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
     if (ToolDecision.is(entry)) { if (decisions.has(entry.data.operation) || !values.some(value => value.operation === entry.data.operation && value.decisionEntry === entry.id)) throw invalid(); decisions.add(entry.data.operation); }
     if (ToolResolution.is(entry) && !values.some(value => value.operation === entry.data.operation && [value.resolution?.entry, value.stopEvidence?.entry].includes(entry.id))) throw invalid();
     if (ToolObservation.is(entry) && !values.some(value => value.operation === entry.data.operation && value.admission === entry.data.admission)) throw invalid();
+    if (PersonalFileIoAdmission.is(entry) || PersonalFileIoLifecycle.is(entry)) fileIoEntries.add(entry.id);
   } next = page.next; } while (next); } cursor = conversations.next; } while (cursor);
+  const verifyJobOperation = async (tx: Tx, job: PersonalFileJobRecord) => {
+    const fileInvalid = () => new PersonalError("file_io_record_invalid", "文件操作的原身份、阶段或生命周期证据无法核实，已停止恢复；请保留档案并查询原操作。");
+    const origin = job.origin!, task = await tx.task(job.operation!), input = task?.input;
+    const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;
+    const call = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && part.id === (input && typeof input === "object" && !Array.isArray(input) ? input.callId : undefined));
+    const generation = await tx.task(origin.generation);
+    if (!task || task.kind !== "pi.tool" || task.owner !== origin.generation || task.conversationId !== origin.conversationId || !generation || generation.kind !== "pi.generation" || generation.conversationId !== origin.conversationId || !assistant || assistant.kind !== "pi.assistant" || assistant.byTaskId !== origin.generation || assistant.conversationId !== origin.conversationId || assistant.id >= job.admission || call?.type !== "toolCall" || !["read_file", "write_file"].includes(call.name)) throw fileInvalid();
+    const definition = tools.find(tool => tool.name === call.name); if (!definition) throw fileInvalid();
+    let params: Params;
+    try { params = validateToolArguments(definition, { ...call, arguments: copyJson(call.arguments) as Params }) as Params; } catch { throw fileInvalid(); }
+    const access = call.name === "read_file" ? "read" : "read_write", request = job.request as Record<string, JsonValue>;
+    if (job.access !== access || request.access !== access || request.content !== (call.name === "write_file" ? params.content : undefined) || !isDeepStrictEqual(request.protectedRoots, origin.permission.mode === "full_access" ? [] : personalProtectedRoots(profile))) throw fileInvalid();
+    const original = await personalSource(tx, origin.source.requestId), source = original.submission;
+    if (source.id !== origin.source.submissionId || source.entry !== origin.source.entryId || source.entry === undefined || source.entry >= job.admission) throw fileInvalid();
+    if (origin.work) {
+      if (!isDeepStrictEqual(await personalWorkInspectionSource(tx, origin.work.ref, origin.inputs, job.admission), { work: origin.work, sources: origin.sources })) throw fileInvalid();
+      const work = await tx.doc(PersonalWorkDoc, origin.work.ref.requestId, null);
+      if (!isDeepStrictEqual(work.permission, origin.permission) || !isDeepStrictEqual(work.telegram, origin.telegram)) throw fileInvalid();
+    } else if (origin.conversationId !== source.conversationId || !isDeepStrictEqual(origin.inputs, [source.id]) || !isDeepStrictEqual(origin.sources, [source.id])) throw fileInvalid();
+    if (origin.telegram && (!isDeepStrictEqual(original.telegram, origin.telegram) || !isDeepStrictEqual(origin.permission, { mode: origin.telegram.mode, version: origin.telegram.version }))) throw fileInvalid();
+    if (original.scheduled && (!isDeepStrictEqual(original.permission, origin.permission) || !isDeepStrictEqual(original.telegram, origin.telegram))) throw fileInvalid();
+    const operation = (await tx.doc(PersonalToolDoc, String(job.operation!), null)).operation;
+    if (!operation) { if (job.phase !== "prepare" || request.path !== params.path) throw fileInvalid(); return; }
+    if (operation.fileIoVersion !== 1 || operation.prepared.kind !== "file" || !isDeepStrictEqual(operation.origin, origin) || !isDeepStrictEqual(operation.params, params)) throw fileInvalid();
+    if (job.phase === "prepare") {
+      if (request.path !== params.path || job.admission >= operation.admission) throw fileInvalid();
+      if (job.result?.ok && (!job.result.payload || typeof job.result.payload !== "object" || Array.isArray(job.result.payload) || !isDeepStrictEqual(job.result.payload.request, operation.prepared.request))) throw fileInvalid();
+    } else if (job.phase === "revalidate") {
+      const prepared = operation.prepared.request;
+      if (!isDeepStrictEqual(job.request, { path: prepared.path, access: prepared.access, ...(prepared.content === undefined ? {} : { content: prepared.content }), protectedRoots: prepared.protectedRoots }) || job.admission <= operation.admission) throw fileInvalid();
+    } else if (operation.fileJob !== job.id || !isDeepStrictEqual(job.request, operation.prepared.request) || job.admission <= operation.admission) throw fileInvalid();
+  };
+  await verifyPersonalFileIo(tx, fileIoEntries, verifyJobOperation);
+  const fileJobs = await personalFileIoJobs(tx);
+  for (const value of values) if (value.fileIoVersion === 1) {
+    const prepared = fileJobs.filter(job => job.operation === value.operation && job.phase === "prepare");
+    if (prepared.length !== 1 || prepared[0].result?.ok !== true || prepared[0].settle?.outcome !== "result") throw invalid();
+    const attempt = value.fileJob === undefined ? undefined : fileJobs.find(job => job.id === value.fileJob);
+    if (value.started && !attempt || attempt && value.started && value.stopped && !fileIoJobStopped(attempt) || value.started && value.fileJobUnverified !== !value.stopped) throw invalid();
+  }
   configs.sort((a, b) => a.id - b.id); grants.sort((a, b) => a.id - b.id);
   if (!isDeepStrictEqual(configs.at(-1)?.config, doc.config) || doc.grantVersion !== grants.length + 1) throw invalid();
   const searchVersions = await personalConfigurationVersions(tx, "web-search");

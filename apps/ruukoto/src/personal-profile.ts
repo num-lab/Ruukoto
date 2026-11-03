@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { PersonalError } from "./personal-error.ts";
+import { personalFileIoLiveJobs } from "./personal-file-io.ts";
 
 export const LEGACY_PERSONAL_FORMAT = { product: "ruukoto", format: 1, pi: "1.3.0", extensions: { personal: 2 } } as const;
 export const PERSONAL_FORMAT = { ...LEGACY_PERSONAL_FORMAT, configuration: 1 } as const;
@@ -53,9 +54,14 @@ export function lockPersonalProfile(directory: string): PersonalProfileLock {
     }
     throw new PersonalError("profile_lock_failed", "无法锁定个人档案，请检查目录与磁盘状态。", { cause: error });
   }
+  if (personalFileIoLiveJobs(directory)) {
+    owner.close();
+    throw new PersonalError("file_io_stop_unverified", "原文件工作线程尚未核实退出，档案锁与容量仍保留；请核实原执行或修复存储后再次请求停止。");
+  }
   let released = false;
   const release = () => {
     if (released) return;
+    if (personalFileIoLiveJobs(directory)) throw new PersonalError("file_io_stop_unverified", "原文件工作线程尚未核实退出，档案锁与容量仍保留；请核实原执行或修复存储后再次请求停止。");
     released = true;
     owner.close();
   };

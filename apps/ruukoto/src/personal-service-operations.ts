@@ -142,12 +142,12 @@ export async function waitPersonalServiceEffect(reader: DocumentObserver, ref: P
 
 export type PersonalServiceBlocker = string | { appData: string; admission: EntryId } | { inspection: TaskId; admission: EntryId } | { command: string; admission: EntryId } | { mcp: string; admission: EntryId } | { tool: string; admission: EntryId } | { browser: string; admission: EntryId; pause?: EntryId; session?: boolean };
 
-export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string, forReport = false): Promise<PersonalServiceBlocker | undefined> {
+export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: string, forReport = false, excludeOperation?: TaskId): Promise<PersonalServiceBlocker | undefined> {
   const appData = await appDataSourceBlocker(tx, sourceRequestId);
   if (appData) return appData;
   const browser = await browserSourceBlocker(tx, sourceRequestId);
   if (browser) return browser;
-  const tool = await toolSourceBlocker(tx, sourceRequestId);
+  const tool = await toolSourceBlocker(tx, sourceRequestId, excludeOperation);
   if (tool) return tool;
   const mcp = await mcpSourceBlocker(tx, sourceRequestId, forReport);
   if (mcp) return mcp;
@@ -169,8 +169,8 @@ export async function personalServiceSourceBlocker(tx: Tx, sourceRequestId: stri
   } while (cursor);
 }
 
-export async function requirePersonalServiceSourceReady(tx: Tx, sourceRequestId: string) {
-  if (await personalServiceSourceBlocker(tx, sourceRequestId)) throw new PersonalError("work_source_paused", "原工作有尚未核实的外部效果或停止状态，已暂停委派和子模型请求；请向拥有者报告并核实原操作，不要换工作重试。");
+export async function requirePersonalServiceSourceReady(tx: Tx, sourceRequestId: string, excludeOperation?: TaskId) {
+  if (await personalServiceSourceBlocker(tx, sourceRequestId, false, excludeOperation)) throw new PersonalError("work_source_paused", "原工作有尚未核实的外部效果或停止状态，已暂停委派和子模型请求；请向拥有者报告并核实原操作，不要换工作重试。");
 }
 
 function stopped(reply: HelperReply | undefined, op: Operation) {

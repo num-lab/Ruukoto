@@ -3,6 +3,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ROOT_CONVERSATION_ID, type Storage } from "@earendil-works/pi-durable";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, SCHEDULE_SUPERVISOR_TASK } from "./personal-scheduler-records.ts";
 import { PersonalDirectoryClaimsDoc } from "./personal-directory-claims.ts";
+import { PersonalFileJobDoc, fileIoJobUnresolved, verifyPersonalFileIoStorage, type PersonalFileJobRecord } from "./personal-file-io.ts";
 import { PersonalError } from "./personal-error.ts";
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
@@ -24,6 +25,17 @@ export async function hasPendingPersonalWork(storage: Storage): Promise<boolean>
       if (!saved || saved.version !== 1 || !run || typeof run !== "object" || Array.isArray(run) || !run.result) return true;
     }
   }
+  let fileJobCursor;
+  await verifyPersonalFileIoStorage(storage);
+  do {
+    const page = await storage.scanDocuments({ kind: PersonalFileJobDoc.definition.kind, scope: { kind: "session" }, at: "current" }, 256, fileJobCursor, context);
+    for (const record of page.items) {
+      const saved = await storage.document(record.id, "current", context), job = saved?.value.job as PersonalFileJobRecord | undefined;
+      if (!saved || saved.version !== 1 || job && (typeof job !== "object" || Array.isArray(job))) throw new PersonalError("config_state_invalid", "文件任务记录无法核实，未更改配置；请保留档案。");
+      if (job && fileIoJobUnresolved(job)) return true;
+    }
+    fileJobCursor = page.next;
+  } while (fileJobCursor);
   let questionCursor;
   do {
     const page = await storage.scanDocuments({ kind: "ruukoto.question", scope: { kind: "session" }, at: "current" }, 256, questionCursor, context);

@@ -18,7 +18,8 @@ import { personalMedia, PERSONAL_MEDIA, PersonalMediaDoc, PersonalMediaMessageDo
 import { personalBrowser, PERSONAL_BROWSER, PersonalBrowserDoc, PersonalBrowserOperationDoc, PersonalBrowserSessionDoc, configureBrowser, verifyBrowser, browserRequestAllowed } from "./personal-browser.ts";
 import type { PersonalBrowserConfig } from "./personal-browser-config.ts";
 import { personalBrowserControl, verifyBrowserControls } from "./personal-browser-controls.ts";
-import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, PersonalToolsDoc, PersonalWebSearchDoc, PersonalToolDoc, personalTools, personalArtifactReader, configureTools, verifyTools, toolOperations, toolUnresolved } from "./personal-tools.ts";
+import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, PersonalToolsDoc, PersonalWebSearchDoc, PersonalToolDoc, personalTools, personalArtifactReader, configureTools, verifyTools, toolOperations, toolUnresolved, personalFileJobStopLinker } from "./personal-tools.ts";
+import { closePersonalFileIoNamespace, personalFileIoLiveJobs, reconcilePersonalFileIo, sealPersonalFileIoSessionClosed, waitPersonalFileIoDrained, verifyPersonalFileIoStorage } from "./personal-file-io.ts";
 import { PERSONAL_FILE_SEARCH, personalFileSearch } from "./personal-file-search.ts";
 import type { PersonalFileIo } from "./personal-file-io.ts";
 import { personalLocalInput, personalLocalPermission } from "./personal-local-records.ts";
@@ -324,6 +325,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       mcpCursor = page.next;
     } while (mcpCursor);
+    await verifyPersonalFileIoStorage(storage);
     const toolsRecord = await storage.findDocument({ kind: PersonalToolsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const loadedTools = toolsRecord && await storage.document(toolsRecord.id, "current", context);
     if (loadedTools && (loadedTools.version !== 1 || !Array.isArray(loadedTools.value.operations) || !Array.isArray(loadedTools.value.grants))) throw new PersonalError("tool_record_invalid", "工具索引版本或记录不符，已停止恢复。");
@@ -578,7 +580,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     harness = await Harness.open(storage, { models, registry, settings: { followUpMode: "one-at-a-time", steeringMode: "one-at-a-time" }, onReport: () => process.stderr.write("[ruukoto:personal] 持久执行出现错误，请查询状态并检查档案；未自动重启。\n") }, context);
     // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
     let coordination: { close: () => Promise<void>; admit: PersonalMainAdmission } | undefined;
-    unlocked = harness.closed.then(async () => { const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); try { await coordination?.close(); } catch { process.stderr.write("[ruukoto:personal] Coordination watcher failed to stop; please inspect the profile before restarting.\n"); } if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
+    let closing: Promise<void> | undefined, sessionClosing = false;
+    harness.subscribeClose(() => { sessionClosing = true; sealPersonalFileIoSessionClosed(lock.directory); });
+    unlocked = harness.closed.then(async () => { await waitPersonalFileIoDrained(lock.directory); const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); try { await coordination?.close(); } catch { process.stderr.write("[ruukoto:personal] Coordination watcher failed to stop; please inspect the profile before restarting.\n"); } if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     await initializePersonalSettings(lock, harness);
     const initialImVersions = await harness.commit(async tx => ({ telegram: await effectivePersonalConfiguration(tx, "telegram", "*"), qq: await effectivePersonalConfiguration(tx, "qq", "*") }), context);
@@ -806,7 +810,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await appData.recover();
     await media.recover();
     if (browser) await browser.recover();
+    await reconcilePersonalFileIo(harness, lock.directory, personalFileJobStopLinker);
     if (general) await general.recover();
+    await harness.commit(tx => verifyTools(tx, toolKeys, lock.directory, general?.extension.tools), context);
     if (background) { await background.verifyEvidence(); await background.recover(); }
     await instance.commit(verifyClaims, context);
     await instance.commit(tx => scheduler.start(tx), context);
@@ -1026,7 +1032,16 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         const handoff = message.content.some(part => part.type === "toolCall") ? await main.commit(tx => personalWorkHandoff(tx, settled.answer), context) : undefined;
         return handoff ?? text;
       },
-      async close() { await waitPersonalSettings({ profile: lock }); await pairing.close(); await entry.close(); await coordination?.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked; },
+      async close() {
+        closing ??= (async () => {
+          try {
+            await closePersonalFileIoNamespace(lock.directory);
+            if (sessionClosing) { await unlocked; return; }
+            await waitPersonalSettings({ profile: lock }); await pairing.close(); await entry.close(); await coordination?.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked;
+          } catch (error) { closing = undefined; throw error; }
+        })();
+        return closing;
+      },
     };
     await recoverPersonalSettings({ profile: lock, instance: publicApi });
     instance.resume();
@@ -1038,7 +1053,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     } catch {
       // 保留启动的原异常；管理接口清理失败时仍保留锁，避免下一实例覆盖旧 socket。
       process.stderr.write("[ruukoto:personal] 初始化清理失败，已停止启动；请保留档案并检查存储。\n");
-    } finally { if (!unlocked) lock.release(); }
+    } finally { if (!unlocked && !personalFileIoLiveJobs(lock.directory)) lock.release(); }
     throw error;
   }
 }

@@ -118,7 +118,7 @@ export function readPersonalToken(directory: string): string {
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
 // Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md
-export async function startPersonalServer(directory: string, options: { development?: boolean } = {}) {
+export async function startPersonalServer(directory: string, options: { development?: boolean; fileIo?: Parameters<typeof openPersonalHarness>[0]["fileIo"] } = {}) {
   const profile = lockPersonalProfile(directory);
   const socketPath = path.join(directory, "control.sock");
   const active = new Set<Promise<void>>();
@@ -141,7 +141,10 @@ export async function startPersonalServer(directory: string, options: { developm
     if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     await Promise.allSettled([...active]);
   })();
-  const stop = () => shutdown ??= (async () => { await closeListener(); await personal?.close(); })();
+  const stop = () => shutdown ??= (async () => {
+    try { await personal?.close(); await closeListener(); }
+    catch (error) { shutdown = undefined; throw error; }
+  })();
   try {
     if (options.development && (readPersonalTelegram(profile)?.enabled || readPersonalQq(profile)?.enabled)) throw new PersonalError("development_im_enabled", "开发实例不接入真实 IM。请先在开发配置菜单停用 QQ 与 Telegram；原配置与消息保持，请勿使用生产凭据配对。");
     const bootstrap = await personalBootstrapConfigurations(profile);
@@ -164,7 +167,7 @@ export async function startPersonalServer(directory: string, options: { developm
     server.listen(socketPath);
     await once(server, "listening");
     fs.chmodSync(socketPath, 0o600);
-    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, telegram, qq, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), ...(browser ? { browser } : {}), beforeUnlock: closeListener });
+    personal = await openPersonalHarness({ profile, provider: personalProvider(config), modelId: config.modelId, fileIo: options.fileIo, telegram, qq, ...(services ? { service: { ...services, useSudo: true }, serviceOperations: true } : {}), ...(commands ? { commands } : {}), ...(mcp ? { mcp } : {}), ...(tools ? { tools } : {}), ...(browser ? { browser } : {}), beforeUnlock: closeListener });
     const instance = personal;
     desktopEvents = personalDesktopEvents(server, instance.harness, token, runId);
     qqLoop = instance.qq.poll(telegramStop.signal).catch(() => { process.stderr.write("[ruukoto:personal] QQ 收件已停止，请查询状态并检查档案；未自动重启。\n"); });

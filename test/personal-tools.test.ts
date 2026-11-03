@@ -7,11 +7,13 @@ import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
+import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord";
 import { AgentDoc, ROOT_CONVERSATION_ID, type ConversationId, type TaskId } from "@earendil-works/pi-durable";
@@ -28,6 +30,7 @@ import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { readPersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { openPersonalFileIo, personalFileIoJobs, type PersonalFileIo, type PersonalFileJobMeta } from "../apps/ruukoto/src/personal-file-io.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -236,6 +239,66 @@ for (const outcome of ["approve", "reject", "invalid", "failure", "length", "err
   const payloads = entries.map(entry => entry.data).filter((data): data is { [key: string]: JsonValue } => !!data && typeof data === "object" && !Array.isArray(data) && "payload" in data);
   assert.equal(payloads.length, 1); assert.deepEqual(payloads[0].payload, calls[0].raw); assert.match(JSON.stringify(payloads[0].input), /外部原文|read_file/); assert.ok(JSON.stringify(payloads[0].input).includes("工具来源"));
   await p.close(); await f.open();
+});
+
+test("durable file review: pending owner approval survives restart", { timeout: 60_000 }, async t => {
+  for (const changed of [false, true]) await t.test(changed ? "target changed while waiting" : "unchanged target", async t => {
+    const f = await fixture(t, request => reviewRequest(request) ? { kind: "text", text: '{"decision":"ask_owner","reason":"Needs owner approval"}' } : respond(request, 0));
+    fs.mkdirSync(f.directory);
+    const workers: PersonalFileJobMeta[] = [];
+    const open = () => f.open({ fileIo: openPersonalFileIo({ profile: fs.realpathSync(f.directory), workerProbe: (_worker, job) => workers.push(job) }) });
+    const p = await open(), target = path.join(f.outside, "pending-review"), bytes = Buffer.from("owner-approved original bytes");
+    fs.writeFileSync(target, bytes);
+    assert.equal((await p.harness.snapshot(PersonalPermissionsDoc, context))!.mode, "auto-review");
+    await p.answer("工具来源", "tools-src");
+    const input = invoke("read_file", { path: target }), answer = invoked(p, input, "pending-review", "tools-src");
+    void answer.catch(() => undefined);
+    const initial = await first(p);
+    await until(async () => { const value = await record(p, initial.operation); return value.review?.decision === "ask_owner" && value.approval === "pending"; });
+    await until(async () => (await p.harness.commit(tx => personalFileIoJobs(tx), context)).every(job => job.exit !== undefined));
+    const reviewed = await record(p, initial.operation), jobs = await p.harness.commit(tx => personalFileIoJobs(tx), context);
+    assert.ok(reviewed.origin.work);
+    const originalWork = reviewed.origin.work.ref;
+    assert.equal(reviewed.started, false); assert.equal(reviewed.startEntry, undefined); assert.equal(reviewed.observation, undefined); assert.equal(reviewed.decisionEntry, undefined);
+    assert.deepEqual(jobs.map(job => job.phase), ["prepare", "revalidate"]);
+    assert.ok(jobs.every(job => job.operation === reviewed.operation));
+    const revalidated = jobs.find(job => job.phase === "revalidate")!;
+    assert.equal(revalidated.result?.ok, true); assert.equal(revalidated.settle?.outcome, "result"); assert.equal(revalidated.settle?.code, "returned");
+    assert.ok(reviewed.review && revalidated.settle!.entry < reviewed.review.claim);
+    assert.equal(workers.filter(job => job.phase === "execute").length, 0);
+    assert.equal(f.model.calls.filter(reviewRequest).length, 1);
+    if (changed) fs.writeFileSync(target, "modified while waiting for owner approval");
+    await p.close(); await assert.rejects(answer);
+
+    const reopened = await open(), restored = await record(reopened, reviewed.operation);
+    assert.equal(restored.operation, reviewed.operation); assert.equal(restored.admission, reviewed.admission); assert.equal(restored.decisionEntry, reviewed.decisionEntry); assert.deepEqual(restored.review, reviewed.review);
+    assert.deepEqual(restored.origin.work!.ref, originalWork); assert.equal((await reopened.work.status(originalWork)).task.id, originalWork.taskId);
+    assert.equal(restored.approval, "pending");
+    assert.equal(restored.observation, undefined, "Waiting for owner approval must not become a failed execution on restart.");
+    assert.equal(restored.started, false); assert.equal(restored.startEntry, undefined);
+    assert.equal((await reopened.harness.commit(tx => personalFileIoJobs(tx), context)).filter(job => job.phase === "execute").length, 0);
+    assert.equal(f.model.calls.filter(reviewRequest).length, 1);
+    const resumed = invoked(reopened, input, "pending-review", "tools-src");
+    void resumed.catch(() => undefined);
+    await until(async () => (await reopened.harness.getTask(restored.operation, context))?.state.status === "running");
+    await reopened.harness.commit(tx => toolDecide(tx, restored.operation, "approved", f.directory), context);
+    const completed = await resumed, result = JSON.parse(completed.text) as { operation: TaskId; effect: string; code: string; base64?: string };
+    assert.deepEqual(completed.work, originalWork);
+    assert.equal(result.operation, reviewed.operation); assert.equal(result.effect, changed ? "not_executed" : "returned"); assert.equal(result.code, changed ? "tool_target_changed" : "file_returned");
+    if (changed) assert.equal(result.base64, undefined);
+    else { assert.ok(result.base64); assert.deepEqual(Buffer.from(result.base64, "base64"), bytes); }
+    const finished = await record(reopened, reviewed.operation);
+    assert.equal(finished.admission, reviewed.admission); assert.equal(finished.approval, "approved"); assert.notEqual(finished.decisionEntry, undefined); assert.deepEqual(finished.review, reviewed.review); assert.deepEqual(finished.origin.work!.ref, originalWork);
+    assert.equal(finished.started, !changed); if (changed) assert.equal(finished.startEntry, undefined);
+    const completedJobs = await reopened.harness.commit(tx => personalFileIoJobs(tx), context), validations = completedJobs.filter(job => job.phase === "revalidate");
+    assert.equal(validations.length, 2); assert.equal(validations[0].id, revalidated.id); assert.ok(validations[1].admission > finished.decisionEntry!);
+    assert.equal(f.model.calls.filter(reviewRequest).length, 1); assert.equal(workers.filter(job => job.phase === "execute").length, changed ? 0 : 1);
+    await reopened.close();
+    const again = await open(), persisted = await record(again, reviewed.operation), replayed = await invoked(again, input, "pending-review", "tools-src");
+    assert.equal(persisted.admission, reviewed.admission); assert.equal(persisted.observation, finished.observation); assert.equal(persisted.effect, result.effect); assert.equal(persisted.code, result.code); assert.deepEqual(persisted.review, reviewed.review);
+    assert.deepEqual(replayed.work, originalWork); assert.equal(replayed.text, completed.text);
+    assert.equal(f.model.calls.filter(reviewRequest).length, 1); assert.equal(workers.filter(job => job.phase === "execute").length, changed ? 0 : 1);
+  });
 });
 
 test("durable 确认与资料授权：逐次批准消费一次，撤销后读取重新等待且旧批准失效", { timeout: 60_000 }, async t => {
@@ -505,4 +568,82 @@ test("durable 本机入口：真实认证接口完成工具审批、授权撤销
     await personalControl(f.directory, "POST", "/tools/revoke", { id: grants.items[0].id });
     assert.equal((await personalControl<typeof grants>(f.directory, "GET", "/tools/grants?offset=0")).items[0].revoked, true);
   } finally { await server.stop(); }
+});
+
+test("durable 文件写入：已批准执行遇到容量拒绝保留批准且不派生工作线程", { timeout: 120_000 }, async t => {
+  const f = await fixture(t);
+  fs.mkdirSync(f.directory);
+  const outsideA = path.join(f.outside, "a"); fs.writeFileSync(outsideA, "x");
+  const inside = path.join(f.workspace, "in"); fs.writeFileSync(inside, "w");
+  const fifo = path.join(f.root, "gate"), filler = path.join(f.root, "filler"), marker = path.join(f.root, "entered");
+  fs.writeFileSync(filler, "f"); execFileSync("mkfifo", [fifo]);
+  const writer = fs.openSync(fifo, fs.constants.O_RDWR);
+  const fifoNames = ["RK_FILE_IO_HOLD", "RK_FILE_IO_FIFO", "RK_FILE_IO_MARKER", "RK_FILE_IO_BUNDLE"] as const;
+  const previous = fifoNames.map(name => process.env[name]);
+  process.env.RK_FILE_IO_HOLD = filler; process.env.RK_FILE_IO_FIFO = fifo; process.env.RK_FILE_IO_MARKER = marker;
+  process.env.RK_FILE_IO_BUNDLE = new URL("../worker/personal-file-worker.mjs", import.meta.url).href;
+  const FIFO_WRAPPER = fileURLToPath(new URL("./helpers/personal-file-io-fifo-worker.mjs", import.meta.url));
+  const probes: Array<[Worker, PersonalFileJobMeta]> = [], fillers: Array<[Worker, PersonalFileJobMeta]> = [];
+  let fillerExits = 0;
+  const profile = fs.realpathSync(f.directory);
+  const inner = openPersonalFileIo({ profile, script: FIFO_WRAPPER, workerProbe: (worker, meta) => probes.push([worker, meta]) });
+  const fillerIo = openPersonalFileIo({ profile, script: FIFO_WRAPPER, workerProbe: (worker, meta) => { fillers.push([worker, meta]); worker.on("exit", () => fillerExits++); } });
+  t.after(async () => {
+    try { fs.writeSync(writer, Buffer.alloc(64)); } catch {} try { fs.closeSync(writer); } catch {}
+    await fillerIo.close().catch(() => undefined); await inner.close().catch(() => undefined);
+    fifoNames.forEach((name, index) => { const value = previous[index]; if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+  });
+  const fill = async () => {
+    await until(() => probes.length > 0 && probes.every(([worker]) => worker.threadId < 0));
+    fillers.length = 0; fillerExits = 0;
+    const jobs = Array.from({ length: 4 }, () => fillerIo.prepare({ path: filler, access: "read", protectedRoots: [] })); jobs.forEach(job => void job.catch(() => undefined));
+    await until(() => fillers.length === 4 && fillers.every(([, meta]) => fs.existsSync(`${marker}.${meta.id}`)));
+  };
+  const filled = new Set<string>();
+  const io: PersonalFileIo = {
+    prepare: (input, ctx) => inner.prepare(input, ctx),
+    execute: (request, ctx) => inner.execute(request, ctx),
+    reserve: (request, ctx) => { const target = (request as { path?: string }).path; const held = (target === outsideA || target === inside) && !filled.has(target) ? (filled.add(target), fill()) : Promise.resolve(); return held.then(() => inner.reserve(request, ctx)); },
+    close: () => inner.close(),
+  };
+  const p = await f.open({ fileIo: io });
+  await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const answer = invoked(p, invoke("write_file", { path: outsideA, content: "A写" }), "cap-a", "tools-src");
+  void answer.catch(() => undefined);
+  const pending = await first(p); assert.equal(pending.approval, "pending");
+  await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
+  const decided = await record(p, pending.operation);
+  await until(() => probes.some(([worker, meta]) => meta.phase === "revalidate" && (meta.request as { path?: string }).path === outsideA && worker.threadId < 0));
+  await until(async () => (await operations(p)).some(value => value.observation !== undefined && value.effect === "not_executed"));
+  const denied = (await operations(p)).at(-1)!;
+  assert.equal(denied.kind, "write_file"); assert.equal(denied.approval, "approved"); assert.equal(denied.decisionEntry, decided.decisionEntry);
+  assert.equal(denied.started, false); assert.equal(denied.startEntry, undefined); assert.equal(denied.directoryClaim, undefined);
+  assert.equal(denied.effect, "not_executed"); assert.equal(denied.code, "file_io_capacity_unavailable"); assert.equal(fillers.length, 4);
+  fs.writeSync(writer, Buffer.alloc(4)); await until(() => fillerExits === 4);
+  await assert.rejects(p.harness.commit(tx => toolDecide(tx, denied.operation, "approved", f.directory), context), code("tool_decision_invalid"));
+  const replayed = await p.work.delegate({ requestId: "cap-a", sourceRequestId: "tools-src", content: invoke("write_file", { path: outsideA, content: "A写" }) });
+  const aSpawned = probes.filter(([, meta]) => (meta.request as { path?: string }).path === outsideA).length;
+  await delay(100); assert.equal(fs.readFileSync(outsideA, "utf8"), "x");
+  assert.equal(probes.filter(([, meta]) => (meta.request as { path?: string }).path === outsideA).length, aSpawned);
+  assert.equal(replayed.taskId, (await answer.catch(() => ({ work: replayed }))).work.taskId);
+
+  await p.answer("独立来源", "b-src");
+  const bAnswer = invoked(p, invoke("write_file", { path: outsideA, content: "B写" }), "cap-b", "b-src");
+  void bAnswer.catch(() => undefined);
+  await until(async () => (await operations(p)).some(value => value !== denied && value.observation === undefined && value.approval === "pending"));
+  const bPending = (await operations(p)).find(value => value.observation === undefined && value.approval === "pending")!;
+  assert.notEqual(bPending.decisionEntry, denied.decisionEntry);
+  await p.harness.commit(tx => toolDecide(tx, bPending.operation, "approved", f.directory), context);
+  await until(() => fs.readFileSync(outsideA, "utf8") === "B写");
+
+  const inAnswer = invoked(p, invoke("write_file", { path: inside, content: "改" }), "cap-in", "tools-src");
+  void inAnswer.catch(() => undefined);
+  await until(async () => (await operations(p)).some(value => value.kind === "write_file" && value.observation !== undefined && value.effect === "not_executed" && value.approval === "unneeded"));
+  const inDenied = (await operations(p)).at(-1)!;
+  assert.equal(inDenied.approval, "unneeded"); assert.equal(inDenied.decisionEntry, undefined); assert.equal(inDenied.started, false);
+  assert.equal(inDenied.startEntry, undefined); assert.equal(inDenied.directoryClaim, undefined); assert.equal(inDenied.code, "file_io_capacity_unavailable");
+  fs.writeSync(writer, Buffer.alloc(4)); await until(() => fillerExits === 4);
+  await invoked(p, invoke("write_file", { path: inside, content: "改" }), "cap-in-2", "tools-src");
+  await until(() => fs.readFileSync(inside, "utf8") === "改");
+  await answer.catch(() => undefined); await bAnswer.catch(() => undefined); await inAnswer.catch(() => undefined);
 });

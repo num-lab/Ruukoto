@@ -93,7 +93,7 @@ async function settleMcp(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkR
 async function settleTools(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
   let ids: TaskId[] = [];
   await runtime.commit(async tx => { ids = (await toolOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId && toolUnresolved(value)).map(value => value.operation); return undefined; }, context);
-  await waitWorkTools(runtime, ids, context);
+  await waitWorkTools(runtime, ids, taskId, context);
 }
 
 async function settleAppData(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, taskId: TaskId, context: Context) {
@@ -603,7 +603,7 @@ export function personalWork(harness: Harness, model: ModelRef | (() => ModelRef
   };
 }
 
-export async function requirePersonalWorkRequest(tx: Tx, conversationId: ConversationId) {
+export async function requirePersonalWorkRequest(tx: Tx, conversationId: ConversationId, excludeOperation?: TaskId) {
   if (conversationId === ROOT_CONVERSATION_ID) return;
   const scheduled = await scheduledConversation(tx, conversationId);
   if (scheduled) {
@@ -613,7 +613,7 @@ export async function requirePersonalWorkRequest(tx: Tx, conversationId: Convers
     const entry = summary?.entry && await tx.entry(summary.entry);
     const expected = scheduled.run.sealed ? summary?.id : source.submission.id;
     if (live.run?.inputs.length !== 1 || live.run.inputs[0] !== expected || scheduled.run.sealed && (!entry || entry.kind !== SCHEDULE_SUMMARY_INPUT || !isDeepStrictEqual(entry.data, { runId: scheduled.run.id, admission: scheduled.run.summary?.admission }) || entry.model?.[0]?.role !== "user" || entry.model[0].content !== scheduled.run.summary?.content)) throw new PersonalError("schedule_request_invalid", "定时模型请求的执行或汇总来源不符，已停止；请查询原运行。");
-    await requirePersonalServiceSourceReady(tx, scheduled.run.requestId);
+    await requirePersonalServiceSourceReady(tx, scheduled.run.requestId, excludeOperation);
     return;
   }
   const agent = (await tx.doc(PersonalAgentsDoc)).agents.find(agent => agent.id === conversationId);
@@ -624,10 +624,10 @@ export async function requirePersonalWorkRequest(tx: Tx, conversationId: Convers
   }
   if (agent.closed || !agent.work || (await facts(tx, agent.work)).cancelRequested) throw new PersonalError("work_inactive", "子 Agent 没有可执行的活动工作，已停止模型请求；请查询工作状态。");
   const work = await facts(tx, agent.work);
-  if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation);
+  if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation, false, excludeOperation);
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，后台工作已停止模型请求；请向拥有者报告并查询原工作。");
-  if (work.source) { await personalSource(tx, work.source.requestId, { active: true }); await requirePersonalServiceSourceReady(tx, work.source.requestId); }
-  for (const note of work.notes ?? []) if (note.source.kind === "input") await requirePersonalServiceSourceReady(tx, note.source.requestId);
+  if (work.source) { await personalSource(tx, work.source.requestId, { active: true }); await requirePersonalServiceSourceReady(tx, work.source.requestId, excludeOperation); }
+  for (const note of work.notes ?? []) if (note.source.kind === "input") await requirePersonalServiceSourceReady(tx, note.source.requestId, excludeOperation);
   const task = await tx.task(agent.work.taskId);
   if (!task || task.state.status === "terminal" || task.state.status === "completing" || task.abortRequested) throw new PersonalError("work_inactive", "子 Agent 的工作已停止或无法核实，已停止模型请求；请查询原工作。");
 }
@@ -651,8 +651,8 @@ export async function personalWorkInspectionSource(tx: Tx, ref: PersonalWorkRef,
   return { sources: [...sources], work: { ref: { ...ref }, permission: { ...work.permission }, ...(work.telegram ? { telegram: { ...work.telegram } } : {}), inputs: inputs.slice() } satisfies PersonalWorkInspectionSource };
 }
 
-export async function activePersonalWorkInspection(tx: Tx, conversationId: ConversationId, inputs: SubmissionId[]) {
-  await requirePersonalWorkRequest(tx, conversationId);
+export async function activePersonalWorkInspection(tx: Tx, conversationId: ConversationId, inputs: SubmissionId[], excludeOperation?: TaskId) {
+  await requirePersonalWorkRequest(tx, conversationId, excludeOperation);
   const ref = (await tx.doc(PersonalAgentsDoc)).agents.find(agent => agent.id === conversationId)?.work;
   if (!ref) throw new PersonalError("work_inactive", "子检查没有活动工作，未执行；请查询原工作。");
   return personalWorkInspectionSource(tx, ref, inputs);

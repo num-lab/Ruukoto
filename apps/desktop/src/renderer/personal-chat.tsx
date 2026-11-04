@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ToggleGroup } from "radix-ui";
 import { ArrowUp, Loader2, Paperclip, Sparkles } from "lucide-react";
-import type { PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
-import type { PersonalState } from "./personal-state.ts";
+import type { PersonalDesktopApproval } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalPresentedMessage, PersonalState } from "./personal-state.ts";
 import { MarkdownText } from "./markdown.tsx";
 import { resizeComposerInput, submitOnEnter } from "./composer.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -10,28 +10,80 @@ import { Textarea } from "./components/ui/textarea.tsx";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "./components/ui/field.tsx";
 import { Bubble, BubbleContent } from "./components/ui/bubble.tsx";
 import { Message, MessageContent } from "./components/ui/message.tsx";
-import { Trace } from "./components/ui/trace.tsx";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemHeader, ItemTitle } from "./components/ui/item.tsx";
 import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "./components/ui/message-scroller.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 
 function Text({ children }: { children: string }) { return <div className="markdown"><MarkdownText>{children}</MarkdownText></div>; }
-function PersonalMessage({ model, message }: { model: PersonalState; message: PersonalTimelineEntry }) {
+function PersonalMessage({ model, message }: { model: PersonalState; message: PersonalPresentedMessage }) {
   const body = model.bodies.get(message.entry);
-  const content = <><Text>{body ?? message.text}</Text>{message.partial && <p role="status">已记录片段</p>}{message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(message.entry)} onClick={() => void model.body(message.entry)}>读取完整内容</Button>}</>;
+  const content = <><Text>{body ?? message.text}</Text>{message.pendingStatus && <p role="status">{message.pendingStatus === "queued" ? "等待处理" : "正在核实接纳"}</p>}{message.input?.status === "queued" && <p role="status">等待处理</p>}{message.input?.status === "unanswered" && <p role="status">未完成处理</p>}{message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(message.entry)} onClick={() => void model.body(message.entry)}>读取完整内容</Button>}</>;
   return <Message className="personal-message" align={message.role === "user" ? "end" : "start"}><MessageContent><Bubble variant="muted" align={message.role === "user" ? "end" : "start"}><BubbleContent>{content}</BubbleContent></Bubble></MessageContent></Message>;
 }
 
-type PersonalMessageGroup = { role: "user" | "assistant"; messages: PersonalTimelineEntry[] };
+type PersonalMessageGroup = { type: "messages"; role: "user" | "assistant"; messages: PersonalPresentedMessage[] };
+type PersonalRow = PersonalMessageGroup | { type: "approval"; value: PersonalDesktopApproval };
 // Note: See .agents/notes/implemented/feature/2026-11-01-desktop-personal-message-bubbles.md
-function personalMessageGroups(timeline: PersonalTimelineEntry[]): PersonalMessageGroup[] {
-  const groups: PersonalMessageGroup[] = [];
-  for (const entry of timeline) {
-    if (entry.role !== "user" && entry.role !== "assistant" || !entry.text.trim() && !entry.partial && !entry.truncated) continue;
+function personalMessageGroups(timeline: PersonalPresentedMessage[], cards: PersonalDesktopApproval[]): PersonalRow[] {
+  const groups: PersonalRow[] = [];
+  const rows = [...timeline.map(entry => ({ anchor: entry.entry, type: "message" as const, entry })), ...cards.map(value => ({ anchor: value.occurrence, type: "approval" as const, value }))].sort((a, b) => a.anchor - b.anchor);
+  for (const row of rows) {
+    if (row.type === "approval") { groups.push({ type: "approval", value: row.value }); continue; }
+    const entry = row.entry;
+    if (entry.partial || entry.role !== "user" && entry.role !== "assistant" || !entry.text.trim() && !entry.truncated) continue;
     const previous = groups.at(-1);
-    if (previous?.role === entry.role) previous.messages.push(entry);
-    else groups.push({ role: entry.role, messages: [entry] });
+    if (previous?.type === "messages" && previous.role === entry.role) previous.messages.push(entry);
+    else groups.push({ type: "messages", role: entry.role, messages: [entry] });
   }
   return groups;
+}
+
+function approvalTitle(value: PersonalDesktopApproval) { return ({ write_file: "修改文件", read_file: "读取文件", http_request: "网络请求", web_search: "搜索网络", list_files: "查看文件", search_files: "搜索文件" } as const)[value.kind]; }
+function approvalStatus(value: PersonalDesktopApproval) {
+  if (value.notice) return value.notice;
+  if (value.code === "started") return "操作已开始，结果待核实";
+  if (value.effect === "effect_unknown") return "操作结果未知，请核实原操作";
+  if (value.started) return value.effect === "returned" ? value.stopped ? "操作已返回" : "操作已返回，停止待核实" : "操作未完成";
+  if (value.approval === "rejected") return "已拒绝本次操作，未执行";
+  if (value.observed && value.effect === "not_executed") return "本次操作未执行";
+  if (value.approval === "approved") return "已批准，等待执行";
+  return value.canDecide ? "" : "请在原入口处理";
+}
+function ApprovalCard({ model, value }: { model: PersonalState; value: PersonalDesktopApproval }) {
+  const detail = model.details.get(value.operation), uncertain = model.uncertainDecisions.has(value.operation), busy = model.deciding.has(value.operation);
+  useEffect(() => { if (model.online && !model.details.has(value.operation)) void model.loadCard(value.operation); }, [model, model.online, value.operation]);
+  let content = detail?.text ?? "", parseError = false;
+  let target = value.target + (value.targetTruncated ? "…" : ""), clearsFile = false;
+  if (detail?.complete) {
+    try {
+      const original: unknown = JSON.parse(detail.text);
+      if (!original || typeof original !== "object" || !("target" in original) || typeof original.target !== "string" || !("params" in original) || !original.params || typeof original.params !== "object" || Array.isArray(original.params) || original.target.slice(0, 512) !== value.target || (original.target.length > 512) !== value.targetTruncated || detail.admission !== value.admission) parseError = true;
+      else {
+        target = original.target;
+        content = value.kind === "write_file" && "content" in original.params && typeof original.params.content === "string" ? original.params.content : JSON.stringify(original.params, null, 2);
+        clearsFile = value.kind === "write_file" && content === "";
+      }
+    }
+    catch { parseError = true; }
+  }
+  const disabled = !model.online || busy || uncertain || model.refreshingCards.has(value.operation) || !detail?.complete || parseError || !value.canDecide;
+  return <MessageScrollerItem messageId={`approval:${value.occurrence}`}><Item asChild variant="muted" size="sm"><section aria-label={approvalTitle(value)}>
+    <ItemHeader className="flex-wrap"><ItemTitle>{approvalTitle(value)}</ItemTitle>{value.canDecide && <ItemActions><Button variant="ghost" size="sm" disabled={disabled} onClick={() => void model.decideCard(value, "rejected")}>拒绝本次</Button><Button size="sm" disabled={disabled} aria-busy={busy} onClick={() => void model.decideCard(value, "approved")}>批准本次</Button></ItemActions>}</ItemHeader>
+    <ItemContent className="min-w-0 basis-full gap-2"><ItemDescription className="line-clamp-none break-all">{target}</ItemDescription>{clearsFile ? <p>文件内容将清空</p> : content && <pre tabIndex={0} className="command-code command-preview selectable-text whitespace-pre-wrap break-words">{content}</pre>}{approvalStatus(value) && <p role="status">{approvalStatus(value)}</p>}
+      {detail?.nextOffset !== undefined && <Button variant="ghost" size="sm" disabled={!model.online} onClick={() => void model.loadCard(value.operation, true)}>继续读取</Button>}
+      {(uncertain || model.refreshingCards.has(value.operation) || detail?.error || parseError) && <p role="status">{uncertain || model.refreshingCards.has(value.operation) ? "决定结果待核实" : detail?.error ?? "操作内容无法解析"}<Button variant="ghost" size="sm" disabled={!model.online || busy} onClick={() => void model.loadCard(value.operation)}>核实原决定</Button></p>}
+    </ItemContent>
+  </section></Item></MessageScrollerItem>;
+}
+function workStatus(value: PersonalState["works"][number]) {
+  return value.cancelRequested && !value.stopVerified ? "已请求取消，停止待核实" : ({ pending: "等待执行", running: "执行中", waiting: "等待处理", completing: "正在收尾", completed: "已完成", failed: "未完成", aborted: "已取消", faulted: "异常停止", orphaned: "执行归属待核实" } as Record<string, string>)[value.state] ?? "状态待核实";
+}
+function WorkItem({ model, value, grouped = false }: { model: PersonalState; value: PersonalState["works"][number]; grouped?: boolean }) {
+  return <Item variant={grouped ? "default" : "muted"} size={grouped ? "xs" : "sm"}><ItemContent><ItemTitle>{value.label}</ItemTitle><ItemDescription>{workStatus(value)}</ItemDescription>{value.progress && <p>要求：已接纳 {value.progress.accepted} 条 · 已读取 {value.progress.modelRead} 条 · 已回应 {value.progress.completed} 条</p>}</ItemContent><ItemActions><Button size="sm" variant="ghost" disabled={!model.online} onClick={() => void model.selectWork(value)}>查看状态</Button>{value.delegation === undefined && !["completed", "failed", "aborted", "faulted", "orphaned"].includes(value.state) && <Button size="sm" variant="ghost" disabled={!model.online || model.actionBusy || value.cancelRequested} onClick={() => void model.cancelWork(value)}>取消此工作</Button>}</ItemActions></Item>;
+}
+function delegationStatus(value: PersonalState["delegations"][number], hasMembers: boolean) {
+  const state = value.report?.publication !== undefined ? "结果已发布" : ({ active: "工作进行中", idle: "工作空闲", reporting: value.active > 0 ? "工作进行中" : "正在准备结果", reported: "报告处理已结束", report_failed: "结果未完成，请查看原工作", canceling: "已请求取消，正在核实停止", canceled: "已取消，停止已核实", stop_unverified: "停止待核实", paused: "操作结果待核实" } as Record<string, string>)[value.state] ?? "状态待核实";
+  return (hasMembers && ["active", "idle", "reporting"].includes(value.state) && value.active > 0 && value.report?.publication === undefined ? "" : state) + (value.report && ["failed", "effect_unknown"].includes(value.report.delivery) ? " · 送达结果待核实" : "");
 }
 
 function QuestionDialog({ model }: { model: PersonalState }) {
@@ -56,12 +108,18 @@ function Controls({ model }: { model: PersonalState }) {
   return <>
     {model.questions.filter(question => question.status === "pending").map(question => <MessageScrollerItem key={`question:${question.id}`}><Button variant="outline" disabled={!model.online} onClick={() => void model.selectQuestion(question.id)}>{question.question}</Button></MessageScrollerItem>)}
     {model.next.questions !== undefined && <Button variant="ghost" onClick={() => void model.more("questions")}>更多问题</Button>}
-    {model.approvals.filter(value => value.canDecide || value.approval === "pending" || value.decision === "pending").map(value => <MessageScrollerItem key={value.key}><Button variant="outline" disabled={!model.online} onClick={() => void model.selectApproval(value)}>{value.unit ?? value.tool ?? value.name ?? value.target ?? "操作审批"}{!value.canDecide && " · 原入口处理"}</Button></MessageScrollerItem>)}
+    {model.approvals.filter(value => (!model.projection || value.kind !== "tools") && (value.canDecide || value.approval === "pending" || value.decision === "pending")).map(value => <MessageScrollerItem key={value.key}><Button variant="outline" disabled={!model.online} onClick={() => void model.selectApproval(value)}>{value.unit ?? value.tool ?? value.name ?? value.target ?? "操作审批"}{!value.canDecide && " · 原入口处理"}</Button></MessageScrollerItem>)}
     {(["tools", "mcp", "app-data", "services"] as const).filter(kind => model.next[kind] !== undefined).map(kind => <Button key={kind} variant="ghost" onClick={() => void model.more(kind)}>更多{kind === "tools" ? "工具" : kind === "mcp" ? "MCP" : kind === "app-data" ? "应用数据" : "服务"}操作</Button>)}
-    {model.works.length > 0 && <MessageScrollerItem><Trace>{model.works.map(value => <div key={value.ref.taskId}><Button variant="ghost" disabled={!model.online} onClick={() => void model.selectWork(value)}>{value.label} · {value.cancelRequested && !value.stopVerified ? "取消待核实" : value.state}</Button>{!["completed", "failed", "canceled", "faulted", "orphaned"].includes(value.state) && <Button variant="ghost" disabled={!model.online || model.actionBusy || value.cancelRequested} onClick={() => void model.cancelWork(value)}>取消此工作</Button>}</div>)}</Trace>{model.next.works !== undefined && <Button variant="ghost" onClick={() => void model.more("works")}>更多工作</Button>}</MessageScrollerItem>}
+    {model.delegations.map(value => {
+      const members = model.works.filter(work => work.delegation === value.ref.entryId), status = delegationStatus(value, members.length > 0), canCancel = !value.cancelRequested && (value.active > 0 || value.state === "reporting");
+      return <MessageScrollerItem key={`delegation:${value.ref.entryId}`}><Item variant="muted" size="sm">{(status || canCancel) && <ItemHeader>{status && <ItemDescription>{status}</ItemDescription>}{canCancel && <ItemActions className="ml-auto"><Button size="sm" variant="ghost" disabled={!model.online || model.actionBusy} onClick={() => void model.cancelDelegation(value)}>取消整项工作</Button></ItemActions>}</ItemHeader>}<ItemContent className="basis-full">{members.length ? <ItemGroup>{members.map(work => <WorkItem key={work.ref.taskId} model={model} value={work} grouped />)}</ItemGroup> : <ItemTitle className="line-clamp-none">{value.content}</ItemTitle>}</ItemContent></Item></MessageScrollerItem>;
+    })}
+    {model.works.filter(value => value.delegation === undefined || !model.delegations.some(group => group.ref.entryId === value.delegation)).map(value => <MessageScrollerItem key={`work:${value.ref.taskId}`}><WorkItem model={model} value={value} /></MessageScrollerItem>)}
+    {(["approvals", "works", "delegations"] as const).filter(kind => model.projectionNext[kind] !== undefined).map(kind => <Button key={kind} variant="ghost" disabled={!model.online} onClick={() => void model.moreProjection(kind)}>更多{kind === "approvals" ? "决定" : "工作"}</Button>)}
+    {!model.projection && model.next.works !== undefined && <Button variant="ghost" onClick={() => void model.more("works")}>更多工作</Button>}
     <QuestionDialog model={model} />
-    <Dialog open={!!approval} onOpenChange={open => { if (!open && !model.actionBusy) { model.approval = null; model.refresh(); } }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>核实原操作</DialogTitle><DialogDescription>{approval?.value.target ?? approval?.value.unit ?? approval?.value.tool ?? approval?.value.name}</DialogDescription></DialogHeader><p>{approval?.value.status}</p><pre className="command-code command-preview selectable-text whitespace-pre-wrap">{approval?.text}</pre>{approval?.nextOffset !== undefined && <Button variant="ghost" onClick={() => void model.selectApproval(approval.value, true)}>继续读取原记录</Button>}<DialogFooter>{approval?.value.canDecide ? <><Button variant="outline" disabled={!model.online || model.actionBusy || !approval.complete} onClick={() => void model.decide("rejected")}>拒绝本次</Button><Button disabled={!model.online || model.actionBusy || !approval.complete} onClick={() => void model.decide("approved")}>批准本次</Button></> : <p>此处只读，请按原入口与实际状态处理。</p>}</DialogFooter></DialogContent></Dialog>
-    <Dialog open={!!work} onOpenChange={open => { if (!open) { model.work = null; model.refresh(); } }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>{work?.summary.label ?? "后台工作"}</DialogTitle><DialogDescription>{work?.summary.state}</DialogDescription></DialogHeader>{work?.result.notice && <p>{work.result.notice}</p>}<Text>{work?.result.text ?? work?.result.next ?? ""}</Text>{work?.result.nextOffset !== undefined && <Button variant="ghost" onClick={() => void model.selectWork(work.summary, true)}>继续读取结果</Button>}</DialogContent></Dialog>
+    <Dialog open={!!approval} onOpenChange={open => { if (!open && !model.actionBusy) { model.approval = null; model.refresh(); } }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>核实原操作</DialogTitle><DialogDescription>{approval?.value.target ?? approval?.value.unit ?? approval?.value.tool ?? approval?.value.name}</DialogDescription></DialogHeader><p>{approval?.value.status}</p><pre className="command-code command-preview selectable-text whitespace-pre-wrap">{approval?.text}</pre>{approval?.nextOffset !== undefined && <Button variant="ghost" onClick={() => void model.selectApproval(approval.value, true)}>继续读取原记录</Button>}{approval && model.uncertainApprovals.has(approval.value.key) && <p role="status">决定结果待核实<Button variant="ghost" disabled={!model.online || model.actionBusy} onClick={() => void model.selectApproval(approval.value)}>核实原决定</Button></p>}<DialogFooter>{approval?.value.canDecide ? <><Button variant="outline" disabled={!model.online || model.actionBusy || !approval.complete || model.uncertainApprovals.has(approval.value.key)} onClick={() => void model.decide("rejected")}>拒绝本次</Button><Button disabled={!model.online || model.actionBusy || !approval.complete || model.uncertainApprovals.has(approval.value.key)} onClick={() => void model.decide("approved")}>批准本次</Button></> : <p>此处只读，请按原入口与实际状态处理。</p>}</DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!work} onOpenChange={open => { if (!open) { model.work = null; model.refresh(); } }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>{work?.summary.label ?? "后台工作"}</DialogTitle><DialogDescription>{work && workStatus(work.summary)}</DialogDescription></DialogHeader>{work?.result.notice && <p>{work.result.notice}</p>}<Text>{work?.result.text ?? (work ? workStatus(work.summary) : "")}</Text>{work?.result.nextOffset !== undefined && <Button variant="ghost" onClick={() => void model.selectWork(work.summary, true)}>继续读取结果</Button>}</DialogContent></Dialog>
   </>;
 }
 
@@ -75,16 +133,17 @@ export function PersonalChat({ model, onConnect }: { model: PersonalState; onCon
     return () => window.removeEventListener("resize", resize);
   }, []);
   if (!model.identity) return <div className="empty-state"><div className="empty-symbol"><Sparkles /></div><h1>连接你的个人 Agent</h1><p>{model.status.error?.message ?? model.status.detail ?? "在设置中输入个人 Agent 地址并配对。"}</p><Button onClick={onConnect}>PA 远程连接</Button></div>;
-  const groups = personalMessageGroups(model.timeline);
+  const groups = personalMessageGroups(model.timeline, [...model.cards.values()]);
   return <><MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className="conversation"><MessageScrollerViewport className="stream-scroll selectable-text" preserveScrollOnPrepend aria-label="个人会话消息" onScroll={event => { if (event.currentTarget.scrollTop < 40) void model.older(); }}><MessageScrollerContent className="agent-stream native-message-stream selectable-text">
     {model.historyMore && <MessageScrollerItem><Button variant="ghost" disabled={!model.online || model.loadingHistory} onClick={() => void model.older()}>加载更早消息</Button></MessageScrollerItem>}
     {groups.map(group => {
+      if (group.type === "approval") return <ApprovalCard key={`approval:${group.value.occurrence}`} model={model} value={group.value} />;
       const first = group.messages[0], date = new Date(first.timestamp);
-      return <MessageScrollerItem key={first.entry} messageId={String(first.entry)}><div className={`personal-message-group ${group.role}`}><time className="personal-message-time" dateTime={date.toISOString()}>{date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>{group.messages.map(message => <PersonalMessage key={message.entry} model={model} message={message} />)}</div></MessageScrollerItem>;
+      return <MessageScrollerItem key={first.requestKey ?? first.entry} messageId={first.requestKey ?? String(first.entry)}><div className={`personal-message-group ${group.role}`}><time className="personal-message-time" dateTime={date.toISOString()}>{date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>{group.messages.map(message => <PersonalMessage key={message.requestKey ?? message.entry} model={model} message={message} />)}</div></MessageScrollerItem>;
     })}
     <Controls model={model} />
   </MessageScrollerContent></MessageScrollerViewport></MessageScroller></MessageScrollerProvider>
-  <div className="composer-wrap"><div className="composer-width">{!model.online && <div className="task-notice" role="status">{model.status.error?.message ?? model.status.detail ?? (model.identity.online ? "正在重新同步消息…" : "后台离线或正在维护。")}<Button variant="ghost" onClick={onConnect}>连接设置</Button></div>}{model.draftMismatch && <div className="task-notice" role="status">草稿属于原连接，已停止向新档案发送。<Button variant="ghost" onClick={() => model.discardDraft()}>放弃原草稿</Button></div>}{model.pending && <div className="task-notice" role="status">原输入{model.pendingResult?.kind === "missing" ? "尚未查到接纳记录" : "结果待核实"}。<Button variant="ghost" disabled={!model.online || model.checking} onClick={() => void model.reconcile()}>核实原输入</Button>{model.pendingResult?.kind === "missing" && <Button variant="outline" disabled={!model.online || model.checking} onClick={() => void model.reconcile(true)}>继续提交原输入</Button>}</div>}
+  <div className="composer-wrap"><div className="composer-width">{model.presence && <div role="status" className="task-notice">{model.presence}</div>}{model.message && <div role="status" className="task-notice">{model.message}</div>}{!model.online && <div className="task-notice" role="status">{model.status.error?.message ?? model.status.detail ?? (model.identity.online ? "正在重新同步消息…" : "后台离线或正在维护。")}<Button variant="ghost" onClick={onConnect}>连接设置</Button></div>}{model.draftMismatch && <div className="task-notice" role="status">草稿属于原连接，已停止向新档案发送。<Button variant="ghost" onClick={() => model.discardDraft()}>放弃原草稿</Button></div>}{model.pending && <div className="task-notice" role="status">原输入{model.pendingResult?.kind === "missing" ? "尚未查到接纳记录" : "结果待核实"}。<Button variant="ghost" disabled={!model.online || model.checking} onClick={() => void model.reconcile()}>核实原输入</Button>{model.pendingResult?.kind === "missing" && <Button variant="outline" disabled={!model.online || model.checking} onClick={() => void model.reconcile(true)}>继续提交原输入</Button>}</div>}
     <form className="surface-composer composer personal-composer" onSubmit={event => { event.preventDefault(); void model.send(); }}><Textarea ref={input} aria-label="输入个人消息" rows={1} value={model.draft} readOnly={model.sending || model.draftMismatch} placeholder="描述你想做的事…" onChange={event => model.edit(event.target.value)} onKeyDown={event => submitOnEnter(event, model.canSend, () => void model.send())} /><div className="composer-actions"><div className="composer-left"><Button type="button" size="icon" variant="ghost" className="attachment-button" aria-label="添加附件" aria-description="PA 暂不支持附件" title="PA 暂不支持附件" disabled><Paperclip /></Button></div><div className="composer-right"><Button size="icon" className="send-button" type="submit" disabled={!model.canSend} aria-label="发送个人消息" aria-busy={model.sending}>{model.sending ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button></div></div></form>
   </div></div></>;
 }

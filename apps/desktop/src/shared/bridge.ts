@@ -7,7 +7,7 @@ import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome, OwnerQuestionAnswerOutcome } from "@ruukoto/control/submission.ts";
-import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt } from "./personal-desktop.ts";
+import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt, PersonalPendingDecision } from "./personal-desktop.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
 
@@ -34,6 +34,7 @@ export type DesktopUpdate =
   | { type: "personal_frame"; frame: PersonalDesktopFrame }
   | { type: "personal_identity"; identity: PersonalRemoteIdentity }
   | { type: "personal_pending"; record: PersonalPendingInput | null; result?: PersonalInputReceipt }
+  | { type: "personal_decisions"; items: PersonalPendingDecision[] }
   | { type: "navigate"; instanceId: string; navigation: DesktopNavigation }
   | { type: "state"; state: ConnectionState; detail?: string; error?: DesktopFailure; recovery?: string[] }
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }

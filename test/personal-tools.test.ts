@@ -190,7 +190,8 @@ test("durable 通用工具：主子会话沿目录权限读写，二进制产物
     chunks.push(Buffer.from(page.base64, "base64")); offset = page.nextOffset;
   }
   assert.deepEqual(Buffer.concat(chunks), bytes); assert.equal((await record(p, read.operation)).approval, "unneeded");
-  assert.equal(JSON.parse((await invoked(p, invoke("write_file", { path: target, content: "主会话修改" }), "main-write", "tools-src")).text).effect, "returned");
+  const written = JSON.parse((await invoked(p, invoke("write_file", { path: target, content: "主会话修改" }), "main-write", "tools-src")).text) as { effect: string; next: string };
+  assert.equal(written.effect, "returned"); assert.equal(written.next, "已按本次完整内容写入并同步目标文件，写入成功。请报告本次写入结果。");
   assert.equal(fs.readFileSync(target, "utf8"), "主会话修改");
   await p.answer("拥有者交给子工作读写", "owner-source");
   const childRead = await p.work.delegate({ requestId: "child-read", sourceRequestId: "owner-source", content: invoke("read_file", { path: target }) });
@@ -397,7 +398,9 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
     const work = await p.work.delegate({ requestId: `snapshot-${access}`, sourceRequestId: `mode-${access}`, content: "子快照", agentId: beforeWork.agentId });
     await p.harness.waitForTask(work.taskId, context);
     const childCall = f.model.calls.findLast(child)!;
-    // 等待业务工具已移交子会话：主请求不再提供，子请求保留完整清单。
+    // Waiting business tools belong to the child; main preserves owner instructions in delegation.
+    const delegation = mainCall.tools?.find(tool => (tool.function as { name: string }).name === "background_work")?.function as { parameters: { properties: { content: { description: string } } } } | undefined;
+    assert.match(delegation!.parameters.properties.content.description, /原样保留.*字面正文.*末尾换行.*不得.*添加换行.*不得增加读取/);
     for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) {
       assert.ok(JSON.stringify(childCall.tools).includes(JSON.stringify(name)));
       assert.ok(!JSON.stringify(mainCall.tools).includes(JSON.stringify(name)));

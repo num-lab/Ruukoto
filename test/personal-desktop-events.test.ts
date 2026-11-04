@@ -7,7 +7,7 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, Harness, MemoryStorage, ROOT_CONVERSATION_ID, createRegistry, type EntryId, type SnapshotEvent } from "@earendil-works/pi-durable";
+import { AgentDoc, Harness, MemoryStorage, ROOT_CONVERSATION_ID, createRegistry, defineDocFamily, type EntryId, type SnapshotEvent, type SubmissionId } from "@earendil-works/pi-durable";
 import { WebSocket } from "ws";
 import { personalProvider, recordedModels } from "../apps/ruukoto/src/personal-model.ts";
 import { personalTimeline, readPersonalHistory } from "../apps/ruukoto/src/personal-history.ts";
@@ -17,6 +17,12 @@ import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { personalControl, readPersonalToken, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
+import { personalLocalInput } from "../apps/ruukoto/src/personal-local-records.ts";
+import { personalMainAdmit } from "../apps/ruukoto/src/personal-coordination.ts";
+import { PersonalOwnerInput, personalOwnerInputByRequest } from "../apps/ruukoto/src/personal-owner-input.ts";
+import { personalDesktopState } from "../apps/ruukoto/src/personal-desktop-state.ts";
+import { PersonalToolDoc, PersonalToolsDoc } from "../apps/ruukoto/src/personal-tools.ts";
+import type { TaskId } from "@earendil-works/pi-durable";
 
 const context = BACKGROUND_CONTEXT;
 function deferred() {
@@ -84,6 +90,76 @@ test("桌面历史：超过16条及总帧预算的历史分页完整，后续提
   assert.equal(original, `0:${text}`);
   await assert.rejects(f.harness.commit(tx => personalTimeline(tx, { cursor: first.nextCursor!, through: first.through + 1 }), context), error => error instanceof PersonalError && error.code === "timeline_cursor_invalid");
   await assert.rejects(f.harness.commit(tx => personalTimeline(tx, { cursor: "bad-json" }), context), error => error instanceof PersonalError && error.code === "timeline_cursor_invalid");
+});
+
+test("Native accepted inputs retain distinct bodies and anchors through queued withdrawal, paging and replay", async t => {
+  const f = await socketFixture(t), client = f.connect(), frames = messages(client);
+  await once(client, "open"); await until(() => frames.length > 0);
+  const submissions = [];
+  for (let index = 0; index < 40; index++) {
+    const requestId = `same-text-${index}`;
+    await f.harness.commit(tx => personalLocalInput(tx, requestId, "Identical owner text"), context);
+    submissions.push(await personalMainAdmit(f.harness, { type: "input", requestId, content: "Identical owner text", whenBusy: "followUp" }, () => true, () => 100 + index, context));
+  }
+  const visible = () => frames.flatMap(frame => frame.type === "snapshot" ? frame.timeline.items : frame.events.flatMap(event => event.type === "entry_appended" || event.type === "message_end" ? [event.entry] : []));
+  await until(() => new Set(visible().flatMap(entry => entry.input ? [entry.input.requestId] : [])).size === 40);
+  const before = visible().find(entry => entry.input?.requestId === "same-text-0")!;
+  await personalMainAdmit(f.harness, { type: "input", requestId: "same-text-0", content: "Identical owner text", whenBusy: "followUp" }, () => true, () => 9999, context);
+  await submissions[0].abort(context);
+  await until(() => visible().some(entry => entry.entry === before.entry && entry.input?.status === "unanswered"));
+  let page = await f.harness.commit(tx => personalTimeline(tx, {}), context);
+  const all = [...page.items];
+  while (page.nextCursor) { page = await f.harness.commit(tx => personalTimeline(tx, { cursor: page.nextCursor }), context); all.push(...page.items); }
+  assert.equal(all.length, 40); assert.equal(all.find(entry => entry.input?.requestId === "same-text-0")?.timestamp, 100);
+  assert.equal(all.find(entry => entry.input?.requestId === "same-text-0")?.input?.status, "unanswered");
+  assert.ok(all.every(entry => entry.role === "user" && entry.text === "Identical owner text"));
+  const replay = f.connect(), reopened = messages(replay); await once(replay, "open"); await until(() => reopened.length > 0);
+  assert.equal(reopened[0].type, "snapshot"); assert.ok(reopened[0].type === "snapshot" && reopened[0].timeline.nextCursor);
+  assert.ok(frames.every((frame, index) => frame.seq === index));
+  const entries = await f.harness.commit(tx => tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256), context);
+  assert.equal(entries.items.filter(PersonalOwnerInput.is).length, 40);
+  assert.ok(entries.items.filter(PersonalOwnerInput.is).every(entry => entry.model === undefined));
+});
+
+test("Desktop canonical state pages large URLs and delivers old-card updates within frame budgets", async t => {
+  const f = await socketFixture(t), client = f.connect(), frames = messages(client);
+  await once(client, "open"); await until(() => frames.length > 0);
+  const target = new URL(`http://127.0.0.1/${"中".repeat(4000)}`).href;
+  await f.harness.commit(async tx => {
+    const index = await tx.doc(PersonalToolsDoc);
+    for (let id = 1; id <= 20; id++) {
+      const operation = id as TaskId, admission = (100 + id) as EntryId;
+      index.operations.push(operation);
+      (await tx.doc(PersonalToolDoc, String(id), null)).operation = { operation, admission, origin: { conversationId: ROOT_CONVERSATION_ID, generation: 1 as TaskId, inputs: [], sources: [], source: { entryId: admission, requestId: "original", submissionId: 1 as SubmissionId }, permission: { mode: "confirm", version: 1 } }, kind: "http_request", params: { url: target }, prepared: { kind: "http", request: { url: target, method: "GET", headers: {}, pinnedAddress: "127.0.0.1", pinnedFamily: 4 } }, grantVersion: 1, approval: "pending", started: false, stopped: true, effect: "not_executed", code: "approval_pending" };
+    }
+  }, context);
+  await until(() => frames.some(frame => frame.type === "events" && frame.events.some(event => event.type === "personal_state" && event.state.approvals.total === 20)));
+  const pages = [];
+  for (let offset = 0; offset < 20; offset += 8) pages.push(await f.events.state({ approvals: offset }));
+  assert.equal(pages.flatMap(page => page.approvals.items).length, 20);
+  assert.ok(pages.every(page => Buffer.byteLength(JSON.stringify(page)) < 32 * 1024 && page.approvals.items.every(card => card.targetTruncated && card.target.length === 512)));
+  await f.harness.commit(async tx => {
+    const value = (await tx.doc(PersonalToolDoc, "1", null)).operation!;
+    value.approval = "approved"; value.code = "tool_requirements_changed"; value.observation = 201 as EntryId; value.superseded = { version: 1, entry: 200 as EntryId, note: 199 as EntryId, reason: "requirements_changed" };
+  }, context);
+  await until(() => frames.some(frame => frame.type === "events" && frame.events.some(event => event.type === "personal_state" && event.state.approvalUpdates?.some(card => card.operation === 1 && !card.canDecide && card.notice))));
+  const detail = await f.events.operation(1 as TaskId);
+  let text = detail.text, offset = detail.nextOffset;
+  while (offset !== undefined) { const next = await f.events.operation(1 as TaskId, offset); assert.equal(next.admission, detail.admission); text += next.text; offset = next.nextOffset; }
+  assert.deepEqual(JSON.parse(text), { target, params: { url: target } });
+  assert.ok(frames.every((frame, index) => frame.seq === index && Buffer.byteLength(JSON.stringify(frame)) <= PERSONAL_DESKTOP_FRAME_LIMIT));
+});
+
+test("A corrupted owner request index cannot transplant another valid owner display", async t => {
+  const f = await fixture(t);
+  for (const requestId of ["one", "two"]) {
+    await f.harness.commit(tx => personalLocalInput(tx, requestId, `Body ${requestId}`), context);
+    await personalMainAdmit(f.harness, { type: "input", requestId, content: `Body ${requestId}`, whenBusy: "followUp" }, () => true, () => 100, context);
+  }
+  const other = await f.harness.commit(tx => personalOwnerInputByRequest(tx, "two"), context);
+  const Index = defineDocFamily<{ display?: EntryId; historyEntry?: EntryId }, null>({ kind: "ruukoto.owner-input-display", scope: "session", version: 1, family: true, initial: () => ({}) });
+  await f.harness.commit(async tx => { (await tx.doc(Index, "one", null)).display = other!.entry as EntryId; }, context);
+  await assert.rejects(f.harness.commit(tx => personalOwnerInputByRequest(tx, "one"), context), error => error instanceof PersonalError && error.code === "input_display_invalid");
 });
 
 test("桌面投影：原子快照和订阅边界并发提交只出现一次，消息不带系统提示", async t => {

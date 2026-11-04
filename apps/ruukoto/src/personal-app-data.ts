@@ -124,12 +124,15 @@ export async function appDataDecide(tx: Tx, directory: string, id: TaskId, decis
 }
 export async function appDataList(tx: Tx, offset = 0, actor?: PersonalEntryIdentity) {
   const values = (await appDataOperations(tx)).reverse().filter(value => !actor || samePersonalEntry(value.origin.telegram, actor));
-  const items = await Promise.all(values.slice(offset, offset + 8).map(async value => ({ operation: value.operation, name: value.name, table: value.params.table, decision: value.decision, effect: value.result?.effect ?? (value.started ? "effect_unknown" : "not_committed"), code: value.result?.code ?? "awaiting_approval", canDecide: value.decision === "pending" && !value.started && !value.result && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canRecheck: appDataUnresolved(value) && (await tx.task(value.operation))?.state.status === "terminal" })));
+  const items = await Promise.all(values.slice(offset, offset + 8).map(value => appDataSummary(tx, value, actor)));
   return { items, ...(offset + 8 < values.length ? { nextOffset: offset + 8 } : {}) };
+}
+async function appDataSummary(tx: Tx, value: Operation, actor?: PersonalEntryIdentity) {
+  return { operation: value.operation, name: value.name, table: value.params.table, decision: value.decision, effect: value.result?.effect ?? (value.started ? "effect_unknown" : "not_committed"), code: value.result?.code ?? "awaiting_approval", canDecide: value.decision === "pending" && !value.started && !value.result && (!value.origin.telegram || !!actor && samePersonalEntry(value.origin.telegram, actor)), canRecheck: appDataUnresolved(value) && (await tx.task(value.operation))?.state.status === "terminal" };
 }
 export async function appDataDetail(tx: Tx, id: TaskId, offset = 0) {
   const value = await appDataOperation(tx, id), text = JSON.stringify({ tool: value.name, parameters: value.params, versions: value.versions, decision: value.decision, consumed: !!value.started, result: value.result, permission: value.origin.permission }, null, 2);
-  return { text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) };
+  return { summary: await appDataSummary(tx, value), text: text.slice(offset, offset + 3072), ...(offset + 3072 < text.length ? { nextOffset: offset + 3072 } : {}) };
 }
 
 export async function initializeAppData(tx: Tx) {
@@ -153,7 +156,7 @@ async function reconcileAppData(tx: Tx, directory: string, id: TaskId) {
   await observe(tx, id, result);
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-app-data.md
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-app-data.md
 export function personalAppData(directory: string, getHarness: () => Harness) {
   const runner = new AppDataQueryRunner();
   async function reconcile(id: TaskId) { await getHarness().commit(tx => reconcileAppData(tx, directory, id), context); }
@@ -223,7 +226,7 @@ export function personalAppData(directory: string, getHarness: () => Harness) {
             else store.deleteRows(input);
           } catch (error) {
             const code = error instanceof AppDataError || error instanceof PersonalError ? error.code : "app_data_write_failed";
-            // 已开始操作只从原回执分类，写失败不作为重发依据。
+            // Classify started operations from their original receipt; a failed write never permits replay.
             await reconcile(api.taskId);
             await harness.commit(async tx => { const value = await appDataOperation(tx, api.taskId); if (value.result?.effect === "not_committed") await observe(tx, api.taskId, { ...value.result, code }); }, context);
           } finally { store?.close(); }

@@ -10,7 +10,7 @@ The Node `DesktopHost` owns backend credentials. An allowlisted preload/IPC brid
 
 | Host | Role |
 | --- | --- |
-| Electron + Chromium | Windows, notifications, Dock badge and OS-protected credential storage |
+| Electron + Chromium | Windows, Coding notifications and Dock badge, OS-protected credential storage |
 | Experimental MyGo, Go + WKWebView | Native web rendering with stdio to the same Node host; also supports the Coding native browser panel |
 
 MyGo has one native browser WebView per main conversation. Go's `browser.Manager` owns lifecycle, placement, navigation generations and input gating. Private stdio frames carry Go→Node `browser_event` facts and control→Go `kind:"request"`/`kind:"response"` commands. Node uploads screenshots/snapshots through `desktop_browser_chunk` in ≤256 KiB pieces; the backend assembles by `command_id` and SHA256. The control connection fixes task provenance. Electron does not provide this channel.
@@ -20,7 +20,8 @@ MyGo has one native browser WebView per main conversation. Go's `browser.Manager
 | Spotlight, `⌘K` / search icon | Search this instance's workspace conversation titles and message bodies; highlight and navigate |
 | Workspace sidebar | Add directories, select conversations, access mode and model |
 | Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces; the server-selected latest recallable owner message offers recall and restores text/attachments to this client's draft |
-| PA conversation | Opens without adding a tab; complete user/Agent messages use role-aligned bubbles, consecutive same-role messages share one timestamp, and streaming fragments and execution traces stay hidden |
+| PA conversation | Request-keyed owner bubbles remain visible from acceptance; completed Agent messages use the same house bubbles, with one timestamp per role group and inline ordinary-operation decisions |
+| PA work and decisions | Commit events update child progress, exact one-shot approval, superseded cards, whole-assignment cancellation and validated publication; partial prose, traces and OS notifications stay hidden |
 | PA composer | Starts at one line and grows to at most one third of window height; no mode selector; the attachment button is disabled while PA file upload remains unavailable |
 | Scheduled | Lists Active/Archived plans as cards with title, Instructions summary, repeat rule and next-trigger progress; details separate overview and run records; create/edit uses one centered four-step column with separate model and Effort selectors, and successful saves return to details without a success notice |
 | Composer | Grows to at most one third of window height; steering targets the running task's next boundary; post-interrupt input is an ordinary new task |
@@ -48,6 +49,8 @@ Coding state binds to local `controlDir` and `ViewState`; drafts stay client-sid
 
 Question cards stay at their original `ask_user` operation, including repeated batches in one task. Answers return receipts for that task; closing a card window does not cancel it. The activity indicator shows pending-answer waiting. Interruption persists an owner pause; resume confirms retained stopping separately when required. Personal state binds to the remote HTTPS origin and WSS protocol, with pairing credentials protected by OS storage.
 
+Personal owner display commits with native input admission and associates one request/submission with eventual history. Identical text under different requests remains separate. The sending client retains complete text under either receipt/event ordering; paired clients read the same canonical body and queued state. Reconnect inspects cached inputs and decisions outside the newest page. Completed-only Assistant rendering excludes internal report inputs and unpublished drafts.
+
 Settings drafts and original MCP calls are separate reads. Personal ordinary tools have owner-selected disallowed/read/write/unknown-effect states; new allowed tools and migrated ordinary tools default to unknown. The explicit v4 migration preserves service and credential references plus history; original computer recovery remains available.
 
 | Managed object | Behavior |
@@ -72,6 +75,14 @@ sequenceDiagram
 ```
 
 Startup discovers the local Coding backend and starts it on demand when absent. Conversation switching loads history in bounded segments. Approval cards expose operation details before approve/reject.
+
+### PA File Work
+
+Main delegates a file assignment and stays available for queries, amended requirements and whole-assignment cancellation. Child decisions arrive through the existing authenticated event stream, including before main finishes its prose. Every redisplay retains the same decision. Amendments leave the old card visible with its original approval and a changed-requirements/not-executed reason; the same SubAgent prepares the current exact operation.
+
+Before approval, the desktop reads all immutable parameter pages and the full prepared target. A lost action response keeps the card locked and inspects the original operation. The host persists that association before dispatch, so application restart does not enable reapproval. Work progress separates accepted, actually model-read and answered instructions; stopping, publication and delivery retain their own states. The composer stays usable during waits. Final-file preview/download belongs to the later output milestone.
+
+One delegation item groups its visible member labels, progress and inspection actions with whole-assignment cancellation. It uses the original request as a fallback when members are outside the loaded page, and independently paged members still appear when their delegation is outside that page. Presence shows main processing, pending decisions or active work before report preparation; a report waiting for active members does not claim to be preparing the result. Cancellation with unverified stopping remains visible even without loaded members.
 
 ### PA Configuration Saves
 
@@ -108,6 +119,7 @@ There is no separate public begin-recovery action. Old recovery-started records 
 - Closing/crashing the desktop does not cancel backend Coding work or question waits; reopening recovers progress. Backend restart instead interrupts the task and makes unanswered questions stale.
 - Manual MCP finalization preserves original uncertainty and is distinct from computer-stop verification/image acceptance.
 - Lost write responses are resolved from original records, not automatic resubmission. Incomplete or failed fresh-image display cannot authorize recovery.
+- Personal decisions share canonical operation identity across cards and paired devices. Pending response-loss records block connection switching and survive restart; late results cannot clear another profile's record.
 
 ## Design Rationale
 
@@ -115,6 +127,7 @@ There is no separate public begin-recovery action. Old recovery-started records 
 - [Shared history recovery](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [Desktop message actions](../../.agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md)
 - [Desktop Personal message bubbles](../../.agents/notes/implemented/feature/2026-11-01-desktop-personal-message-bubbles.md)
+- [Personal desktop file loop](../../.agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md)
 - [Desktop Scheduled interface](../../.agents/notes/implemented/feature/2026-11-01-desktop-scheduled-interface.md)
 - [Desktop spotlight search](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 - [Personal tailscale https](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)

@@ -1,4 +1,4 @@
-import { ROOT_CONVERSATION_ID, watchEvents, type AgentEvent, type AgentEventStream, type Harness, type MessageChange, type SnapshotEvent, type ToolEventCall, type ToolSlot, type NestedToolSlot, type EntryRecord, type EntryId, type SubmissionId, type Tx } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, watchEvents, type AgentEvent, type AgentEventStream, type CommitPublication, type Harness, type MessageChange, type SnapshotEvent, type ToolEventCall, type ToolSlot, type NestedToolSlot, type EntryRecord, type EntryId, type SubmissionId, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -7,12 +7,15 @@ import { WebSocket, WebSocketServer } from "ws";
 import { personalDesktopMessage, personalDesktopTimelineEntry, personalTimeline, personalTimelineEntry } from "./personal-history.ts";
 import { personalReportInput, personalReportTaskDraft } from "./personal-report.ts";
 import { personalUnparkMode } from "./personal-coordination.ts";
+import { personalDesktopOperation, personalDesktopState } from "./personal-desktop-state.ts";
+import { personalOwnerInputByRequest, personalOwnerSubmissionMessage } from "./personal-owner-input.ts";
 import type { PersonalDesktopBlock, PersonalDesktopChange, PersonalDesktopEvent, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopMessage, PersonalDesktopTool } from "@ruukoto/view/personal-protocol.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PERSONAL_DESKTOP_FRAME_LIMIT = 256 * 1024;
 export const PERSONAL_DESKTOP_BUFFER_LIMIT = 1024 * 1024;
 const TEXT_LIMIT = 4096;
+const STATE_KINDS = new Set(["ruukoto.tool-operation", "ruukoto.tools", "ruukoto.work", "ruukoto.analysis-delegation", "ruukoto.subagents"]);
 
 function block(value: Extract<MessageChange, { block: unknown }>["block"]): PersonalDesktopBlock {
   if (value.type === "toolCall") { const args = JSON.stringify(value.arguments); return { type: value.type, id: value.id, name: value.name, arguments: args.slice(0, 1024), truncated: args.length > 1024 }; }
@@ -143,6 +146,12 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
   const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024, perMessageDeflate: false });
   const streams = new Set<AgentEventStream>();
   const pending = new Set<Promise<void>>();
+  const listeners = new Set<(publication: CommitPublication) => void>();
+  let revision = 0;
+  const unsubscribe = harness.subscribeCommits(publication => {
+    revision = publication.seq;
+    for (const listener of listeners) listener(publication);
+  });
   let closing = false;
   const reject = (socket: Duplex, status: number) => socket.end(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
   async function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
@@ -151,11 +160,27 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
     if (req.method !== "GET" || req.url !== "/events" || req.headers.origin !== undefined || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) { reject(socket, 401); return; }
     let stream: AgentEventStream | undefined;
     let attached = false;
+    let changed = false;
+    const operations = new Set<number>(), submissions = new Set<number>();
+    let wake = () => {};
+    const committed = (publication: CommitPublication) => {
+      for (const change of publication.changes) {
+        if (change.type === "submission") { if (change.value.conversationId === ROOT_CONVERSATION_ID) submissions.add(change.value.id); changed = true; }
+        if (change.type === "document" && STATE_KINDS.has(change.record.kind)) {
+          changed = true;
+          if (change.record.kind === "ruukoto.tool-operation" && change.record.key) operations.add(Number(change.record.key));
+        }
+        if (change.type === "task" && change.value.kind === "ruukoto.background-work") changed = true;
+        if (change.type === "entry" && change.value.kind === "ruukoto.model-request" && change.value.conversationId !== ROOT_CONVERSATION_ID) changed = true;
+      }
+      if (changed) wake();
+    };
+    listeners.add(committed);
     try {
       stream = await watchEvents(harness, ROOT_CONVERSATION_ID, context);
       streams.add(stream);
       const through = stream.snapshot.entries.reduce((value, entry) => Math.max(value, entry.id), 0);
-      const { timeline, reportDraft } = await harness.commit(async tx => ({ timeline: await personalTimeline(tx, { through }), reportDraft: await reportInputs(tx, stream!.snapshot.run?.inputs ?? []) }), context);
+      const { timeline, reportDraft, state } = await harness.commit(async tx => ({ timeline: await personalTimeline(tx, { through }), reportDraft: await reportInputs(tx, stream!.snapshot.run?.inputs ?? []), state: await personalDesktopState(tx, revision) }), context);
       if (closing || socket.destroyed) return;
       const watch = stream;
       wss.handleUpgrade(req, socket, head, ws => {
@@ -167,6 +192,7 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
         const finish = () => {
           if (ended) return;
           ended = true;
+          listeners.delete(committed);
           clearInterval(heartbeat); clearTimeout(lifetime); clearTimeout(pongTimeout);
           void watch.stop().then(() => streams.delete(watch));
         };
@@ -175,6 +201,31 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
           const data = JSON.stringify(frame);
           if (!personalDesktopCanSend(Buffer.byteLength(data), ws.bufferedAmount)) { finish(); ws.close(1013, "resync_required"); return; }
           ws.send(data, error => { if (error) { finish(); ws.terminate(); } });
+        };
+        let tail = Promise.resolve(), queued = 0, refreshing = false;
+        const enqueue = (operation: () => Promise<void>) => {
+          if (ended) return Promise.resolve();
+          if (++queued > 64) { finish(); ws.close(1013, "resync_required"); return Promise.resolve(); }
+          const next = tail.then(async () => { if (!ended) await operation(); }).catch(() => { finish(); ws.close(1013, "resync_required"); }).finally(() => { queued--; });
+          tail = next; return next;
+        };
+        wake = () => {
+          if (ended || refreshing) return;
+          refreshing = true;
+          queueMicrotask(() => { void enqueue(async () => {
+            const changedOperations = new Set([...operations].slice(0, 8)), changedSubmissions = [...submissions].slice(0, 4);
+            for (const id of changedOperations) operations.delete(id);
+            for (const id of changedSubmissions) submissions.delete(id);
+            changed = operations.size > 0 || submissions.size > 0;
+            const events = await harness.commit(async tx => {
+              const events: PersonalDesktopEvent[] = [{ type: "personal_state", state: await personalDesktopState(tx, revision, {}, changedOperations) }];
+              for (const id of changedSubmissions) { const entry = await personalOwnerSubmissionMessage(tx, id); if (entry) events.push({ type: "entry_appended", entry }); }
+              return events;
+            }, context);
+            send({ v: 1, runId, subscription, seq: ++seq, type: "events", events });
+            refreshing = false;
+            if (changed) wake();
+          }); });
         };
         const heartbeat = setInterval(() => {
           if (ended || ws.readyState !== WebSocket.OPEN) return;
@@ -187,13 +238,19 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
         ws.on("close", finish);
         ws.on("error", () => { finish(); ws.terminate(); });
         ws.on("message", () => { finish(); ws.close(1008, "read_only"); });
-        send({ v: 1, runId, subscription, seq, type: "snapshot", timeline, live: personalDesktopLive(watch.snapshot, reportDraft) });
+        const snapshot: Extract<PersonalDesktopFrame, { type: "snapshot" }> = { v: 1, runId, subscription, seq, type: "snapshot", timeline, live: personalDesktopLive(watch.snapshot, reportDraft), state };
+        // Live traces are hidden in Personal; omit them before displacing durable messages or decisions.
+        if (Buffer.byteLength(JSON.stringify(snapshot)) > PERSONAL_DESKTOP_FRAME_LIMIT) { delete snapshot.live.generation; snapshot.live.tools = []; }
+        send(snapshot);
+        if (changed) wake();
         watch.start(async events => {
           if (events.some(event => event.type === "snapshot")) { finish(); ws.close(1013, "resync_required"); return; }
-          const next = await harness.commit(tx => projectEvents(tx, events.filter((event): event is Exclude<AgentEvent, SnapshotEvent> => event.type !== "snapshot"), inputs), context);
-          const projected = next.projected;
-          inputs = next.inputs;
-          if (projected.length) send({ v: 1, runId, subscription, seq: ++seq, type: "events", events: projected });
+          await enqueue(async () => {
+            const next = await harness.commit(tx => projectEvents(tx, events.filter((event): event is Exclude<AgentEvent, SnapshotEvent> => event.type !== "snapshot"), inputs), context);
+            const projected = next.projected;
+            inputs = next.inputs;
+            if (projected.length) send({ v: 1, runId, subscription, seq: ++seq, type: "events", events: projected });
+          });
         });
         void watch.closed.then(end => { finish(); if (ws.readyState === WebSocket.OPEN) ws.close(end.reason === "listener_error" ? 1013 : 1012, end.reason === "listener_error" ? "resync_required" : "backend_stopped"); });
       });
@@ -201,6 +258,7 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
       process.stderr.write("[ruukoto:personal] 会话观察流未能建立，请重新连接；已接纳工作继续运行。\n");
       if (!socket.destroyed) reject(socket, 503);
     } finally {
+      if (!attached) listeners.delete(committed);
       if (stream && !attached) { await stream.stop(); streams.delete(stream); }
     }
   }
@@ -209,8 +267,9 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
     pending.add(operation);
     void operation.finally(() => pending.delete(operation));
   });
-  return { async close() {
+  return { state: (offsets: Parameters<typeof personalDesktopState>[2] = {}) => harness.commit(tx => personalDesktopState(tx, revision, offsets), context), operation: (id: TaskId, offset = 0) => harness.commit(tx => personalDesktopOperation(tx, revision, id, offset), context), input: (requestId: string) => harness.commit(async tx => ({ v: 1, revision, entry: await personalOwnerInputByRequest(tx, requestId) }), context), async close() {
     closing = true;
+    unsubscribe();
     for (const ws of wss.clients) ws.terminate();
     await Promise.all([...streams].map(stream => stream.stop()));
     await Promise.allSettled([...pending]);

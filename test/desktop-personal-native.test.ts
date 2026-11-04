@@ -3,7 +3,7 @@ import { test, before, after } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer, type ViteDevServer } from "vite";
-import type { PersonalDesktopFrame } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopApproval, PersonalDesktopFrame, PersonalDesktopState } from "@ruukoto/view/personal-protocol.ts";
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { PersonalState } from "../apps/desktop/src/renderer/personal-state.ts";
 import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-connection-state.ts";
@@ -11,7 +11,7 @@ import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
 
 const ok = (value: unknown): DesktopResult<unknown> => ({ ok: true, value });
 const identity = { v: 1, product: "ruukoto", remoteId: "remote", origin: "https://pa.example", profile: { id: "profile", directory: "/private/pa" }, online: true, runId: "run" } as const;
-function snapshot(seq = 0): PersonalDesktopFrame { return { v: 1, runId: "run", subscription: "subscription", seq, type: "snapshot", timeline: { through: 1, items: [{ entry: 1, conversation: 0, kind: "pi.user", role: "user", text: "原输入", partial: false, truncated: false, timestamp: 1 }], nextCursor: "older" }, live: { tools: [], toolCount: 0, inbox: [], inboxCount: 0 } }; }
+function snapshot(seq = 0): Extract<PersonalDesktopFrame, { type: "snapshot" }> { return { v: 1, runId: "run", subscription: "subscription", seq, type: "snapshot", timeline: { through: 1, items: [{ entry: 1, conversation: 0, kind: "pi.user", role: "user", text: "原输入", partial: false, truncated: false, timestamp: 1 }], nextCursor: "older" }, live: { tools: [], toolCount: 0, inbox: [], inboxCount: 0 } }; }
 function fixture(request: DesktopBridge["request"] = async (_target, op, params) => op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null)) {
   const calls: { op: string; params: Record<string, unknown> }[] = [];
   const state = new PersonalState({ request: async (target, op, params) => { calls.push({ op, params }); return request(target, op, params); } }, () => {});
@@ -19,6 +19,8 @@ function fixture(request: DesktopBridge["request"] = async (_target, op, params)
   return { state, calls };
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
+function card(operation = 12): PersonalDesktopApproval { return { operation, occurrence: operation + 100, admission: operation + 100, kind: "write_file", target: "/outside/result.txt", targetTruncated: false, observed: false, approval: "pending", started: false, stopped: true, effect: "not_executed", code: "approval_pending", canDecide: true }; }
+function projection(revision: number, cards: PersonalDesktopApproval[] = []): PersonalDesktopState { return { v: 1, revision, approvals: { items: cards, total: cards.length }, works: { items: [], total: 0 }, delegations: { items: [], total: 0 } }; }
 let server: ViteDevServer, Chat: ComponentType<{ model: PersonalState; onConnect: () => void }>;
 before(async () => { server = await createServer({ configFile: false, root: "apps/desktop/src/renderer", server: { middlewareMode: true, hmr: false }, esbuild: { jsx: "automatic" } }); ({ PersonalChat: Chat } = await server.ssrLoadModule("/personal-chat.tsx")); });
 after(async () => { await server?.close(); });
@@ -130,4 +132,183 @@ test("PA视图：完整消息按角色气泡分组，流式片段与trace不显�
   const settings = new SettingsState(() => {}); settings.show("personal", "pa-models"); let invalidated = false;
   settings.form = { dirty: true, phase: "ready", async save() { return true; }, discard() {}, invalidate() { invalidated = true; } };
   settings.observe("personal", { type: "personal_identity", identity } satisfies DesktopUpdate); assert.equal(invalidated, true); assert.equal(settings.form.dirty, true);
+});
+
+test("Native cards arrive in the timeline before prose and retain superseded exact content", async t => {
+  const value = card(), text = JSON.stringify({ target: value.target, params: { path: value.target, content: "EXACT OLD CONTENT" } });
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/desktop/operation")) return ok({ v: 1, operation: value.operation, admission: value.admission, revision: 1, summary: value, offset: 0, text });
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(1, [value]) }] });
+  await f.state.loadCard(value.operation);
+  let markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  assert.match(markup, /EXACT OLD CONTENT/); assert.match(markup, /批准本次/); assert.doesNotMatch(markup, /核实原操作/);
+  const terminal = { ...value, approval: "approved" as const, observed: true, canDecide: false, code: "tool_requirements_changed", notice: "要求已更新，这项旧操作没有执行。" };
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 2, type: "events", events: [{ type: "personal_state", state: projection(2, [terminal]) }, { type: "entry_appended", entry: { entry: 200, conversation: 0, kind: "pi.assistant", role: "assistant", text: "Later completed prose", timestamp: 2, partial: false, truncated: false } }] });
+  markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  assert.ok(markup.indexOf("EXACT OLD CONTENT") < markup.indexOf("Later completed prose"));
+  assert.match(markup, /要求已更新，这项旧操作没有执行/); assert.doesNotMatch(markup, /批准本次|拒绝本次/);
+  assert.equal(f.state.cards.get(value.occurrence)?.approval, "approved");
+  f.state.edit("Amend or query while external work waits"); assert.equal(f.state.canSend, true);
+});
+
+test("Presence distinguishes main processing, decisions, work and reporting with independently paged members", async t => {
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  const value = card(), work = { ref: { taskId: 20, agentId: 2, requestId: "assignment" }, label: "File work", content: "Original owner request", state: "running", cancelRequested: false, stopVerified: false, closed: false, delegation: 7, progress: { accepted: 2, modelRead: 2, completed: 0, accounted: 0 } };
+  const group = { ref: { entryId: 7 }, content: work.content, state: "reporting", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false };
+  f.state.works = [work]; f.state.delegations = [group]; f.state.cards.set(value.occurrence, value);
+  assert.equal(f.state.presence, "等待你的决定");
+  f.state.live.run = { inputs: [1], total: 1 }; assert.equal(f.state.presence, "正在处理");
+  f.state.live.inboxCount = 1; assert.equal(f.state.presence, "消息已接纳，等待处理");
+  f.state.live.inboxCount = 0; delete f.state.live.run; f.state.cards.clear(); assert.equal(f.state.presence, "工作进行中");
+  f.state.works = []; assert.equal(f.state.presence, "工作进行中");
+  group.active = 0; assert.equal(f.state.presence, "正在准备结果");
+  group.cancelRequested = true; group.unverified = 1; group.state = "stop_unverified"; assert.equal(f.state.presence, "已请求取消，正在核实停止");
+  group.unverified = 0; group.state = "canceled"; assert.equal(f.state.presence, null);
+});
+
+test("Delegation layout shows each member once and retains off-page work and whole-assignment cancellation", async t => {
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  const work = { ref: { taskId: 20, agentId: 2, requestId: "assignment" }, label: "Visible member", content: "Repeated owner content", state: "running", cancelRequested: false, stopVerified: false, closed: false, delegation: 7, progress: { accepted: 2, modelRead: 1, completed: 0, accounted: 0 } };
+  f.state.works = [work, { ...work, ref: { ...work.ref, taskId: 21 }, delegation: 9, label: "Off-page group member" }, { ...work, ref: { ...work.ref, taskId: 22 }, delegation: undefined, label: "Standalone work" }];
+  f.state.delegations = [{ ref: { entryId: 7 }, content: work.content, state: "reporting", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false }, { ref: { entryId: 8 }, content: "Assignment without loaded members", state: "active", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false }];
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  for (const label of ["Visible member", "Off-page group member", "Standalone work", "Assignment without loaded members"]) assert.equal(markup.split(label).length - 1, 1);
+  assert.doesNotMatch(markup, /Repeated owner content|正在准备结果/);
+  assert.equal(markup.split("取消整项工作").length - 1, 2); assert.equal(markup.split("取消此工作").length - 1, 1);
+  assert.equal(markup.split("查看状态").length - 1, 3); assert.equal(markup.split("已接纳").length - 1, 3);
+});
+
+test("Cancellation rejection remains visible while another pending card is inspected", async t => {
+  const value = card(), group = { ref: { entryId: 7 }, content: "Original assignment", state: "reporting", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false }; let rejected = true;
+  const f = fixture(async (_target, op, params) => {
+    if (params.path === "/delegation/cancel?delegation=7") return rejected ? { ok: false, error: { code: "remote_request_invalid", outcome: "rejected", message: "Cancellation was not accepted" } } : ok({ cancelRequested: true });
+    if (params.path === "/desktop/state") return ok({ ...projection(2, [value]), delegations: { items: [group], total: 1 } });
+    if (String(params.path).startsWith("/desktop/operation")) return ok({ v: 1, operation: value.operation, admission: value.admission, revision: 2, summary: value, offset: 0, text: JSON.stringify({ target: value.target, params: { path: value.target, content: "Exact" } }) });
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: { ...projection(1, [value]), delegations: { items: [group], total: 1 } } });
+  await f.state.cancelDelegation(group); await f.state.loadCard(value.operation);
+  assert.equal(f.state.message, "Cancellation was not accepted"); assert.equal(f.state.delegations[0].cancelRequested, false);
+  rejected = false; await f.state.cancelDelegation(group); assert.equal(f.state.message, null);
+});
+
+test("A lost native decision inspects its canonical operation and stays locked through failed reads and reconnect", async t => {
+  const value = card(); let summary = value, lost = false, inspectionFails = false, posts = 0;
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/desktop/operation")) return inspectionFails ? { ok: false, error: { code: "read_lost", outcome: "not_sent", message: "Inspection failed" } } : ok({ v: 1, operation: value.operation, admission: value.admission, revision: 4, summary, offset: 0, text: JSON.stringify({ target: value.target, params: { path: value.target, content: "One write" } }) });
+    if (params.path === "/tools/decide") { posts++; lost = true; inspectionFails = true; return { ok: false, error: { code: "response_lost", outcome: "unknown", message: "Decision response lost" } }; }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); await f.state.loadCard(value.operation);
+  await f.state.decideCard(value, "approved"); assert.equal(lost, true); assert.equal(posts, 1);
+  assert.equal(f.state.uncertainDecisions.has(value.operation), true); assert.ok(f.state.cards.has(value.occurrence));
+  f.state.frame({ ...snapshot(), state: projection(4, [value]) }); await f.state.decideCard(value, "approved"); assert.equal(posts, 1);
+  inspectionFails = false; summary = { ...value, approval: "approved", canDecide: false };
+  await f.state.loadCard(value.operation); assert.equal(f.state.uncertainDecisions.has(value.operation), false);
+  assert.equal(f.state.cards.get(value.occurrence)?.approval, "approved"); await f.state.decideCard(value, "approved"); assert.equal(posts, 1);
+});
+
+test("Immutable detail pages survive newer canonical states and an untouched old card is inspected on reconnect", async t => {
+  const value = card(), text = JSON.stringify({ target: value.target, params: { path: value.target, content: "Long current content" } }); let release!: (value: DesktopResult<unknown>) => void, hold = true;
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/desktop/operation")) {
+      if (hold) return new Promise(resolve => { release = resolve; });
+      return ok({ v: 1, operation: value.operation, admission: value.admission, revision: 10, summary: value, offset: 0, text });
+    }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); const reading = f.state.loadCard(value.operation);
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(2, [{ ...value, approval: "approved", canDecide: false }]) }] });
+  release(ok({ v: 1, operation: value.operation, admission: value.admission, revision: 1, summary: value, offset: 0, text })); await reading;
+  assert.equal(f.state.details.get(value.operation)?.complete, true); assert.equal(f.state.cards.get(value.occurrence)?.canDecide, false);
+  hold = false; f.state.frame({ ...snapshot(), state: projection(10, []) }); await settle();
+  assert.equal(f.state.refreshingCards.has(value.operation), false); assert.equal(f.state.uncertainDecisions.has(value.operation), false); assert.equal(f.state.cards.get(value.occurrence)?.canDecide, true);
+});
+
+test("A same-run reconnect replaces a held detail read without letting the old request erase the new load", async t => {
+  const value = card(), text = JSON.stringify({ target: value.target, params: { path: value.target, content: "Current" } });
+  const reads: ((value: DesktopResult<unknown>) => void)[] = [];
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/desktop/operation")) return new Promise(resolve => { reads.push(resolve); });
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); const old = f.state.loadCard(value.operation);
+  f.state.update({ type: "state", state: "reconnecting" }); f.state.update({ type: "personal_identity", identity }); f.state.update({ type: "state", state: "online" });
+  f.state.frame({ ...snapshot(), state: projection(2, [value]) }); const current = f.state.loadCard(value.operation);
+  assert.equal(reads.length, 2);
+  reads[0](ok({ v: 1, operation: value.operation, admission: value.admission, revision: 1, summary: value, offset: 0, text })); await old;
+  const joined = f.state.loadCard(value.operation); assert.equal(reads.length, 2);
+  reads[1](ok({ v: 1, operation: value.operation, admission: value.admission, revision: 2, summary: value, offset: 0, text })); await current;
+  await joined;
+  assert.equal(f.state.details.get(value.operation)?.complete, true);
+});
+
+test("An accepted receipt preserves the complete owner bubble under both RPC and stream ordering", async t => {
+  for (const streamFirst of [false, true]) {
+    let receipt!: (value: DesktopResult<unknown>) => void;
+    const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? new Promise(resolve => { receipt = resolve; }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
+    t.after(() => f.state.dispose()); await settle(); const text = "Owner text 🙂 ".repeat(550);
+    f.state.edit(text); const sending = f.state.send();
+    const entry = { entry: 10, conversation: 0, kind: "ruukoto.owner-input-display", role: "user" as const, text: text.slice(0, 4096), partial: false, truncated: true, timestamp: 1, input: { requestId: "original", submission: 11, status: "queued" as const } };
+    if (streamFirst) f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry }] });
+    receipt(ok({ kind: "accepted", requestId: "original", status: "queued" })); await sending;
+    assert.equal(f.state.draft, ""); assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1);
+    if (!streamFirst) { assert.equal(f.state.timeline.find(entry => entry.requestKey === "original")?.text, text); f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry }] }); }
+    assert.equal(f.state.bodies.get(10), text); assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1);
+  }
+});
+
+test("A pending owner message stays before later child cards and late legacy work queries cannot replace grouped state", async t => {
+  let release!: (value: DesktopResult<unknown>) => void;
+  const f = fixture(async (_target, op, params) => String(params.path).startsWith("/works") ? new Promise(resolve => { release = resolve; }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
+  t.after(() => f.state.dispose()); await settle();
+  f.state.update({ type: "personal_pending", record: { v: 1, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "owner", input: "New requirement" } });
+  const anchor = f.state.timeline.find(entry => entry.requestKey === "owner")!.entry, value = card(3);
+  const work = { ref: { taskId: 20, agentId: 2, requestId: "assignment" }, label: "Current work", content: "One assignment", state: "running", cancelRequested: false, stopVerified: false, closed: false, delegation: 7, progress: { accepted: 2, modelRead: 1, completed: 0, accounted: 0 } };
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: { ...projection(1, [value]), works: { items: [work], total: 1 } } }] });
+  assert.equal(f.state.timeline.find(entry => entry.requestKey === "owner")?.entry, anchor); assert.ok(anchor < value.occurrence);
+  const { delegation: _delegation, progress: _progress, ...legacy } = work;
+  release(ok({ items: [legacy] })); await settle();
+  assert.equal(f.state.works[0].delegation, 7); assert.deepEqual(f.state.works[0].progress, work.progress);
+});
+
+test("Write cards display the full resolved target and clearly identify an empty replacement", async t => {
+  const target = `/outside/${"segment/".repeat(70)}EXACT-TAIL.txt`, value = { ...card(), target: target.slice(0, 512), targetTruncated: true };
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) });
+  f.state.details.set(value.operation, { admission: value.admission, text: JSON.stringify({ target, params: { path: "/short-alias/result", content: "" } }), complete: true });
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  assert.match(markup, /EXACT-TAIL\.txt/); assert.match(markup, /文件内容将清空/); assert.match(markup, /批准本次/);
+});
+
+test("Restored host decisions lock cards and legacy modal decisions inspect canonical state after reply loss", async t => {
+  let summary = { operation: 12, canDecide: true, decision: "pending" }, posts = 0;
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/mcp/operation")) return ok({ summary, text: "Original exact MCP request" });
+    if (String(params.path).startsWith("/mcp/decide")) { posts++; return { ok: false, error: { code: "response_lost", outcome: "unknown", message: "Decision response lost" } }; }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  const value = card(); f.state.update({ type: "personal_decisions", items: [{ kind: "tools", operation: 12, decision: "approved" }] });
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); assert.equal(f.state.uncertainDecisions.has(12), true);
+  const modal = { kind: "mcp" as const, key: "mcp:12", ...summary };
+  await f.state.selectApproval(modal); await f.state.decide("approved");
+  assert.equal(posts, 1); assert.equal(f.state.approval?.value.key, modal.key); assert.equal(f.state.uncertainApprovals.has(modal.key), true);
+  await f.state.decide("approved"); assert.equal(posts, 1);
+  summary = { operation: 12, canDecide: false, decision: "approved" }; await f.state.selectApproval(modal);
+  assert.equal(f.state.approval?.value.canDecide, false); assert.equal(f.state.uncertainApprovals.has(modal.key), false);
+});
+
+test("Identical queued owner messages keep distinct request keys and full local bodies through history association", async t => {
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  const text = "Same full owner body".repeat(500), owner = (id: number, key: string, status: "queued" | "done", historyEntry?: number) => ({ entry: id, conversation: 0, kind: "ruukoto.owner-input-display", role: "user" as const, text: text.slice(0, 4096), partial: false, truncated: true, timestamp: 100, input: { requestId: key, submission: id + 1, status, historyEntry } });
+  f.state.update({ type: "personal_pending", record: { v: 1, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "one", input: text } });
+  assert.equal(f.state.timeline.at(-1)?.requestKey, "one");
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry: owner(20, "one", "queued") }, { type: "entry_appended", entry: owner(30, "two", "queued") }] });
+  assert.equal(f.state.timeline.filter(value => value.requestKey === "one").length, 1); assert.equal(f.state.bodies.get(20), text);
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 2, type: "events", events: [{ type: "entry_appended", entry: { ...owner(40, "one", "done"), kind: "pi.user", input: undefined, text } }, { type: "entry_appended", entry: owner(20, "one", "done", 40) }] });
+  assert.equal(f.state.timeline.filter(value => value.role === "user").length, 3);
+  assert.deepEqual(f.state.timeline.filter(value => value.input).map(value => value.requestKey), ["one", "two"]);
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.ok(markup.includes(text));
 });

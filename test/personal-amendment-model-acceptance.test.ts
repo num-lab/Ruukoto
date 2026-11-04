@@ -150,6 +150,7 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
     assert.equal(auditRequests.length, PERSONAL_MAIN_TOOL_ROUNDS + 1);
     const finalRequest = auditRequests.at(-1)!, input = finalRequest.input as { messages: { role: string }[] };
     assert.deepEqual(getCurrentTools(input.messages), []);
+    assert.match(getCurrentSystemPrompt(input.messages), /回答进展、重显示请求和汇总结果时.*简洁自然语言.*明确索取技术证据/);
     const finalPayload = auditEvidence.find(value => value.requestId === finalRequest.requestId && value.payload !== undefined)?.payload as { tools?: unknown[] } | undefined;
     assert.ok(finalPayload); assert.deepEqual(finalPayload.tools ?? [], []);
     assert.deepEqual(JSON.parse(audit.trim().replace(/^```(?:json)?\s*|\s*```$/g, "")), { path: replacement, content: currentContent, started: true, effect: "returned" });
@@ -192,6 +193,7 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
     await p.harness.waitForTask(mixedReport.taskId, context);
     assert.ok(!(await operations()).some(value => value.origin.work?.ref.taskId === mixedWork.taskId));
     assert.equal((await operations()).filter(value => value.kind === "write_file" && value.started).length, 1);
+    assert.deepEqual((await operations()).map(value => value.kind), ["write_file", "write_file"]);
     const evidence = await requestEvidence();
     assert.ok(evidence.every(value => !JSON.stringify(value).includes(credential)));
     const firstOwner = evidence.find(value => value.references?.conversationId === ROOT_CONVERSATION_ID)!;

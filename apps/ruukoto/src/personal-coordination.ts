@@ -1,7 +1,7 @@
 /** Bounded main-input coordination: four persisted tool-call batches per owner input, host-driven cutoff,
  *  main admission whose queue-or-place decision shares one commit with the cancellation barrier, and
  *  serialized queue progression that places stranded queued items itself.
- *  Note: 见 .agents/notes/implemented/architecture/2026-11-03-personal-coordination-cutoff.md
+ *  Note: See .agents/notes/implemented/architecture/2026-11-03-personal-coordination-cutoff.md
  */
 import { AssistantEntry, CompactionEntry, ConversationBusy, defineDocFamily, GenerationTask, InboxDoc, LiveDoc, ROOT_CONVERSATION_ID, UserEntry, type ConversationId, type Cursor, type EntryDraft, type EntryId, type EntryRecord, type Harness, type InboxItem, type InboxState, type InputEntry, type InputSubmissionDraft, type Storage, type Submission, type SubmissionId, type SubmissionRecord, type TaskId, type Tx, type UserInput } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
@@ -10,6 +10,7 @@ import type { JsonValue } from "@earendil-works/chord";
 import { PersonalAnalysisAdmission } from "./personal-delegation.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalWorkDoc, PersonalWorkNoteAdmission, requestPersonalWorkCancel, type PersonalWorkRef } from "./personal-work.ts";
+import { associatePersonalOwnerInput, recordPersonalOwnerInput } from "./personal-owner-input.ts";
 
 export const PERSONAL_MAIN_TOOL_ROUNDS = 4;
 export const PERSONAL_COORDINATION_ENTRY = "ruukoto.coordination-cutoff";
@@ -175,6 +176,7 @@ async function placeMainBoundary(tx: Tx, inbox: Draft<InboxState>, head: EntryId
     if (item.mode === "write") continue;
     const entry = await appendMainInput(tx, item.content, item.entry, now);
     tx.placeSubmission(item.id, entry.id);
+    await associatePersonalOwnerInput(tx, item.id, entry.id);
     placed.push(item.id);
   }
   for (const index of [...writes, ...users].sort((a, b) => b - a)) items.splice(index, 1);
@@ -213,10 +215,12 @@ async function admitMainInput(tx: Tx, draft: InputSubmissionDraft, held: () => b
   if (!held() && !busy && inbox.items.length === 0) {
     const entry = await appendMainInput(tx, draft.content, inputEntry, now);
     const record = await tx.createSubmission({ conversationId: ROOT_CONVERSATION_ID, ...requestId, type: "input", status: "placed", entry: entry.id });
+    await recordPersonalOwnerInput(tx, draft, record, now);
     live.run = { taskId: await tx.createTask(GenerationTask, {}, { ownership: { kind: "conversation" }, conversationId: ROOT_CONVERSATION_ID }), inputs: [record.id] };
     return record;
   }
   const record = await tx.createSubmission({ conversationId: ROOT_CONVERSATION_ID, ...requestId, type: "input", status: "queued" });
+  await recordPersonalOwnerInput(tx, draft, record, now);
   const parked = draft.whenBusy === "steer" ? PERSONAL_PARKED_STEER : PERSONAL_PARKED_FOLLOWUP;
   // InboxItem.mode is closed over the three modes upstream boundaries select; a parked mode is
   // host JSON those selectors can never match, so this SDK boundary is where the cast belongs.

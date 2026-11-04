@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import type { ServerResponse } from "node:http";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { DesktopError } from "../apps/desktop/src/main/environment.ts";
 import { PersonalController } from "../apps/desktop/src/main/personal-controller.ts";
@@ -97,6 +98,71 @@ test("输入接纳前断流：自动恢复不重发，显式恢复沿原键原�
   await assert.rejects(controller.restoreInput(), code("personal_input_not_restorable"));
 });
 
+test("Lost native decisions persist before dispatch, survive application restart and never post twice", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair(pairCode, "fixture");
+  const operation = 12, admission = 112; let posts = 0, approved = false;
+  const summary = () => ({ operation, admission, occurrence: admission, kind: "write_file", target: "/outside/result.txt", targetTruncated: false, observed: false, approval: approved ? "approved" : "pending", started: false, stopped: true, effect: "not_executed", code: approved ? "ready" : "awaiting_approval", canDecide: !approved });
+  f.overrides.set("/tools/decide", (request, _response, value) => {
+    posts++;
+    assert.deepEqual(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).decisions, [{ kind: "tools", operation, decision: "approved" }]);
+    assert.deepEqual(value, { operation, decision: "approved" }); request.socket.destroy();
+  });
+  f.overrides.set("/desktop/operation", (_request, response) => { f.respond(response, { v: 1, operation, admission, revision: approved ? 2 : 1, summary: summary(), offset: 0, text: JSON.stringify({ target: "/outside/result.txt", params: { path: "/outside/result.txt", content: "Once" } }) }); });
+  await assert.rejects(controller.business("POST", "/tools/decide", { operation, decision: "approved" }), error => code("personal_connection_lost")(error) && error instanceof ControlClientError && error.outcome === "unknown");
+  await controller.close(); const reopened = f.create(); await reopened.reconnect();
+  assert.ok(f.updates.some(update => update.type === "personal_decisions" && update.items.some(item => item.operation === operation)));
+  await reopened.business("GET", `/desktop/operation?operation=${operation}&offset=0`);
+  await assert.rejects(reopened.business("POST", "/tools/decide", { operation, decision: "approved" }), code("personal_decision_pending"));
+  f.overrides.set("/tools/operation", (_request, response) => { f.respond(response, { summary: { operation, canDecide: false }, text: "Invalid incomplete state" }); });
+  await assert.rejects(reopened.business("GET", `/tools/operation?operation=${operation}`), code("personal_protocol"));
+  assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, reopened.config), "utf8")).decisions.length, 1);
+  await assert.rejects(reopened.assertSwitchable(), code("personal_pending")); assert.equal(posts, 1);
+  approved = true; await reopened.business("GET", `/desktop/operation?operation=${operation}&offset=0`);
+  assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, reopened.config), "utf8")).decisions, undefined);
+  assert.equal(posts, 1);
+  const releaseSwitch = await reopened.assertSwitchable();
+  await assert.rejects(reopened.business("POST", "/tools/decide", { operation: 13, decision: "approved" }), code("personal_pending"));
+  assert.equal(posts, 1); releaseSwitch();
+});
+
+test("Desktop projection HTTP rejects wrong request bindings and malformed operation/state records", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair(pairCode, "fixture");
+  f.overrides.set("/desktop/input", (_request, response) => { f.respond(response, { v: 1, revision: 1, entry: { entry: 10, conversation: 0, kind: "ruukoto.owner-input-display", role: "user", text: "Other input", partial: false, truncated: false, timestamp: 1, input: { requestId: "another", submission: 11, status: "queued" } } }); });
+  await assert.rejects(controller.business("GET", "/desktop/input?requestId=original"), code("personal_protocol"));
+  f.overrides.set("/desktop/state", (_request, response) => { f.respond(response, { v: 1, revision: 1, approvals: { items: [], total: 0 }, works: { items: [{}], total: 1 }, delegations: { items: [], total: 0 } }); });
+  await assert.rejects(controller.business("GET", "/desktop/state"), code("personal_protocol"));
+  f.overrides.set("/desktop/operation", (_request, response) => { f.respond(response, { v: 1, revision: 1, operation: 12, admission: 112, summary: { operation: 13 }, offset: 0, text: "{}" }); });
+  await assert.rejects(controller.business("GET", "/desktop/operation?operation=12&offset=0"), code("personal_protocol"));
+});
+
+test("A late rejected decision cannot clear another profile's same-number decision or stop its connection", async t => {
+  for (const staleCode of ["remote_request_invalid", "remote_credential_revoked"]) {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair(pairCode, "original");
+  const responses: ServerResponse[] = [];
+  f.overrides.set("/tools/decide", (_request, response) => { responses.push(response); });
+  f.overrides.set("/tools/operation", (_request, response) => { f.respond(response, { summary: { operation: 12, kind: "write_file", target: "/outside/old.txt", approval: "approved", effect: "not_executed", code: "ready", stopped: true, canDecide: false }, text: "Original" }); });
+  const original = controller.business("POST", "/tools/decide", { operation: 12, decision: "approved" });
+  const originalRejected = assert.rejects(original, error => error instanceof ControlClientError && error.code === "personal_identity_changed" && error.outcome === "unknown");
+  await waitFor(() => responses.length === 1); await controller.business("GET", "/tools/operation?operation=12");
+  f.state.handshakeProfile = `sha256:${"b".repeat(64)}`; await controller.pair(pairCode, "new-profile");
+  const current = controller.business("POST", "/tools/decide", { operation: 12, decision: "rejected" });
+  const currentRejected = assert.rejects(current, error => error instanceof ControlClientError && error.code === "remote_request_invalid" && error.outcome === "rejected");
+  await waitFor(() => responses.length === 2); f.reject(responses[0], staleCode, staleCode === "remote_request_invalid" ? 400 : 401); await originalRejected;
+  assert.equal(controller.status.state, "online");
+  assert.deepEqual(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).decisions, [{ kind: "tools", operation: 12, decision: "rejected" }]);
+  f.reject(responses[1], "remote_request_invalid", 400); await currentRejected;
+  assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).decisions, undefined);
+  }
+});
+
+test("A TLS failure before dispatch does not strand an unsent decision marker", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair(pairCode, "fixture");
+  const before = f.state.requestPaths.length; f.agent.options.ca = [];
+  await assert.rejects(controller.business("POST", "/tools/decide", { operation: 12, decision: "approved" }), error => error instanceof ControlClientError && error.code === "personal_tls" && error.outcome === "not_sent");
+  assert.equal(f.state.requestPaths.length, before);
+  assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).decisions, undefined);
+});
+
 test("协议与TLS：错产品、改档案、重定向和不受信证书均停止连接", async t => {
   for (const mode of ["product", "profile", "tls", "redirect"] as const) {
     const f = await desktopRemoteFixture(t), original = f.create(); await original.pair(pairCode, "Electron"); await original.close();
@@ -157,7 +223,7 @@ test("Host目标隔离：PA旧control操作与附件被拒绝，Code无安全存
 });
 
 
-test("PA原生通知：历史静默、完成去重、业务补查刷新审批角标，档案切换清空", () => {
+test("PA conversation and decisions stay in the desktop without OS notifications", () => {
   const notices: DesktopNotice[] = []; let badge = 0;
   const notifications = new DesktopNotifications(() => false, value => notices.push(value), count => { badge = count; }, async () => { throw new Error("PA不查询旧任务"); });
   const remoteId = randomUUID(), profile = { id: `sha256:${"a".repeat(64)}`, directory: "/profile" }, runId = randomUUID(), subscription = randomUUID();
@@ -165,9 +231,7 @@ test("PA原生通知：历史静默、完成去重、业务补查刷新审批角
   const entry = { entry: 1, conversation: 0, kind: "pi.assistant", role: "assistant" as const, text: "历史回答", partial: false, truncated: false, timestamp: 1 };
   notifications.update("personal", { type: "personal_frame", frame: { v: 1, type: "snapshot", runId, subscription, seq: 0, timeline: { through: 1, items: [entry] }, live: { tools: [], toolCount: 0, inbox: [], inboxCount: 0 } } });
   notifications.update("personal", { type: "personal_frame", frame: { v: 1, type: "events", runId, subscription, seq: 1, events: [{ type: "message_end", entry }, { type: "message_end", entry: { ...entry, entry: 2 } }, { type: "entry_appended", entry: { ...entry, entry: 2 } }] } });
-  assert.equal(notices.length, 1); assert.equal(notices[0].instanceId, remoteId);
-  notifications.personalPending(remoteId, "/questions", { items: [{ id: "1", status: "pending" }] }); assert.equal(badge, 1); assert.equal(notices.length, 1);
-  notifications.personalPending(remoteId, "/questions", { items: [{ id: "1", status: "pending" }, { id: "2", status: "pending" }] }); assert.equal(badge, 2); assert.equal(notices.length, 2);
+  assert.equal(notices.length, 0); assert.equal(badge, 0);
   notifications.update("personal", { type: "personal_identity", identity: { v: 1, product: "ruukoto", remoteId, origin: "https://pa.example", profile: { ...profile, id: `sha256:${"b".repeat(64)}` }, online: true, runId } });
   assert.equal(badge, 0);
 });

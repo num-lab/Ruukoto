@@ -27,8 +27,8 @@ export interface DesktopPlatform {
   credentials?: PersonalCredentialStorage;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md
 export class DesktopHost {
   private controller: CodeController | null = null;
   private initialization: Promise<void> | null = null;
@@ -43,7 +43,7 @@ export class DesktopHost {
   private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
   private readonly navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
   private readonly attachmentConnections = new WeakMap<object, string>();
-  /** 新对话草稿暂存的附件：token → 本机路径，建好会话后再上传。 */
+  /** Draft attachment tokens hold local paths until the conversation exists. */
   private draftAttachments = new Map<string, string>();
   private readonly notificationState: DesktopNotifications;
   private readonly browserDocuments: BrowserDocuments;
@@ -86,7 +86,7 @@ export class DesktopHost {
   }
   private warmEnvironment(): NonNullable<DesktopHost["environment"]> {
     this.environment ??= this.prepareEnvironment(this.environmentAbort.signal);
-    // 预热失败留给首次连接消费并报告；这里仅防止订阅前的未处理拒绝。
+    // First connection consumes and reports a failed warmup; suppress only an unhandled rejection.
     void this.environment.catch(() => {});
     return this.environment;
   }
@@ -162,7 +162,7 @@ export class DesktopHost {
   }
   request(target: unknown, op: unknown, params: unknown) {
     if (target === "personal" && op !== "desktop_browser_open" && op !== "desktop_browser_release") return this.personalRequest(op, params);
-    // 本机文档能力属于宿主，不依赖 Code/Personal 的连接或后台文件权限。
+    // Local document access belongs to the host, independently of backend file permissions.
     if (op === "desktop_browser_open" || op === "desktop_browser_release") return ipcResult(async () => {
       if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
       if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 1) throw new DesktopError("invalid_params", "本地预览参数无效，请重新打开文档。");
@@ -232,7 +232,6 @@ export class DesktopHost {
       else if (op === "desktop_personal_request") {
         if (Object.keys(input).some(key => !["method", "path", "body"].includes(key)) || !("method" in input) || !("path" in input)) throw new DesktopError("invalid_params", "个人请求参数无效。");
         result = await controller.business(input.method, input.path, input.body);
-        if (input.method === "GET" && typeof input.path === "string") this.notificationState.personalPending(controller.instanceId()!, input.path, result);
       } else if (["desktop_personal_settings_read", "desktop_personal_settings_request", "desktop_personal_settings_apply", "desktop_personal_settings_operation", "desktop_personal_settings_restore", "desktop_personal_settings_finish"].includes(op)) {
         expect(op === "desktop_personal_settings_apply" ? ["request", "id"] : op === "desktop_personal_settings_request" ? ["request"] : op === "desktop_personal_settings_operation" ? ["id"] : []);
         this.personalSettings ??= new PersonalSettingsController(controller, this.userData);
@@ -246,7 +245,7 @@ export class DesktopHost {
   resetTerminals(): void {
     ++this.terminalGeneration;
     this.terminalReset = this.terminalReset.then(() => this.terminals.reset());
-    // 保留失败给后续打开消费；诊断由 TerminalManager 报告。
+    // TerminalManager reports failures; a later open consumes the retained rejection.
     void this.terminalReset.catch(() => {});
   }
   private async terminalRequest(op: string, params: Record<string, unknown>) {
@@ -298,7 +297,7 @@ export class DesktopHost {
       },
     });
   }
-  /** 会话尚未创建时先登记所选文件；返回的 id 是仅本次应用有效的暂存 token。 */
+  /** Register selected files before conversation creation; returned tokens last for this application run. */
   pickDraftAttachments(pick: () => Promise<string[]>) {
     return pick().then(files => {
       const staged = stageAttachments(files);
@@ -320,7 +319,7 @@ export class DesktopHost {
     ++this.personalGeneration;
     this.controller?.close();
     this.environmentAbort.abort();
-    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* 退出取消的读取不再用于连接，连接期间的失败由消费方报告。 */ })]).then(() => {});
+    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* Aborted reads are unused after exit; connection consumers report earlier failures. */ })]).then(() => {});
     return this.closing;
   }
 }

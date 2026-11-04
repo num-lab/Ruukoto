@@ -39,7 +39,7 @@ export function personalWorkTools(getHarness: () => Harness) {
       operation: Type.Optional(Type.Integer({ minimum: 1, description: "operations 返回的普通操作编号，用于 operation 或 redisplay；不是 work 或 agent 编号。" })),
       appData: Type.Optional(Type.Boolean({ description: "仅delegate：本次子工作确需应用数据时显式设true，默认无资格；复用身份不继承上次资格。" })),
       delegation: Type.Optional(Type.Integer({ minimum: 1, description: "delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 继续未取消且原来源可执行的委托时提供；本轮独立新工作省略 delegation，即使同时用 agent 复用身份。不能用 work 或 agent 编号代替，不能为原未知效果换委托重试。" })),
-      content: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "delegate/append 的完整要求，须含所需资料；子会话不读取主聊天。追加已完成工作时只说明新增或修改的要求，不重复已完成的效果。" })),
+      content: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "delegate/append 的完整要求，须含所需资料；子会话不读取主聊天。原样保留拥有者指定的目标、字面正文和限制，包括空白与末尾换行；不得擅自允许改写或添加换行，也不得增加读取或其他验证操作。只依据已获准操作的返回事实报告。追加已完成工作时只说明新增或修改的要求，不重复已完成的效果。" })),
       agent: Type.Optional(Type.Integer({ minimum: 1, description: "list 或 delegate 返回的长期子 Agent 身份编号，不是委托编号。delegate 复用空闲、未关闭且停止已核实的身份，省略则新建；独立新工作复用身份时省略 delegation。close 必填。" })),
       label: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "仅新建身份时使用的名称；复用 agent 时省略。" })),
       work: Type.Optional(Type.Integer({ minimum: 1, description: "delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。" })),

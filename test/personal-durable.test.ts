@@ -107,6 +107,7 @@ test("durable：输入与回答落盘，同键重投去重，重开后保留历�
     assert.deepEqual(evidence[i * 2 + 1].payload, f.server.calls[i].raw);
   }
   assert.match(JSON.stringify(evidence[0].input), new RegExp(PERSONAL_PROMPT));
+  assert.match(f.server.calls[0].system ?? "", /回答进展、重显示请求和汇总结果时.*简洁自然语言.*明确索取技术证据.*实际失败、未知效果、遗漏和截断仍须说明/);
   assert.equal(fs.statSync(path.join(f.dir, "personal.sqlite")).mode & 0o777, 0o600);
 });
 
@@ -325,6 +326,7 @@ test("durable：真实持久记录写失败关闭 Harness，阻止 HTTP 且释�
     assert.equal((await personal.harness.closed).reason, "failed");
     assert.equal(count, failAt);
     assert.equal(f.server.calls.length, 0);
+    await personal.close();
     lockPersonalProfile(f.dir).release();
   });
 });

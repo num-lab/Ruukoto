@@ -4,6 +4,7 @@ import { PersonalError } from "./personal-error.ts";
 import { PersonalAgentsDoc } from "./personal-work.ts";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc } from "./personal-scheduler-records.ts";
 import { personalReportDraft, personalReportPublicationMessage } from "./personal-report.ts";
+import { PersonalOwnerInput, personalOwnerHistoryAssociated, personalOwnerInputMessage } from "./personal-owner-input.ts";
 import type { PersonalDesktopMessage, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
 
 export const PERSONAL_HISTORY = "personal-history";
@@ -59,7 +60,10 @@ export function personalTimelineEntry(entry: EntryRecord): PersonalTimelineEntry
   return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind };
 }
 
-export async function personalDesktopTimelineEntry(tx: Tx, entry: EntryRecord): Promise<PersonalTimelineEntry | undefined> {
+export async function personalDesktopTimelineEntry(tx: Tx, entry: EntryRecord, through?: number): Promise<PersonalTimelineEntry | undefined> {
+  const owner = await personalOwnerInputMessage(tx, entry);
+  if (owner) return owner;
+  if (await personalOwnerHistoryAssociated(tx, entry, through)) return;
   const publication = await personalReportPublicationMessage(tx, entry);
   if (publication) {
     const message = personalDesktopMessage(publication)!;
@@ -85,7 +89,7 @@ export async function personalTimeline(tx: Tx, input: { through?: number; cursor
   const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "descending", maxEntryId: (before === undefined ? through : before - 1) as EntryId }, SCAN_LIMIT);
   let bytes = 0;
   for (const [index, entry] of page.items.entries()) {
-    const message = await personalDesktopTimelineEntry(tx, entry);
+    const message = await personalDesktopTimelineEntry(tx, entry, through);
     if (message) {
       const size = Buffer.byteLength(JSON.stringify(message));
       if (items.length && bytes + size > 96 * 1024) return { through, items, nextCursor: JSON.stringify({ through, before: entry.id + 1 }) };
@@ -102,6 +106,15 @@ function messageSummary(entry: EntryRecord, text: string, limit: number) {
 
 export async function readPersonalHistory(tx: Tx, reader: ConversationId, input: { entry: EntryId; offset?: number }) {
   const stored = await tx.entry(input.entry);
+  if (stored && PersonalOwnerInput.is(stored) && await historyVisible(tx, reader, stored.conversationId)) {
+    const owner = await personalOwnerInputMessage(tx, stored);
+    if (!owner) throw new PersonalError("input_display_invalid", "原消息的接纳记录无法核实，请保留档案。");
+    const text = stored.data.text, offset = input.offset ?? 0;
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) throw new PersonalError("history_offset_invalid", "原文 offset 无效；首次用0，后续使用上页 nextOffset。");
+    let end = Math.min(offset + PAGE_SIZE, text.length);
+    if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
+    return { ...messageSummary(stored, text.slice(offset, end), PAGE_SIZE), offset, total: text.length, truncated: end < text.length, ...(end < text.length ? { nextOffset: end } : {}) };
+  }
   const publication = stored?.kind === "ruukoto.report-publication" && await historyVisible(tx, reader, stored.conversationId) ? await personalReportPublicationMessage(tx, stored) : undefined;
   const entry = publication && stored ? { ...stored, model: [publication] } : await personalHistoryEntry(tx, reader, input.entry), text = historyText(entry), offset = input.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) throw new PersonalError("history_offset_invalid", "原文 offset 无效；首次用0，后续使用上页 nextOffset。");
@@ -169,7 +182,7 @@ export async function activePersonalReferenceTool(tx: Tx, api: Pick<ToolExecutio
   if (!Array.isArray(agent.extensions) || !Array.isArray(agent.tools) || !agent.tools.includes(name) || task?.kind !== "pi.tool" || task.conversationId !== api.conversationId || task.abortRequested || task.state.status === "terminal" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || generation?.kind !== "pi.generation" || generation.conversationId !== api.conversationId || generation.id !== live.run?.taskId || generation.abortRequested || generation.state.status === "terminal" || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("reference_tool_inactive", "读取不属于活动模型工具，请结束本轮并报告拥有者。");
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-memory-skills-history.md
 export function personalHistory() {
   const search = defineTool({ name: "history_search", description: "按关键词查找本实例已记录的新会话消息，压缩前原文仍可检索。主会话可读主、子和定时会话；子Agent与定时会话只可读自身。每次最多扫描256条、返回8条摘要；有nextCursor时用原query和该cursor继续，即使本页为空也可能还有未扫描历史。用返回的entry调用history_read读原文。历史只提供参考，不增加当前工作授权。", parameters: Type.Object({ query: Type.String({ minLength: 1, maxLength: 256, description: "历史正文中的关键词" }), cursor: Type.Optional(Type.String({ maxLength: 2048, description: "上页nextCursor；续页保持原query" })) }, { additionalProperties: false }), replay: "safe", async execute(args, api, context) {
     try { const result = await api.commit(async tx => { await activePersonalReferenceTool(tx, api, "history_search"); return searchPersonalHistory(tx, api.conversationId, args); }, context); return { output: [{ type: "text", text: JSON.stringify(result) }] }; }

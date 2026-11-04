@@ -192,6 +192,14 @@ export async function startPersonalServer(directory: string, options: { developm
           result = { v: 1, product: "ruukoto", profile: personalSettingsIdentity(profile), runId };
         } else if (req.method === "GET" && url.pathname === "/timeline") {
           result = await instance.harness.commit(tx => personalTimeline(tx, { ...(url.searchParams.has("through") ? { through: queryNumber(url, "through") } : {}), ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor")! } : {}) }), context);
+        } else if (req.method === "GET" && url.pathname === "/desktop/state") {
+          result = await desktopEvents!.state({ approvals: queryNumber(url, "approvals", 0), works: queryNumber(url, "works", 0), delegations: queryNumber(url, "delegations", 0) });
+        } else if (req.method === "GET" && url.pathname === "/desktop/operation") {
+          result = await desktopEvents!.operation(queryNumber(url, "operation") as TaskId, queryNumber(url, "offset", 0));
+        } else if (req.method === "GET" && url.pathname === "/desktop/input") {
+          const requestId = url.searchParams.get("requestId") ?? "";
+          if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("input_invalid", "请求标识无效，请核实原消息。");
+          result = await desktopEvents!.input(requestId);
         } else if (req.method === "GET" && url.pathname === "/settings") {
           result = await dispatchPersonalSettings({ profile, instance, development: options.development }, { v: 1, op: "settings.read" });
         } else if (req.method === "POST" && url.pathname === "/settings") {

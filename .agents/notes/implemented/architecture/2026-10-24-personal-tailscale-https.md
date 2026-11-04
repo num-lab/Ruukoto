@@ -4,6 +4,8 @@ Status: implemented
 
 [Settings publication](2026-10-25-personal-settings-versions.md) narrows ordinary saves, receipts, and per-object waiting. HTTPS/WSS, authentication, and original-profile binding remain governed here; old maintenance receipts recover under their original interpretation.
 
+[The desktop file loop](../feature/2026-11-04-personal-desktop-file-loop.md) replaces periodic ordinary-work discovery with canonical commit-driven projection, retains owner display at native admission and removes Personal OS notifications. Its decision journal preserves lost-response association; transport, authentication and original-source authority remain governed here.
+
 ## Problem
 
 The owner requested one Tailscale HTTPS/WebSocket connection instead of separate PA chat and settings SSH connections. Personal sessions belong to durable, whereas old chat spoke the shared control protocol and settings independently stopped/saved/restarted through SSH. Replacing a socket cannot supply durable semantics, and deleting SSH must not lose settings maintenance.

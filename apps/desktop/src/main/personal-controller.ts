@@ -9,19 +9,21 @@ import { DesktopError } from "./environment.ts";
 import { savePersonalConfig, validatePersonalConfig, personalProfile, personalPendingFile, readPersonalRecord, writePersonalRecord, type PersonalTargetConfig } from "./personal-config.ts";
 import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 import type { DesktopUpdate } from "../shared/bridge.ts";
-import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt } from "../shared/personal-desktop.ts";
+import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt, PersonalPendingDecision } from "../shared/personal-desktop.ts";
 
 type Secret = { id: string; secret: string; origin: string };
 type Active = Secret & { remoteId: string; profile: PersonalRemoteIdentity["profile"] };
 type Candidate = Secret & { request: { v: 1; code: string; label: string }; rejected?: true };
 type Credentials = { v: 1; active?: Active; candidate?: Candidate };
-type Pending = { v: 1; input: PersonalPendingInput | null; maintenance?: { id: string; requestDigest: string }; settings?: { id: string; requestDigest: string; target: string; scope: string }[] };
+type Pending = { v: 1; input: PersonalPendingInput | null; decisions?: PersonalPendingDecision[]; maintenance?: { id: string; requestDigest: string }; settings?: { id: string; requestDigest: string; target: string; scope: string }[] };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const failed = (code: string, message: string, outcome: "not_sent" | "unknown" | "rejected" = "not_sent") => new ControlClientError(code, message, outcome);
 const bindingMatches = (identity: PersonalRemoteIdentity, binding: { remoteId: string; profile: PersonalRemoteIdentity["profile"] }) => identity.remoteId === binding.remoteId && isDeepStrictEqual(identity.profile, binding.profile);
-const READ_PATHS = ["/status", "/timeline", "/history/entry", "/input", "/permissions", "/questions", "/question", "/question/receipt", "/works", "/work", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/app-data/operations", "/app-data/operation", "/services", "/service"];
-const WRITE_PATHS = ["/permissions", "/question/answer", "/question/cancel", "/work/cancel", "/tools/decide", "/mcp/decide", "/mcp/end", "/app-data/decide", "/service/decide"];
+const READ_PATHS = ["/status", "/timeline", "/history/entry", "/desktop/state", "/desktop/operation", "/desktop/input", "/delegations", "/delegation", "/delegation/report", "/input", "/permissions", "/questions", "/question", "/question/receipt", "/works", "/work", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/app-data/operations", "/app-data/operation", "/services", "/service"];
+const WRITE_PATHS = ["/permissions", "/question/answer", "/question/cancel", "/work/cancel", "/delegation/cancel", "/tools/decide", "/mcp/decide", "/mcp/end", "/app-data/decide", "/service/decide"];
+const DECISION_PATHS = new Map<string, PersonalPendingDecision["kind"]>([["/tools/decide", "tools"], ["/mcp/decide", "mcp"], ["/app-data/decide", "app-data"], ["/service/decide", "services"]]);
+const DETAIL_PATHS = new Map<string, PersonalPendingDecision["kind"]>([["/tools/operation", "tools"], ["/mcp/operation", "mcp"], ["/app-data/operation", "app-data"], ["/service", "services"]]);
 const KNOWN_REJECTIONS = new Set(["remote_request_invalid", "remote_maintenance_request_invalid", "remote_maintenance_pending", "settings_pending", "settings_revision_changed", "settings_revision_conflict", "settings_target_pending", "settings_request_conflict", "settings_request_invalid", "settings_upgrade_required", "settings_profile_changed", "settings_file_unverified", "skills_revision_conflict", "settings_stop_required", "profile_busy", "maintenance_read_only", "model_environment_unverified", "input_invalid", "input_conflict", "mcp_end_unavailable", "mcp_end_invalid", "mcp_missing", "mcp_original_entry"]);
 const authorization = (value: Secret) => `Bearer ${value.id}.${value.secret}`;
 function parseCredentials(raw: string | null): Credentials {
@@ -50,9 +52,29 @@ function desktopBlock(value: unknown): boolean {
 function desktopMessage(value: unknown): boolean {
   return object(value) && ["user", "assistant", "toolResult"].includes(String(value.role)) && typeof value.text === "string" && typeof value.partial === "boolean" && typeof value.truncated === "boolean" && timestamp(value.timestamp) && (value.thinking === undefined || typeof value.thinking === "string") && (value.toolCallId === undefined || typeof value.toolCallId === "string") && (value.toolName === undefined || typeof value.toolName === "string") && (value.isError === undefined || typeof value.isError === "boolean") && (value.blocks === undefined || Array.isArray(value.blocks) && value.blocks.every(block => object(block) && integer(block.index) && desktopBlock(block))) && (value.toolCalls === undefined || Array.isArray(value.toolCalls) && value.toolCalls.every(call => object(call) && typeof call.id === "string" && typeof call.name === "string" && typeof call.arguments === "string" && typeof call.truncated === "boolean"));
 }
-function desktopEntry(value: unknown): boolean { return object(value) && integer(value.entry) && integer(value.conversation) && typeof value.kind === "string" && desktopMessage(value); }
+function desktopEntry(value: unknown): boolean { return object(value) && integer(value.entry) && integer(value.conversation) && typeof value.kind === "string" && desktopMessage(value) && (value.input === undefined || object(value.input) && typeof value.input.requestId === "string" && integer(value.input.submission) && ["queued", "placed", "done", "unanswered"].includes(String(value.input.status)) && (value.input.historyEntry === undefined || integer(value.input.historyEntry))); }
+function desktopApproval(value: unknown): boolean {
+  return object(value) && [value.operation, value.occurrence, value.admission].every(integer) && ["read_file", "write_file", "http_request", "web_search", "list_files", "search_files"].includes(String(value.kind)) && typeof value.target === "string" && value.target.length <= 512 && ["pending", "approved", "rejected", "unneeded"].includes(String(value.approval)) && ["returned", "not_executed", "no_write", "effect_unknown"].includes(String(value.effect)) && typeof value.code === "string" && [value.observed, value.started, value.stopped, value.canDecide, value.targetTruncated].every(item => typeof item === "boolean") && (value.notice === undefined || typeof value.notice === "string") && (value.work === undefined || integer(value.work)) && (value.decisionEntry === undefined || integer(value.decisionEntry));
+}
+function desktopWork(value: unknown): boolean {
+  return object(value) && object(value.ref) && [value.ref.taskId, value.ref.agentId].every(integer) && typeof value.ref.requestId === "string" && [value.label, value.content, value.state].every(item => typeof item === "string") && [value.cancelRequested, value.stopVerified, value.closed].every(item => typeof item === "boolean") && object(value.progress) && [value.progress.accepted, value.progress.modelRead, value.progress.completed, value.progress.accounted].every(integer) && (value.delegation === undefined || integer(value.delegation));
+}
+function desktopDelegation(value: unknown): boolean {
+  return object(value) && object(value.ref) && integer(value.ref.entryId) && typeof value.content === "string" && typeof value.state === "string" && [value.total, value.active, value.unverified].every(integer) && typeof value.cancelRequested === "boolean" && typeof value.paused === "boolean" && (value.report === undefined || object(value.report) && typeof value.report.delivery === "string" && typeof value.report.state === "string" && (value.report.publication === undefined || integer(value.report.publication)));
+}
+function desktopPage(value: unknown, item: (value: unknown) => boolean): boolean { return object(value) && Array.isArray(value.items) && value.items.length <= 8 && value.items.every(item) && integer(value.total) && Number(value.total) >= value.items.length && (value.nextOffset === undefined || integer(value.nextOffset)); }
+function desktopState(value: unknown): boolean { return object(value) && value.v === 1 && integer(value.revision) && desktopPage(value.approvals, desktopApproval) && desktopPage(value.works, desktopWork) && desktopPage(value.delegations, desktopDelegation) && (value.approvalUpdates === undefined || Array.isArray(value.approvalUpdates) && value.approvalUpdates.length <= 8 && value.approvalUpdates.every(desktopApproval)); }
+function decisionSummary(value: unknown, kind: PersonalPendingDecision["kind"]): boolean {
+  if (!object(value) || typeof value.canDecide !== "boolean") return false;
+  if (kind === "services") return object(value.ref) && integer(value.ref.taskId) && typeof value.ref.requestId === "string" && typeof value.unit === "string" && typeof value.status === "string" && typeof value.canResolve === "boolean" && typeof value.canRecheck === "boolean";
+  if (!integer(value.operation) || typeof value.code !== "string") return false;
+  if (kind === "tools") return ["read_file", "write_file", "http_request", "web_search", "list_files", "search_files"].includes(String(value.kind)) && typeof value.target === "string" && typeof value.stopped === "boolean" && ["pending", "approved", "rejected", "unneeded"].includes(String(value.approval)) && ["returned", "not_executed", "no_write", "effect_unknown"].includes(String(value.effect));
+  if (!["pending", "approved", "rejected", "unneeded"].includes(String(value.decision))) return false;
+  return kind === "mcp" ? typeof value.service === "string" && typeof value.tool === "string" && typeof value.started === "boolean" && typeof value.remoteEnded === "boolean" && ["returned", "not_executed", "no_write", "effect_unknown"].includes(String(value.effect)) : typeof value.name === "string" && typeof value.canRecheck === "boolean" && ["committed", "not_committed", "effect_unknown"].includes(String(value.effect));
+}
 function desktopEvent(value: unknown): boolean {
   if (!object(value) || typeof value.type !== "string") return false;
+  if (value.type === "personal_state") return desktopState(value.state);
   if (value.type === "message_start") return desktopMessage(value.message);
   if (value.type === "message_end" || value.type === "entry_appended") return desktopEntry(value.entry);
   if (value.type === "message_update") return Array.isArray(value.changes) && value.changes.every(change => {
@@ -80,12 +102,13 @@ function desktopEvent(value: unknown): boolean {
   return value.type === "turn_start" || value.type === "turn_end";
 }
 function desktopSnapshot(value: Record<string, unknown>): boolean {
-  if (!object(value.timeline) || !integer(value.timeline.through) || !Array.isArray(value.timeline.items) || !value.timeline.items.every(desktopEntry) || value.timeline.nextCursor !== undefined && typeof value.timeline.nextCursor !== "string" || !object(value.live)) return false;
+  if (!object(value.timeline) || !integer(value.timeline.through) || !Array.isArray(value.timeline.items) || !value.timeline.items.every(desktopEntry) || value.timeline.nextCursor !== undefined && typeof value.timeline.nextCursor !== "string" || !object(value.live) || value.state !== undefined && !desktopState(value.state)) return false;
   const live = value.live;
   return Array.isArray(live.tools) && live.tools.every(tool => object(tool) && typeof tool.callId === "string" && typeof tool.name === "string" && ["pending", "running", "done"].includes(String(tool.status)) && typeof tool.truncated === "boolean" && (tool.output === undefined || typeof tool.output === "string") && (tool.taskId === undefined || integer(tool.taskId)) && (tool.entry === undefined || integer(tool.entry)) && (tool.parentCallId === undefined || typeof tool.parentCallId === "string") && (tool.parentTaskId === undefined || integer(tool.parentTaskId))) && integer(live.toolCount) && Array.isArray(live.inbox) && live.inbox.every(item => object(item) && integer(item.id) && typeof item.mode === "string") && integer(live.inboxCount) && (live.model === undefined || desktopModel(live.model)) && (live.run === undefined || object(live.run) && Array.isArray(live.run.inputs) && live.run.inputs.every(integer) && integer(live.run.total)) && (live.generation === undefined || object(live.generation) && integer(live.generation.attempt) && (live.generation.message === undefined || desktopMessage(live.generation.message)) && (live.generation.retry === undefined || object(live.generation.retry) && timestamp(live.generation.retry.at) && typeof live.generation.retry.error === "string") && (live.generation.deferred === undefined || object(live.generation.deferred) && timestamp(live.generation.deferred.pollAt)));
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+// Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+// Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
 export class PersonalController {
   config: PersonalTargetConfig;
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "closed", detail: "尚未连接" };
@@ -146,15 +169,16 @@ export class PersonalController {
     if (this.closed || secret.origin !== this.config.origin) return Promise.reject(failed("personal_identity_changed", "安全凭据不属于当前地址，未发送请求；请重新配对。"));
     const url = new URL(route, this.config.origin);
     if (!route.startsWith("/") || route.startsWith("//") || url.origin !== this.config.origin || url.hash) return Promise.reject(failed("op_not_allowed", "此远程路径未向桌面开放。"));
-    const raw = body === undefined ? undefined : JSON.stringify(body);
+    const raw = body === undefined ? method === "POST" ? "{}" : undefined : JSON.stringify(body);
     if (raw !== undefined && Buffer.byteLength(raw) > 128 * 1024) return Promise.reject(failed("personal_request_large", "请求超过上限，请缩小正文或配置。"));
     const identity = this.identity;
+    const generation = this.generation;
     if (bound && (!identity || !("remoteId" in secret) || !bindingMatches(identity, secret as Active))) return Promise.reject(failed("personal_identity_changed", "原档案尚未核实，未发送业务请求。"));
     return new Promise((resolve, reject) => {
       let sent = false;
       const req = https.request(url, { method, agent: this.deps.agent, headers: { authorization: authorization(secret), "content-type": "application/json", ...(bound && identity ? { "x-ruukoto-remote-id": identity.remoteId, "x-ruukoto-profile-id": identity.profile.id } : {}) } });
       this.requests.add(req);
-      const fail = (error: ControlClientError) => { const safe = new ControlClientError(error.code, error.message.replaceAll(secret.secret, "[凭据已隐藏]"), error.outcome); reject(safe); if (this.fatal(safe)) this.terminal(safe); };
+      const fail = (error: ControlClientError) => { const safe = new ControlClientError(error.code, error.message.replaceAll(secret.secret, "[凭据已隐藏]"), error.outcome); reject(safe); if (this.fatal(safe) && this.current(generation) && this.identity === identity) this.terminal(safe); };
       req.once("finish", () => { sent = true; });
       req.once("close", () => this.requests.delete(req));
       req.setTimeout(method === "POST" ? 35_000 : 10_000, () => req.destroy(new Error("timeout")));
@@ -187,13 +211,14 @@ export class PersonalController {
   private persistBinding(identity: PersonalRemoteIdentity): void {
     const binding = { remoteId: identity.remoteId, profile: identity.profile };
     if (isDeepStrictEqual(this.config.binding, binding)) return;
-    if (this.config.binding && (this.pending().input || this.pending().maintenance || this.pending().settings?.length)) throw failed("personal_pending", "原档案仍有待核实请求，请先核实原输入与维护；未更改原绑定或凭据。");
+    if (this.config.binding && (this.pending().input || this.pending().maintenance || this.pending().settings?.length || this.pending().decisions?.length)) throw failed("personal_pending", "原档案仍有待核实请求，请先核实原输入、决定与维护。");
     this.config = savePersonalConfig(this.userData, { v: 1, origin: this.config.origin, binding });
   }
   private adopt(identity: PersonalRemoteIdentity): void {
     this.persistBinding(identity);
     this.identity = identity;
     this.publish({ type: "personal_identity", identity });
+    this.publish({ type: "personal_decisions", items: this.pending().decisions ?? [] });
   }
   reconnect(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -242,14 +267,25 @@ export class PersonalController {
       if (binary || !object(value) || value.v !== 1 || typeof value.runId !== "string" || typeof value.subscription !== "string" || !Number.isSafeInteger(value.seq) || Number(value.seq) < 0 || value.type !== "snapshot" && value.type !== "events" || value.type === "snapshot" && !desktopSnapshot(value) || value.type === "events" && (!Array.isArray(value.events) || !value.events.every(desktopEvent))) { this.terminal(failed("personal_protocol", "远程观察协议无效，请核实版本后重新连接。")); return; }
       if (value.runId !== identity.runId || subscription !== null && (value.subscription !== subscription || value.seq !== seq + 1) || subscription === null && value.type !== "snapshot") { this.disconnected(generation); return; }
       subscription = value.subscription; seq = Number(value.seq);
-      this.publish({ type: "personal_frame", frame: value as PersonalDesktopFrame });
+      const frame = value as PersonalDesktopFrame;
+      try {
+        if (frame.type === "snapshot" && frame.state) this.inspectDecisions("tools", [...frame.state.approvals.items, ...(frame.state.approvalUpdates ?? [])]);
+        if (frame.type === "events") for (const event of frame.events) if (event.type === "personal_state") this.inspectDecisions("tools", [...event.state.approvals.items, ...(event.state.approvalUpdates ?? [])]);
+      } catch (error) { this.terminal(error); return; }
+      this.publish({ type: "personal_frame", frame });
     });
     ws.on("close", () => { if (this.ws === ws) this.disconnected(generation); });
   }
   async request(method: "GET" | "POST", route: string, body?: unknown): Promise<unknown> {
     if (!this.credentials.active || !this.identity || this.status.state !== "online") throw failed("connection_unavailable", "个人连接尚未核实，请先连接原入口。");
     const generation = this.generation, identity = this.identity;
-    const result = await this.exchange(method, route, body, this.credentials.active);
+    let result: unknown;
+    try { result = await this.exchange(method, route, body, this.credentials.active); }
+    catch (error) {
+      if (this.identity === identity && error instanceof ControlClientError && error.outcome === "not_sent") throw error;
+      if (!this.current(generation) || this.identity !== identity) throw failed("personal_identity_changed", "连接或后台代次已变化，请核实原请求。", method === "POST" ? "unknown" : "not_sent");
+      throw error;
+    }
     if (!this.current(generation) || this.identity !== identity) throw failed("personal_identity_changed", "连接或后台代次已变化，请核实原请求；未采用迟到结果。", method === "POST" ? "unknown" : "not_sent");
     return result;
   }
@@ -257,7 +293,48 @@ export class PersonalController {
     if ((method !== "GET" && method !== "POST") || typeof route !== "string") throw failed("op_not_allowed", "此个人操作尚未开放。");
     const url = new URL(route, this.config.origin);
     if (!route.startsWith("/") || route.startsWith("//") || url.origin !== this.config.origin || !(method === "GET" ? READ_PATHS : WRITE_PATHS).includes(url.pathname)) throw failed("op_not_allowed", "此个人操作尚未开放。");
-    return this.request(method, route, body);
+    const kind = method === "POST" ? DECISION_PATHS.get(url.pathname) : undefined;
+    let decision: PersonalPendingDecision | undefined;
+    if (kind) {
+      if (this.closed || this.switching || this.credentialOperation) throw failed("personal_pending", "个人连接已关闭、正在配对或切换，请等待后核实原决定。");
+      const operation = kind === "tools" && object(body) ? body.operation : Number(url.searchParams.get(kind === "services" ? "service" : "operation"));
+      if (!integer(operation) || Number(operation) < 1 || !object(body) || body.decision !== "approved" && body.decision !== "rejected") throw failed("personal_decision_invalid", "请选择原操作的批准本次或拒绝。");
+      decision = { kind, operation: Number(operation), decision: body.decision };
+      const pending = this.pending();
+      if (pending.decisions?.some(item => item.kind === kind && item.operation === operation)) { this.publish({ type: "personal_decisions", items: pending.decisions }); throw failed("personal_decision_pending", "原决定结果待核实，请查询原操作。", "unknown"); }
+      this.record({ ...pending, decisions: [...(pending.decisions ?? []), decision] });
+    }
+    let value: unknown;
+    try { value = await this.request(method, route, body); }
+    catch (error) {
+      if (decision && error instanceof ControlClientError && ["not_sent", "rejected"].includes(error.outcome)) this.clearDecision(decision);
+      throw error;
+    }
+    if (method === "GET" && url.pathname === "/desktop/input" && (!object(value) || value.v !== 1 || !integer(value.revision) || value.entry !== null && (!desktopEntry(value.entry) || !object(value.entry) || !object(value.entry.input) || value.entry.input.requestId !== url.searchParams.get("requestId")))) throw failed("personal_protocol", "原消息显示记录无法核实，请重新连接原后台。", "rejected");
+    if (method === "GET" && (url.pathname === "/desktop/state" && !desktopState(value) || url.pathname === "/desktop/operation" && (!object(value) || value.v !== 1 || !integer(value.revision) || !integer(value.operation) || !integer(value.admission) || !object(value.summary) || !desktopApproval(value.summary) || value.summary.operation !== value.operation || value.summary.admission !== value.admission || typeof value.text !== "string" || value.text.length > 4096 || !integer(value.offset) || value.nextOffset !== undefined && (!integer(value.nextOffset) || Number(value.nextOffset) <= Number(value.offset))))) throw failed("personal_protocol", "原工作投影无法核实，请重新连接原后台。", "rejected");
+    if (method === "GET" && url.pathname === "/desktop/operation" && object(value) && (value.operation !== Number(url.searchParams.get("operation")) || value.offset !== Number(url.searchParams.get("offset") ?? 0))) throw failed("personal_protocol", "原操作投影与读取请求不符，请重新连接原后台。", "rejected");
+    if (method === "GET" && object(value)) {
+      if (url.pathname === "/desktop/state" && object(value.approvals)) this.inspectDecisions("tools", [...value.approvals.items as unknown[], ...(Array.isArray(value.approvalUpdates) ? value.approvalUpdates : [])]);
+      if (url.pathname === "/desktop/operation") this.inspectDecisions("tools", [value.summary]);
+      const inspectedKind = DETAIL_PATHS.get(url.pathname);
+      if (inspectedKind) {
+        if (!decisionSummary(value.summary, inspectedKind) || !object(value.summary) || (inspectedKind === "services" ? !object(value.summary.ref) || value.summary.ref.taskId !== Number(url.searchParams.get("service")) : value.summary.operation !== Number(url.searchParams.get("operation")))) throw failed("personal_protocol", "原决定状态无法核实，请重新连接原后台。", "rejected");
+        this.inspectDecisions(inspectedKind, [value.summary]);
+      }
+    }
+    return value;
+  }
+  private inspectDecisions(kind: PersonalPendingDecision["kind"], summaries: unknown[]): void {
+    const pending = this.pending(), decisions = pending.decisions ?? [];
+    const remaining = decisions.filter(item => item.kind !== kind || !summaries.some(summary => decisionSummary(summary, kind) && object(summary) && summary.canDecide === false && (kind === "services" ? object(summary.ref) && summary.ref.taskId === item.operation : summary.operation === item.operation)));
+    if (remaining.length === decisions.length) return;
+    if (remaining.length) pending.decisions = remaining; else delete pending.decisions;
+    this.record(pending);
+  }
+  private clearDecision(decision: PersonalPendingDecision): void {
+    const pending = this.pending(), remaining = (pending.decisions ?? []).filter(item => item.kind !== decision.kind || item.operation !== decision.operation);
+    if (remaining.length) pending.decisions = remaining; else delete pending.decisions;
+    this.record(pending);
   }
   private credentialExclusive<T>(operation: () => Promise<T>): Promise<T> {
     if (this.closed || this.switching || this.credentialOperation) return Promise.reject(failed("personal_pairing_busy", "个人连接已关闭、正在切换或配对，请等待后核实原结果。"));
@@ -331,16 +408,17 @@ export class PersonalController {
     if (value === null) return { v: 1, input: null };
     if (!object(value) || value.v !== 1 || value.input !== null && (!object(value.input) || value.input.v !== 1 || value.input.origin !== this.config.origin || value.input.remoteId !== this.config.binding?.remoteId || !isDeepStrictEqual(value.input.profile, this.config.binding?.profile) || typeof value.input.requestId !== "string" || !UUID.test(value.input.requestId) || typeof value.input.input !== "string" || Buffer.byteLength(value.input.input) > 16 * 1024) || value.maintenance !== undefined && (!object(value.maintenance) || typeof value.maintenance.id !== "string" || !UUID.test(value.maintenance.id) || typeof value.maintenance.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(value.maintenance.requestDigest))) throw new DesktopError("personal_pending_invalid", "原个人请求记录无法核实，发送已停止；请保留文件并检查原档案。");
     if (value.settings !== undefined && (!Array.isArray(value.settings) || value.settings.some(item => !object(item) || Object.keys(item).sort().join(",") !== "id,requestDigest,scope,target" || typeof item.id !== "string" || !UUID.test(item.id) || typeof item.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(item.requestDigest) || !["model", "skills", "mcp", "web-search", "telegram", "qq", "commands", "services"].includes(String(item.target)) || typeof item.scope !== "string" || !item.scope || item.scope.length > 128) || new Set(value.settings.map(item => item.id)).size !== value.settings.length)) throw new DesktopError("personal_pending_invalid", "原配置请求关联无法核实，请保留记录并查询原档案。");
+    if (value.decisions !== undefined && (!Array.isArray(value.decisions) || value.decisions.some(item => !object(item) || Object.keys(item).sort().join(",") !== "decision,kind,operation" || !["tools", "mcp", "app-data", "services"].includes(String(item.kind)) || !integer(item.operation) || Number(item.operation) < 1 || !["approved", "rejected"].includes(String(item.decision))) || new Set(value.decisions.map(item => `${item.kind}:${item.operation}`)).size !== value.decisions.length)) throw new DesktopError("personal_pending_invalid", "原决定记录无法核实，请保留记录并检查原操作。");
     return value as Pending;
   }
-  private record(value: Pending, result?: PersonalInputReceipt): void { writePersonalRecord(personalPendingFile(this.userData, this.config), value); this.publish({ type: "personal_pending", record: value.input, ...(result ? { result } : {}) }); }
-  /** 成功后保留切换占用，调用方写入地址并关闭原连接后释放；检查失败自行释放。 */
+  private record(value: Pending, result?: PersonalInputReceipt): void { writePersonalRecord(personalPendingFile(this.userData, this.config), value); this.publish({ type: "personal_pending", record: value.input, ...(result ? { result } : {}) }); this.publish({ type: "personal_decisions", items: value.decisions ?? [] }); }
+  /** A successful check holds switching until the caller saves the address and closes this connection. */
   async assertSwitchable(): Promise<() => void> {
     if (this.closed || this.switching || this.credentialOperation) throw failed("personal_pending", "原连接已关闭、正在配对或切换，请等待后核实；未更改地址。");
     this.switching = true;
     try {
       const credentials = await this.readCredentials(), pending = this.config.binding ? this.pending() : null;
-      if (pending?.input || pending?.maintenance || pending?.settings?.length || credentials.candidate) throw failed("personal_pending", "原连接仍有待核实请求，请先核实原输入、维护与配对；未切换地址。");
+      if (pending?.input || pending?.maintenance || pending?.settings?.length || pending?.decisions?.length || credentials.candidate) throw failed("personal_pending", "原连接仍有待核实请求，请先核实原输入、决定、维护与配对。");
       return () => { this.switching = false; };
     } catch (error) { this.switching = false; throw error; }
   }

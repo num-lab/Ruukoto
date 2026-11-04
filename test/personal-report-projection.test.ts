@@ -320,5 +320,5 @@ test("Report projection: an owner message identical to old report content remain
   await until(() => entries(live.frames).some(entry => entry.entry === original.answer));
   const current = await f.p.harness.commit(tx => personalTimeline(tx, {}), context);
   assert.equal(current.items.find(entry => entry.entry === original.answer)?.text, "IDENTICAL_CONTENT_RESPONSE");
-  assert.equal(current.items.find(entry => entry.entry === original.entry)?.role, "user");
+  assert.equal(current.items.find(entry => entry.input?.requestId === "owner-identical-report-content")?.role, "user");
 });

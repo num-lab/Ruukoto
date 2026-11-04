@@ -18,6 +18,7 @@ import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import type { PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalCoordinationDoc, PERSONAL_COORDINATION_ENTRY, PERSONAL_MAIN_TOOL_ROUNDS, personalCoordinationCutoffText, type PersonalCoordinationCutoff } from "../apps/ruukoto/src/personal-coordination.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { personalLocalInput } from "../apps/ruukoto/src/personal-local-records.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
@@ -315,11 +316,83 @@ test("协调预算：第四批内如实文本回答正常完成，不产生切�
   assert.equal((await markers(p)).length, 0);
 });
 
+test("Coordination: the no-tools final response cannot complete with empty text", async t => {
+  const f = await fixture(t, request => request.tools?.length ? workCall({ action: "list" }) : { kind: "text", text: "" });
+  const p = await f.open();
+  await assert.rejects(p.answer("Query until the final answer", "empty-final"), error => error instanceof PersonalError && error.code === "answer_missing");
+  assert.equal(f.server.calls.length, PERSONAL_MAIN_TOOL_ROUNDS + 1);
+  assert.deepEqual(toolNames(f.server.calls.at(-1)!), []);
+  assert.equal((await entries(p)).filter(isBatch).length, PERSONAL_MAIN_TOOL_ROUNDS);
+  assert.equal((await markers(p)).length, 0);
+});
+
+test("Coordination: entirely unavailable and invalid batches exhaust the same budget without effects", async t => {
+  for (const invalid of [false, true]) await t.test(invalid ? "invalid arguments" : "unavailable tool", async t => {
+    const f = await fixture(t, request => ({ kind: "tool_calls", calls: [{ id: `invalid-${request.messages.length}`, name: invalid ? "background_work" : "unavailable_wait", arguments: invalid ? { action: "invalid_action" } : {} }] }));
+    const p = await f.open();
+    await assert.rejects(p.answer("Unusable calls", "invalid-budget"), error => error instanceof PersonalError && error.code === "input_coordination_cutoff");
+    await until(async () => (await markers(p)).length === 1);
+    assert.equal((await entries(p)).filter(isBatch).length, PERSONAL_MAIN_TOOL_ROUNDS + 1);
+    assert.deepEqual(toolNames(f.server.calls.at(-1)!), []);
+    const cutoff = (await p.harness.snapshot(PersonalCoordinationDoc, "invalid-budget", context))!.cutoff!;
+    assert.deepEqual(cutoff.targets, []); assert.deepEqual(cutoff.cancelled, []);
+    assert.equal((await p.harness.commit(tx => toolOperations(tx), context)).length, 0);
+    assert.equal((await p.work.list()).length, 0);
+    await p.close(); const restored = await f.open();
+    await assert.rejects(restored.answer("Unusable calls", "invalid-budget"), error => error instanceof PersonalError && error.code === "input_coordination_cutoff");
+    assert.equal((await markers(restored)).length, 1);
+    assert.equal(f.server.calls.length, PERSONAL_MAIN_TOOL_ROUNDS + 1);
+  });
+});
+
+test("Coordination: an appended failed input grants no child effect before cancellation registration", { timeout: 30_000 }, async t => {
+  let work!: PersonalWorkRef, childRequests = 0, mainRounds = 0, completionReached = false;
+  let releaseChild!: () => void, releaseCompletion!: () => void;
+  const childHeld = new Promise<void>(resolve => { releaseChild = resolve; });
+  const completionHeld = new Promise<void>(resolve => { releaseCompletion = resolve; });
+  t.after(() => { releaseChild(); releaseCompletion(); });
+  const f = await fixture(t, async request => {
+    if (childRequest(request)) {
+      if (++childRequests === 1) { await childHeld; return { kind: "text", text: "Original answer" }; }
+      if (request.messages.at(-1)?.role === "tool") return { kind: "text", text: "The late write completed" };
+      return { kind: "tool_calls", calls: [{ id: "failed-note-write", name: "write_file", arguments: { path: target, content: "FORBIDDEN_WRITE" } }] };
+    }
+    const content = request.messages.findLast(message => message.role === "user")?.content;
+    if (content === "append-then-overrun") {
+      mainRounds++;
+      return { kind: "tool_calls", calls: [...(mainRounds === 1 ? [{ id: "accepted-append", name: "background_work", arguments: { action: "append", work: work.taskId, content: "Write the changed requirements" } }] : []), { id: `query-${mainRounds}`, name: "background_work", arguments: { action: "list" } }] };
+    }
+    if (content === "delegate-original") return workCall({ action: "delegate", content: "Wait for amended requirements", label: "Original child" });
+    return { kind: "text", text: "Normal answer" };
+  });
+  const target = path.join(f.workspace, "failed-source.txt"); fs.writeFileSync(target, "UNCHANGED");
+  const p = await f.open({ coordinationProbe: async (record, stage) => { if (record.requestId === "failed-note-source" && stage === "before-completion") { completionReached = true; await completionHeld; } } });
+  await p.harness.commit(async tx => { const permissions = await tx.doc(PersonalPermissionsDoc); permissions.mode = "full_access"; permissions.version++; }, context);
+  await p.answer("delegate-original", "healthy-source");
+  work = (await p.work.list())[0].work!; await until(() => childRequests === 1);
+  const offender = await p.submit("append-then-overrun", "failed-note-source");
+  assert.equal((await offender.wait(context)).status, "unanswered");
+  await until(() => completionReached);
+  const cutoff = (await p.harness.snapshot(PersonalCoordinationDoc, "failed-note-source", context))!.cutoff!;
+  assert.deepEqual(cutoff.targets, [work]); assert.equal(cutoff.cancelled, undefined);
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.cancelRequested, false);
+  releaseChild();
+  await p.harness.waitForTask(work.taskId, context);
+  assert.equal(childRequests, 1, "An unanswered appended source cannot start another child model request.");
+  assert.equal(fs.readFileSync(target, "utf8"), "UNCHANGED");
+  assert.equal((await p.harness.commit(tx => toolOperations(tx), context)).length, 0);
+  releaseCompletion(); await until(async () => (await markers(p)).length === 1);
+  await p.close(); const restored = await f.open();
+  assert.equal(fs.readFileSync(target, "utf8"), "UNCHANGED"); assert.equal(childRequests, 1);
+  assert.equal((await restored.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.notes!.length, 1);
+});
+
 test("协调预算：取消登记回执区分意图与完成，终态目标不计入", () => {
   const ref = { requestId: "w", taskId: 7, agentId: 9 } as PersonalWorkRef;
   const intent: PersonalCoordinationCutoff = { version: 1, submission: 1 as PersonalCoordinationCutoff["submission"], targets: [ref] };
   assert.match(personalCoordinationCutoffText(intent), /取消登记尚未完成/);
-  assert.match(personalCoordinationCutoffText({ ...intent, cancelled: [] }), /没有需要取消的工作/);
+  const terminal = personalCoordinationCutoffText({ ...intent, cancelled: [] });
+  assert.match(terminal, /没有新增取消登记/); assert.match(terminal, /已完成的结果与效果保留/); assert.ok(!terminal.includes("重新提交"));
   assert.match(personalCoordinationCutoffText({ ...intent, cancelled: [ref] }), /已登记 1 项工作的取消请求/);
 });
 

@@ -37,7 +37,7 @@ import { parsePersonalModel, personalProvider, recordedModels, type PersonalMode
 import { lockPersonalProfile, PERSONAL_FORMAT, type PersonalProfileLock } from "./personal-profile.ts";
 import { PersonalServiceDoc, configurePersonalServices, personalServiceConfig, capturePersonalServiceHostBaseline, personalServiceVersionConfig, personalServiceLegacyVersion, verifyPersonalServiceDeployment, personalServices, personalSubAgentServices } from "./personal-services.ts";
 import type { ServiceManagerConfig } from "./service-helper.ts";
-import { personalWorkNotes, verifyPersonalWorkNotes, PersonalAgentsDoc, personalBackgroundWork, PersonalWorkDoc, personalWork, PersonalWorkTask, personalSubAgent, requirePersonalWorkRequest, personalServiceTranscriptFacts, personalWorkInstructions, personalWorkInstructionContents, personalWorkInstructionText, verifyPersonalWorkInstructions } from "./personal-work.ts";
+import { personalWorkNotes, verifyPersonalWorkNotes, verifyPersonalWorkNoteAdmissions, PersonalAgentsDoc, personalBackgroundWork, PersonalWorkDoc, personalWork, PersonalWorkTask, personalSubAgent, requirePersonalWorkRequest, personalServiceTranscriptFacts, personalWorkInstructions, personalWorkInstructionContents, personalWorkInstructionText, verifyPersonalWorkInstructions } from "./personal-work.ts";
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, PersonalServiceGrantsDoc, personalServiceOperations, personalServiceConfigBlockers, personalServiceHasHistory, verifyServiceOperationRecords, verifyServiceGrants, type PersonalServiceOperationRef, PERSONAL_SERVICE_WORK } from "./personal-service-operations.ts";
 import { personalServiceWork } from "./personal-service-work.ts";
 import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, verifyPersonalTelegram } from "./personal-telegram.ts";
@@ -736,6 +736,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (!work.ref || work.ref.taskId !== agent.work.taskId || work.ref.agentId !== agent.id || !task || task.state.status === "terminal") throw new PersonalError("work_ownership", "子 Agent 的工作占用无法核实，已停止恢复；请检查原工作和档案。");
       }
     }, context);
+    await harness.commit(tx => verifyPersonalWorkNoteAdmissions(tx, workKeys, workNotesEnabled), context);
     await harness.commit(tx => verifyBrowser(tx, browserKeys, lock.directory, browser?.extension.tools, browserSessionKeys), context);
     await harness.commit(tx => verifyBrowserControls(tx, telegramKeys, browserEnabled), context);
     await harness.commit(tx => verifyTools(tx, toolKeys, lock.directory, general?.extension.tools), context);
@@ -1048,7 +1049,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         // A call-bearing answer may be a host yield even when the model wrote text first; pre-call
         // prose never counts as a call's committed outcome, so the persisted handoff decides.
         const handoff = message.content.some(part => part.type === "toolCall") ? await main.commit(tx => personalWorkHandoff(tx, settled.answer), context) : undefined;
-        return handoff ?? text;
+        const answer = handoff ?? text;
+        if (!answer.trim()) throw new PersonalError("answer_missing", "本次模型没有提供完整回答，请查询原输入和工作状态后决定下一步。");
+        return answer;
       },
       async close() {
         closing ??= (async () => {

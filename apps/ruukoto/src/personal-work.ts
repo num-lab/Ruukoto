@@ -127,6 +127,7 @@ async function waitForInspections(runtime: TaskRuntime<WorkInput, { phase: "run"
 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-personal-background-work.md
 // Note: See .agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md
+// Note: See .agents/notes/implemented/bug-fix/2026-11-04-personal-foundation-integration.md
 export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResult>({
   name: "ruukoto.background-work",
   version: 3,
@@ -189,17 +190,20 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
         for (;;) {
           const latest = await runtime.snapshot(PersonalWorkDoc, task.input.requestId, context);
           if (!latest?.ref || latest.ref.taskId !== task.id || latest.ref.agentId !== task.input.agentId) throw new PersonalError("work_missing", "后台工作的归属记录缺失，已保留占用；请检查档案。");
-          for (const [index, note] of (latest.notes ?? []).entries()) if (!tracked.has(index)) await submit(index, note);
+          let failedInput = false, cancelRequested = latest.cancelRequested;
+          const admittedNotes = new Set<string>();
+          await runtime.commit(async tx => { cancelRequested = (await facts(tx, ref)).cancelRequested; failedInput = await hasUnansweredWorkInput(tx, ref); for (const note of latest.notes ?? []) if (await tx.submissionByRequest(ref.agentId, noteSubmissionKey(ref, note))) admittedNotes.add(note.requestId); return undefined; }, context);
+          for (const [index, note] of (latest.notes ?? []).entries()) if (!tracked.has(index) && (!cancelRequested && !failedInput || admittedNotes.has(note.requestId))) await submit(index, note);
           const statuses = new Map<number, SubmissionRecord>();
           for (const [index, value] of tracked) statuses.set(index, await value.submission.status(context));
           const unsettled = [...statuses].filter(([, record]) => record.status === "queued" || record.status === "placed");
-          if (latest.cancelRequested) {
+          if (cancelRequested) {
             await collect(true);
             await runtime.commit(async tx => { await release(tx, task.input, task.id); return { status: "terminal", outcome: { status: "aborted" } }; }, context);
             return;
           }
           // A queued input with no live run is failed-run residue, not permission to replay.
-          if ([...statuses.values()].some(record => record.status === "unanswered") || (unsettled.some(([, record]) => record.status === "queued") && !(await runtime.snapshot(LiveDoc, task.input.agentId, context))?.run)) {
+          if (failedInput || [...statuses.values()].some(record => record.status === "unanswered") || (unsettled.some(([, record]) => record.status === "queued") && !(await runtime.snapshot(LiveDoc, task.input.agentId, context))?.run)) {
             await collect(true);
             await runtime.commit(async tx => {
               const work = await facts(tx, ref);
@@ -328,6 +332,12 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
 export const personalWorkNotes = defineExtension({ name: "personal-work-notes" });
 const noteSubmissionKey = (ref: PersonalWorkRef, note: WorkNote) => `personal-work:${ref.taskId}:note:${note.requestId}`;
 
+async function hasUnansweredWorkInput(tx: Tx, ref: PersonalWorkRef) {
+  const work = await facts(tx, ref);
+  for (const key of [`personal-work:${ref.taskId}`, ...(work.notes ?? []).map(note => noteSubmissionKey(ref, note))]) if ((await tx.submissionByRequest(ref.agentId, key))?.status === "unanswered") return true;
+  return false;
+}
+
 export async function personalWorkNoteSource(tx: Tx, requestId: string, modelCall?: TaskId): Promise<NoteSource> {
   const value = await personalSource(tx, requestId, { active: true, invalidCode: "work_source_invalid" });
   if (await personalCoordinationCutoff(tx, requestId)) throw new PersonalError("work_source_invalid", "原工作输入已超出协调批次并停止，未接纳新子工作；请查询原工作。");
@@ -377,10 +387,12 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
   const supervised = task !== undefined && task.version !== undefined && task.version >= 2;
   let previous = await tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`);
   let gap = previous === undefined, allDone = previous?.status === "done";
+  let previousAdmission = 0;
   for (const note of work.notes) {
-    if (work.delegation || note.admission !== undefined) {
+    if (supervised || work.delegation || note.admission !== undefined) {
       const admission = note.admission && await tx.entry(PersonalWorkNoteAdmission, note.admission);
-      if (!admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, { ref, requestId: note.requestId, content: note.content, source: note.source })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据不符，已停止恢复；请保留档案。");
+      if (!admission || admission.id <= previousAdmission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, { ref, requestId: note.requestId, content: note.content, source: note.source })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据不符，已停止恢复；请保留档案。");
+      previousAdmission = admission.id;
     }
     if (!note.requestId || note.requestId.length > 256 || !note.content?.trim() || Buffer.byteLength(note.content) > 16384) throw new PersonalError("work_note_invalid", "追加说明正文或请求缺失，已停止恢复；请保留档案。");
     if (note.requestId.startsWith("personal-note-tool:") && (note.source?.kind !== "input" || note.source.modelCall === undefined)) throw new PersonalError("work_note_invalid", "模型追加说明缺少原工具来源，已停止恢复；请保留档案。");
@@ -415,6 +427,23 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
   const result = task?.state.status === "terminal" && task.state.outcome.result;
   const chain = supervised ? !gap && previous !== undefined && allDone : previous?.status === "done";
   if (task?.state.status === "terminal" && task.state.outcome.status === "completed" && (!chain || !result || typeof result !== "object" || Array.isArray(result) || result.submissionId !== previous!.id)) throw new PersonalError("work_note_invalid", "追加说明的最终回答无法核实，已停止恢复；请保留档案。");
+}
+
+// Note: See .agents/notes/implemented/bug-fix/2026-11-04-personal-foundation-integration.md
+export async function verifyPersonalWorkNoteAdmissions(tx: Tx, workKeys: string[], enabled: boolean) {
+  if (!await tx.conversation(ROOT_CONVERSATION_ID)) return;
+  let cursor: Cursor | undefined;
+  do {
+    const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256, cursor);
+    for (const entry of page.items) {
+      if (!PersonalWorkNoteAdmission.is(entry)) continue;
+      const data = entry.data;
+      if (!enabled || !data || typeof data !== "object" || !data.ref || typeof data.ref !== "object" || typeof data.ref.requestId !== "string" || !workKeys.includes(data.ref.requestId)) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据缺少工作归属，已停止恢复；请保留档案。");
+      const work = await tx.doc(PersonalWorkDoc, data.ref.requestId, null), note = work.notes?.find(note => note.admission === entry.id);
+      if (!isDeepStrictEqual(work.ref, data.ref) || !note || !isDeepStrictEqual(data, { ref: work.ref, requestId: note.requestId, content: note.content, source: note.source })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据缺少唯一说明关系，已停止恢复；请保留档案。");
+    }
+    cursor = page.next;
+  } while (cursor);
 }
 
 export async function requestPersonalWorkCancel(tx: Tx, ref: PersonalWorkRef) {
@@ -642,10 +671,15 @@ export async function requirePersonalWorkRequest(tx: Tx, conversationId: Convers
   }
   if (agent.closed || !agent.work || (await facts(tx, agent.work)).cancelRequested) throw new PersonalError("work_inactive", "子 Agent 没有可执行的活动工作，已停止模型请求；请查询工作状态。");
   const work = await facts(tx, agent.work);
+  if (await hasUnansweredWorkInput(tx, agent.work)) throw new PersonalError("work_inactive", "子 Agent 的原输入未完成，已停止后续模型请求和操作；请查询原工作。");
   if (work.delegation) await requirePersonalDelegationReady(tx, work.delegation, false, excludeOperation);
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，后台工作已停止模型请求；请向拥有者报告并查询原工作。");
-  if (work.source) { await personalSource(tx, work.source.requestId, { active: true }); await requirePersonalServiceSourceReady(tx, work.source.requestId, excludeOperation); }
-  for (const note of work.notes ?? []) if (note.source.kind === "input") await requirePersonalServiceSourceReady(tx, note.source.requestId, excludeOperation);
+  const sources = [work.source, work.instructionSource, ...(work.notes ?? []).flatMap(note => note.source.kind === "input" ? [note.source] : [])];
+  for (const source of sources) if (source) {
+    await personalSource(tx, source.requestId, { active: true });
+    if (await personalCoordinationCutoff(tx, source.requestId) ?? await personalCoordinationCutoff(tx, `submission:${source.submissionId}`)) throw new PersonalError("work_source_inactive", "原工作输入已因协调超限停止，未执行后续操作；请查询原工作与取消登记。");
+    await requirePersonalServiceSourceReady(tx, source.requestId, excludeOperation);
+  }
   const task = await tx.task(agent.work.taskId);
   if (!task || task.state.status === "terminal" || task.state.status === "completing" || task.abortRequested) throw new PersonalError("work_inactive", "子 Agent 的工作已停止或无法核实，已停止模型请求；请查询原工作。");
 }

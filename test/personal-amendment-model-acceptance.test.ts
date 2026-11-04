@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { ROOT_CONVERSATION_ID, type EntryId } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, type Cursor, type EntryId } from "@earendil-works/pi-durable";
 import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { parsePersonalModel, personalProvider, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
@@ -17,6 +17,7 @@ import { PersonalWorkDoc, personalWorkResult } from "../apps/ruukoto/src/persona
 import { PersonalDelegationDoc, listPersonalDelegations } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalTimeline } from "../apps/ruukoto/src/personal-history.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { PERSONAL_MAIN_TOOL_ROUNDS } from "../apps/ruukoto/src/personal-coordination.ts";
 import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -47,14 +48,14 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
   const identity = fs.statSync(workspace);
   const config = parsePersonalModel({ api: selected.model.api ?? selected.provider.api, baseUrl: selected.provider.baseUrl, modelId: selected.model.id, apiKeyEnv: credentialName, contextWindow: selected.model.contextWindow ?? 128000, maxTokens: Math.min(selected.model.maxTokens ?? 4096, 4096), imageInput: selected.model.input?.includes("image") ?? false });
   const base = personalProvider(config);
-  let requests = 0, phase = "startup", p: PersonalHarness | undefined, lastRequest: string | undefined;
+  let requests = 0, phase = "startup", p: PersonalHarness | undefined, lastRequest: string | undefined, lastAnswer: string | undefined;
   const provider = { ...base, streamSimple: (...args: Parameters<typeof base.streamSimple>) => { if (++requests > 32) throw new PersonalError("acceptance_request_limit", "Real-model acceptance exceeded its bounded request budget."); return base.streamSimple(...args); } };
   const deadline = Date.now() + 330_000;
   const wait = async (check: () => boolean | Promise<boolean>) => {
     while (!await check()) { assert.ok(Date.now() < deadline, `Real-model acceptance did not finish during ${phase}`); await delay(50); }
   };
   const operations = () => p!.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))) as PersonalToolOperation[], context);
-  const answer = async (input: string, requestId: string) => { lastRequest = requestId; return p!.answer(input, requestId); };
+  const answer = async (input: string, requestId: string) => { lastRequest = requestId; lastAnswer = undefined; return lastAnswer = await p!.answer(input, requestId); };
   const diagnostic = async () => {
     if (!p) return { requests };
     const inputs = await p.harness.commit(async tx => lastRequest ? tx.submissionByRequest(ROOT_CONVERSATION_ID, lastRequest) : undefined, context);
@@ -64,11 +65,12 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
     const members = [];
     for (const member of value?.members ?? []) {
       const task = await p.harness.getTask(member.taskId, context), result = await p.harness.commit(tx => personalWorkResult(tx, member), context);
-      members.push({ work: member.taskId, state: task?.state.status, outcome: task?.state.status === "terminal" ? task.state.outcome.status : undefined, answerPresent: !!result.text });
+      members.push({ work: member.taskId, state: task?.state.status, outcome: task?.state.status === "terminal" ? task.state.outcome.status : undefined, answerPresent: !!result.text, notes: result.notes });
     }
     const entries = await p.harness.commit(tx => tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256), context);
-    const calls = entries.items.flatMap(entry => entry.model?.flatMap(message => message.role === "assistant" ? message.content.flatMap(part => part.type === "toolCall" ? [{ tool: part.name, action: part.arguments.action }] : []) : []) ?? []);
-    return { requests, input: inputs?.status, members, calls, operations: (await operations()).map(value => ({ kind: value.kind, approval: value.approval, effect: value.effect, code: value.code, started: value.started })) };
+    const calls = entries.items.flatMap(entry => entry.model?.flatMap(message => message.role === "assistant" ? message.content.flatMap(part => part.type === "toolCall" ? [{ tool: part.name, arguments: part.arguments }] : []) : []) ?? []);
+    const results = entries.items.flatMap(entry => entry.model?.flatMap(message => message.role === "toolResult" ? [{ tool: message.toolName, isError: message.isError, text: message.content.filter(part => part.type === "text").map(part => part.text).join("") }] : []) ?? []);
+    return { requests, input: inputs?.status, answer: lastAnswer, members, calls, results, operations: (await operations()).map(value => ({ operation: value.operation, kind: value.kind, approval: value.approval, effect: value.effect, code: value.code, started: value.started })) };
   };
   const requestEvidence = async () => {
     const page = await p!.harness.commit(tx => tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256), context);
@@ -106,6 +108,7 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
     assert.equal(displayed.approval, "pending"); assert.equal(displayed.started, false);
     phase = "amendment";
     await answer(`修改刚才那项工作的要求：不要写原文件，改把完整文本 ${JSON.stringify(currentContent)} 写入已有文件 ${replacement}。只执行更新后的这一次写入，完成后报告。`, "model-amendment");
+    assert.ok((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))?.notes?.some(note => note.source.kind === "input" && note.source.requestId === "model-amendment"), "The model must append the amended requirements to the original work before waiting for a new operation");
     let current: PersonalToolOperation | undefined;
     await wait(async () => { current = (await operations()).find(value => value.operation !== original!.operation && value.kind === "write_file" && value.params.path === replacement); return current?.approval === "pending"; });
     assert.ok(current?.origin.work);
@@ -129,6 +132,29 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
     const childEvidence = childEntries.items.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence);
     const freshRequest = childEvidence.find(value => value.references?.instructions?.notes.some(note => current!.instructions!.snapshot.notes.some(captured => captured.admission === note.admission)));
     assert.ok(freshRequest && JSON.stringify(freshRequest.input).includes(currentContent));
+    phase = "four-round canonical query";
+    const auditRequest = "model-four-round-audit", beforeAudit = await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context);
+    const audit = await answer(`请审核刚才已完成的写入。按下面顺序分别执行四个工具批次，每批只调用一次 background_work，读取上一批结果后再进行下一批：1. delegations，找到刚才写入所属委托；2. progress，使用第1批返回的 delegation；3. result，使用第2批返回的 work；4. operation，使用第3批工具事实中的 operation。只查询已有记录，不调用 append、delegate、report、redisplay 或任何外部操作，不改要求。四批结束后根据第4批的原操作事实只返回 JSON 对象 {"path":实际目标路径,"content":完整写入文本,"started":是否开始执行,"effect":实际效果}，不要凭回忆回答。`, auditRequest);
+    const auditInput = await p.harness.commit(tx => tx.submissionByRequest(ROOT_CONVERSATION_ID, auditRequest), context);
+    assert.ok(auditInput?.entry && auditInput.type === "input" && auditInput.status === "done");
+    const auditEntries = (await p.main.entries({ minEntryId: auditInput.entry, maxEntryId: auditInput.answer, order: "ascending" }, 256, undefined, context)).items;
+    const auditBatches = auditEntries.filter(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall")));
+    assert.equal(auditBatches.length, PERSONAL_MAIN_TOOL_ROUNDS);
+    const auditCalls = auditBatches.flatMap(entry => entry.model!.flatMap(message => message.role === "assistant" ? message.content.flatMap(part => part.type === "toolCall" ? [part] : []) : []));
+    assert.equal(auditCalls.length, PERSONAL_MAIN_TOOL_ROUNDS);
+    assert.ok(auditCalls.every(call => call.name === "background_work"));
+    assert.deepEqual(auditCalls.map(call => call.arguments.action), ["delegations", "progress", "result", "operation"]);
+    assert.equal(auditCalls[1].arguments.delegation, group.entryId); assert.equal(auditCalls[2].arguments.work, ref.taskId); assert.equal(auditCalls[3].arguments.operation, current.operation);
+    const auditEvidence = auditEntries.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence);
+    const auditRequests = auditEvidence.filter(value => value.payload === undefined);
+    assert.equal(auditRequests.length, PERSONAL_MAIN_TOOL_ROUNDS + 1);
+    const finalRequest = auditRequests.at(-1)!, input = finalRequest.input as { messages: { role: string }[] };
+    assert.deepEqual(getCurrentTools(input.messages), []);
+    const finalPayload = auditEvidence.find(value => value.requestId === finalRequest.requestId && value.payload !== undefined)?.payload as { tools?: unknown[] } | undefined;
+    assert.ok(finalPayload); assert.deepEqual(finalPayload.tools ?? [], []);
+    assert.deepEqual(JSON.parse(audit.trim().replace(/^```(?:json)?\s*|\s*```$/g, "")), { path: replacement, content: currentContent, started: true, effect: "returned" });
+    assert.deepEqual((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))?.notes, beforeAudit?.notes);
+    assert.equal((await operations()).filter(value => value.kind === "write_file" && value.started).length, 1);
     phase = "terminal continuation";
     const terminal = await p.harness.getTask(ref.taskId, context);
     await answer("追加一个新的要求，继续刚才那项工作：请交给刚才负责写入的后台助手，基于已完成的结果列出两点后续建议，再报告给我。不要由主助手直接回答，不再读写文件、不使用任何外部操作，只处理这项新要求。", "model-continuation");
@@ -142,13 +168,59 @@ test("Personal real model: status and redisplay preserve a held approval, amendm
     const currentReport = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
     await p.harness.waitForTask(currentReport.taskId, context);
     assert.equal((await operations()).filter(value => value.kind === "write_file" && value.started).length, 1);
+    phase = "mixed arrangement and query";
+    const mixedRequest = "model-mixed-query", beforeMixed = await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context);
+    const mixed = await answer(`请在同一个工具批次做两件事：用 background_work 的 delegate 新建一项独立后台工作，只为刚才的文字整理列出两点编辑建议，不读写文件或使用任何外部能力；同时用 background_work 的 operation 查询刚才实际执行的 current.txt 写入操作。只发这一批两次调用，成功后不再调用工具，主助手根据原操作查询事实只返回 JSON 对象 {"content":完整写入文本,"effect":实际效果}，不附带登记说明或其他文字。后台建议另外汇报，保持已有写入要求不变，不使用 append。`, mixedRequest);
+    const mixedInput = await p.harness.commit(tx => tx.submissionByRequest(ROOT_CONVERSATION_ID, mixedRequest), context);
+    assert.ok(mixedInput?.entry && mixedInput.type === "input" && mixedInput.status === "done");
+    const mixedEntries = (await p.main.entries({ minEntryId: mixedInput.entry, maxEntryId: mixedInput.answer, order: "ascending" }, 256, undefined, context)).items;
+    const mixedBatches = mixedEntries.filter(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall")));
+    assert.equal(mixedBatches.length, 1);
+    const mixedCalls = mixedBatches[0].model?.flatMap(message => message.role === "assistant" ? message.content.flatMap(part => part.type === "toolCall" ? [part] : []) : []) ?? [];
+    assert.equal(mixedCalls.length, 2); assert.ok(mixedCalls.every(call => call.name === "background_work"));
+    assert.deepEqual(mixedCalls.map(call => call.arguments.action).sort(), ["delegate", "operation"]);
+    assert.equal(mixedCalls.find(call => call.arguments.action === "operation")!.arguments.operation, current.operation);
+    const mixedResults = mixedEntries.flatMap(entry => entry.model?.filter(message => message.role === "toolResult") ?? []);
+    for (const call of mixedCalls) assert.equal(mixedResults.find(result => result.toolCallId === call.id)?.isError, false, "Both original mixed calls must succeed");
+    assert.deepEqual(JSON.parse(mixed.trim().replace(/^```(?:json)?\s*|\s*```$/g, "")), { content: currentContent, effect: "returned" });
+    assert.deepEqual((await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))?.notes, beforeMixed?.notes);
+    const mixedGroup = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items.find(item => item.ref.entryId === mixedInput.entry)!;
+    assert.ok(mixedGroup);
+    const mixedWork = (await p.harness.snapshot(PersonalDelegationDoc, String(mixedGroup.ref.entryId), context))!.delegation!.members[0];
+    await p.harness.waitForTask(mixedWork.taskId, context);
+    const mixedReport = (await p.harness.snapshot(PersonalDelegationDoc, String(mixedGroup.ref.entryId), context))!.delegation!.report!;
+    await p.harness.waitForTask(mixedReport.taskId, context);
+    assert.ok(!(await operations()).some(value => value.origin.work?.ref.taskId === mixedWork.taskId));
+    assert.equal((await operations()).filter(value => value.kind === "write_file" && value.started).length, 1);
     const evidence = await requestEvidence();
     assert.ok(evidence.every(value => !JSON.stringify(value).includes(credential)));
     const firstOwner = evidence.find(value => value.references?.conversationId === ROOT_CONVERSATION_ID)!;
     const lastOwner = evidence.findLast(value => value.references?.conversationId === ROOT_CONVERSATION_ID)!;
-    process.stdout.write(JSON.stringify({ status: "passed", node: process.version, platform: process.platform, model: `${selected.id}/${selected.model.id}`, sourceSha256: createHash("sha256").update(source).digest("hex"), requests, work: ref.taskId, operation: current.operation, publication: published[0].entry as EntryId, continuation: continued.taskId, estimates: { firstOwner: metrics(firstOwner), lastOwner: metrics(lastOwner), child: metrics(freshRequest) } }) + "\n");
-  } catch {
-    process.stdout.write(JSON.stringify({ status: "failed", phase, diagnostics: await diagnostic() }) + "\n");
-    throw new Error(`Personal real-model acceptance failed during ${phase}; private model configuration and request bodies are not printed.`);
+    process.stdout.write(JSON.stringify({ status: "passed", node: process.version, platform: process.platform, model: `${selected.id}/${selected.model.id}`, sourceSha256: createHash("sha256").update(source).digest("hex"), requests, work: ref.taskId, operation: current.operation, publication: published[0].entry as EntryId, continuation: continued.taskId, fourRoundAudit: true, mixedQuery: true, estimates: { firstOwner: metrics(firstOwner), lastOwner: metrics(lastOwner), child: metrics(freshRequest) } }) + "\n");
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ status: "failed", phase, reason: error instanceof Error ? error.message.replaceAll(credential, "[redacted]") : "Acceptance failed", diagnostics: await diagnostic() }) + "\n");
+    throw new Error(`Personal real-model acceptance failed during ${phase}; private model configuration is not printed.`);
+  } finally {
+    if (p) try {
+      const evidenceDirectory = fs.mkdtempSync(path.join(tmpdir(), "ruukoto-personal-model-evidence-")), file = path.join(evidenceDirectory, "entries.jsonl");
+      fs.writeFileSync(file, "", { mode: 0o600 });
+      let conversationCursor: Cursor | undefined;
+      do {
+        const conversations = await p.harness.commit(tx => tx.scanConversations({}, 256, conversationCursor), context);
+        for (const conversation of conversations.items) {
+          let cursor: Cursor | undefined;
+          do {
+            const page = await p.harness.commit(tx => tx.scanEntries({ conversationId: conversation.id, order: "ascending" }, 256, cursor), context);
+            if (page.items.length) fs.appendFileSync(file, page.items.map(entry => JSON.stringify(entry).replaceAll(credential, "[redacted]")).join("\n") + "\n");
+            cursor = page.next;
+          } while (cursor);
+        }
+        conversationCursor = conversations.next;
+      } while (conversationCursor);
+      process.stdout.write(JSON.stringify({ evidenceDirectory, phase, requests }) + "\n");
+    } catch (error) {
+      // Supplemental evidence must not replace the acceptance failure it is diagnosing.
+      process.stderr.write(`[ruukoto:personal-model-evidence] Capture unavailable: ${error instanceof Error ? error.message.replaceAll(credential, "[redacted]") : "unknown capture failure"}.\n`);
+    }
   }
 });

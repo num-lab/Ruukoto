@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
@@ -203,8 +204,8 @@ test("交接门禁：让出后轮崩溃重开不重复登记、来源不失效�
   const requestId = await p.harness.commit(async tx => { const input = (await tx.task(registered.taskId as TaskId))?.input; return input && typeof input === "object" && !Array.isArray(input) ? String(input.requestId) : ""; }, context);
   assert.equal(requestId.startsWith("personal-tool:"), true);
   assert.equal((await p.work.list()).length, 1);
-  // 真未解释空回答：模型文本为空且无让出事实，识别不声称为交接。
-  assert.equal(await p.answer("空", "empty"), "");
+  // An empty model answer without persisted handoff facts remains an error.
+  await assert.rejects(p.answer("空", "empty"), error => error instanceof PersonalError && error.code === "answer_missing");
   await p.close();
   const restored = await f.open();
   assert.equal((await restored.work.list()).length, 1);

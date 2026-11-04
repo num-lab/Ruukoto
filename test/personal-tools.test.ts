@@ -33,7 +33,7 @@ import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegra
 import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { readPersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
-import { openPersonalFileIo, personalFileIoJobs, type PersonalFileIo, type PersonalFileJobMeta } from "../apps/ruukoto/src/personal-file-io.ts";
+import { openPersonalFileIo, personalFileIoJobs, type PersonalFileIo, type PersonalFileJobMeta, type PersonalFileJobContext, type PersonalFileIoEvent } from "../apps/ruukoto/src/personal-file-io.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -649,6 +649,80 @@ test("durable 文件写入：已批准执行遇到容量拒绝保留批准且不
   await invoked(p, invoke("write_file", { path: inside, content: "改" }), "cap-in-2", "tools-src");
   await until(() => fs.readFileSync(inside, "utf8") === "改");
   await answer.catch(() => undefined); await bAnswer.catch(() => undefined); await inAnswer.catch(() => undefined);
+});
+
+test("durable file invalidation: admitted and running revalidation retain truthful stopping", { timeout: 120_000 }, async t => {
+  for (const action of ["revocation", "supersession"] as const) for (const window of ["admission", "worker"] as const) await t.test(`${action} during ${window}`, { timeout: 30_000 }, async t => {
+    const f = await fixture(t);
+    fs.mkdirSync(f.directory);
+    const target = path.join(f.outside, "target.txt"), fifo = path.join(f.root, "gate"), marker = path.join(f.root, "entered");
+    fs.writeFileSync(target, "original"); execFileSync("mkfifo", [fifo]);
+    const writer = fs.openSync(fifo, fs.constants.O_RDWR);
+    const names = ["RK_FILE_IO_HOLD", "RK_FILE_IO_FIFO", "RK_FILE_IO_MARKER", "RK_FILE_IO_PHASE", "RK_FILE_IO_BUNDLE"] as const, previous = names.map(name => process.env[name]);
+    process.env.RK_FILE_IO_HOLD = target; process.env.RK_FILE_IO_FIFO = fifo; process.env.RK_FILE_IO_MARKER = marker; process.env.RK_FILE_IO_PHASE = "revalidate";
+    process.env.RK_FILE_IO_BUNDLE = new URL("../worker/personal-file-worker.mjs", import.meta.url).href;
+    let releaseAdmission!: () => void, admitted = false;
+    const admissionGate = new Promise<void>(resolve => releaseAdmission = resolve);
+    const probes: Array<[Worker, PersonalFileJobMeta]> = [];
+    const inner = openPersonalFileIo({ profile: f.directory, script: fileURLToPath(new URL("./helpers/personal-file-io-fifo-worker.mjs", import.meta.url)), workerProbe: (worker, job) => probes.push([worker, job]) });
+    const wrap = (ctx?: PersonalFileJobContext): PersonalFileJobContext | undefined => ctx?.record === undefined ? ctx : { ...ctx, record: async (event: PersonalFileIoEvent) => {
+      await ctx.record!(event);
+      if (window === "admission" && ctx.phase === "revalidate" && event.kind === "admit") { admitted = true; await admissionGate; }
+    } };
+    const io: PersonalFileIo = { prepare: (input, ctx) => inner.prepare(input, wrap(ctx)), execute: (request, ctx) => inner.execute(request, wrap(ctx)), reserve: (request, ctx) => inner.reserve(request, wrap(ctx)), close: () => inner.close() };
+    let released = false;
+    const release = () => { releaseAdmission(); if (!released) { released = true; fs.writeSync(writer, Buffer.alloc(16)); fs.closeSync(writer); } };
+    t.after(async () => {
+      release(); await inner.close();
+      names.forEach((name, index) => { const value = previous[index]; if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+    });
+    const p = await f.open({ fileIo: io });
+    try {
+      await mode(p, "confirm");
+      await p.harness.commit(tx => toolGrant(tx, f.directory, f.outside), context);
+      await p.answer("Update the target file", "tools-src");
+      const work = await p.work.delegate({ requestId: "invalidated-work", sourceRequestId: "tools-src", content: invoke("write_file", { path: target, content: "replacement" }) });
+      await until(async () => (await operations(p)).some(value => value.approval === "pending"));
+      const pending = (await operations(p))[0];
+      await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
+      const approved = await record(p, pending.operation);
+      await until(() => window === "admission" ? admitted : fs.existsSync(marker));
+      const job = (await p.harness.commit(tx => personalFileIoJobs(tx), context)).find(job => job.phase === "revalidate")!;
+      assert.equal(job.starting !== undefined, window === "worker");
+      if (action === "revocation") await p.harness.commit(async tx => toolRevoke(tx, (await tx.doc(PersonalToolsDoc)).grants[0].id), context);
+      else assert.equal((await p.work.append(work, { requestId: "amendment", sourceRequestId: "tools-src", content: "Keep the target unchanged; report the canceled write without any external operation." })).accepted, true);
+      const invalidated = await record(p, pending.operation);
+      assert.equal(invalidated.started, false); assert.equal(invalidated.startEntry, undefined); assert.equal(invalidated.directoryClaim, undefined);
+      assert.equal(invalidated.effect, "not_executed"); assert.equal(invalidated.code, action === "revocation" ? "tool_permission_changed" : "tool_requirements_changed");
+      assert.equal(invalidated.approval, "approved"); assert.equal(invalidated.decisionEntry, approved.decisionEntry); assert.notEqual(invalidated.observation, undefined);
+      assert.equal(invalidated.stopped, false);
+      assert.notEqual(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "tools-src"), context), undefined);
+      releaseAdmission(); await until(() => fs.existsSync(marker));
+      assert.equal((await record(p, pending.operation)).stopped, false);
+      const held = (await p.harness.commit(tx => personalFileIoJobs(tx), context)).find(value => value.id === job.id)!;
+      assert.notEqual(held.dispatch, undefined); assert.equal(held.result, undefined); assert.equal(held.exit, undefined);
+      assert.equal((await p.harness.commit(tx => toolList(tx), context)).items[0].stopped, false);
+      assert.equal((await p.harness.commit(tx => toolList(tx), context)).items[0].canDecide, false);
+      assert.notEqual(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "tools-src"), context), undefined);
+      assert.notEqual((await p.work.status(work)).task.state.status, "terminal");
+      assert.equal((await p.work.list()).find(agent => agent.id === work.agentId)?.work?.taskId, work.taskId);
+      assert.equal(fs.readFileSync(target, "utf8"), "original"); assert.equal(probes.some(([, job]) => job.phase === "execute"), false);
+      release();
+      await until(async () => (await record(p, pending.operation)).stopped);
+      const stopped = await record(p, pending.operation);
+      assert.equal(stopped.observation, invalidated.observation); assert.equal(stopped.effect, "not_executed"); assert.equal(stopped.code, invalidated.code);
+      assert.equal(stopped.decisionEntry, approved.decisionEntry); assert.equal(stopped.stopEvidence?.fileJob, job.id); assert.notEqual(stopped.stopEvidence?.fileEvent, undefined);
+      await p.harness.waitForTask(work.taskId, context);
+      assert.equal((await p.work.status(work)).stopVerified, true);
+      await until(() => probes.every(([worker]) => worker.threadId < 0));
+      assert.equal(probes.some(([, job]) => job.phase === "execute"), false); assert.equal(fs.readFileSync(target, "utf8"), "original");
+      await p.close();
+      const reopened = await f.open();
+      assert.deepEqual(await record(reopened, pending.operation), stopped);
+      assert.equal((await reopened.work.status(work)).stopVerified, true);
+      await reopened.close();
+    } finally { release(); await until(() => probes.every(([worker]) => worker.threadId < 0)); await p.close(); }
+  });
 });
 
 const held = () => { let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); return { gate, release }; };

@@ -9,7 +9,8 @@ const bundle = process.env.RK_FILE_IO_BUNDLE;
 const phase = process.env.RK_FILE_IO_PHASE;
 parentPort.once("message", async job => {
   if (hold && marker && job?.input?.path === hold && (phase === undefined || job?.phase === phase)) {
-    fs.writeFileSync(`${marker}.${job.id}`, "entered");
+    const thread = process.platform === "linux" ? fs.readlinkSync("/proc/thread-self").split("/").at(-1) : "entered";
+    fs.writeFileSync(`${marker}.${job.id}`, thread);
     fs.writeFileSync(marker, "entered");
     if (stallMs > 0) await delay(stallMs);
     else if (fifo) {

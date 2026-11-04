@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -183,6 +184,19 @@ test("文件工作线程：四个真实持住任务占满容量，第五个拒�
   const heldJobs = [0, 1, 2, 3].map(() => io.prepare({ path: f.held, access: "read", protectedRoots: [] }).then(() => "done", error => String((error as PersonalError).code)));
   t.after(async () => { f.release(4); await Promise.allSettled(heldJobs); await io.close().catch(() => undefined); });
   await until(() => workers.size === 4 && [...workers.keys()].every(id => fs.existsSync(`${f.marker}.${id}`)));
+  // A pre-read marker cannot prove a worker has entered blocking OS I/O.
+  if (process.platform === "linux") {
+    const tids = [...workers.keys()].map(id => fs.readFileSync(`${f.marker}.${id}`, "utf8").trim());
+    assert.equal(new Set(tids).size, 4); assert.ok(tids.every(id => /^[1-9][0-9]*$/.test(id)));
+    await until(() => tids.every(id => ["pipe_read", "anon_pipe_read"].includes(fs.readFileSync(`/proc/self/task/${id}/wchan`, "utf8").trim())), 10_000);
+  } else {
+    assert.equal(process.platform, "darwin", "File-worker OS blocking must be verified on a supported platform");
+    const sample = path.join(f.root, "blocked-threads.txt");
+    await until(async () => {
+      await promisify(execFile)("/usr/bin/sample", [String(process.pid), "1", "10", "-file", sample], { timeout: 5_000, maxBuffer: 1024 * 1024 });
+      return fs.readFileSync(sample, "utf8").split(/^    \d+ Thread_/m).filter(thread => thread.includes("node::worker::Worker::StartThread") && thread.includes("node::fs::Read(") && thread.includes("uv_fs_read") && thread.includes("read  (in libsystem_kernel.dylib)")).length === 4;
+    }, 10_000);
+  }
   await assert.rejects(io.prepare({ path: f.other, access: "read", protectedRoots: [] }), code("file_io_capacity_unavailable"));
   const fresh = openPersonalFileIo(); t.after(() => fresh.close().catch(() => undefined));
   await assert.rejects(fresh.prepare({ path: f.other, access: "read", protectedRoots: [] }), code("file_io_capacity_unavailable"));

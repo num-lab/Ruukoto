@@ -70,7 +70,8 @@ const hostIdentity = () => host ??= { pid: process.pid, startIdentity: processId
 const conversationOf = (job: PersonalFileJobMeta): ConversationId => job.origin?.conversationId ?? ROOT_CONVERSATION_ID;
 
 export function fileIoJobStopped(job: PersonalFileJobRecord): boolean { return !!(job.result || job.exit || job.hostEnded || job.released); }
-export function fileIoJobUnresolved(job: PersonalFileJobRecord): boolean { return !!job.starting && !fileIoJobStopped(job); }
+// Note: See .agents/notes/implemented/bug-fix/2026-11-04-personal-foundation-integration.md
+export function fileIoJobUnresolved(job: PersonalFileJobRecord): boolean { return !fileIoJobStopped(job); }
 export function fileIoJobNotDispatched(job: PersonalFileJobRecord): boolean { return !!job.noDispatch || !!job.released || !job.dispatch && !!job.hostEnded; }
 export function personalFileIoAttemptError(job: PersonalFileJobRecord): PersonalFileIoError {
   const code = job.settle && Object.hasOwn(MESSAGES, job.settle.code) ? job.settle.code : fileIoJobNotDispatched(job) ? "file_io_canceled" : "file_io_worker_lost";

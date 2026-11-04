@@ -100,7 +100,7 @@ export async function personalCoordinationCutoff(tx: Tx, requestId: string | und
 // actual cancellation registrations, so intent-only and terminal-skipped targets never read as done.
 export function personalCoordinationCutoffText(cutoff: PersonalCoordinationCutoff): string {
   if (cutoff.cancelled === undefined) return "本轮协调超出批次预算已停止；取消登记尚未完成，停止与效果以原记录为准；请从后台工作查询状态。";
-  return cutoff.cancelled.length ? `本轮协调超出批次预算已停止；已登记 ${cutoff.cancelled.length} 项工作的取消请求，停止与效果以原记录为准；请从后台工作查询状态。` : "本轮协调超出批次预算已停止；没有需要取消的工作；请重新提交请求。";
+  return cutoff.cancelled.length ? `本轮协调超出批次预算已停止；已登记 ${cutoff.cancelled.length} 项工作的取消请求，停止与效果以原记录为准；请从后台工作查询状态。` : "本轮协调超出批次预算已停止；没有新增取消登记，已完成的结果与效果保留；请先查询原工作和输入状态，再决定下一步。";
 }
 
 /** Admission of one main input, bound to the coordinator's in-commit barrier: a `held` that is true

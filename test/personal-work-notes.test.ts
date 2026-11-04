@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
-import { AgentDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type SubmissionId } from "@earendil-works/pi-durable";
+import { AgentDoc, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type SubmissionId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
@@ -16,6 +16,9 @@ import { personalControl, startPersonalServer } from "../apps/ruukoto/src/person
 import { checkPersonalInput, managePersonalWorks, pendingPersonalInputs, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { appendPersonalWork, PersonalAgentsDoc, PersonalWorkDoc, PersonalWorkTask, personalWorkNoteSource, personalWorkResult, verifyPersonalWorkNotes, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
+import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
+import { toolOperations } from "../apps/ruukoto/src/personal-tools.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -143,6 +146,58 @@ test("追加说明：失败运行下的已接入、排队与未下发说明按�
   assert.deepEqual(result.notes?.map(note => [note.requestId, note.state]), [["完成轮", "done"], ["排队轮", "unanswered"], ["收尾轮", "not_submitted"]]);
   await p.close(); await f.open();
   assert.equal(f.model.calls.filter(child).length, 2);
+});
+
+test("work notes: an unanswered child input fences a late instruction before native admission or writeback", { timeout: 30_000 }, async t => {
+  for (const window of ["before-admission", "before-writeback"] as const) await t.test(window, async t => {
+    const initial = gate(t), admitting = gate(t), dispatch = gate(t), written = gate(t);
+    let target!: PersonalWorkRef;
+    const workspace = fs.mkdtempSync("/tmp/rk-note-failed-write-");
+    t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+    const file = path.join(workspace, "result.txt"); fs.writeFileSync(file, "original");
+    const identity = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "note-failure", workspace, identity: { dev: identity.dev, ino: identity.ino }, credentials: [] });
+    const f = await fixture(t, async request => {
+      if (!child(request)) return { kind: "text", text: "owner accepted" };
+      if (request.messages.at(-1)?.content === "初始分析") { await initial.wait; return { kind: "text", text: "initial answer" }; }
+      if (request.messages.at(-1)?.content === "late write") return { kind: "tool_calls", calls: [{ id: "late-write", name: "write_file", arguments: { path: file, content: "forbidden write" } }] };
+      written.release(); return { kind: "text", text: "write complete" };
+    });
+    const p = await f.open({ tools });
+    await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context);
+    const original = PersonalWorkTask.definition.phases.run;
+    t.mock.method(PersonalWorkTask.definition.phases, "run", async (...[task, runtime, context]: Parameters<typeof original>) => original(task, { ...runtime, conversation: async (id, context) => {
+      const conversation = await runtime.conversation(id, context); if (!conversation) return conversation;
+      return { ...conversation, submit: async (...args: Parameters<typeof conversation.submit>) => {
+        if (!args[0].requestId?.includes(":note:")) {
+          const submission = await conversation.submit(...args);
+          if (window === "before-writeback") { admitting.release(); await dispatch.wait; }
+          return submission;
+        }
+        admitting.release();
+        if (window === "before-admission") await dispatch.wait;
+        const submission = await conversation.submit(...args);
+        await Promise.race([written.wait, delay(1500)]);
+        return submission;
+      } };
+    } }, context));
+    target = await delegate(p); await until(() => f.model.calls.some(child));
+    if (window === "before-admission") {
+      await p.work.append(target, note("late", "late write")); await admitting.wait;
+    } else await admitting.wait;
+    const live = (await p.harness.snapshot(LiveDoc, target.agentId, context))!;
+    await p.harness.abortTask(live.run!.taskId, context);
+    await until(async () => (await p.harness.commit(tx => tx.submissionByRequest(target.agentId, `personal-work:${target.taskId}`), context))?.status === "unanswered");
+    if (window === "before-writeback") await p.work.append(target, note("late", "late write"));
+    dispatch.release();
+    await p.harness.waitForTask(target.taskId, context);
+    assert.equal(fs.readFileSync(file, "utf8"), "original");
+    assert.equal((await p.harness.commit(tx => toolOperations(tx), context)).length, 0);
+    assert.equal(f.model.calls.filter(child).length, 1);
+    const result = await p.harness.commit(tx => personalWorkResult(tx, target), context);
+    assert.equal(result.state, "failed");
+    assert.ok(result.notes?.every(note => note.state === "unanswered" || note.state === "not_submitted"));
+    initial.release();
+  });
 });
 
 test("追加说明：两项独立工作不交叉路由说明", async t => {
@@ -330,5 +385,25 @@ test("追加说明：缺扩展、原来源或原生输入引用在恢复前拒�
       else { const saved = (await tx.doc(PersonalWorkDoc, ref.requestId, null)).notes![0]; if (mutation === "source") { assert.equal(saved.source.kind, "input"); if (saved.source.kind === "input") saved.source.requestId = "missing"; } else if (mutation === "submission") saved.submissionId = 999999 as SubmissionId; else saved.requestId = "personal-note-tool:999"; }
     }, context); await p.close(); const count = f.model.calls.length;
     await assert.rejects(f.open(), code("work_note_invalid")); assert.equal(f.model.calls.length, count);
+  });
+});
+
+test("work notes: immutable admissions cannot lose their pointer, membership or order on reopen", { timeout: 30_000 }, async t => {
+  for (const damage of ["pointer", "notes", "order"] as const) await t.test(damage, async t => {
+    const initial = gate(t), f = await fixture(t, async request => { if (child(request) && request.messages.at(-1)?.content === "初始分析") await initial.wait; return { kind: "text", text: "answer" }; });
+    const p = await f.open(), ref = await delegate(p); await until(() => f.model.calls.some(child));
+    await p.work.append(ref, note("first")); await p.work.append(ref, note("second"));
+    initial.release(); await p.harness.waitForTask(ref.taskId, context);
+    await p.harness.commit(async tx => {
+      const work = await tx.doc(PersonalWorkDoc, ref.requestId, null);
+      if (damage === "pointer") delete work.notes![0].admission;
+      else if (damage === "notes") delete work.notes;
+      else work.notes!.reverse();
+    }, context);
+    await p.close();
+    const calls = f.model.calls.length;
+    await assert.rejects(f.open(), code("work_note_invalid"));
+    assert.equal(f.model.calls.length, calls);
+    initial.release();
   });
 });

@@ -136,6 +136,7 @@ export async function toolGrant(tx: Tx, profile: string, target: string) {
   const entry = await tx.appendEntry(ToolGrant, ROOT_CONVERSATION_ID, { data });
   doc.grants.push({ ...data, entry: entry.id }); doc.grantVersion++;
 }
+// Note: See .agents/notes/implemented/bug-fix/2026-11-04-personal-foundation-integration.md
 export async function toolRevoke(tx: Tx, id: string) {
   const doc = await tx.doc(PersonalToolsDoc), grant = doc.grants.find(value => value.id === id);
   if (!grant || grant.revoked) throw new PersonalError("tool_grant_missing", "原资料授权已撤销或不存在，请刷新授权列表。");
@@ -143,8 +144,9 @@ export async function toolRevoke(tx: Tx, id: string) {
   grant.entry = (await tx.appendEntry(ToolGrant, ROOT_CONVERSATION_ID, { data: { id, path: grant.path, dev: grant.dev, ino: grant.ino, revoked: true, version: grant.version } })).id;
   doc.grantVersion++;
   for (const value of await toolOperations(tx)) if (!value.started && !value.observation && !(value.kind === "web_search" && value.searchConfig)) {
-    value.code = "tool_permission_changed";
-    value.observation = (await tx.appendEntry(ToolObservation, value.origin.conversationId, { data: { operation: value.operation, admission: value.admission, effect: "not_executed", code: value.code, stopped: true } })).id;
+    value.code = "tool_permission_changed"; value.effect = "not_executed";
+    value.stopped = !(await personalFileIoJobs(tx)).some(job => job.operation === value.operation && fileIoJobUnresolved(job));
+    value.observation = (await tx.appendEntry(ToolObservation, value.origin.conversationId, { data: { operation: value.operation, admission: value.admission, effect: value.effect, code: value.code, stopped: value.stopped } })).id;
   }
 }
 const contains = (root: string, file: string) => file === root || file.startsWith(root.endsWith(path.sep) ? root : root + path.sep);

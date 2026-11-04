@@ -6,12 +6,13 @@ import { PersonalError } from "./personal-error.ts";
 import { telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity } from "./personal-telegram-records.ts";
 import { personalServiceSourceBlocker, requirePersonalServiceSourceReady } from "./personal-service-operations.ts";
-import type { PersonalReportFacts } from "./personal-report.ts";
-import { delegatePersonalWork, PersonalWorkDoc, PersonalWorkTask, personalWorkRef, personalWorkStatus, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkRef } from "./personal-work.ts";
+import { refreshPersonalReportState, type PersonalReportFacts } from "./personal-report.ts";
+import { delegatePersonalWork, PersonalWorkDoc, PersonalWorkTask, PersonalWorkContinuation, personalWorkNoteSource, requirePersonalWorkContinuation, personalWorkRef, personalWorkStatus, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkRef } from "./personal-work.ts";
+import type { ToolQueryIdentity } from "./personal-tools.ts";
 
 export type PersonalDelegationRef = { entryId: EntryId };
 export type PersonalWorkSource = { requestId: string; submissionId: SubmissionId; entryId: EntryId };
-type Delegation = { ref: PersonalDelegationRef; source: PersonalWorkSource; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; members: PersonalWorkRef[]; cancelRequested: boolean; report?: PersonalReportFacts };
+type Delegation = { ref: PersonalDelegationRef; source: PersonalWorkSource; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; members: PersonalWorkRef[]; cancelRequested: boolean; report?: PersonalReportFacts; reports?: PersonalReportFacts[] };
 export const PersonalDelegationDoc = defineDocFamily<{ delegation?: Delegation }, null>({ kind: "ruukoto.analysis-delegation", scope: "session", version: 1, family: true, initial: () => ({}) });
 export const personalAnalysisDelegations = defineExtension({ name: "personal-analysis-delegations" });
 export const PersonalAnalysisAdmission = defineEntry<{ work: PersonalWorkRef; delegation: PersonalDelegationRef; source: PersonalWorkSource; origin: PersonalWorkSource; permission: Delegation["permission"]; telegram?: PersonalTelegramSource; modelCall: TaskId }>("ruukoto.analysis-admission");
@@ -40,7 +41,7 @@ export async function requirePersonalDelegationInput(tx: Tx, ref: PersonalDelega
 
 export async function personalDelegationSources(tx: Tx, value: Delegation) {
   const sources = new Set([value.source.requestId]);
-  if (value.report) sources.add(value.report.source.requestId);
+  for (const report of [...(value.reports ?? []), ...(value.report ? [value.report] : [])]) sources.add(report.source.requestId);
   for (const ref of value.members) {
     const work = await tx.doc(PersonalWorkDoc, ref.requestId, null);
     if (!isDeepStrictEqual(work.ref, ref) || work.delegation?.entryId !== value.ref.entryId || !work.instructionSource) throw new PersonalError("delegation_member_invalid", "委托成员归属无法核实，已停止执行；请保留档案并检查原记录。");
@@ -60,7 +61,9 @@ async function sourcesReady(tx: Tx, value: Delegation, forReport = false, exclud
 }
 
 export async function requirePersonalDelegationOpen(tx: Tx, ref: PersonalDelegationRef) {
-  if ((await personalDelegation(tx, ref)).report) throw new PersonalError("delegation_sealed", "委托已安排最终汇总，未接纳新分析或说明；请查询原委托报告，新工作由拥有者另行提交。");
+  const report = (await personalDelegation(tx, ref)).report;
+  if (report && report.version !== 2) throw new PersonalError("delegation_sealed", "旧版本委托已安排最终汇总，未接纳新分析或说明；请查询原委托报告，新工作由拥有者另行提交。");
+  await refreshPersonalReportState(tx, ref);
 }
 
 export async function requirePersonalDelegationActive(tx: Tx, ref: PersonalDelegationRef) {
@@ -74,7 +77,7 @@ export async function requirePersonalDelegationReady(tx: Tx, ref: PersonalDelega
   await sourcesReady(tx, await requirePersonalDelegationActive(tx, ref), forReport, excludeOperation);
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md
 export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: Parameters<typeof delegatePersonalWork>[2], ref?: PersonalDelegationRef) {
   const instruction = await source(tx, input.sourceRequestId);
   const selected = ref ?? { entryId: instruction.entryId };
@@ -103,6 +106,25 @@ export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: P
   return { ref: member, delegation: selected };
 }
 
+// Note: See .agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md
+export async function continuePersonalAnalysis(tx: Tx, model: ModelRef, predecessor: PersonalWorkRef, input: { content: string; requestId: string; sourceRequestId: string; modelCall: TaskId }) {
+  const origin = await tx.doc(PersonalWorkDoc, predecessor.requestId, null);
+  if (!isDeepStrictEqual(origin.ref, predecessor) || !origin.delegation) throw new PersonalError("work_continuation_unavailable", "此工作没有可续接的原委托，未接纳新操作；请查询原结果，拥有者明确交办独立新工作时再用 delegate 登记。");
+  const instruction = await personalWorkNoteSource(tx, input.sourceRequestId, input.modelCall);
+  if (instruction.kind !== "input") throw new PersonalError("work_source_invalid", "后续工作需要本轮拥有者输入，未接纳操作。");
+  await requirePersonalDelegationInput(tx, origin.delegation, input.sourceRequestId);
+  const existing = await tx.doc(PersonalWorkDoc, input.requestId, null);
+  if (!existing.ref) await requirePersonalWorkContinuation(tx, predecessor);
+  else if (!isDeepStrictEqual(existing.continuation?.predecessor, predecessor) || existing.modelCall !== input.modelCall) throw new PersonalError("work_request_conflict", "后续工作的原请求或前项不同，未重做；请查询原记录。");
+  const continued = await delegatePersonalAnalysis(tx, model, { content: input.content, requestId: input.requestId, sourceRequestId: input.sourceRequestId, agentId: predecessor.agentId, ...(origin.appData === undefined ? {} : { appData: origin.appData }) }, origin.delegation);
+  const work = await tx.doc(PersonalWorkDoc, continued.ref.requestId, null);
+  if (!work.continuation) {
+    const admission = await tx.appendEntry(PersonalWorkContinuation, ROOT_CONVERSATION_ID, { data: { version: 1, predecessor: { ...predecessor }, work: { ...continued.ref }, source: { requestId: instruction.requestId, submissionId: instruction.submissionId, entryId: instruction.entryId }, modelCall: input.modelCall, content: input.content } });
+    work.continuation = { version: 1, predecessor: { ...predecessor }, admission: admission.id };
+  }
+  return continued;
+}
+
 export async function cancelPersonalDelegation(tx: Tx, ref: PersonalDelegationRef, sourceRequestId?: string) {
   const value = await personalDelegation(tx, ref);
   if (sourceRequestId) await originalEntry(tx, value, sourceRequestId);
@@ -114,7 +136,7 @@ export async function cancelPersonalDelegation(tx: Tx, ref: PersonalDelegationRe
   for (const member of value.members) await requestPersonalWorkCancel(tx, member);
 }
 
-export async function personalDelegationProgress(tx: Tx, ref: PersonalDelegationRef, offset = 0) {
+export async function personalDelegationProgress(tx: Tx, ref: PersonalDelegationRef, offset = 0, identity?: ToolQueryIdentity) {
   const value = await personalDelegation(tx, ref);
   let active = 0;
   let unverified = 0;
@@ -123,7 +145,7 @@ export async function personalDelegationProgress(tx: Tx, ref: PersonalDelegation
     const status = await personalWorkStatus(tx, member);
     if (status.task.state.status !== "terminal") active++;
     else if (!status.stopVerified) unverified++;
-    if (index >= offset && members.length < 8) members.push(await personalWorkSummary(tx, { ...member }));
+    if (index >= offset && members.length < 8) members.push(await personalWorkSummary(tx, { ...member }, identity));
   }
   let paused = false;
   try { await sourcesReady(tx, value); } catch (error) {
@@ -184,14 +206,36 @@ export async function verifyPersonalDelegations(tx: Tx, keys: string[], workKeys
       const part = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && part.id === (input && typeof input === "object" && !Array.isArray(input) ? input.callId : undefined));
       const task = await tx.task(member.taskId);
       const content = task?.input && typeof task.input === "object" && !Array.isArray(task.input) ? task.input.content : undefined;
-      if (!assistant || assistant.byTaskId !== call?.owner || admission.id <= assistant.id || assistant.id <= work.instructionSource.entryId || part?.type !== "toolCall" || part.name !== "background_work" || part.arguments.action !== "delegate" || part.arguments.content !== content || part.arguments.appData !== work.appData || Object.keys(part.arguments).some(key => !["action", "content", "agent", "label", "delegation", "appData"].includes(key)) || createHash("sha256").update(JSON.stringify([part.arguments.content, value.source.requestId, part.arguments.agent ?? null, part.arguments.label ?? null, ...(part.arguments.appData === undefined ? [] : [part.arguments.appData])])).digest("hex") !== work.fingerprint || (part.arguments.agent !== undefined && part.arguments.agent !== member.agentId) || (part.arguments.delegation === undefined ? value.source.entryId !== work.instructionSource.entryId : part.arguments.delegation !== value.ref.entryId)) throw new PersonalError("delegation_member_invalid", "委托成员缺少原模型委派说明，已停止恢复；请保留档案。");
+      if (!assistant || call?.kind !== "pi.tool" || call.conversationId !== ROOT_CONVERSATION_ID || assistant.byTaskId !== call.owner || admission.id <= assistant.id || assistant.id <= work.instructionSource.entryId || part?.type !== "toolCall" || part.name !== "background_work" || part.arguments.content !== content) throw new PersonalError("delegation_member_invalid", "委托成员缺少原模型委派说明，已停止恢复；请保留档案。");
+      if (work.continuation) {
+        const previous = work.continuation.predecessor;
+        const predecessor = await tx.doc(PersonalWorkDoc, previous.requestId, null);
+        const status = await personalWorkStatus(tx, previous);
+        const continuation = await tx.entry(PersonalWorkContinuation, work.continuation.admission);
+        const expected = { version: 1, predecessor: previous, work: member, source: work.instructionSource, modelCall: work.modelCall, content };
+        if (work.continuation.version !== 1 || task?.version !== 3 || !continuation || continuation.conversationId !== ROOT_CONVERSATION_ID || continuation.id <= assistant.id || continuation.id >= admission.id || !isDeepStrictEqual(continuation.data, expected) || !isDeepStrictEqual(predecessor.ref, previous) || previous.agentId !== member.agentId || previous.taskId >= member.taskId || predecessor.delegation?.entryId !== value.ref.entryId || !value.members.some(ref => isDeepStrictEqual(ref, previous)) || status.task.state.status !== "terminal" || status.task.state.outcome.status !== "completed" || !status.stopVerified || status.cancelRequested || part.arguments.action !== "append" || !isDeepStrictEqual(part.arguments, { action: "append", work: previous.taskId, content }) || work.appData !== predecessor.appData || createHash("sha256").update(JSON.stringify([content, value.source.requestId, previous.agentId, null, ...(work.appData === undefined ? [] : [work.appData])])).digest("hex") !== work.fingerprint) throw new PersonalError("delegation_member_invalid", "后续工作与已完成的原任务或拥有者追加来源不符，已停止恢复；请保留档案。");
+      } else if (part.arguments.action !== "delegate" || part.arguments.appData !== work.appData || Object.keys(part.arguments).some(key => !["action", "content", "agent", "label", "delegation", "appData"].includes(key)) || createHash("sha256").update(JSON.stringify([part.arguments.content, value.source.requestId, part.arguments.agent ?? null, part.arguments.label ?? null, ...(part.arguments.appData === undefined ? [] : [part.arguments.appData])])).digest("hex") !== work.fingerprint || (part.arguments.agent !== undefined && part.arguments.agent !== member.agentId) || (part.arguments.delegation === undefined ? value.source.entryId !== work.instructionSource.entryId : part.arguments.delegation !== value.ref.entryId)) throw new PersonalError("delegation_member_invalid", "委托成员缺少原模型委派说明，已停止恢复；请保留档案。");
     }
   }
   for (const key of workKeys) {
     const work = await tx.doc(PersonalWorkDoc, key, null);
-    if ((work.instructionSource || work.delegationAdmission !== undefined) && !work.delegation) throw new PersonalError("delegation_member_invalid", "工作说明缺少所属委托，已停止恢复；请保留档案。");
+    if ((work.instructionSource || work.delegationAdmission !== undefined || work.continuation) && !work.delegation) throw new PersonalError("delegation_member_invalid", "工作说明缺少所属委托，已停止恢复；请保留档案。");
     if (!work.delegation) continue;
     const value = await personalDelegation(tx, work.delegation);
     if (!keys.includes(String(work.delegation.entryId)) || !value.members.some(ref => isDeepStrictEqual(ref, work.ref))) throw new PersonalError("delegation_member_invalid", "工作缺少原委托成员关系，已停止恢复；请保留档案。");
   }
+  let cursor: Cursor | undefined;
+  const continuations = new Set<TaskId>();
+  if (!await tx.conversation(ROOT_CONVERSATION_ID)) return;
+  do {
+    const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256, cursor);
+    for (const entry of page.items) {
+      if (!PersonalWorkContinuation.is(entry)) continue;
+      if (!entry.data || typeof entry.data !== "object" || !entry.data.work || typeof entry.data.work !== "object" || typeof entry.data.work.requestId !== "string" || !Number.isSafeInteger(entry.data.work.taskId)) throw new PersonalError("delegation_member_invalid", "后续工作的原接纳记录损坏，已停止恢复；请保留档案。");
+      const work = await tx.doc(PersonalWorkDoc, entry.data.work.requestId, null);
+      if (!enabled || continuations.has(entry.data.work.taskId) || !workKeys.includes(entry.data.work.requestId) || !isDeepStrictEqual(work.ref, entry.data.work) || work.continuation?.admission !== entry.id) throw new PersonalError("delegation_member_invalid", "后续工作的原接纳记录缺少唯一工作关系，已停止恢复；请保留档案。");
+      continuations.add(entry.data.work.taskId);
+    }
+    cursor = page.next;
+  } while (cursor);
 }

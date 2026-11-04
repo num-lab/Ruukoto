@@ -358,12 +358,12 @@ test("durable MCP：同来源暂停服务与委托报告，重启保留原暂停
   group = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
   for (const member of (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.members) await p.harness.waitForTask(member.taskId, context);
   await p.answer("report", "report-source");
-  await until(async () => (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.attempt === 1);
+  await until(async () => (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.pauses.length === 1);
   assert.ok(operation);
   const saved = await record(p, operation), report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
   assert.equal(report.pauses.length, 1);
   const pause = await p.harness.commit(tx => tx.entry(report.pauses[0]), context);
-  assert.equal(pause!.kind, "ruukoto.report-pause");
+  assert.equal(pause!.kind, "ruukoto.report-supersession");
   assert.deepEqual(pause!.data && typeof pause!.data === "object" && !Array.isArray(pause!.data) && pause!.data.blocker, { mcp: String(operation), admission: saved.admission });
   assert.deepEqual(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "owner-source"), context), { mcp: String(operation), admission: saved.admission });
   assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
@@ -372,7 +372,7 @@ test("durable MCP：同来源暂停服务与委托报告，重启保留原暂停
   assert.equal(await p.answer("独立聊天", "independent"), "完成");
   await p.close(); p = await f.open();
   assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).paused, true);
-  assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).state, "running");
+  assert.notEqual((await p.harness.commit(tx => personalReportResult(tx, group), context)).state, "completed");
   await p.mcp!.resolve(operation, "applied", "远端业务核实原操作存在");
   await delay(20);
   assert.equal(summaryCalls().length, 0); assert.equal((await record(p, operation)).remoteEnded, false); assert.equal(server.calls.length, 1);

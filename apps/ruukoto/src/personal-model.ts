@@ -5,6 +5,8 @@ import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.l
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { PersonalError } from "./personal-error.ts";
 import type { PersonalModelMedia } from "./personal-media.ts";
+import type { PersonalWorkInstructionSnapshot } from "./personal-work.ts";
+import type { PersonalReportReference } from "./personal-report.ts";
 import { randomUUID } from "node:crypto";
 import type { ConversationId, EntryId, TaskId, Tx } from "@earendil-works/pi-durable";
 
@@ -41,7 +43,7 @@ export function parsePersonalModel(value: unknown): PersonalModelConfig {
   return { api: value.api, baseUrl: value.baseUrl, modelId: value.modelId, apiKeyEnv: value.apiKeyEnv, contextWindow: value.contextWindow, maxTokens: value.maxTokens, ...("imageInput" in value ? { imageInput: value.imageInput as boolean } : {}) };
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-25-personal-request-configuration.md
+// Note: See .agents/notes/implemented/architecture/2026-10-25-personal-request-configuration.md
 export function personalProvider(config: PersonalModelConfig, version?: string): Provider {
   const provider = version === undefined ? "personal" : `personal-${version}`;
   const model: Model<PersonalModelConfig["api"]> = {
@@ -60,10 +62,11 @@ export function personalProvider(config: PersonalModelConfig, version?: string):
   });
 }
 
-export type PersonalReferenceSelection = { conversationId: ConversationId; generation?: TaskId; configurations?: { commands: string | null; services: string | null; webSearch?: string | null; mcp?: { service: string; version: string | null }[] }; memory: { memory: EntryId; version: number; revision: EntryId }[]; skills: { version: string; snapshotEntry: EntryId } };
+export type PersonalReferenceSelection = { conversationId: ConversationId; generation?: TaskId; instructions?: PersonalWorkInstructionSnapshot; report?: PersonalReportReference; configurations?: { commands: string | null; services: string | null; webSearch?: string | null; mcp?: { service: string; version: string | null }[] }; memory: { memory: EntryId; version: number; revision: EntryId }[]; skills: { version: string; snapshotEntry: EntryId } };
 export type RequestEvidence = { requestId: string; sessionId: string; provider: string; modelId: string; input: JsonValue; reasoning: string; payload?: JsonValue; imageMappings?: JsonValue; references?: PersonalReferenceSelection };
 
-export async function personalModelRequestSelection(tx: Tx, toolId: TaskId): Promise<PersonalReferenceSelection | undefined> {
+// Note: See .agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md
+export async function personalModelRequestEntry(tx: Tx, toolId: TaskId): Promise<{ entry: EntryId; references: PersonalReferenceSelection } | undefined> {
   const tool = await tx.task(toolId), input = tool?.input;
   if (tool?.kind !== "pi.tool" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || typeof input.assistant !== "number") throw new PersonalError("model_tool_source_invalid", "工具缺少原模型响应身份，未开始操作；请保留档案并查询原输入。");
   const assistant = await tx.entry(input.assistant as EntryId);
@@ -76,18 +79,26 @@ export async function personalModelRequestSelection(tx: Tx, toolId: TaskId): Pro
       if (entry.kind !== "ruukoto.model-request" || !data || typeof data !== "object" || Array.isArray(data)) continue;
       const refs = data.references;
       if (!refs || typeof refs !== "object" || Array.isArray(refs) || refs.generation !== tool.owner) continue;
+      const request = data.input, first = request && typeof request === "object" && !Array.isArray(request) && Array.isArray(request.messages) ? request.messages[0] : undefined;
+      const sections = first && typeof first === "object" && !Array.isArray(first) && first.role === "system" && first.sections && typeof first.sections === "object" && !Array.isArray(first.sections) ? first.sections : undefined;
+      // Concurrent compaction uses the same provider session and live generation, but has no product identity section.
+      if (!sections || !["personal", "subagent", "scheduled-work"].some(name => Object.hasOwn(sections, name))) continue;
       if (refs.conversationId !== tool.conversationId || !refs.configurations || typeof refs.configurations !== "object" || Array.isArray(refs.configurations) || ![refs.configurations.commands, refs.configurations.services].every(value => value === null || typeof value === "string") || !Array.isArray(refs.memory) || !refs.skills || typeof refs.skills !== "object" || Array.isArray(refs.skills) || typeof refs.skills.version !== "string" || typeof refs.skills.snapshotEntry !== "number") throw new PersonalError("model_selection_invalid", "原模型请求的配置选择无法核实，未开始操作；请保留档案并查询原输入。");
-      return refs as PersonalReferenceSelection;
+      return { entry: entry.id, references: refs as PersonalReferenceSelection };
     }
     cursor = page.next;
   } while (cursor);
+}
+
+export async function personalModelRequestSelection(tx: Tx, toolId: TaskId): Promise<PersonalReferenceSelection | undefined> {
+  return (await personalModelRequestEntry(tx, toolId))?.references;
 }
 
 function json(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
-// 所有生成与压缩请求都经过 provider；hook 普通异常不会阻止 durable 继续请求。
+// Provider recording covers generation and compaction; ordinary hook errors cannot prevent requests.
 export function recordedModels(provider: Provider, record: (evidence: RequestEvidence) => Promise<void>, media?: PersonalModelMedia, prepareInput?: (input: TranscriptContext, options: StreamOptions | undefined) => Promise<{ input: TranscriptContext; references: PersonalReferenceSelection }>) {
   const models = createModels();
   const prepare = async (model: Model<Api>, original: Context, options: StreamOptions | undefined) => {

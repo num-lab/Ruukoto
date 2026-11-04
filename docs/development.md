@@ -86,32 +86,7 @@ The file-I/O regression set exercises actual FIFO stalls, worker exits and SIGKI
 
 ## External Acceptance
 
-Coding input-lifecycle acceptance uses schema 58/protocol 49 in fresh profiles. Preserve old profiles and pending request files; do not run an instance migration or switch a daily backend as part of these checks. Narrow regressions cover queue retrieval, persistent pause, same-task answers and request-bound report consumption. Real Desktop/TUI interaction, Linux stopping/restart and real models are separate evidence.
-
-Persistent-question model acceptance uses explicit DeepSeek configuration and isolated profiles. It proves waiting, answering and asking again in the original task, plus guidance canceling a question:
-
-```bash
-RUN_MODEL_CHECK=1 RUN_OWNER_QUESTION_MODELS_FILE=/path/models.json npx tsx --test test/owner-question-model-acceptance.test.ts
-```
-
-| Command | Required environment and coverage |
-| --- | --- |
-| `npm --prefix verification/foundation run linux:probes -- --output-dir <external-directory>` | Linux native prerequisites; bubblewrap, namespaces, seccomp and user scopes; choose a fresh directory outside the checkout |
-| `npm run test:native` | Linux, built workers and native prerequisites; Coding tools, SubAgents and recovery with mock models, not Personal durable acceptance |
-| `npm run test:upgrade` | Git, dependency-install network and baseline revision; smoke-24 `--upgrade-only` with a mock model |
-| `npm run test:model` | `~/.pi/agent/` configuration and credentials; try a short provider round trip until the first success |
-| `npm run test:release-model` | Built native execution, Python PTY and explicit models; real Coding, work after TUI exit and reconnect |
-| [Workflow model commands](../verification/smoke/README.md) | DeepSeek and native workers; shared/Coding tool startup, chatting while waiting, tools and one final report, not the new Personal entry |
-
-[Platform probes](../verification/foundation/scripts/native-isolation/README.md) report unavailable when capabilities or controls are missing. Offline tests do not replace actual OS evidence.
-
-Scheduled acceptance creates a new profile from explicit models, removes the copy afterward and verifies the source digest. It covers questioning, answers, single-file approval and finalization, with at most six requests and three minutes:
-
-```bash
-RUN_MODEL_CHECK=1 RUN_CODE_SCHEDULER_MODELS_FILE=/absolute/models.json npx tsx --test test/code-scheduler-model-acceptance.test.ts
-```
-
-See [smoke instructions](../verification/smoke/README.md) for arguments, authentication, exit codes and cleanup. Keep credentials in protected files outside the checkout. [Release acceptance](release-acceptance.md#current-rerun-entry-points) defines upgrade baselines and old names. Missing `test:model` configuration is a skip, not a pass. Model execution and installation upgrades are separate checks; Docker history and simulated IM do not prove native isolation or real IM acceptance. [Archived privileged scripts](../verification/archive/README.md) require isolation of system writes before anyone restores execution.
+[External development acceptance](development-acceptance.md) owns the commands and prerequisites for native probes, real models, Coding questions/schedules and the Personal amendment/report loop. Use fresh isolated profiles and explicit credentials, preserving daily profiles and pending records. Report missing prerequisites as unverified; offline mocks do not establish real client or platform acceptance.
 
 ## Development Instances
 

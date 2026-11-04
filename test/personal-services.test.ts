@@ -575,7 +575,7 @@ test("子检查：恢复拒绝错工作/权限/来源与丢失接纳，不启动
   });
 });
 
-test("子检查：整项暂停/取消包含成员检查，封组报告等原停止后继续", async t => {
+test("子检查：整项暂停/取消包含成员检查，自动报告等原停止后继续", async t => {
   for (const action of ["cancel_delegation", "report"] as const) await t.test(action, async t => {
     let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
     let summaries = 0;
@@ -605,11 +605,17 @@ test("子检查：整项暂停/取消包含成员检查，封组报告等原停�
     fs.rmSync(path.join(f.helper, "inspection-stop-fails")); await p.inspections!.recheckStop(pending.taskId);
     const saved = (await p.harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!;
     for (const member of saved.members) await p.harness.waitForTask(member.taskId, context);
-    if (saved.report) {
+    assert.ok(saved.report);
+    if (action === "report") {
       await p.harness.waitForTask(saved.report.taskId, context);
       assert.equal((await p.harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!.report!.reply, "完整检查报告");
       assert.equal(summaries, 1);
-    } else assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, ref), context)).state, "canceled");
+    } else {
+      await p.harness.waitForTask(saved.report.taskId, context);
+      assert.equal((await p.harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!.report!.delivery, "canceled");
+      assert.equal((await p.harness.commit(tx => personalDelegationProgress(tx, ref), context)).state, "canceled");
+      assert.equal(summaries, 0);
+    }
     assert.equal(f.calls().filter(call => call[0] === "inspect-op").length, 1);
   });
 });

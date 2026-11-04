@@ -12,7 +12,7 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { parsePersonalTools, savePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { toolOperations } from "../apps/ruukoto/src/personal-tools.ts";
-import { listPersonalWorks } from "../apps/ruukoto/src/personal-work.ts";
+import { listPersonalWorks, PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalAnalysisAdmission, PersonalDelegationDoc, listPersonalDelegations } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import type { PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
@@ -68,7 +68,10 @@ test("协调预算：主会话请求不携已移交工具，仍发出的等待�
   // 主请求从不提供迁移工具（含拒绝调用所在的请求）；子请求保留全部等待业务工具。
   const mains = f.server.calls.filter(request => !childRequest(request) && !request.system?.includes("审批审查员"));
   assert.ok(mains.length >= 2);
-  for (const request of mains) for (const name of toolNames(request)) assert.ok(!MIGRATED.includes(name), `主请求不应提供 ${name}`);
+  for (const request of mains) {
+    assert.match(request.system ?? "", /子 Agent 可用 read_file、write_file 直接读写文件，无需命令/);
+    for (const name of toolNames(request)) assert.ok(!MIGRATED.includes(name), `主请求不应提供 ${name}`);
+  }
   const children = f.server.calls.filter(childRequest);
   assert.ok(children.length > 0);
   for (const request of children) for (const name of MIGRATED) assert.ok(toolNames(request).includes(name), `子请求应保留 ${name}`);
@@ -142,7 +145,7 @@ test("协调预算：第五批拒绝效果，只取消本输入工作并留下�
   assert.equal(cutoff.submission, record.id);
   assert.equal(cutoff.targets.length, 4);
   // 空收件箱公开标记：model 为空，宿主提交内追加，切断、标记与队列推进全程不再向主会话发模型请求。
-  const mains = () => f.server.calls.filter(request => !childRequest(request) && !request.system?.includes("审批审查员")).length;
+  const mains = () => f.server.calls.filter(request => !childRequest(request) && !request.system?.includes("审批审查员") && String(request.messages.findLast(message => message.role === "user")?.content).includes("\n循环\n")).length;
   const baseline = mains();
   await until(async () => (await markers(p)).length === 1);
   const marker = (await markers(p))[0];
@@ -398,7 +401,7 @@ test("协调预算：取消回答不等物理停止，登记意图即如实回�
   gate();
 });
 
-test("协调预算：终态工作追加未接纳按原事实交接，不冒充已补充", async t => {
+test("协调预算：完成后的追加显式关联同一身份的新工作，原结果保留", async t => {
   let workId: PersonalWorkRef["taskId"] = 0 as PersonalWorkRef["taskId"];
   const f = await fixture(t, request => {
     if (childRequest(request)) return { kind: "text", text: "成员完成" };
@@ -414,10 +417,54 @@ test("协调预算：终态工作追加未接纳按原事实交接，不冒充�
   assert.equal(works.length, 1);
   workId = works[0].ref.taskId;
   await until(async () => (await p.harness.getTask(workId, context))?.state.status === "terminal");
+  const original = await p.harness.getTask(workId, context);
   const answer = await p.answer("补说明", "owner-note");
-  // 持久化结果是未接纳（原工作已结束）：交接必须报告未接纳，不能报"已补充"。
-  assert.match(answer, /未接纳/);
-  assert.doesNotMatch(answer, /已补充/);
+  assert.match(answer, /原工作.*结果保留.*后续工作/);
+  assert.doesNotMatch(answer, /未接纳/);
+  const continued = (await p.harness.commit(tx => listPersonalWorks(tx), context)).items.find(item => item.ref.taskId !== workId)!;
+  assert.equal(continued.ref.agentId, works[0].ref.agentId);
+  const record = await p.harness.snapshot(PersonalWorkDoc, continued.ref.requestId, context);
+  assert.deepEqual(record?.continuation?.predecessor, works[0].ref);
+  assert.deepEqual(await p.harness.getTask(workId, context), original);
+  await p.harness.waitForTask(continued.ref.taskId, context);
+  await p.close(); await f.open();
+});
+
+test("协调预算：完成后的续接越界只取消新工作，不取消原结果", { timeout: 30_000 }, async t => {
+  let predecessor: PersonalWorkRef | undefined, looping = false, round = 0;
+  let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, async request => {
+    if (childRequest(request)) {
+      if (String(request.messages.findLast(message => message.role === "user")?.content) === "续接要求") await held;
+      return { kind: "text", text: "成员完成" };
+    }
+    if (String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考")) return { kind: "text", text: "原要求已完成" };
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "user") { looping = content === "循环续接"; round = 0; }
+    if (looping) {
+      round++;
+      return { kind: "tool_calls", calls: [
+        ...(round === 1 ? [{ id: "continue", name: "background_work", arguments: { action: "append", work: predecessor!.taskId, content: "续接要求" } }] : []),
+        { id: `query-${round}`, name: "background_work", arguments: { action: "list" } },
+      ] };
+    }
+    if (content === "委派") return workCall({ action: "delegate", content: "原要求" });
+    return { kind: "text", text: "普通回答" };
+  });
+  const p = await f.open(); await p.answer("委派", "original");
+  predecessor = (await p.harness.commit(tx => listPersonalWorks(tx), context)).items[0].ref;
+  await p.harness.waitForTask(predecessor.taskId, context);
+  const original = await p.harness.getTask(predecessor.taskId, context);
+  const loopingInput = await p.submit("循环续接", "continuation-cutoff");
+  assert.equal((await loopingInput.wait(context)).status, "unanswered");
+  await until(async () => (await p.harness.snapshot(PersonalCoordinationDoc, "continuation-cutoff", context))?.cutoff?.cancelled !== undefined);
+  await assert.rejects(p.answer("循环续接", "continuation-cutoff"), error => error instanceof PersonalError && error.code === "input_coordination_cutoff");
+  const cutoff = (await p.harness.snapshot(PersonalCoordinationDoc, "continuation-cutoff", context))!.cutoff!;
+  const continued = (await p.harness.commit(tx => listPersonalWorks(tx), context)).items.find(item => item.ref.taskId !== predecessor!.taskId)!;
+  assert.deepEqual(cutoff.targets, [continued.ref]);
+  assert.deepEqual(await p.harness.getTask(predecessor.taskId, context), original);
+  assert.equal(continued.cancelRequested, true);
+  release();
 });
 
 test("协调预算：越预算输入的追加归属也被精确取消，旁路与被拒追加不牵连", { timeout: 30_000 }, async t => {
@@ -712,15 +759,15 @@ test("协调预算：同号调用按所属批定位结果，回放原输入不�
   const p = await f.open();
   assert.match(await p.answer("委派", "owner-del"), /让出/);
   workId = (await p.harness.commit(tx => listPersonalWorks(tx), context)).items[0].ref.taskId;
-  // 活动工作的追加以同号 call-append 接纳；终态后同号追加被拒——两条任务共享同一调用号。
+  // The same provider call ID belongs to separate batches: the active append and a later continuation.
   assert.match(await p.answer("补说明", "owner-note-a"), /已补充/);
   held = false; releaseChildren();
   await until(async () => (await p.harness.getTask(workId, context))?.state.status === "terminal");
-  assert.match(await p.answer("再补", "owner-note-b"), /未接纳/);
-  // 原输入回放按所属批的任务重读结果：仍是"已补充"，不读成后序同号任务的"未接纳"。
+  assert.match(await p.answer("再补", "owner-note-b"), /原工作.*结果保留.*后续工作/);
+  // Replaying the first input must resolve its own accepted append, rather than the later continuation.
   const replay = await p.answer("补说明", "owner-note-a");
   assert.match(replay, /已补充/);
-  assert.doesNotMatch(replay, /未接纳/);
+  assert.doesNotMatch(replay, /后续工作|未接纳/);
 });
 
 test("协调预算：内部汇总输入自身越预算被切断，委托成员不牵连且终报不伪造", { timeout: 30_000 }, async t => {

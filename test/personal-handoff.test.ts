@@ -98,7 +98,7 @@ const childRequest = (request: { system: string | null }) => request.system?.inc
 const textOf = (message: { role: string; content: unknown } | undefined) => Array.isArray(message?.content) ? (message.content as { type: string; text?: string }[]).filter(part => part.type === "text").map(part => part.text ?? "").join("") : "";
 const partsOf = (message: { role: string; content: unknown } | undefined, type: string) => Array.isArray(message?.content) ? (message.content as { type: string }[]).filter(part => part.type === type) : [];
 
-test("交接门禁：委派保持未封组，封组调用让出并经持久化事实识别", async t => {
+test("交接门禁：委派自动登记汇总，显式汇总调用仍按原事实让出", async t => {
   let delegation!: number;
   const f = await fixture(t, request => {
     if (childRequest(request)) return { kind: "text", text: "成员分析完成" };
@@ -110,16 +110,18 @@ test("交接门禁：委派保持未封组，封组调用让出并经持久化�
     return { kind: "text", text: `普通:${content}` };
   }, false);
   const p = await f.open();
-  // delegate 属纯安排批：宿主按持久化事实让出，工作登记但委托未封组。
+  // The arrangement-only batch yields with persisted work and host reporting intent.
   assert.match(await p.answer("委派", "owner-a"), /让出/);
   delegation = (await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref.entryId;
-  assert.equal((await p.harness.snapshot(PersonalDelegationDoc, String(delegation), context))!.delegation!.report, undefined);
-  // 封组让出：回答来自持久化交接事实而非空回答错误。
+  const registered = (await p.harness.snapshot(PersonalDelegationDoc, String(delegation), context))!.delegation!.report!;
+  assert.equal(registered.version, 2);
+  // Explicit registration reuses the automatic report and retains its actual handoff.
   const answer = await p.answer("封组", "owner-seal");
   assert.match(answer, /让出/); assert.match(answer, new RegExp(`委托 ${delegation} 的最终汇总安排`));
   const saved = (await p.harness.snapshot(PersonalDelegationDoc, String(delegation), context))!.delegation!;
   assert.ok(saved.report); assert.equal(saved.members.length, 1);
-  // 已封组保持工作：后续输入独立运行，拥有者可继续追加无关请求。
+  assert.equal(saved.report.taskId, registered.taskId);
+  // Later owner input remains independent of report generation.
   assert.equal(await p.answer("继续", "chat"), "普通:继续");
   await until(() => f.server.calls.some(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考")));
   await until(async () => (await p.harness.snapshot(PersonalDelegationDoc, String(delegation), context))!.delegation!.report!.delivery === "local");

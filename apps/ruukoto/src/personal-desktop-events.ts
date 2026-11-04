@@ -1,10 +1,11 @@
-import { ROOT_CONVERSATION_ID, watchEvents, type AgentEvent, type AgentEventStream, type Harness, type MessageChange, type SnapshotEvent, type ToolEventCall, type ToolSlot, type NestedToolSlot, type EntryRecord } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, watchEvents, type AgentEvent, type AgentEventStream, type Harness, type MessageChange, type SnapshotEvent, type ToolEventCall, type ToolSlot, type NestedToolSlot, type EntryRecord, type EntryId, type SubmissionId, type Tx } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
-import { personalDesktopMessage, personalTimeline, personalTimelineEntry } from "./personal-history.ts";
+import { personalDesktopMessage, personalDesktopTimelineEntry, personalTimeline, personalTimelineEntry } from "./personal-history.ts";
+import { personalReportInput, personalReportTaskDraft } from "./personal-report.ts";
 import { personalUnparkMode } from "./personal-coordination.ts";
 import type { PersonalDesktopBlock, PersonalDesktopChange, PersonalDesktopEvent, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopMessage, PersonalDesktopTool } from "@ruukoto/view/personal-protocol.ts";
 
@@ -40,9 +41,9 @@ function tool(slot: ToolSlot | NestedToolSlot): PersonalDesktopTool {
   return { callId: slot.callId, name: slot.name, status: slot.status, ...(slot.taskId === undefined ? {} : { taskId: slot.taskId }), ...("entry" in slot && slot.entry !== undefined ? { entry: slot.entry } : {}), ...(slot.output === undefined ? {} : { output: slot.output.slice(0, TEXT_LIMIT) }), truncated: (slot.output?.length ?? 0) > TEXT_LIMIT || (slot.droppedBytes ?? 0) > 0 || (slot.droppedLines ?? 0) > 0, ...("parentCallId" in slot ? { parentCallId: slot.parentCallId, parentTaskId: slot.parentTaskId } : {}) };
 }
 
-export function personalDesktopLive(snapshot: SnapshotEvent): PersonalDesktopLive {
-  const slots = [...snapshot.tools, ...snapshot.nestedTools];
-  const generation = snapshot.generation, message = generation?.message && currentMessage(generation.message);
+export function personalDesktopLive(snapshot: SnapshotEvent, reportDraft = false): PersonalDesktopLive {
+  const slots = reportDraft ? [] : [...snapshot.tools, ...snapshot.nestedTools];
+  const generation = reportDraft ? undefined : snapshot.generation, message = generation?.message && currentMessage(generation.message);
   const result: PersonalDesktopLive = { ...(snapshot.agent.model ? { model: snapshot.agent.model } : {}), ...(snapshot.run ? { run: { inputs: [...snapshot.run.inputs.slice(0, 64)], total: snapshot.run.inputs.length } } : {}), ...(generation ? { generation: { attempt: generation.attempt, ...(message ? { message: { ...message, partial: true } } : {}), ...(generation.retry ? { retry: { at: generation.retry.at, error: generation.retry.error.slice(0, TEXT_LIMIT) } } : {}), ...(generation.deferred ? { deferred: generation.deferred } : {}) } } : {}), tools: [], toolCount: slots.length, inbox: snapshot.inbox.slice(0, 64).map(item => ({ id: item.id, mode: personalUnparkMode(item.mode) })), inboxCount: snapshot.inbox.length };
   let bytes = Buffer.byteLength(JSON.stringify(result));
   for (const slot of slots.slice(0, 32)) {
@@ -84,11 +85,60 @@ export function personalDesktopEvent(event: Exclude<AgentEvent, SnapshotEvent>):
   }
 }
 
+async function reportInputs(tx: Tx, inputs: readonly SubmissionId[]) {
+  for (const input of inputs) if (await personalReportInput(tx, input)) return true;
+  return false;
+}
+
+async function projectEvents(tx: Tx, events: readonly Exclude<AgentEvent, SnapshotEvent>[], inputs: readonly SubmissionId[]) {
+  const entries = new Map<EntryId, Awaited<ReturnType<typeof personalDesktopTimelineEntry>>>();
+  const hidden = new Set<EntryId>();
+  const paired = new Map<NonNullable<EntryRecord["model"]>[number], EntryId>();
+  for (const event of events) {
+    if (!("entry" in event) || !event.entry || entries.has(event.entry.id)) continue;
+    const projected = await personalDesktopTimelineEntry(tx, event.entry);
+    entries.set(event.entry.id, projected);
+    if (!projected) hidden.add(event.entry.id);
+    const message = event.entry.model?.[0];
+    if (message) paired.set(message, event.entry.id);
+  }
+  // Native prompt messages precede run_start; partial updates belong to the run this batch starts.
+  const started = events.findLast(event => event.type === "run_start");
+  const previousReport = await reportInputs(tx, inputs);
+  const report = started?.type === "run_start" ? await reportInputs(tx, started.inputs) : previousReport;
+  const projected: PersonalDesktopEvent[] = [];
+  let nextInputs = inputs;
+  for (const event of events) {
+    if (event.type === "run_start") nextInputs = event.inputs;
+    else if (event.type === "run_end") nextInputs = [];
+    if (event.type === "message_start") {
+      const entry = paired.get(event.message);
+      if (entry !== undefined ? hidden.has(entry) : report) continue;
+    }
+    if (event.type === "message_update" && report) continue;
+    if (["auto_retry_start", "auto_retry_end", "deferred_poll"].includes(event.type) && report) continue;
+    if ((event.type === "message_end" || event.type === "entry_appended") && event.entry) {
+      const entry = entries.get(event.entry.id);
+      if (entry) projected.push({ type: event.type, entry });
+      continue;
+    }
+    if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end" || event.type === "task_failed") {
+      if (event.type === "tool_execution_end" && event.entry && hidden.has(event.entry.id)) continue;
+      if (event.taskId !== undefined ? await personalReportTaskDraft(tx, event.taskId) : event.type === "tool_execution_end" ? previousReport : report) continue;
+    }
+    const value = personalDesktopEvent(event);
+    if (!value) continue;
+    if (value.type === "submission" && event.type === "submission" && await personalReportInput(tx, event.record.id)) delete value.record.answer;
+    projected.push(value);
+  }
+  return { projected, inputs: nextInputs };
+}
+
 export function personalDesktopCanSend(frameBytes: number, bufferedAmount: number) {
   return frameBytes <= PERSONAL_DESKTOP_FRAME_LIMIT && bufferedAmount + frameBytes <= PERSONAL_DESKTOP_BUFFER_LIMIT;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+// Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 export function personalDesktopEvents(server: Server, harness: Harness, token: string, runId: string) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024, perMessageDeflate: false });
   const streams = new Set<AgentEventStream>();
@@ -105,13 +155,14 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
       stream = await watchEvents(harness, ROOT_CONVERSATION_ID, context);
       streams.add(stream);
       const through = stream.snapshot.entries.reduce((value, entry) => Math.max(value, entry.id), 0);
-      const timeline = await harness.commit(tx => personalTimeline(tx, { through }), context);
+      const { timeline, reportDraft } = await harness.commit(async tx => ({ timeline: await personalTimeline(tx, { through }), reportDraft: await reportInputs(tx, stream!.snapshot.run?.inputs ?? []) }), context);
       if (closing || socket.destroyed) return;
       const watch = stream;
       wss.handleUpgrade(req, socket, head, ws => {
         attached = true;
         const subscription = randomUUID();
         let seq = 0, ended = false;
+        let inputs: readonly SubmissionId[] = watch.snapshot.run?.inputs ?? [];
         let pongTimeout: ReturnType<typeof setTimeout> | undefined;
         const finish = () => {
           if (ended) return;
@@ -136,13 +187,15 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
         ws.on("close", finish);
         ws.on("error", () => { finish(); ws.terminate(); });
         ws.on("message", () => { finish(); ws.close(1008, "read_only"); });
-        send({ v: 1, runId, subscription, seq, type: "snapshot", timeline, live: personalDesktopLive(watch.snapshot) });
+        send({ v: 1, runId, subscription, seq, type: "snapshot", timeline, live: personalDesktopLive(watch.snapshot, reportDraft) });
         watch.start(async events => {
           if (events.some(event => event.type === "snapshot")) { finish(); ws.close(1013, "resync_required"); return; }
-          const projected = events.flatMap(event => { const value = event.type !== "snapshot" && personalDesktopEvent(event); return value ? [value] : []; });
+          const next = await harness.commit(tx => projectEvents(tx, events.filter((event): event is Exclude<AgentEvent, SnapshotEvent> => event.type !== "snapshot"), inputs), context);
+          const projected = next.projected;
+          inputs = next.inputs;
           if (projected.length) send({ v: 1, runId, subscription, seq: ++seq, type: "events", events: projected });
         });
-        void watch.closed.then(() => { finish(); if (ws.readyState === WebSocket.OPEN) ws.close(1012, "backend_stopped"); });
+        void watch.closed.then(end => { finish(); if (ws.readyState === WebSocket.OPEN) ws.close(end.reason === "listener_error" ? 1013 : 1012, end.reason === "listener_error" ? "resync_required" : "backend_stopped"); });
       });
     } catch {
       process.stderr.write("[ruukoto:personal] 会话观察流未能建立，请重新连接；已接纳工作继续运行。\n");

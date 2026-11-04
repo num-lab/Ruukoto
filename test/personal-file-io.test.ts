@@ -306,9 +306,13 @@ test("文件工作线程：旧版本文件操作按完成与否兼容或拒绝",
     await compat.close();
   }
 
-  await assert.rejects(open(await restorePersonalFileIoLegacy("pending-read", fs.mkdtempSync(path.join(root, "pending-read-")))), code("file_io_legacy_pending"));
+  // The old active WorkTask is refused before file-I/O activation.
+  const pendingRead = await restorePersonalFileIoLegacy("pending-read", fs.mkdtempSync(path.join(root, "pending-read-")));
+  await assert.rejects(open(pendingRead), code("task_version"));
+  assert.equal(fs.readFileSync(pendingRead.target, "utf8"), "x");
   const pendingWrite = await restorePersonalFileIoLegacy("pending-write", fs.mkdtempSync(path.join(root, "pending-write-")));
-  await assert.rejects(open(pendingWrite), code("file_io_legacy_pending"));
+  await assert.rejects(open(pendingWrite), code("task_version"));
+  assert.equal(fs.readFileSync(pendingWrite.target, "utf8"), "x");
   const storage = await openNodeSqliteStorage(path.join(pendingWrite.directory, "personal.sqlite"));
   try {
     const record = await storage.findDocument({ kind: "ruukoto.directory-claims", scope: { kind: "session" } }, "current", context);

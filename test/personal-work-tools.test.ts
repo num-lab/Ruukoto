@@ -13,6 +13,7 @@ import { personalProvider, type PersonalModelConfig, type RequestEvidence } from
 import { PersonalAgentsDoc, PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { personalToolSource } from "../apps/ruukoto/src/personal-work-tools.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { PersonalDelegationDoc } from "../apps/ruukoto/src/personal-delegation.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -179,8 +180,11 @@ test("模型工作：登记成功但工具应答前真实强杀，恢复原工�
 
 test("模型工作：工具关系、权限或标记缺失在恢复前拒绝，零新模型请求", async t => {
   for (const mutation of ["call", "permission", "marker"] as const) await t.test(mutation, async t => {
-    const f = await fixture(t, request => childRequest(request) ? { kind: "text", text: "分析完成" } : request.messages.at(-1)?.role === "tool" ? { kind: "text", text: resultText(request) } : call({ action: "delegate", content: "分析" }));
+    const f = await fixture(t, request => childRequest(request) || String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考") ? { kind: "text", text: "分析完成" } : request.messages.at(-1)?.role === "tool" ? { kind: "text", text: resultText(request) } : call({ action: "delegate", content: "分析" }));
     const p = await f.open(); await p.answer("委派", "owner"); const work = await ref(p); await p.harness.waitForTask(work.taskId, context);
+    const group = (await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.delegation!;
+    const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
+    await p.harness.waitForTask(report.taskId, context);
     await p.harness.commit(async tx => {
       const facts = await tx.doc(PersonalWorkDoc, work.requestId, null);
       if (mutation === "call") delete facts.modelCall;

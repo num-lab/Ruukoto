@@ -10,6 +10,8 @@ Personal commands/MCP already recovered original work, while file, HTTP, search 
 
 ## Decision
 
+[Request-bound work amendments](2026-11-04-personal-work-amendments.md) adds WorkTask-version-3 requirement snapshots and conservative supersession of older unstarted ordinary operations. Main queries canonical bounded decision facts; waiting business tools themselves run only in children under [bounded main coordination](2026-11-03-personal-coordination-cutoff.md). The authorization, exact-target, artifacts and unknown-effect rules below remain.
+
 Native pi.tool owns immutable admission, exact arguments, source, permissions and configuration snapshots. Business documents add only approval, start, observation and external-verification facts, not another Task state. Main/children share tool names and call gates. Main mutations require unique owner input; children use current original-work source/permissions, never old authorization from persistent context. Scheduled sources use the independent adaptation below.
 
 tools.json originally included separate material-directory/object identities, named HTTP credential references and Tavily environment-variable names. Web Search now has its independent configuration under the linked decision. Trusted local controls individually create, retain and revoke read grants, incrementing grant version without implicit write grants. Before approval consumption, recheck configuration, materials, original entry and exact arguments. Revocation invalidates unstarted calls; default mode changes affect new sources only, not old child work.

@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import * as http from "node:http";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -16,17 +16,20 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord";
-import { AgentDoc, ROOT_CONVERSATION_ID, type ConversationId, type TaskId } from "@earendil-works/pi-durable";
+import { AgentDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type SubmissionId, type TaskId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
-import { PersonalToolDoc, PersonalToolsDoc, toolOperations, toolDecide, toolGrant, toolRevoke, toolResolve, toolVerifyStop, type PersonalToolOperation } from "../apps/ruukoto/src/personal-tools.ts";
+import { PersonalToolDoc, PersonalToolsDoc, toolOperations, toolDecide, toolGrant, toolList, personalToolRedisplay, toolRevoke, toolResolve, toolVerifyStop, type PersonalToolOperation } from "../apps/ruukoto/src/personal-tools.ts";
 import { personalControl, startPersonalServer, type PersonalInputStatus } from "../apps/ruukoto/src/personal-control.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { savePersonalTools, parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { personalServiceSourceBlocker } from "../apps/ruukoto/src/personal-service-operations.ts";
-import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
+import { personalWorkResult, appendPersonalWork, personalWorkNoteSource, PersonalWorkDoc, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
+import { LocalInputDoc, personalInputDigest } from "../apps/ruukoto/src/personal-local-records.ts";
+import { PersonalInspectionDoc, PersonalPendingInspectionsDoc } from "../apps/ruukoto/src/personal-service-inspection.ts";
+import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { readPersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -646,4 +649,609 @@ test("durable 文件写入：已批准执行遇到容量拒绝保留批准且不
   await invoked(p, invoke("write_file", { path: inside, content: "改" }), "cap-in-2", "tools-src");
   await until(() => fs.readFileSync(inside, "utf8") === "改");
   await answer.catch(() => undefined); await bAnswer.catch(() => undefined); await inAnswer.catch(() => undefined);
+});
+
+const held = () => { let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); return { gate, release }; };
+const childConversation = (request: RecordedRequest) => request.system?.includes("你是个人助手的子 Agent") === true;
+const noteSubmission = (p: PersonalHarness, work: PersonalWorkRef, requestId: string) => p.harness.commit(tx => tx.submissionByRequest(work.agentId, `personal-work:${work.taskId}:note:${requestId}`), context);
+
+test("durable 要求更新：接纳中的说明使待批准旧操作失效且原决定保留，同一子会话按新目标写一次", { timeout: 60_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const oldPath = path.join(f.outside, "old.txt"), newPath = path.join(f.outside, "new.txt");
+  fs.writeFileSync(newPath, "");
+  const original = invoke("write_file", { path: oldPath, content: "旧内容" }), amended = invoke("write_file", { path: newPath, content: "新内容" });
+  const answer = invoked(p, original, "amend-work", "tools-src"); void answer.catch(() => undefined);
+  const pending = await first(p);
+  assert.equal(pending.approval, "pending"); assert.equal(pending.started, false); assert.equal(pending.observation, undefined);
+  const work = pending.origin.work!.ref;
+  await p.work.append(work, { requestId: "amend-1", content: amended, sourceRequestId: "tools-src" });
+  const note = await noteSubmission(p, work, "amend-1");
+  assert.ok(note === undefined || note.entry === undefined, "说明已接纳但仍未下发到子会话");
+  const stale = await record(p, pending.operation);
+  assert.equal(stale.started, false); assert.equal(stale.effect, "not_executed"); assert.equal(stale.code, "tool_requirements_changed");
+  assert.equal(stale.approval, "pending"); assert.notEqual(stale.observation, undefined); assert.equal(stale.superseded?.reason, "requirements_changed");
+  assert.equal(stale.stopped, true);
+  assert.equal((await p.harness.commit(tx => toolList(tx), context)).items.find(item => item.operation === pending.operation)?.canDecide, false);
+  await assert.rejects(p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context), code("tool_decision_invalid"));
+  await until(async () => (await operations(p)).length === 2);
+  const fresh = (await operations(p)).at(-1)!;
+  assert.notEqual(fresh.operation, pending.operation); assert.equal(fresh.approval, "pending"); assert.equal(fresh.started, false); assert.equal(fresh.superseded, undefined);
+  assert.equal(fresh.prepared.kind === "file" ? fresh.prepared.request.path : "", newPath);
+  await p.harness.commit(tx => toolDecide(tx, fresh.operation, "approved", f.directory), context);
+  const outcome = await answer;
+  assert.equal(fs.existsSync(oldPath), false); assert.equal(fs.readFileSync(newPath, "utf8"), "新内容");
+  assert.equal(outcome.text.length > 0, true);
+  const staleAdmitted = await record(p, pending.operation), admitted = await record(p, fresh.operation);
+  assert.equal(staleAdmitted.instructions?.version, 1); assert.equal(admitted.instructions?.version, 1);
+  const staleSnapshot = staleAdmitted.instructions!.snapshot, freshSnapshot = admitted.instructions!.snapshot;
+  assert.equal(staleSnapshot.work.taskId, work.taskId); assert.equal(freshSnapshot.work.taskId, work.taskId);
+  assert.equal(staleSnapshot.notes.length, 0); assert.equal(staleSnapshot.nativeInputs.length, 1); assert.equal(staleSnapshot.original.submissionId, staleSnapshot.nativeInputs[0]);
+  assert.equal(freshSnapshot.notes.length, 1); assert.equal(freshSnapshot.notes[0]!.requestId, "amend-1"); assert.equal(freshSnapshot.nativeInputs.length, 2);
+  assert.ok(staleSnapshot.cutoff < freshSnapshot.cutoff);
+  const requestEntry = await p.harness.commit(async tx => tx.entry(staleAdmitted.instructions!.requestEntry), context);
+  assert.equal(requestEntry?.conversationId, work.agentId);
+  const evidence = requestEntry?.data as { references: Record<string, unknown>; input: { messages: Array<{ sections?: Record<string, string> }> } };
+  assert.deepEqual(evidence.references.instructions, staleSnapshot);
+  const section = evidence.input.messages[0]?.sections?.["personal-work-instructions"];
+  assert.notEqual(section, undefined); assert.match(section!, /当前后台工作要求参考/);
+  assert.deepEqual(JSON.parse(section!.split("\n").find(line => line.startsWith('{"work":'))!), { work: work.taskId, instructions: [original] });
+  const latest = f.model.calls.filter(childConversation).at(-1)!;
+  assert.deepEqual(JSON.parse(latest.system!.split("\n").find(line => line.startsWith('{"work":'))!), { work: work.taskId, instructions: [original, amended] });
+});
+
+test("durable 要求更新：本机说明来源同样使旧操作失效并在重开后保留", { timeout: 60_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const oldPath = path.join(f.outside, "old.txt"), newPath = path.join(f.outside, "new.txt");
+  fs.writeFileSync(newPath, "");
+  const original = invoke("write_file", { path: oldPath, content: "旧内容" }), amended = invoke("write_file", { path: newPath, content: "新内容" });
+  const answer = invoked(p, original, "amend-local", "tools-src"); void answer.catch(() => undefined);
+  const pending = await first(p); const work = pending.origin.work!.ref;
+  await p.harness.commit(async tx => {
+    const intent = await tx.doc(LocalInputDoc, "local-amend", personalInputDigest(amended, work.taskId));
+    intent.work = work.taskId;
+    await appendPersonalWork(tx, work, { requestId: "local-amend", content: amended, source: { kind: "local" } });
+  }, context);
+  const stale = await record(p, pending.operation);
+  assert.equal(stale.code, "tool_requirements_changed"); assert.equal(stale.superseded?.reason, "requirements_changed"); assert.notEqual(stale.superseded?.note, undefined);
+  await until(async () => (await operations(p)).length === 2);
+  const fresh = (await operations(p)).at(-1)!;
+  await p.harness.commit(tx => toolDecide(tx, fresh.operation, "approved", f.directory), context);
+  await answer;
+  assert.equal(fs.existsSync(oldPath), false); assert.equal(fs.readFileSync(newPath, "utf8"), "新内容");
+  await p.close();
+  const restored = await f.open();
+  const reopened = await record(restored, pending.operation);
+  assert.equal(reopened.code, "tool_requirements_changed"); assert.equal(reopened.superseded?.reason, "requirements_changed");
+  assert.equal((await record(restored, fresh.operation)).effect, "returned");
+});
+
+test("durable 要求更新：已批准未消费的旧操作在保留处失效且保留原批准，先开始的效果不回滚", { timeout: 90_000 }, async t => {
+  const f = await fixture(t);
+  fs.mkdirSync(f.directory);
+  const reserve = held(), execute = held();
+  let holdReserve = false, holdExecute = false, reserveCalls = 0;
+  const inner = openPersonalFileIo({ profile: fs.realpathSync(f.directory) });
+  const io: PersonalFileIo = {
+    prepare: (input, ticketContext) => inner.prepare(input, ticketContext),
+    execute: (request, ticketContext) => inner.execute(request, ticketContext),
+    reserve: async (request, ticketContext) => {
+      if (holdReserve) { reserveCalls++; await reserve.gate; }
+      const ticket = await inner.reserve(request, ticketContext);
+      if (!holdExecute) return ticket;
+      return { ...ticket, execute: async () => { await execute.gate; return ticket.execute(); } };
+    },
+    close: () => inner.close(),
+  };
+  const p = await f.open({ fileIo: io }); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const pathA = path.join(f.outside, "a.txt"), pathB = path.join(f.outside, "b.txt"), pathC = path.join(f.outside, "c.txt");
+  fs.writeFileSync(pathB, ""); fs.writeFileSync(pathC, "");
+  const invokeA = invoke("write_file", { path: pathA, content: "A" }), invokeB = invoke("write_file", { path: pathB, content: "B" }), invokeC = invoke("write_file", { path: pathC, content: "C" });
+  const answer = invoked(p, invokeA, "hold-work", "tools-src"); void answer.catch(() => undefined);
+  const pendingA = await first(p);
+  try {
+    holdReserve = true;
+    await p.harness.commit(tx => toolDecide(tx, pendingA.operation, "approved", f.directory), context);
+    await until(() => reserveCalls === 1);
+    await p.work.append(pendingA.origin.work!.ref, { requestId: "amend-a", content: invokeB, sourceRequestId: "tools-src" });
+    const staleA = await record(p, pendingA.operation);
+    assert.equal(staleA.approval, "approved"); assert.notEqual(staleA.decisionEntry, undefined);
+    assert.equal(staleA.code, "tool_requirements_changed"); assert.equal(staleA.effect, "not_executed"); assert.equal(staleA.started, false); assert.equal(staleA.superseded?.reason, "requirements_changed");
+    holdReserve = false; reserve.release();
+    await until(async () => (await operations(p)).length === 2);
+    assert.equal(fs.existsSync(pathA), false);
+    const pendingB = (await operations(p)).at(-1)!;
+    holdExecute = true;
+    await p.harness.commit(tx => toolDecide(tx, pendingB.operation, "approved", f.directory), context);
+    await until(async () => (await record(p, pendingB.operation)).started);
+    await p.work.append(pendingB.origin.work!.ref, { requestId: "amend-b", content: invokeC, sourceRequestId: "tools-src" });
+    const liveB = await record(p, pendingB.operation);
+    assert.equal(liveB.superseded, undefined); assert.equal(liveB.started, true); assert.equal(liveB.effect, "effect_unknown"); assert.equal(liveB.approval, "approved");
+    execute.release();
+    await until(async () => (await record(p, pendingB.operation)).effect === "returned");
+    const doneB = await record(p, pendingB.operation);
+    assert.equal(doneB.code, "file_returned"); assert.equal(doneB.stopped, true); assert.notEqual(doneB.directoryClaim, undefined); assert.equal(doneB.superseded, undefined);
+    assert.equal(fs.readFileSync(pathB, "utf8"), "B"); assert.equal(fs.existsSync(pathA), false);
+    holdExecute = false;
+  } finally { holdReserve = false; reserve.release(); holdExecute = false; execute.release(); }
+  await until(async () => (await operations(p)).length === 3);
+  const pendingC = (await operations(p)).at(-1)!;
+  assert.equal(pendingC.prepared.kind === "file" ? pendingC.prepared.request.path : "", pathC);
+  await p.harness.commit(tx => toolDecide(tx, pendingC.operation, "approved", f.directory), context);
+  await answer;
+  assert.equal(fs.readFileSync(pathC, "utf8"), "C");
+});
+
+test("durable 要求更新：延后的旧模型调用在边界被拒绝且新旧 HTTP 操作各自核实", { timeout: 60_000 }, async t => {
+  let oldHits = 0, newHits = 0;
+  const endpoint = await remote(t, (request, response) => { if (request.url === "/new") newHits++; else oldHits++; response.end("ok"); });
+  const original = invoke("http_request", { url: `${endpoint}/old`, method: "POST", body: "旧" });
+  const amended = invoke("http_request", { url: `${endpoint}/new`, method: "POST", body: "新" });
+  const gate = held();
+  const f = await fixture(t, async request => {
+    if (reviewRequest(request)) return respond(request, 0);
+    if (childConversation(request) && request.messages.at(-1)?.content === original) {
+      await gate.gate;
+      return { kind: "tool_calls", calls: [{ id: "old-http", name: "http_request", arguments: { url: `${endpoint}/old`, method: "POST", body: "旧" } }] };
+    }
+    return respond(request, 0);
+  });
+  const p = await f.open(); await mode(p, "full_access"); await p.answer("工具来源", "tools-src");
+  const work = await p.work.delegate({ requestId: "delayed", sourceRequestId: "tools-src", content: original });
+  await until(() => f.model.calls.some(childConversation));
+  await p.work.append(work, { requestId: "amend", content: amended, sourceRequestId: "tools-src" });
+  assert.equal((await noteSubmission(p, work, "amend"))?.entry, undefined);
+  gate.release();
+  await p.harness.waitForTask(work.taskId, context);
+  const ops = await operations(p);
+  assert.equal(ops.length, 1);
+  const fresh = ops[0]!;
+  assert.equal(fresh.prepared.kind === "http" ? fresh.prepared.request.url : "", `${endpoint}/new`);
+  assert.equal(fresh.effect, "returned"); assert.equal(fresh.superseded, undefined); assert.equal(fresh.stopped, true);
+  assert.equal(oldHits, 0); assert.equal(newHits, 1);
+});
+
+test("durable 要求更新：待批准与已批准 HTTP 旧操作不发出请求，已开始未知效果保留核实", { timeout: 90_000 }, async t => {
+  let hits = 0, unknownServed = false;
+  const endpoint = await remote(t, (request, response) => { hits++; if (request.url === "/die") { unknownServed = true; request.resume(); request.once("end", () => request.socket.destroy()); } else response.end("ok"); });
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const firstHttp = invoke("http_request", { url: `${endpoint}/one`, method: "POST", body: "1" });
+  const answerA = invoked(p, firstHttp, "http-a", "tools-src"); void answerA.catch(() => undefined);
+  const pendingA = await first(p); const workA = pendingA.origin.work!.ref;
+  await p.work.append(workA, { requestId: "amend-http-a", content: invoke("http_request", { url: `${endpoint}/two`, method: "POST", body: "2" }), sourceRequestId: "tools-src" });
+  const staleA = await record(p, pendingA.operation);
+  assert.equal(staleA.code, "tool_requirements_changed"); assert.equal(staleA.effect, "not_executed"); assert.equal(staleA.started, false); assert.equal(hits, 0);
+  await until(async () => (await operations(p)).length === 2);
+  const pendingB = (await operations(p)).at(-1)!;
+  const approvedB = pendingB.operation;
+  await p.harness.commit(tx => toolDecide(tx, approvedB, "approved", f.directory), context);
+  await p.harness.commit(async tx => appendPersonalWork(tx, workA, { requestId: "amend-http-b", content: invoke("http_request", { url: `${endpoint}/three`, method: "POST", body: "3" }), source: await personalWorkNoteSource(tx, "tools-src") }), context);
+  const staleB = await record(p, approvedB);
+  assert.equal(staleB.approval, "approved"); assert.equal(staleB.code, "tool_requirements_changed"); assert.equal(staleB.effect, "not_executed"); assert.equal(staleB.started, false); assert.equal(hits, 0);
+  await until(async () => (await operations(p)).length === 3);
+  const pendingC = (await operations(p)).at(-1)!;
+  await p.harness.commit(tx => toolDecide(tx, pendingC.operation, "approved", f.directory), context);
+  await until(() => hits === 1);
+  await answerA;
+  await mode(p, "full_access"); await p.answer("工具来源", "die-src");
+  const dieWork = await p.work.delegate({ requestId: "die-work", sourceRequestId: "die-src", content: invoke("http_request", { url: `${endpoint}/die`, method: "POST", body: "x" }) });
+  await until(async () => !!(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "die-src"), context)));
+  const unknown = (await operations(p)).find(op => op.origin.work?.ref.taskId === dieWork.taskId)!;
+  assert.equal(unknown.effect, "effect_unknown"); assert.equal(unknown.stopped, false); assert.equal(unknown.started, true);
+  await until(() => unknownServed);
+  await p.work.append(dieWork, { requestId: "amend-die", content: "补充说明", sourceRequestId: "die-src" });
+  const preserved = await record(p, unknown.operation);
+  assert.equal(preserved.superseded, undefined); assert.equal(preserved.effect, "effect_unknown"); assert.equal(preserved.stopped, false); assert.equal(preserved.started, true); assert.equal(unknownServed, true);
+  assert.ok(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "die-src"), context));
+  await p.harness.commit(tx => toolResolve(tx, unknown.operation, "applied", "核实已生效"), context);
+  await p.harness.commit(tx => toolVerifyStop(tx, unknown.operation, "远端已结束"), context);
+  assert.equal(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "die-src"), context), undefined);
+});
+
+test("durable 要求更新：工作隔离、重复说明不重复失效、伪造来源拒绝且不留痕迹", { timeout: 90_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const pathA = path.join(f.outside, "a.txt"), pathB = path.join(f.outside, "b.txt");
+  fs.writeFileSync(pathB, "");
+  const answerA = invoked(p, invoke("write_file", { path: pathA, content: "A" }), "work-a", "tools-src"); void answerA.catch(() => undefined);
+  const opA = await first(p); const workA = opA.origin.work!.ref;
+  await p.answer("工具来源", "src-b");
+  const answerB = invoked(p, invoke("write_file", { path: pathB, content: "B" }), "work-b", "src-b"); void answerB.catch(() => undefined);
+  await until(async () => (await operations(p)).length === 2);
+  const opB = (await operations(p)).at(-1)!; const workB = opB.origin.work!.ref;
+  const pathA2 = path.join(f.outside, "a2.txt"); fs.writeFileSync(pathA2, "");
+  await p.work.append(workA, { requestId: "amend-a", content: invoke("write_file", { path: pathA2, content: "A2" }), sourceRequestId: "tools-src" });
+  const staleA = await record(p, opA.operation), liveB = await record(p, opB.operation);
+  assert.equal(staleA.code, "tool_requirements_changed"); assert.equal(staleA.superseded?.reason, "requirements_changed");
+  assert.equal(liveB.code, "awaiting_approval"); assert.equal(liveB.superseded, undefined); assert.equal(liveB.observation, undefined);
+  const supersededEntry = staleA.superseded!.entry;
+  assert.deepEqual(await p.work.append(workA, { requestId: "amend-a", content: invoke("write_file", { path: pathA2, content: "A2" }), sourceRequestId: "tools-src" }), { accepted: true });
+  assert.equal((await record(p, opA.operation)).superseded!.entry, supersededEntry);
+  await assert.rejects(p.harness.commit(tx => appendPersonalWork(tx, workA, { requestId: "forged", content: "伪造说明", source: { kind: "input", requestId: "tools-src", submissionId: 999 as SubmissionId, entryId: 999 as EntryId } }), context), code("work_original_entry_required"));
+  assert.equal((await record(p, opA.operation)).superseded!.entry, supersededEntry); assert.equal((await record(p, opB.operation)).superseded, undefined);
+  await p.harness.commit(tx => toolDecide(tx, opB.operation, "approved", f.directory), context);
+  await until(() => fs.existsSync(pathB));
+  await answerB;
+  await until(async () => (await operations(p)).length === 3);
+  const freshA = (await operations(p)).at(-1)!;
+  await p.harness.commit(tx => toolDecide(tx, freshA.operation, "approved", f.directory), context);
+  await answerA;
+  assert.equal(fs.readFileSync(pathA2, "utf8"), "A2"); assert.equal(fs.existsSync(pathA), false);
+});
+
+test("durable 操作查询与重显示：每次请求保留独立登记，同次重放幂等且无批准权", { timeout: 90_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const target = path.join(f.outside, "display.txt");
+  fs.writeFileSync(target, "");
+  const answer = invoked(p, invoke("write_file", { path: target, content: "x" }), "display-work", "tools-src"); void answer.catch(() => undefined);
+  const pending = await first(p); const work = pending.origin.work!.ref;
+  const list = JSON.parse(await p.answer(invoke("background_work", { action: "operations", work: work.taskId }), "ops-list")) as { operations: Array<{ operation: TaskId; approval: string; canDecide: boolean }> };
+  assert.equal(list.operations.length, 1); assert.equal(list.operations[0]!.operation, pending.operation); assert.equal(list.operations[0]!.canDecide, true);
+  assert.equal((await record(p, pending.operation)).observation, undefined);
+  const detail = JSON.parse(await p.answer(invoke("background_work", { action: "operation", operation: pending.operation }), "op-detail")) as { operation: TaskId; text: string };
+  assert.equal(detail.operation, pending.operation);
+  const fields = JSON.parse(detail.text) as { operation: TaskId; params: { path: string }; config?: unknown; approval: string };
+  assert.equal(fields.operation, pending.operation); assert.equal(fields.params.path, target); assert.equal(fields.approval, "pending"); assert.equal(fields.config, undefined);
+  const first1 = JSON.parse(await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "display-1")) as { operation: TaskId; display: EntryId; state: string };
+  assert.equal(first1.state, "redisplay_registered"); assert.equal(first1.operation, pending.operation);
+  const firstDisplay = await p.harness.commit(tx => tx.entry(first1.display), context);
+  assert.ok(firstDisplay && firstDisplay.data && typeof firstDisplay.data === "object" && !Array.isArray(firstDisplay.data));
+  const firstSource = firstDisplay.data.source as { requestId: string; submissionId: SubmissionId; entryId: EntryId }, firstCall = firstDisplay.data.modelCall as TaskId;
+  const replay = await p.harness.commit(tx => personalToolRedisplay(tx, pending.operation, { source: firstSource }, firstCall, { local: true }), context);
+  assert.equal(replay.display, first1.display);
+  const second = JSON.parse(await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "display-2")) as { display: EntryId; state: string };
+  assert.notEqual(second.display, first1.display); assert.equal(second.state, "redisplay_registered");
+  const saved = await record(p, pending.operation);
+  assert.equal(saved.approval, "pending"); assert.equal(saved.redisplay, second.display); assert.deepEqual(saved.redisplays, [first1.display, second.display]); assert.equal(saved.started, false); assert.equal(saved.observation, undefined);
+  await p.harness.commit(async tx => { (await tx.doc(PersonalToolDoc, String(pending.operation), null)).operation!.origin.telegram = { botId: "123", ownerId: "456", generation: randomUUID(), mode: "confirm", version: 1 }; }, context);
+  assert.match(await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "display-3"), /tool_original_entry/);
+  await p.harness.commit(async tx => { delete (await tx.doc(PersonalToolDoc, String(pending.operation), null)).operation!.origin.telegram; }, context);
+  await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
+  await answer;
+  assert.equal(fs.readFileSync(target, "utf8"), "x");
+  await p.close(); const restored = await f.open();
+  assert.deepEqual((await record(restored, pending.operation)).redisplays, [first1.display, second.display]);
+});
+
+test("durable 重显示登记：每次原请求及模型调用均须保留可核实的唯一来源", { timeout: 90_000 }, async t => {
+  for (const damage of ["missing-first", "duplicate", "earlier-owner-source"] as const) await t.test(damage, async t => {
+    const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+    const target = path.join(f.outside, "display-record.txt"); fs.writeFileSync(target, "");
+    const answer = invoked(p, invoke("write_file", { path: target, content: "x" }), "display-record-work", "tools-src"); void answer.catch(() => undefined);
+    const pending = await first(p);
+    const firstDisplay = JSON.parse(await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "display-first")) as { display: EntryId };
+    const lastDisplay = JSON.parse(await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "display-last")) as { display: EntryId };
+    assert.notEqual(firstDisplay.display, lastDisplay.display);
+    const owner = await p.harness.commit(tx => tx.submissionByRequest(ROOT_CONVERSATION_ID, "tools-src"), context); assert.ok(owner?.entry);
+    await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context); await answer;
+    if (damage !== "earlier-owner-source") await p.harness.commit(async tx => {
+      const operation = (await tx.doc(PersonalToolDoc, String(pending.operation), null)).operation!;
+      operation.redisplays = damage === "missing-first" ? [lastDisplay.display] : [firstDisplay.display, firstDisplay.display, lastDisplay.display];
+    }, context);
+    await p.close();
+    if (damage === "earlier-owner-source") {
+      const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
+      try {
+        const altered = { requestId: "tools-src", submissionId: owner.id, entryId: owner.entry };
+        assert.equal(db.prepare("UPDATE entries SET record = json_set(record, '$.data.source', json(?)) WHERE id = ?").run(JSON.stringify(altered), firstDisplay.display).changes, 1);
+      } finally { db.close(); }
+    }
+    await assert.rejects(f.open(), code("tool_record_invalid"));
+  });
+});
+
+test("durable 要求更新：指令、失效与重显示证据损坏拒绝重开", { timeout: 120_000 }, async t => {
+  for (const damage of ["request-instructions", "request-text", "snapshot-version", "superseded-link", "superseded-orphan", "redisplay-link", "request-native", "native-inputs", "out-of-cutoff", "earlier-request", "redisplay-entry", "redisplay-source"] as const) await t.test(damage, async t => {
+    const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+    const target = path.join(f.outside, "corrupt.txt"), freshPath = path.join(f.outside, "fresh.txt");
+    fs.writeFileSync(target, ""); fs.writeFileSync(freshPath, "");
+    const answer = invoked(p, invoke("write_file", { path: target, content: "c" }), `corrupt-${damage}`, "tools-src"); void answer.catch(() => undefined);
+    const pending = await first(p); const work = pending.origin.work!.ref;
+    await p.work.append(work, { requestId: `note-${damage}`, content: invoke("write_file", { path: freshPath, content: "n" }), sourceRequestId: "tools-src" });
+    const stale = await record(p, pending.operation);
+    assert.equal(stale.code, "tool_requirements_changed"); assert.notEqual(stale.instructions, undefined);
+    let displayEntry: EntryId | undefined;
+    if (damage.startsWith("redisplay-")) { await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "corrupt-display"); await until(async () => (displayEntry = (await record(p, pending.operation)).redisplay) !== undefined); }
+    await until(async () => (await operations(p)).length === 2);
+    const fresh = (await operations(p)).at(-1)!;
+    await p.harness.commit(tx => toolDecide(tx, fresh.operation, "approved", f.directory), context);
+    await answer;
+    await p.close();
+    if (damage === "request-instructions" || damage === "request-text" || damage === "request-native" || damage === "redisplay-source") {
+      const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
+      try {
+        if (damage === "redisplay-source") assert.equal(db.prepare("UPDATE entries SET record = json_replace(record, '$.data.source.submissionId', 999999) WHERE id = ?").run(displayEntry!).changes, 1);
+        else if (damage === "request-text") assert.equal(db.prepare("UPDATE entries SET record = json_replace(record, '$.data.input.messages[0].sections.\"personal-work-instructions\"', 'altered requirements') WHERE id = ?").run(stale.instructions!.requestEntry).changes, 1);
+        else assert.equal(db.prepare(damage === "request-instructions" ? "UPDATE entries SET record = json_remove(record, '$.data.references.instructions') WHERE id = ?" : "UPDATE entries SET record = json_replace(record, '$.data.references.instructions.nativeInputs', '[424242]') WHERE id = ?").run(stale.instructions!.requestEntry).changes, 1);
+      } finally { db.close(); }
+    } else {
+      const restored = await f.open();
+      await restored.harness.commit(async tx => {
+        const op = (await tx.doc(PersonalToolDoc, String(pending.operation), null)).operation!;
+        if (damage === "snapshot-version") (op.instructions!.snapshot as { version: number }).version = 2;
+        else if (damage === "superseded-link") op.superseded!.entry = (op.superseded!.entry + 100000) as EntryId;
+        else if (damage === "superseded-orphan") delete op.superseded;
+        else if (damage === "redisplay-link") op.redisplay = 424242 as EntryId;
+        else if (damage === "redisplay-entry") op.redisplay = stale.superseded!.entry;
+        else if (damage === "native-inputs") op.instructions!.snapshot.nativeInputs = [424242 as SubmissionId];
+        else if (damage === "out-of-cutoff") op.instructions!.snapshot.cutoff = 0 as EntryId;
+        else op.instructions!.requestEntry = op.admission;
+      }, context);
+      await restored.close();
+    }
+    await assert.rejects(f.open(), code("tool_record_invalid"));
+  });
+});
+
+test("durable 要求更新：查询不失效操作，把状态问题误当追加仍保守失效原操作", { timeout: 60_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const target = path.join(f.outside, "status.txt"); fs.writeFileSync(target, "");
+  const answer = invoked(p, invoke("write_file", { path: target, content: "x" }), "status-work", "tools-src"); void answer.catch(() => undefined);
+  const pending = await first(p); const work = pending.origin.work!.ref;
+  const listed = JSON.parse(await p.answer(invoke("background_work", { action: "operations", work: work.taskId }), "q-ops")) as { operations: Array<{ operation: TaskId; version: number; canDecide: boolean }> };
+  assert.equal(listed.operations.length, 1); assert.equal(listed.operations[0]!.version, 1); assert.equal(listed.operations[0]!.canDecide, true);
+  const result = JSON.parse(await p.answer(invoke("background_work", { action: "result", work: work.taskId }), "q-result")) as { tools?: { items: Array<{ operation: TaskId; canDecide: boolean }> } };
+  assert.equal(result.tools?.items[0]?.operation, pending.operation); assert.equal(result.tools?.items[0]?.canDecide, true);
+  const reference = await p.main.submit({ type: "input", content: invoke("background_work", { action: "operations", work: work.taskId }), requestId: "q-reference", entry: { kind: "ruukoto.work-report" } }, context);
+  const referenceResult = await reference.wait(context);
+  assert.ok(referenceResult.type === "input" && referenceResult.status === "done");
+  const referenceAnswer = await p.harness.commit(tx => tx.entry(referenceResult.answer), context);
+  const referenceText = referenceAnswer?.model?.flatMap(message => message.role === "assistant" ? message.content.flatMap(part => part.type === "text" ? [part.text] : []) : []).join("");
+  const readOnly = JSON.parse(referenceText!) as { operations: Array<{ operation: TaskId; canDecide: boolean }> };
+  assert.equal(readOnly.operations[0].operation, pending.operation); assert.equal(readOnly.operations[0].canDecide, false);
+  const unchanged = await record(p, pending.operation);
+  assert.equal(unchanged.observation, undefined); assert.equal(unchanged.approval, "pending"); assert.equal(unchanged.started, false); assert.equal(unchanged.superseded, undefined);
+  await p.work.append(work, { requestId: "status-note", content: "进度如何？", sourceRequestId: "tools-src" });
+  const stale = await record(p, pending.operation);
+  assert.equal(stale.code, "tool_requirements_changed"); assert.equal(stale.superseded?.reason, "requirements_changed"); assert.equal(stale.approval, "pending"); assert.equal(stale.observation !== undefined, true);
+  await answer;
+  assert.equal((await operations(p)).length, 1); assert.equal(fs.readFileSync(target, "utf8"), "");
+});
+
+test("durable 要求更新：延后的旧调用在同一共享门禁被拒绝，仅新说明目标执行", { timeout: 120_000 }, async t => {
+  const kinds = {
+    read_file: { name: "read_file", old: (f: Awaited<ReturnType<typeof fixture>>) => ({ path: path.join(f.outside, "old-read.txt") }), fresh: (f: Awaited<ReturnType<typeof fixture>>) => ({ path: path.join(f.outside, "new-read.txt") }), key: "path" as const },
+    list_files: { name: "list_files", old: (f: Awaited<ReturnType<typeof fixture>>) => ({ path: "." }), fresh: (f: Awaited<ReturnType<typeof fixture>>) => ({ path: "listed-sub" }), key: "path" as const },
+    search_files: { name: "search_files", old: (_f: Awaited<ReturnType<typeof fixture>>) => ({ query: "old-token-zz" }), fresh: (_f: Awaited<ReturnType<typeof fixture>>) => ({ query: "new-token-zz" }), key: "query" as const },
+    web_search: { name: "web_search", old: (_f: Awaited<ReturnType<typeof fixture>>) => ({ query: "旧检索词" }), fresh: (_f: Awaited<ReturnType<typeof fixture>>) => ({ query: "新检索词" }), key: "query" as const },
+  };
+  for (const kind of Object.values(kinds)) await t.test(kind.name, async t => {
+    const gate = held();
+    let oldArgs: Record<string, unknown> | undefined, freshArgs: Record<string, unknown> | undefined, content = "";
+    const f = await fixture(t, async request => {
+      if (reviewRequest(request)) return respond(request, 0);
+      if (childConversation(request) && request.messages.at(-1)?.content === content) { await gate.gate; return { kind: "tool_calls", calls: [{ id: "old-call", name: kind.name, arguments: oldArgs! }] }; }
+      return respond(request, 0);
+    });
+    oldArgs = kind.old(f); freshArgs = kind.fresh(f); content = invoke(kind.name, oldArgs);
+    if (kind.name === "list_files") fs.mkdirSync(path.join(f.workspace, "listed-sub"));
+    for (const file of [oldArgs.path, freshArgs.path]) if (kind.name === "read_file" && typeof file === "string") fs.writeFileSync(file, "x");
+    let searches = 0; const previous = process.env.TOOLS_LATE_SEARCH_KEY;
+    if (kind.name === "web_search") {
+      process.env.TOOLS_LATE_SEARCH_KEY = "late-search-key";
+      const originalFetch = globalThis.fetch;
+      t.mock.method(globalThis, "fetch", async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        if ((input instanceof Request ? input.url : String(input)) !== "https://api.tavily.com/search") return originalFetch(input, init);
+        searches++; return new Response(JSON.stringify({ results: [{ url: "https://example.com/late", title: "新", content: "摘要" }] }), { headers: { "content-type": "application/json" } });
+      });
+      t.after(() => { if (previous === undefined) delete process.env.TOOLS_LATE_SEARCH_KEY; else process.env.TOOLS_LATE_SEARCH_KEY = previous; });
+    }
+    const p = await f.open({ tools: kind.name === "web_search" ? { ...f.tools, search: { apiKeyEnv: "TOOLS_LATE_SEARCH_KEY" } } : f.tools });
+    await mode(p, "full_access"); await p.answer("工具来源", "tools-src");
+    const work = await p.work.delegate({ requestId: `delayed-${kind.name}`, sourceRequestId: "tools-src", content });
+    await until(() => f.model.calls.some(request => childConversation(request) && request.messages.at(-1)?.content === content));
+    await p.work.append(work, { requestId: `amend-${kind.name}`, content: invoke(kind.name, freshArgs), sourceRequestId: "tools-src" });
+    assert.equal((await noteSubmission(p, work, `amend-${kind.name}`))?.entry, undefined);
+    gate.release();
+    await p.harness.waitForTask(work.taskId, context);
+    const ops = await operations(p);
+    assert.equal(ops.length, 1);
+    assert.equal(ops[0]!.params[kind.key], freshArgs[kind.key]); assert.equal(ops[0]!.superseded, undefined); assert.equal(ops[0]!.stopped, true);
+    if (kind.name === "web_search") assert.equal(searches, 1);
+  });
+});
+
+test("durable 要求更新：已拒绝的旧操作在说明接纳后保留原决定，未变成要求更新", { timeout: 60_000 }, async t => {
+  const final = held();
+  const f = await fixture(t, async request => {
+    if (childConversation(request) && request.messages.at(-1)?.role === "tool" && String(request.messages.at(-1)?.content).includes('"code":"rejected"')) await final.gate;
+    return respond(request, 0);
+  }), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const oldPath = path.join(f.outside, "rejected.txt"), newPath = path.join(f.outside, "rejected-new.txt");
+  fs.writeFileSync(newPath, "");
+  const answer = invoked(p, invoke("write_file", { path: oldPath, content: "旧" }), "reject-work", "tools-src"); void answer.catch(() => undefined);
+  const pending = await first(p); const work = pending.origin.work!.ref;
+  await p.harness.commit(tx => toolDecide(tx, pending.operation, "rejected", f.directory), context);
+  await until(async () => (await record(p, pending.operation)).observation !== undefined);
+  const refused = await record(p, pending.operation);
+  assert.equal(refused.approval, "rejected"); assert.equal(refused.code, "rejected"); assert.notEqual(refused.decisionEntry, undefined);
+  try {
+    assert.deepEqual(await p.work.append(work, { requestId: "reject-note", content: invoke("write_file", { path: newPath, content: "新" }), sourceRequestId: "tools-src" }), { accepted: true });
+  } finally { final.release(); }
+  const preserved = await record(p, pending.operation);
+  assert.equal(preserved.approval, "rejected"); assert.equal(preserved.superseded, undefined); assert.equal(preserved.code, "rejected"); assert.equal(preserved.observation, refused.observation); assert.equal(preserved.decisionEntry, refused.decisionEntry);
+  await until(async () => (await operations(p)).length === 2);
+  const freshOp = (await operations(p)).at(-1)!.operation;
+  await p.harness.commit(tx => toolDecide(tx, freshOp, "approved", f.directory), context);
+  await answer;
+  assert.equal(fs.existsSync(oldPath), false); assert.equal(fs.readFileSync(newPath, "utf8"), "新");
+});
+
+test("durable 要求更新：并行压缩请求不会替换工具所属的实际要求快照", { timeout: 90_000 }, async t => {
+  const gate = held(); let compactions = 0;
+  const f = await fixture(t, async request => {
+    if (request.system?.includes("context summarization assistant")) { compactions++; return { kind: "text", text: "Original work context retained." }; }
+    if (childConversation(request) && request.messages.at(-1)?.content === "context-seed") return { kind: "text", text: "history ".repeat(14000) };
+    if (childConversation(request) && request.messages.at(-1)?.role === "user" && String(request.messages.at(-1)?.content).startsWith("tool:")) await gate.gate;
+    return respond(request, 0);
+  });
+  const p = await f.open(); await mode(p, "full_access"); await p.answer("工具来源", "tools-src");
+  const seed = await p.work.delegate({ requestId: "compact-seed", sourceRequestId: "tools-src", content: "context-seed" });
+  await p.harness.waitForTask(seed.taskId, context);
+  const target = path.join(f.workspace, "compact-read.txt"); fs.writeFileSync(target, "original bytes");
+  const content = invoke("read_file", { path: target });
+  const work = await p.work.delegate({ requestId: "compact-read", sourceRequestId: "tools-src", agentId: seed.agentId, content });
+  await until(() => f.model.calls.some(request => childConversation(request) && request.messages.at(-1)?.content === content));
+  try {
+    const child = await p.harness.conversation(work.agentId, context); assert.ok(child);
+    await p.harness.waitForTask(await child.compact(undefined, context), context);
+    assert.equal(compactions, 1);
+  } finally { gate.release(); }
+  await p.harness.waitForTask(work.taskId, context);
+  const currentOperations = await operations(p); assert.equal(currentOperations.length, 1);
+  const operation = currentOperations[0]; assert.equal(operation.kind, "read_file"); assert.equal(operation.effect, "returned");
+  const entry = await p.harness.commit(tx => tx.entry(operation.instructions!.requestEntry), context);
+  const data = entry?.data as { input: { messages: { sections?: Record<string, unknown> }[] }; references: { instructions?: unknown } };
+  assert.notEqual(data.input.messages[0]?.sections?.subagent, undefined); assert.deepEqual(data.references.instructions, operation.instructions!.snapshot);
+  await p.close(); const restored = await f.open(); assert.equal((await record(restored, operation.operation)).effect, "returned");
+});
+
+test("durable 要求更新：原输入完成后的说明轮次以说明自身为原生输入，新操作照常批准执行", { timeout: 90_000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const target = path.join(f.outside, "note-only.txt"); fs.writeFileSync(target, "");
+  const note = invoke("write_file", { path: target, content: "说明内容" });
+  const answer = invoked(p, invoke("write_file", { path: target, content: "原内容" }), "note-only-work", "tools-src"); void answer.catch(() => undefined);
+  const initial = await first(p); const work = initial.origin.work!.ref;
+  await p.harness.commit(async tx => {
+    (await tx.doc(PersonalInspectionDoc, String(work.taskId), null)).inspection = { taskId: work.taskId, conversationId: work.agentId, taskKind: "test-inspection", unit: "held", machineId: "held", inspectionId: "inspect_held", sources: [], admission: 1 as EntryId, stopped: false, work: { ref: { ...work }, permission: { mode: "confirm", version: 2 }, inputs: [] } };
+    (await tx.doc(PersonalPendingInspectionsDoc)).tasks.push(work.taskId);
+  }, context);
+  await p.harness.commit(tx => toolDecide(tx, initial.operation, "approved", f.directory), context);
+  await until(async () => (await p.harness.commit(tx => tx.submissionByRequest(work.agentId, `personal-work:${work.taskId}`), context))?.status === "done");
+  try {
+    await p.work.append(work, { requestId: "note-only", content: note, sourceRequestId: "tools-src" });
+    await p.harness.commit(async tx => { (await tx.doc(PersonalPendingInspectionsDoc)).tasks = []; }, context);
+    const noteSub = await until(async () => (await noteSubmission(p, work, "note-only"))?.entry !== undefined).then(() => noteSubmission(p, work, "note-only"));
+    await until(async () => (await operations(p)).length === 2);
+    const pending = (await operations(p)).at(-1)!;
+    assert.equal(pending.instructions?.version, 1);
+    assert.notEqual(pending.instructions!.snapshot.original.submissionId, undefined);
+    assert.deepEqual(pending.instructions!.snapshot.nativeInputs, [noteSub!.id]);
+    assert.equal(pending.instructions!.snapshot.nativeInputs.includes(pending.instructions!.snapshot.original.submissionId), false);
+    assert.equal(pending.instructions!.snapshot.notes.length, 1); assert.equal(pending.instructions!.snapshot.notes[0]!.submissionId, noteSub!.id);
+    await p.harness.commit(tx => toolDecide(tx, pending.operation, "approved", f.directory), context);
+  } finally { await p.harness.commit(async tx => { (await tx.doc(PersonalPendingInspectionsDoc)).tasks = []; }, context).catch(() => undefined); }
+  await answer;
+  assert.equal(fs.readFileSync(target, "utf8"), "说明内容");
+});
+
+test("durable 要求更新：已开始未观察的操作接纳说明后强杀，重开按原未知效果恢复而非记录无效", { timeout: 90_000 }, async t => {
+  const endpoint = await remote(t, (request, response) => { if (request.url === "/hang") request.resume(); else response.end("ok"); });
+  const f = await fixture(t);
+  const script = `
+    import { openPersonalHarness } from './apps/ruukoto/src/personal-harness.ts';
+    import { personalProvider } from './apps/ruukoto/src/personal-model.ts';
+    import { PersonalPermissionsDoc } from './apps/ruukoto/src/personal-permissions.ts';
+    import { appendPersonalWork, personalWorkNoteSource } from './apps/ruukoto/src/personal-work.ts';
+    import { toolOperations } from './apps/ruukoto/src/personal-tools.ts';
+    import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+    const input = JSON.parse(process.env.RUUKOTO_TOOLS_CRASH);
+    const p = await openPersonalHarness({directory:input.directory,provider:personalProvider(input.model),modelId:input.model.modelId,tools:input.tools});
+    await p.harness.commit(async tx => {(await tx.doc(PersonalPermissionsDoc)).mode='full_access';}, BACKGROUND_CONTEXT);
+    await p.answer('工具来源','hang-src');
+    const work = await p.work.delegate({requestId:'hang-work',sourceRequestId:'hang-src',content:input.content});
+    for (;;) {
+      const ops = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))), BACKGROUND_CONTEXT);
+      if (ops.length && ops[0].started) break;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    const op = (await p.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))), BACKGROUND_CONTEXT))[0];
+    await p.harness.commit(async tx => appendPersonalWork(tx, op.origin.work.ref, {requestId:'hang-note', content:'kill-note', source: await personalWorkNoteSource(tx, 'hang-src')}), BACKGROUND_CONTEXT);
+    process.stdout.write('started-amended\\n');
+  `;
+  const worker = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_TOOLS_CRASH: JSON.stringify({ directory: f.directory, model: f.config, tools: f.tools, content: invoke("http_request", { url: `${endpoint}/hang`, method: "POST", body: "x" }) }) }, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "", errors = ""; worker.stdout.on("data", value => { output += String(value); }); worker.stderr.on("data", value => { errors += String(value); });
+  t.after(() => { if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL"); });
+  await until(() => { assert.equal(worker.exitCode, null, errors); return output.includes("started-amended"); });
+  const exit = once(worker, "exit"); worker.kill("SIGKILL"); await exit;
+  const p = await f.open();
+  const saved = (await operations(p)).find(op => op.prepared.kind === "http")!;
+  await until(async () => (await record(p, saved.operation)).code === "interrupted");
+  const restored = await record(p, saved.operation);
+  assert.equal(restored.effect, "effect_unknown"); assert.equal(restored.stopped, false); assert.equal(restored.started, true); assert.equal(restored.superseded, undefined); assert.equal(restored.approval, "unneeded");
+  assert.ok(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "hang-src"), context));
+  await p.harness.commit(tx => toolResolve(tx, saved.operation, "not_applied", "远端未收到完整请求"), context);
+  await p.harness.commit(tx => toolVerifyStop(tx, saved.operation, "远端连接已断开"), context);
+  assert.equal(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "hang-src"), context), undefined);
+});
+
+test("durable 重显示登记：登记提交即崩时重开容忍未完结调用，登记事实保留", { timeout: 60_000 }, async t => {
+  const f = await fixture(t);
+  const script = `
+    import { openPersonalHarness } from './apps/ruukoto/src/personal-harness.ts';
+    import { personalProvider } from './apps/ruukoto/src/personal-model.ts';
+    import { PersonalPermissionsDoc } from './apps/ruukoto/src/personal-permissions.ts';
+    import { toolOperations } from './apps/ruukoto/src/personal-tools.ts';
+    import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
+    import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+    const input = JSON.parse(process.env.RUUKOTO_TOOLS_CRASH);
+    let seen = false;
+    const p = await openPersonalHarness({directory:input.directory,provider:personalProvider(input.model),modelId:input.model.modelId,tools:input.tools,
+      openStorage: async filename => {
+        const storage = await openNodeSqliteStorage(filename), commit = storage.commit.bind(storage);
+        storage.commit = async (writes, context) => {
+          const result = await commit(writes, context);
+          if (writes.some(write => write.type === 'entry' && write.value.kind === 'ruukoto.tool-redisplay') && !seen) { seen = true; process.stdout.write('display-admission\\n'); await new Promise(() => {}); }
+          return result;
+        }; return storage;
+      }});
+    await p.harness.commit(async tx => {(await tx.doc(PersonalPermissionsDoc)).mode='confirm';}, BACKGROUND_CONTEXT);
+    await p.answer('工具来源','display-src');
+    await p.work.delegate({requestId:'display-work',sourceRequestId:'display-src',content:input.content});
+    let op;
+    for (;;) {
+      const ops = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))), BACKGROUND_CONTEXT);
+      if (ops.length && ops[0].approval === 'pending') { op = ops[0]; break; }
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    await p.answer('tool:' + JSON.stringify({name:'background_work', args:{action:'redisplay', operation: op.operation}}), 'display-query');
+  `;
+  const displayTarget = path.join(f.outside, "display-pending.txt"); fs.writeFileSync(displayTarget, "");
+  const worker = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_TOOLS_CRASH: JSON.stringify({ directory: f.directory, model: f.config, tools: f.tools, content: invoke("write_file", { path: displayTarget, content: "x" }) }) }, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "", errors = ""; worker.stdout.on("data", value => { output += String(value); }); worker.stderr.on("data", value => { errors += String(value); });
+  t.after(() => { if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL"); });
+  await until(() => { assert.equal(worker.exitCode, null, errors); return output.includes("display-admission"); });
+  const exit = once(worker, "exit"); worker.kill("SIGKILL"); await exit;
+  const p = await f.open(); await mode(p, "confirm");
+  const saved = (await operations(p))[0]!;
+  assert.notEqual(saved.redisplay, undefined); assert.equal(saved.approval, "pending"); assert.equal(saved.observation, undefined); assert.equal(saved.started, false);
+});
+
+test("durable 操作查询与重显示：同一 IM 原入口有权查询登记，异入口与本机查询只读不授权", { timeout: 90_000 }, async t => {
+  const previous = process.env.RUUKOTO_IM_QUERY_KEY; process.env.RUUKOTO_IM_QUERY_KEY = "123:test-token";
+  let sent = 1000;
+  const bot = http.createServer(async (request, response) => { for await (const _chunk of request) { /* 替身只完成读取 */ } response.end(JSON.stringify({ ok: true, result: { message_id: ++sent, chat: { id: 456, type: "private" } } })); });
+  bot.listen(0, "127.0.0.1"); await once(bot, "listening"); const address = bot.address(); assert.ok(address && typeof address !== "string");
+  t.after(async () => { bot.closeAllConnections(); await new Promise<void>(resolve => bot.close(() => resolve())); if (previous === undefined) delete process.env.RUUKOTO_IM_QUERY_KEY; else process.env.RUUKOTO_IM_QUERY_KEY = previous; });
+  const telegram = { version: 1 as const, enabled: true, generation: randomUUID(), apiBase: `http://127.0.0.1:${address.port}`, tokenEnv: "RUUKOTO_IM_QUERY_KEY", tokenDigest: createHash("sha256").update("123:test-token").digest("hex"), botId: "123", ownerId: "456", boundary: 0 };
+  const f = await fixture(t), p = await f.open({ telegram }); await mode(p, "confirm");
+  let message = 0;
+  const receive = async (text: string) => {
+    const id = ++message;
+    await p.telegram.receive({ update_id: id, message: { message_id: id, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text } });
+    const key = `telegram:123:456:${id}`, value = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
+    await p.harness.waitForTask(value.taskId, context);
+    return key;
+  };
+  const source = await receive("工具来源");
+  const target = path.join(f.outside, "im-display.txt"); fs.writeFileSync(target, "");
+  const answer = invoked(p, invoke("write_file", { path: target, content: "x" }), "im-work", source); void answer.catch(() => undefined);
+  const pending = await first(p);
+  await receive(invoke("background_work", { action: "operations" }));
+  const mainCall = f.model.calls.filter(request => !childConversation(request) && !reviewRequest(request)).at(-1)!;
+  const listed = JSON.parse(String(mainCall.messages.at(-1)!.content)) as { operations: Array<{ operation: TaskId; canDecide: boolean }> };
+  assert.equal(listed.operations.length, 1); assert.equal(listed.operations[0]!.operation, pending.operation); assert.equal(listed.operations[0]!.canDecide, true);
+  await receive(invoke("background_work", { action: "redisplay", operation: pending.operation }));
+  const displayed = await record(p, pending.operation);
+  assert.notEqual(displayed.redisplay, undefined); assert.equal(displayed.approval, "pending"); assert.equal(displayed.observation, undefined); assert.equal(displayed.started, false);
+  const localList = JSON.parse(await p.answer(invoke("background_work", { action: "operations" }), "local-query")) as { operations: Array<{ canDecide: boolean }> };
+  assert.equal(localList.operations.length, 1); assert.equal(localList.operations[0]!.canDecide, false);
+  assert.match(await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "local-deny"), /tool_original_entry/);
+  const identity = displayed.origin.telegram!;
+  await p.harness.commit(async tx => { (await tx.doc(PersonalToolDoc, String(pending.operation), null)).operation!.origin.telegram = { ...identity, ownerId: "789" }; }, context);
+  await receive(invoke("background_work", { action: "redisplay", operation: pending.operation }));
+  const denied = await record(p, pending.operation);
+  assert.equal(denied.redisplay, displayed.redisplay); assert.equal(denied.approval, "pending");
+  await p.harness.commit(async tx => { (await tx.doc(PersonalToolDoc, String(pending.operation), null)).operation!.origin.telegram = identity; }, context);
+  await p.harness.commit(async tx => toolDecide(tx, pending.operation, "approved", f.directory, { ...identity, requestId: source }), context);
+  await answer;
+  assert.equal(fs.readFileSync(target, "utf8"), "x");
 });

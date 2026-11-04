@@ -319,23 +319,27 @@ test("Telegram：配置、收件、Task 与版本断链拒绝恢复", async t =>
 test("Telegram：在线向导使用后台配对身份和接管边界，同一后台生效且文件无凭据", async t => {
   const f = await fixture(t); const answers = ["1", f.telegram.apiBase, f.telegram.tokenEnv, "2", "", "1"];
   await savePersonalConfig(f.options.directory, f.config);
-  const backend = await startPersonalServer(f.options.directory); t.after(() => backend.stop());
-  f.bot.updates = [update(1), update(2)]; let output = "";
-  await configurePersonalTelegram({ question: async prompt => {
-    if (prompt.includes("直接发送")) { const phrase = prompt.match(/“([^”]+)”/)![1]; f.bot.updates.push(update(3, 3, phrase)); }
-    assert.ok(answers.length); return answers.shift()!;
-  }, write: text => { output += text; } }, f.options.directory);
-  const saved = parsePersonalTelegram(JSON.parse(fs.readFileSync(path.join(f.options.directory, "telegram.json"), "utf8")));
-  assert.equal(saved.ownerId, OWNER); assert.equal(saved.botId, "123"); assert.equal(saved.boundary, 3); assert.equal(saved.enabled, true);
-  assert.equal(f.bot.polls[0].offset, -1); assert.ok(f.bot.polls.some(poll => poll.offset === 4)); assert.equal(f.bot.updates.length, 0);
-  assert.doesNotMatch(fs.readFileSync(path.join(f.options.directory, "telegram.json"), "utf8"), /telegram-test-secret/);
-  assert.match(output, /已保存并生效/); assert.equal(fs.statSync(path.join(f.options.directory, "telegram.json")).mode & 0o777, 0o600);
-  const env = personalChildEnv(f.options.directory, [f.config.apiKeyEnv, f.telegram.tokenEnv], { RUUKOTO_DATA_DIR: "old", [f.config.apiKeyEnv]: "model", [f.telegram.tokenEnv]: TOKEN });
-  assert.equal(env[f.telegram.tokenEnv], TOKEN); assert.equal(env.RUUKOTO_DATA_DIR, undefined);
-  assert.throws(() => lockPersonalProfile(f.options.directory), code("profile_busy"));
-  await savePersonalTelegram(f.options.directory, saved);
-  assert.throws(() => parsePersonalTelegram({ ...saved, tokenEnv: "RUUKOTO_OWNER_TOKEN" }), code("telegram_config_invalid"));
-  process.env[saved.tokenEnv] = "123:changed-token"; assert.throws(() => telegramToken(saved), code("telegram_credentials_changed"));
+  const backend = await startPersonalServer(f.options.directory);
+  try {
+    f.bot.updates = [update(1), update(2)]; let output = "";
+    await configurePersonalTelegram({ question: async prompt => {
+      if (prompt.includes("直接发送")) { const phrase = prompt.match(/“([^”]+)”/)![1]; f.bot.updates.push(update(3, 3, phrase)); }
+      assert.ok(answers.length); return answers.shift()!;
+    }, write: text => { output += text; } }, f.options.directory);
+    const saved = parsePersonalTelegram(JSON.parse(fs.readFileSync(path.join(f.options.directory, "telegram.json"), "utf8")));
+    assert.equal(saved.ownerId, OWNER); assert.equal(saved.botId, "123"); assert.equal(saved.boundary, 3); assert.equal(saved.enabled, true);
+    assert.equal(f.bot.polls[0].offset, -1); assert.ok(f.bot.polls.some(poll => poll.offset === 4)); assert.equal(f.bot.updates.length, 0);
+    assert.doesNotMatch(fs.readFileSync(path.join(f.options.directory, "telegram.json"), "utf8"), /telegram-test-secret/);
+    assert.match(output, /已保存并生效/); assert.equal(fs.statSync(path.join(f.options.directory, "telegram.json")).mode & 0o777, 0o600);
+    const env = personalChildEnv(f.options.directory, [f.config.apiKeyEnv, f.telegram.tokenEnv], { RUUKOTO_DATA_DIR: "old", [f.config.apiKeyEnv]: "model", [f.telegram.tokenEnv]: TOKEN });
+    assert.equal(env[f.telegram.tokenEnv], TOKEN); assert.equal(env.RUUKOTO_DATA_DIR, undefined);
+    assert.throws(() => lockPersonalProfile(f.options.directory), code("profile_busy"));
+    await savePersonalTelegram(f.options.directory, saved);
+    assert.throws(() => parsePersonalTelegram({ ...saved, tokenEnv: "RUUKOTO_OWNER_TOKEN" }), code("telegram_config_invalid"));
+    process.env[saved.tokenEnv] = "123:changed-token"; assert.throws(() => telegramToken(saved), code("telegram_credentials_changed"));
+  } finally {
+    await backend.stop();
+  }
 });
 
 test("Telegram：真实本机后台装配轮询，停止收齐后释放档案锁", async t => {
@@ -350,16 +354,20 @@ test("Telegram：真实本机后台装配轮询，停止收齐后释放档案锁
 
 test("Telegram：配对身份选择过期，不发送旧确认水位或保存绑定", async t => {
   const f = await fixture(t); await savePersonalConfig(f.options.directory, f.config);
-  const backend = await startPersonalServer(f.options.directory); t.after(() => backend.stop());
-  let clock = 0; t.mock.method(performance, "now", () => clock);
-  const answers = ["1", f.telegram.apiBase, f.telegram.tokenEnv, "2", "", "1"];
-  await assert.rejects(configurePersonalTelegram({ question: async prompt => {
-    if (prompt.includes("直接发送")) f.bot.updates.push(update(11, 11, prompt.match(/“([^”]+)”/)![1]));
-    if (answers.length === 1) clock = 60_000;
-    assert.ok(answers.length); return answers.shift()!;
-  }, write: () => {} }, f.options.directory), code("im_pairing_expired"));
-  assert.equal(fs.existsSync(path.join(f.options.directory, "telegram.json")), false);
-  assert.equal(f.bot.polls.length, 2);
+  const backend = await startPersonalServer(f.options.directory);
+  try {
+    let clock = 0; t.mock.method(performance, "now", () => clock);
+    const answers = ["1", f.telegram.apiBase, f.telegram.tokenEnv, "2", "", "1"];
+    await assert.rejects(configurePersonalTelegram({ question: async prompt => {
+      if (prompt.includes("直接发送")) f.bot.updates.push(update(11, 11, prompt.match(/“([^”]+)”/)![1]));
+      if (answers.length === 1) clock = 60_000;
+      assert.ok(answers.length); return answers.shift()!;
+    }, write: () => {} }, f.options.directory), code("im_pairing_expired"));
+    assert.equal(fs.existsSync(path.join(f.options.directory, "telegram.json")), false);
+    assert.equal(f.bot.polls.length, 2);
+  } finally {
+    await backend.stop();
+  }
 });
 
 

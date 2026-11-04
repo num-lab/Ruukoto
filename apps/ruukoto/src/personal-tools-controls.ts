@@ -12,7 +12,7 @@ export function personalToolDescription(item: Awaited<ReturnType<typeof toolList
   const target = Array.from(item.target), display = target.length > 96 ? `${target.slice(0, 72).join("")}…${target.slice(-24).join("")}` : item.target;
   const approval = { pending: "等待本次批准", approved: "本次已批准", rejected: "本次已拒绝", unneeded: "无需本次批准" }[item.approval];
   const effect = { not_executed: "已知未执行", no_write: "无写入效果", effect_unknown: "业务效果未知", returned: "已返回，请核对原结果" }[item.effect];
-  return `${kind}：${display}；${approval}；${effect}；${item.stopped ? "原操作结束已核实" : "原操作结束未核实"}`;
+  return `${kind}：${display}；${approval}；${effect}；${item.stopped ? "原操作结束已核实" : "原操作结束未核实"}${item.notice ? `；${item.notice}` : ""}`;
 }
 
 export async function personalToolControl(tx: Tx, value: TelegramControlInput, profile?: string): Promise<boolean> {

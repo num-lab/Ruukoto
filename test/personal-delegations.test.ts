@@ -27,6 +27,7 @@ import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type 
 
 const context = BACKGROUND_CONTEXT;
 const child = (request: RecordedRequest) => request.system?.includes("你是个人助手的子 Agent");
+const ownerText = (request: RecordedRequest) => String(request.messages.at(-1)?.content).replace(/^【本轮拥有者输入，独立于此前宿主汇总参考】\n/, "").replace(/\n【本轮拥有者输入结束】$/, "");
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
 async function until(check: () => boolean | Promise<boolean>) {
   const end = Date.now() + 10000;
@@ -39,7 +40,7 @@ async function fixture(t: TestContext, analyze: Responder = () => ({ kind: "text
     if (child(request)) return analyze(request, index);
     const last = request.messages.at(-1);
     if (last?.role === "tool") return { kind: "text", text: String(last.content) };
-    const content = String(last?.content);
+    const content = ownerText(request);
     if (content === "multi") return { kind: "tool_calls", calls: ["A", "B"].map(id => ({ id, name: "background_work", arguments: { action: "delegate", content: id } })) };
     if (content.startsWith("{")) return { kind: "tool_calls", calls: [{ id: "call", name: "background_work", arguments: JSON.parse(content) as Record<string, unknown> }] };
     return { kind: "text", text: "继续聊天" };
@@ -91,7 +92,9 @@ async function finish(p: PersonalHarness, ref: PersonalDelegationRef) { for (con
 test("分析委托：同轮多成员、跨轮继续及原权限固定，历史宿主工作不自动归组", async t => {
   const f = await fixture(t); let p = await f.open();
   await p.answer("multi", "owner"); const ref = await first(p); await finish(p, ref);
-  assert.equal((await progress(p, ref)).total, 2); assert.equal((await progress(p, ref)).state, "idle");
+  assert.equal((await progress(p, ref)).total, 2); assert.equal((await progress(p, ref)).active, 0);
+  const automatic = (await p.harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!.report!;
+  assert.equal(automatic.version, 2); await p.harness.waitForTask(automatic.taskId, context); assert.equal((await progress(p, ref)).state, "reported");
   await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context);
   // 纯安排批由宿主让出；续派成员从已登记委托成员核实。
   await p.answer(args("delegate", { content: "后续检查", delegation: ref.entryId }), "follow-up");

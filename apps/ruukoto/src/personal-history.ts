@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalAgentsDoc } from "./personal-work.ts";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc } from "./personal-scheduler-records.ts";
+import { personalReportDraft, personalReportPublicationMessage } from "./personal-report.ts";
 import type { PersonalDesktopMessage, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
 
 export const PERSONAL_HISTORY = "personal-history";
@@ -58,7 +59,17 @@ export function personalTimelineEntry(entry: EntryRecord): PersonalTimelineEntry
   return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind };
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+export async function personalDesktopTimelineEntry(tx: Tx, entry: EntryRecord): Promise<PersonalTimelineEntry | undefined> {
+  const publication = await personalReportPublicationMessage(tx, entry);
+  if (publication) {
+    const message = personalDesktopMessage(publication)!;
+    return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind };
+  }
+  if (entry.model && await personalReportDraft(tx, entry)) return;
+  return personalTimelineEntry(entry);
+}
+
+// Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 export async function personalTimeline(tx: Tx, input: { through?: number; cursor?: string }): Promise<PersonalTimelinePage> {
   let through = input.through, before: number | undefined;
   if (input.cursor !== undefined) {
@@ -74,7 +85,7 @@ export async function personalTimeline(tx: Tx, input: { through?: number; cursor
   const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "descending", maxEntryId: (before === undefined ? through : before - 1) as EntryId }, SCAN_LIMIT);
   let bytes = 0;
   for (const [index, entry] of page.items.entries()) {
-    const message = personalTimelineEntry(entry);
+    const message = await personalDesktopTimelineEntry(tx, entry);
     if (message) {
       const size = Buffer.byteLength(JSON.stringify(message));
       if (items.length && bytes + size > 96 * 1024) return { through, items, nextCursor: JSON.stringify({ through, before: entry.id + 1 }) };
@@ -90,8 +101,15 @@ function messageSummary(entry: EntryRecord, text: string, limit: number) {
 }
 
 export async function readPersonalHistory(tx: Tx, reader: ConversationId, input: { entry: EntryId; offset?: number }) {
-  const entry = await personalHistoryEntry(tx, reader, input.entry), text = historyText(entry), offset = input.offset ?? 0;
+  const stored = await tx.entry(input.entry);
+  const publication = stored?.kind === "ruukoto.report-publication" && await historyVisible(tx, reader, stored.conversationId) ? await personalReportPublicationMessage(tx, stored) : undefined;
+  const entry = publication && stored ? { ...stored, model: [publication] } : await personalHistoryEntry(tx, reader, input.entry), text = historyText(entry), offset = input.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) throw new PersonalError("history_offset_invalid", "原文 offset 无效；首次用0，后续使用上页 nextOffset。");
+  if (publication) {
+    let end = Math.min(offset + PAGE_SIZE, text.length);
+    if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
+    return { ...messageSummary(entry, text.slice(offset, end), PAGE_SIZE), offset, total: text.length, truncated: end < text.length, ...(end < text.length ? { nextOffset: end } : {}) };
+  }
   return { ...messageSummary(entry, text.slice(offset), PAGE_SIZE), offset, total: text.length, ...(offset + PAGE_SIZE < text.length ? { nextOffset: offset + PAGE_SIZE } : {}) };
 }
 

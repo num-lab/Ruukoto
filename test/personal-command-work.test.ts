@@ -526,7 +526,7 @@ for (const stage of ["running", "unknown", "restored"] as const) test(`durable �
     }
     assert.match(await p.answer("report", "report-source"), /最终汇总安排/);
     const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
-    await until(async () => (await p.harness.commit(tx => tx.task(report.taskId), context))?.state.status === "waiting");
+    await until(async () => { const task = await p.harness.getTask(report.taskId, context), checkpoint = task?.state.checkpoint; return task?.state.status !== "terminal" && checkpoint !== null && typeof checkpoint === "object" && !Array.isArray(checkpoint) && checkpoint.phase === "wait"; });
     assert.equal(report.delivery, "waiting"); assert.equal(summaryCalls().length, 0);
     assert.equal(await p.answer("独立聊天", "independent"), "完成");
     assert.match(await p.answer("report", "same-report"), /最终汇总安排/);
@@ -581,14 +581,14 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 报�
   const members = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.members;
   for (const member of members) await p.harness.waitForTask(member.taskId, context);
   await p.answer("report", "report-source");
-  await until(async () => (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.attempt === 1);
+  await until(async () => (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.pauses.length === 1);
   assert.ok(command); const ref = command;
   const summaryCalls = () => f.server.calls.filter(request => String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考"));
   assert.equal(summaryCalls().length, 0);
   const report = (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!;
   assert.equal(report.pauses.length, 1);
   const pause = await p.harness.commit(tx => tx.entry(report.pauses[0]), context);
-  assert.equal(pause!.kind, "ruukoto.report-pause");
+  assert.equal(pause!.kind, "ruukoto.report-supersession");
   assert.deepEqual(pause!.data && typeof pause!.data === "object" && !Array.isArray(pause!.data) && pause!.data.blocker, { command: ref.requestId, admission: (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!.admission });
   assert.equal(await p.answer("独立聊天", "independent"), "完成");
   await p.close(); p = await f.open();

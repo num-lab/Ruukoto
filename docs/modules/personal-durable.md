@@ -20,7 +20,7 @@ Waiting business tools run only inside SubAgents: main model requests never offe
 
 | Tool family | Main tools and responsibility |
 | --- | --- |
-| Analysis/delegation | `background_work`: persistent children, further instructions, progress and full reports |
+| Analysis/delegation | `background_work`: persistent children, amendments, bounded operation/decision queries, redisplay and published reports |
 | Questions | `ask_user`: one to three structured questions and continuation after answers |
 | Scheduling | `schedule_create`, `schedule_query`, `schedule_cancel`: timed work in independent conversations |
 | Memory/history | `memory`, `history_search`, `history_read`: versioned facts and history lookup |
@@ -39,7 +39,10 @@ stateDiagram-v2
   Model --> WaitingForAnswer: ask_user
   WaitingForAnswer --> Model: Owner answer
   Model --> BackgroundAnalysis: background_work
-  BackgroundAnalysis --> ReportReady
+  BackgroundAnalysis --> ReportDraft: Covered inputs and work settled
+  ReportDraft --> PublishedReport: Current coverage verified
+  ReportDraft --> BackgroundAnalysis: Accepted requirements changed
+  PublishedReport --> OriginalEntry: Original destination verified
   Model --> ReplyReady
   ReplyReady --> OriginalEntry: Verify destination
 ```
@@ -53,6 +56,8 @@ stateDiagram-v2
 | Business data | `agent-data/main.db` |
 | MCP | `mcp.json` configuration v4 and durable operation entries |
 | File I/O | Versioned job admissions and lifecycle entries: original tool/work/source, host identity, immutable input, deadline, settlement and stopping evidence |
+| Work and report selections | Actual model-request evidence: received instructions, native inputs and report source/coverage |
+| Published reports | Immutable publication references to original answers; drafts remain inspectable in conversation history |
 
 MCP v4 separates locally configured tool effects from remote definitions. The owner explicitly migrates configuration through management before new ordinary-service work is admitted. Save/apply receipts make migration recoverable. Existing credential references and their byte-digest semantics remain; explicit credential rebinding switches to the actual-token digest. Migration invalidates old unstarted approvals, preserves old unknown calls and keeps original computer stopping/recovery manageable.
 
@@ -80,6 +85,14 @@ sequenceDiagram
 
 Platform message identity deduplicates admission. Auto-review handles eligible read-only operations; sensitive actions follow the original platform's approval flow. Replies retain the original platform, account, owner and generation.
 
+### Amendments and Final Reports
+
+Main handles a progress question through canonical work and operation queries. A requested redisplay identifies the same original decision and grants no approval. An append records changed or additional requirements for the same work and SubAgent. Every accepted append makes its older unstarted ordinary operations known not executed, including approved but unconsumed actions, while preserving their requests and decisions. The child reads the saved update at a model boundary and prepares a new exact action. Admission and consumption check what that actual request received, including delayed old responses and note-only runs. Misclassifying a progress question as append has the same conservative invalidation cost; a started effect cannot be undone by an amendment.
+
+Grouped work automatically registers host reporting intent and remains open to additions. Reports wait for main's contributing arrangements, accepted work and necessary effect/stopping checks. An owner input accepted before native placement delays publication until it is classified. Each summary pins its covered sources, notes, answers and operation facts, and the host checks coverage again before publishing. Changed requirements supersede an unpublished draft; an unchanged query lets the existing summary continue. Main stays available while the report task waits.
+
+Only the validated publication appears as a normal desktop final answer. Internal report inputs, tool traffic, partial streaming and the raw draft stay out of that projection; history can still inspect them. Publication references the original complete answer without duplicating a model message, and the history API pages its full body. Later accepted requirements preserve published history and register a successor. If the original work already completed safely, model-facing append creates a linked new work in the same idle SubAgent under the original delegation authority; failed, canceled or unknown work cannot automatically continue.
+
 ### File Operation Lifecycle
 
 Preparation returns immutable file identity and content evidence, without holding a worker through an approval wait. Successful pre-review revalidation leaves pending owner approval intact across restart; execution still requires fresh post-approval revalidation. After approval and revalidation, the host reserves execute capacity before the short authorization/claim/start commit. The fixed worker then checks the original file again and executes once; artifacts and observations retain the original operation identity.
@@ -102,6 +115,8 @@ Manual finalization adds facts; it never removes the original source's automatic
 - IM approvals/questions require the bound owner in the original platform/private chat. An answer is not a tool approval.
 - Restart recovery reconciles pending work without repeating completed facts or replaying unknown external effects.
 - Accepted follow-up instructions keep the original work's SubAgent and stable native keys: the same task steers each accepted note into that conversation in admission order, supervises every submission through completion, cancellation or failure, and reports each note's real state instead of replaying it under a new key.
+- Unstarted ordinary operations require the instructions actually present in their recorded model request; a later append cannot leave an older action executable.
+- Report publication and external send claims verify their covered requirements independently. Published history stays immutable, and an already-started send keeps its original outcome identity across successor reports.
 - Sending retains destination and outcome identity across connection failures. An inconclusive sent operation is not automatically retried as if unsent.
 
 ## Design Rationale
@@ -117,3 +132,5 @@ Manual finalization adds facts; it never removes the original source's automatic
 - [Personal main handoff yield](../../.agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md)
 - [Personal bounded main coordination](../../.agents/notes/implemented/architecture/2026-11-03-personal-coordination-cutoff.md)
 - [Personal same-SubAgent work-note supervision](../../.agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md)
+- [Personal work amendments and canonical decision queries](../../.agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md)
+- [Personal validated report publication](../../.agents/notes/implemented/architecture/2026-11-04-personal-report-publication.md)

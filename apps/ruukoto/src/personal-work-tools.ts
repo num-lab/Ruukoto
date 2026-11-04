@@ -3,11 +3,13 @@ import { AgentDoc, AssistantEntry, defineExtension, defineTool, hook, LiveDoc, R
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { appendPersonalWork, personalWorkNoteSource, PersonalAgentsDoc, PersonalWorkDoc, personalWorkRef, personalWorkResult, requestPersonalWorkCancel, closePersonalAgent } from "./personal-work.ts";
-import { PersonalAnalysisAdmission, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
-import { requestPersonalReport, personalReportResult } from "./personal-report.ts";
+import { personalToolFacts, personalToolRedisplay, personalWorkToolFacts } from "./personal-tools.ts";
+import { PersonalAnalysisAdmission, cancelPersonalDelegation, continuePersonalAnalysis, delegatePersonalAnalysis, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
+import { registerPersonalReport, requestPersonalReport, personalReportResult } from "./personal-report.ts";
 import { PERSONAL_MAIN_TOOL_ROUNDS, personalCoordinationCutoff, personalCoordinationTailRounds } from "./personal-coordination.ts";
+import { PERSONAL_QUESTION_INPUT } from "./personal-questions.ts";
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-model-work.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-model-work.md
 export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "taskId" | "conversationId">, owner: boolean, sourceRequestId?: string) {
   const live = await tx.doc(LiveDoc, ROOT_CONVERSATION_ID);
   const tool = await tx.task(api.taskId);
@@ -27,46 +29,56 @@ export async function personalToolSource(tx: Tx, api: Pick<ToolExecutionApi, "ta
 const ARRANGEMENT_ACTIONS = new Set(["delegate", "append", "cancel", "cancel_delegation", "close", "report"]);
 const YIELD = { terminate: true } as const;
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
 export function personalWorkTools(getHarness: () => Harness) {
   const tool = defineTool({
     name: "background_work",
-    description: "管理长期复用的分析子 Agent；子会话只可使用宿主提供的受控工具。delegate 立即返回；同轮多项分析归同一委托，跨轮提供 delegation 继续原委托，保持原入口和授权；省略则建立本轮委托。本轮拥有者明确交办独立新工作时，可复用空闲且停止已核实的 agent，并省略 delegation；身份复用不等于续派旧委托。delegations 列委托，progress 读委托成员进度；全部分析空闲不表示整项完成。cancel_delegation 一次请求取消全部分析成员，不关闭身份；包含成员的固定服务检查和服务重启，效果或停止未核实时继续保留占用；不涵盖独立宿主服务写操作。append 补充活动 work，同一子 Agent 按接纳顺序继续处理。list 列身份，result 分页读单项已保存回答，partial=true表示模型因长度限制截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services/notice 是宿主当前事实，优先于 text 中旧子回答的解释；notes 逐项给出已接纳说明的原生受理状态：queued=已接纳待进入运行、placed=已入运行待答、done=已回答、unanswered=运行结束未答、not_submitted=工作先停未下发，queued/placed 不代表模型已读；requiresVerification=false 表示不再等待核实，原 MCP 未知事实仍以 notice 为准，不据旧子回答恢复占用或重试；cancel 请求单项取消后立即返回，用 result 查询停止结果，close 关闭空闲身份并保留历史。已取消委托不能续派/追加，但不禁止新的独立工作复用空闲身份。原入口失效时只能查询或取消；任一成员说明来源的服务效果未知会暂停整个委托，原入口有效且未取消时仍可登记 report，须向拥有者报告核实，不能为原未知效果换委托重试。占用未释放或停止无法核实不能复用。安排完全部分析后调用 report，只登记封组，成员仍活动或效果未知时也可安排；宿主等全部成员及真实资源停止、必要效果核实后才生成并发送报告，封组后不能续派或追加。普通 MCP 结果未知可由拥有者结束原工作并保留未知后汇总，电脑调用仍须停止核实并接受新截图。report_result 分页读完整报告和发送状态。未知命令/服务及未恢复电脑调用会暂停报告；普通 MCP 人工收尾只允许汇总未知，不恢复原来源执行。阻塞解除后可重做模型汇总，未知发送不重发。普通汇总失败请查询报告并向拥有者说明，不换委托重试。回报输入只可查询。同一工具批的全部调用同时发出、互相看不到返回编号：对本批新建 work/delegation 的 append/cancel/report 须等结果返回后在之后的批发出，对已有编号的操作可同批进行。只含安排动作（delegate/append/cancel/cancel_delegation/close/report）的批执行完后，宿主按已登记事实向拥有者回执并让出本轮，之后不能再输出文本；批内含任一查询动作（list/result/progress/delegations/report_result）则本轮继续，可继续安排、查询或输出正文。",
+    description: "委派、追加和查询后台工作。delegate 立即返回 work、agent、delegation；宿主自动登记汇总，等贡献此委托的主会话安排、全部已接纳工作和必要核实完成后才发布。追加或新成员会使尚未发布的旧草稿失效；无需另调 report。跨轮继续同一委托时提供 delegation，保持原入口和权限；本轮独立新工作省略 delegation，可复用空闲且停止已核实的 agent。append 只用于真正增加或修改要求：活动 work 由同一子 Agent 按接纳顺序处理，已完成 work 在身份空闲且原效果与停止已核实时显式建立关联的后续 work，旧结果保留且旧操作不重做。失败、取消或未知效果不能自动续接。每次有效追加使同一 work 的旧未开始普通操作失效，包括已批准但未消费的操作，即使只是补充。把进度问题误当追加会使原批准失效；进度或待决定事项用 progress、result、operations、operation 查询。operations 分页列普通操作，operation 读精确参数和当前决定，redisplay 仅在拥有者本轮要求重显示时为原入口登记同一个决定的显示请求，不批准或重做。list 列身份，delegations 列委托，progress 查询全部成员；空闲不表示整项完成。result 分页读单项已保存回答：partial=true 表示模型生成截断，翻完页也不是完整回答，应报告遗漏，不自动续写或重试；commands/services/tools/notice 是当前宿主事实，优先于旧子回答。notes 给出每项说明的原生状态：queued/placed 不代表模型已读，done=已回答，unanswered=运行结束未答，not_submitted=工作先停未下发。cancel 请求单项取消，cancel_delegation 请求整项取消后立即返回；停止仍须查询核实。close 只关闭空闲身份并保留历史。原入口失效时只可查询或取消；原效果或停止未知会阻止后续执行，不能换工具、身份或委托重试。普通 MCP 可由拥有者人工结束并保留未知后汇总；电脑须停止核实并接受新截图，命令/服务须核实原效果与停止。report 可登记已有委托汇总，保留追加能力；report_result 读取已发布报告与发送状态。汇总输入只可查询，不取得新操作授权；普通汇总失败应报告，未知发送不重发。同一工具批的调用互相看不到返回编号：对本批新建 work/delegation 的后续动作须等返回后再发。仅含 delegate/append/cancel/cancel_delegation/close/report 的批结束后宿主按实际结果回执并让出本轮；含查询或 redisplay 的批继续，让你回答拥有者。",
     parameters: Type.Object({
-      action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。其余字段省略。report 新登记须原入口有效且未取消，只登记封组，成员仍活动或效果未知时也可安排；宿主等成员及真实资源停止、必要效果核实后报告；普通 MCP 可由拥有者人工收尾并保留未知后汇总，电脑须停止核实并接受新截图。封组后不能续派或追加。" }),
+      action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result"), Type.Literal("operations"), Type.Literal("operation"), Type.Literal("redisplay")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。operations 可选 work/offset；operation 必填 operation，可选 offset；redisplay 必填 operation，其他字段省略。查询进度和待决定事项不能使用 append。其余字段省略。report 须原入口有效且未取消；自动汇总已登记时返回原安排，仍可续派或追加。append 的已完成目标须安全空闲才能建立关联后续工作，不重做旧效果。" }),
+      operation: Type.Optional(Type.Integer({ minimum: 1, description: "operations 返回的普通操作编号，用于 operation 或 redisplay；不是 work 或 agent 编号。" })),
       appData: Type.Optional(Type.Boolean({ description: "仅delegate：本次子工作确需应用数据时显式设true，默认无资格；复用身份不继承上次资格。" })),
-      delegation: Type.Optional(Type.Integer({ minimum: 1, description: "delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 仅继续未取消、未封组的原委托时提供；本轮独立新工作省略 delegation，即使同时用 agent 复用身份。不能用 work 或 agent 编号代替，不能为原未知效果换委托重试。" })),
-      content: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "delegate/append 的完整分析要求，须含所需资料；子会话不读取主聊天。" })),
+      delegation: Type.Optional(Type.Integer({ minimum: 1, description: "delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 继续未取消且原来源可执行的委托时提供；本轮独立新工作省略 delegation，即使同时用 agent 复用身份。不能用 work 或 agent 编号代替，不能为原未知效果换委托重试。" })),
+      content: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "delegate/append 的完整要求，须含所需资料；子会话不读取主聊天。追加已完成工作时只说明新增或修改的要求，不重复已完成的效果。" })),
       agent: Type.Optional(Type.Integer({ minimum: 1, description: "list 或 delegate 返回的长期子 Agent 身份编号，不是委托编号。delegate 复用空闲、未关闭且停止已核实的身份，省略则新建；独立新工作复用身份时省略 delegation。close 必填。" })),
       label: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "仅新建身份时使用的名称；复用 agent 时省略。" })),
       work: Type.Optional(Type.Integer({ minimum: 1, description: "delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。" })),
-      offset: Type.Optional(Type.Integer({ minimum: 0, description: "result/report_result 是从 0 开始的文本位置，返回 offset 和完整保存文本的 totalChars；list/delegations/progress 是从 0 开始的条目位置。后页只用 nextOffset，缺失表示本页已到保存内容末尾；partial=true 是模型生成截断，与分页无关。身份每页16个、委托和成员每页8项、文本每页4096字符。" })),
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "result/report_result/operation 是从 0 开始的文本位置；list/delegations/progress/operations 是从 0 开始的条目位置。后页只用 nextOffset，缺失表示已到保存内容末尾；partial=true 是模型生成截断，与分页无关。身份每页16个、委托/成员/普通操作每页8项、文本每页4096字符。" })),
     }, { additionalProperties: false }),
     replay: "safe",
     executionMode: "sequential",
     async execute(input, api, context) {
       const execute = async () => {
-        const { action, content, agent, label, work, delegation, appData, offset = 0 } = input;
-        const allowed = { delegate: ["content", "agent", "label", "delegation", "appData"], append: ["work", "content"], list: ["offset"], result: ["work", "offset"], cancel: ["work"], close: ["agent"], delegations: ["offset"], progress: ["delegation", "offset"], cancel_delegation: ["delegation"], report: ["delegation"], report_result: ["delegation", "offset"] }[action];
-        if (Object.keys(input).some(key => key !== "action" && !allowed.includes(key)) || (action === "delegate" && (!content?.trim() || (agent !== undefined && label !== undefined))) || ((action === "result" || action === "cancel" || action === "append") && work === undefined) || (action === "append" && !content?.trim()) || (action === "close" && agent === undefined) || (["progress", "cancel_delegation", "report", "report_result"].includes(action) && delegation === undefined)) throw new PersonalError("work_input_invalid", "参数组合无效，请按 action 描述仅提供该动作所需字段。");
+        const { action, content, agent, label, work, delegation, appData, offset = 0, operation } = input;
+        const allowed = { delegate: ["content", "agent", "label", "delegation", "appData"], append: ["work", "content"], list: ["offset"], result: ["work", "offset"], cancel: ["work"], close: ["agent"], delegations: ["offset"], progress: ["delegation", "offset"], cancel_delegation: ["delegation"], report: ["delegation"], report_result: ["delegation", "offset"], operations: ["work", "offset"], operation: ["operation", "offset"], redisplay: ["operation"] }[action];
+        if (Object.keys(input).some(key => key !== "action" && !allowed.includes(key)) || (action === "delegate" && (!content?.trim() || (agent !== undefined && label !== undefined))) || ((action === "result" || action === "cancel" || action === "append") && work === undefined) || (action === "append" && !content?.trim()) || (action === "close" && agent === undefined) || (["progress", "cancel_delegation", "report", "report_result"].includes(action) && delegation === undefined) || ((action === "operation" || action === "redisplay") && operation === undefined)) throw new PersonalError("work_input_invalid", "参数组合无效，请按 action 描述仅提供该动作所需字段。");
         const live = await api.snapshot(LiveDoc, ROOT_CONVERSATION_ID, context);
         const candidate = live?.run?.inputs.length === 1 ? await getHarness().submission(live.run.inputs[0], context) : undefined;
         const sourceRequestId = (await candidate?.status(context))?.requestId;
+        const queryIdentity = async (tx: Tx) => {
+          if (sourceRequestId === undefined) return undefined;
+          const submission = await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId);
+          const original = submission?.entry === undefined ? undefined : await tx.entry(submission.entry);
+          if (original && original.kind !== "pi.user" && original.kind !== PERSONAL_QUESTION_INPUT) return undefined;
+          const value = await personalSource(tx, sourceRequestId);
+          if (value.scheduled) return undefined;
+          return value.telegram ? { telegram: value.telegram } : { local: true };
+        };
         const result = await api.commit(async tx => {
-          const source = await personalToolSource(tx, api, !["list", "result", "delegations", "progress", "report_result"].includes(action), sourceRequestId);
+          const source = await personalToolSource(tx, api, !["list", "result", "delegations", "progress", "report_result", "operations", "operation"].includes(action), sourceRequestId);
           if (action === "report_result") {
             const submission = sourceRequestId ? await tx.submissionByRequest(ROOT_CONVERSATION_ID, sourceRequestId) : undefined;
             const entry = submission?.entry ? await tx.entry(submission.entry) : undefined;
             if (entry?.kind === "ruukoto.delegation-report") return { next: "请用 progress 查询本委托成员，再用 result 分页读取业务结果并完成正文；本轮结束后由宿主处理发送，正文无需判断报告发送状态。" };
             return personalReportResult(tx, { entryId: delegation as EntryId }, offset);
           }
-          if (action === "report") { await requestPersonalReport(tx, { entryId: delegation as EntryId }, source!, api.taskId); return { delegation, state: "report_registered", next: "已固定最终汇总安排，全部成员停止后宿主请主 Agent 汇总并回报原入口，不能再为此委托续派或追加；后续用 report_result 查询完整报告。" }; }
+          if (action === "report") { await requestPersonalReport(tx, { entryId: delegation as EntryId }, source!, api.taskId); return { delegation, state: "report_registered", next: "已登记汇总安排，仍可接纳新成员或要求；宿主等本轮安排、已接纳工作与必要核实完成后发布当前结果。后续用 report_result 查询已发布报告。" }; }
           if (action === "delegations") {
             const page = await listPersonalDelegations(tx, offset);
             return { delegations: page.items.map(({ ref, report: _report, state: _state, ...value }) => ({ delegation: ref.entryId, ...value })), ...(page.more ? { nextOffset: offset + 8 } : {}) };
           }
           if (action === "progress") {
-            const { ref, members, report: _report, state: _state, ...value } = await personalDelegationProgress(tx, { entryId: delegation as EntryId }, offset);
+            const { ref, members, report: _report, state: _state, ...value } = await personalDelegationProgress(tx, { entryId: delegation as EntryId }, offset, await queryIdentity(tx));
             return { delegation: ref.entryId, ...value, members: members.map(({ ref, ...member }) => ({ work: ref.taskId, ...member })) };
           }
           if (action === "cancel_delegation") {
@@ -80,13 +92,39 @@ export function personalWorkTools(getHarness: () => Harness) {
             const saved = await tx.doc(PersonalWorkDoc, ref.requestId, null);
             saved.modelCall = api.taskId;
             if (saved.delegationAdmission === undefined) saved.delegationAdmission = (await tx.appendEntry(PersonalAnalysisAdmission, ROOT_CONVERSATION_ID, { data: { work: ref, delegation: group, source: { ...saved.instructionSource! }, origin: { ...saved.source! }, permission: { ...saved.permission! }, ...(saved.telegram ? { telegram: { ...saved.telegram } } : {}), modelCall: api.taskId } })).id;
-            return { work: ref.taskId, agent: ref.agentId, delegation: group.entryId, state: "registered", next: "已登记安排。本次返回的 work/delegation 编号本批其它调用看不到：对本委托的续派或 report 须在之后的批发出，对已有编号的操作可同批。未封组时可跨轮继续，progress 查询委托、result 读取单项结果。" };
+            await registerPersonalReport(tx, group, source!, api.taskId, saved.delegationAdmission);
+            return { work: ref.taskId, agent: ref.agentId, delegation: group.entryId, state: "registered", next: "已登记工作与自动汇总。本次返回的 work/delegation 编号本批其它调用看不到，续派须等返回后再用；仍可跨轮增加成员或要求。progress 查询委托、result 读取单项结果。" };
           }
           if (action === "append") {
             const ref = await personalWorkRef(tx, work as TaskId);
             const outcome = await appendPersonalWork(tx, ref, { requestId: `personal-note-tool:${api.taskId}`, content: content!, source: await personalWorkNoteSource(tx, source!, api.taskId) });
-            if (!outcome.accepted) return { work, state: outcome.outcome, next: "原工作在此说明接纳前已结束，未接纳说明；用 result 查询原结果与已接纳说明的处理情况，需要新的分析由拥有者另行交办。不要复用同一说明键重试。" };
+            if (!outcome.accepted && outcome.outcome === "completed") {
+              const model = (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model;
+              if (!model) throw new PersonalError("model_unavailable", "当前模型缺失，请结束本轮并报告拥有者。");
+              const continued = await continuePersonalAnalysis(tx, model, ref, { content: content!, requestId: `personal-continue-tool:${api.taskId}`, sourceRequestId: source!, modelCall: api.taskId });
+              const saved = await tx.doc(PersonalWorkDoc, continued.ref.requestId, null);
+              saved.modelCall = api.taskId;
+              if (saved.delegationAdmission === undefined) saved.delegationAdmission = (await tx.appendEntry(PersonalAnalysisAdmission, ROOT_CONVERSATION_ID, { data: { work: continued.ref, delegation: continued.delegation, source: { ...saved.instructionSource! }, origin: { ...saved.source! }, permission: { ...saved.permission! }, ...(saved.telegram ? { telegram: { ...saved.telegram } } : {}), modelCall: api.taskId } })).id;
+              await registerPersonalReport(tx, continued.delegation, source!, api.taskId, saved.delegationAdmission);
+              return { predecessor: work, work: continued.ref.taskId, agent: continued.ref.agentId, delegation: continued.delegation.entryId, state: "continued", next: "原工作已完成且结果保留；本次要求已显式登记为同一子 Agent 的后续工作，权限保持原范围。只执行本次新增要求，不重复旧操作；宿主完成后自动发布后续结果。" };
+            }
+            if (!outcome.accepted) return { work, accepted: false, state: outcome.outcome, next: "原工作已结束，未接纳说明；用 result 查询原结果和停止状态。失败、取消或未知效果不能自动续接或重做。" };
+            const saved = await tx.doc(PersonalWorkDoc, ref.requestId, null);
+            if (saved.delegation) await registerPersonalReport(tx, saved.delegation, source!, api.taskId, saved.notes!.find(note => note.requestId === `personal-note-tool:${api.taskId}`)!.admission!);
             return { work, state: "note_accepted", next: "说明已归原工作，同一子 Agent 按接纳顺序继续处理，权限保持原范围；后续用 result 查询原结果。" };
+          }
+          if (action === "operations") {
+            const page = await personalWorkToolFacts(tx, work as TaskId | undefined, offset, await queryIdentity(tx));
+            return { operations: page.items, ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}) };
+          }
+          if (action === "operation") {
+            const detail = await personalToolFacts(tx, operation as TaskId, offset, await queryIdentity(tx));
+            return { operation: detail.operation, text: detail.text, offset: detail.offset, ...(detail.nextOffset !== undefined ? { nextOffset: detail.nextOffset, next: detail.next } : {}) };
+          }
+          if (action === "redisplay") {
+            const original = await personalSource(tx, source!, { active: true, invalidCode: "work_source_invalid" });
+            if (original.scheduled) throw new PersonalError("work_source_invalid", "定时来源不能管理主聊天委托，请查询原运行。");
+            return personalToolRedisplay(tx, operation as TaskId, original, api.taskId, await queryIdentity(tx));
           }
           if (action === "list") {
             const agents = (await tx.doc(PersonalAgentsDoc)).agents;
@@ -95,7 +133,7 @@ export function personalWorkTools(getHarness: () => Harness) {
           if (action === "close") { await closePersonalAgent(tx, agent as ConversationId); return { agent, state: "closed" }; }
           const ref = await personalWorkRef(tx, work as TaskId);
           if (action === "cancel") { await requestPersonalWorkCancel(tx, ref); return { cancel: ref }; }
-          return personalWorkResult(tx, ref, offset);
+          return personalWorkResult(tx, ref, offset, 4096, await queryIdentity(tx));
         }, context);
         const harness = getHarness();
         const cancelled = "cancel" in result ? result.cancel : undefined;
@@ -147,7 +185,7 @@ export function personalWorkTools(getHarness: () => Harness) {
 // result carries control.terminate (the host yield). Assistant text written before the calls is kept
 // but never trusted as an outcome: committed call facts always follow it. Any end whose calls did not
 // terminate — query batches, ordinary prose — stays on the caller's original path.
-// Note: 见 .agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md
+// Note: See .agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md
 export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: number): Promise<string | undefined> {
   const entry = await tx.entry(AssistantEntry, answer);
   const message = entry?.model?.[0];
@@ -168,7 +206,7 @@ export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: numbe
     cursor = page.next;
   } while (cursor && tasks.size < wanted.size);
   // `text` is the full fact for unbounded consumers; `short` is the compact form used when a bounded
-  // payload cannot fit every detail; `refused` marks outcomes the owner must never lose (未生效/未接纳).
+  // payload cannot fit every detail; refused outcomes must stay visible.
   const facts: { text: string; short: string; refused: boolean }[] = [];
   for (const call of calls) {
     const task = tasks.get(call.id);
@@ -185,8 +223,9 @@ export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: numbe
     else if (call.name === "background_work" && args.action === "append") {
       // A completed call can still refuse admission (the work ended first); the persisted outcome,
       // not merely isError, decides whether the owner hears accepted or not-admitted.
-      const parsed = (() => { try { const value = JSON.parse(resultText); return value && typeof value === "object" && !Array.isArray(value) ? value as { state?: unknown } : undefined; } catch { return undefined; } })();
+      const parsed = (() => { try { const value = JSON.parse(resultText); return value && typeof value === "object" && !Array.isArray(value) ? value as { state?: unknown; work?: unknown; predecessor?: unknown } : undefined; } catch { return undefined; } })();
       if (parsed?.state === "note_accepted") facts.push({ text: `已补充工作 ${args.work} 的说明，同一子 Agent 按接纳顺序处理`, short: `已补充工作${args.work}说明`, refused: false });
+      else if (parsed?.state === "continued" && typeof parsed.work === "number" && parsed.predecessor === args.work) facts.push({ text: `原工作 ${args.work} 的结果保留；已登记同一子 Agent 的后续工作 ${parsed.work}，只处理本次新要求`, short: `已登记工作${args.work}的后续工作${parsed.work}`, refused: false });
       else facts.push({ text: `工作 ${args.work} 的说明未接纳：原工作在此说明接纳前已结束`, short: `工作${args.work}说明未接纳`, refused: true });
     }
     else if (call.name === "background_work" && args.action === "cancel") facts.push({ text: `已登记工作 ${args.work} 的取消，停止与效果以原记录为准`, short: `已登记工作${args.work}取消`, refused: false });

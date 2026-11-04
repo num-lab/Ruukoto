@@ -161,7 +161,7 @@ test("追加说明：两项独立工作不交叉路由说明", async t => {
 });
 
 test("追加说明：终态旧版本工作按原顺序核实恢复，更新版本永不接受", async t => {
-  for (const version of [1, 3] as const) await t.test(`v${version}`, async t => {
+  for (const version of [1, 4] as const) await t.test(`v${version}`, async t => {
     const f = await fixture(t);
     const p = await f.open(); const ref = await delegate(p);
     await p.work.append(ref, note("旧说明"));

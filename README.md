@@ -60,6 +60,8 @@ npm run desktop:build         # Build the Electron application, including its te
 npm run code -- ../my-project  # Create/reuse the workspace and enter a new conversation
 ```
 
+The isolated Personal amendment/model check uses an explicitly selected configuration and never enables IM. After `npm run build:worker`, run `RUN_MODEL_CHECK=1 RUN_PERSONAL_AMENDMENT_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-amendment-model-acceptance.test.ts`; set `RUN_PERSONAL_AMENDMENT_MODEL=provider/model` when the file contains several models. See [external acceptance](docs/development-acceptance.md#personal-amendments-and-reports) for its limits.
+
 ## Documentation
 
 - [Usage](docs/usage.md): running, configuration, SubAgent roles, entry setup, imports and troubleshooting.

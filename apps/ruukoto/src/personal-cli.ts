@@ -77,7 +77,7 @@ export async function checkPersonalInput(directory: string, input: PersonalInput
   return result;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
 export async function launchPersonalServer(directory: string): Promise<void> {
   const profile = lockPersonalProfile(directory);
   let log: number;
@@ -250,7 +250,7 @@ export async function managePersonalDelegations(io: PersonalCliIO, directory: st
     let memberOffset = 0;
     while (true) {
       const progress = await personalControl<Awaited<ReturnType<typeof personalDelegationProgress>>>(directory, "GET", `/delegation?delegation=${ref.entryId}&offset=${memberOffset}`);
-      io.write(`\n${personalDelegationDescription(progress)}\n${progress.members.map(personalWorkDescription).join("\n")}\n取消覆盖所属分析、其固定服务检查及尚未开始的最终回报，不关闭身份、不涵盖独立宿主服务写操作；已开始的发送须按原效果核实。封组后不能追加；单项结果请从后台分析选择。\n`);
+      io.write(`\n${personalDelegationDescription(progress)}\n${progress.members.map(personalWorkDescription).join("\n")}\n取消覆盖所属分析、其固定服务检查及尚未开始的最终回报，不关闭身份、不涵盖独立宿主服务写操作；已开始的发送须按原效果核实。仍可补充要求；单项结果请从后台分析选择。旧版本已封组记录只能查询原结果。\n`);
       const action = await choose(io, "原分析委托", ["刷新状态", "请求取消整项分析", "返回委托列表", "查看完整报告", ...(progress.nextOffset === undefined ? [] : ["下一页分析"])]);
       if (action === 2) break;
       if (action === 4) { memberOffset = progress.nextOffset!; continue; }

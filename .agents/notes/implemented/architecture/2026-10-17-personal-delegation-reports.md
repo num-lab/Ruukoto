@@ -2,6 +2,8 @@
 
 Status: implemented
 
+For version-2 host reports, [validated report publication](2026-11-04-personal-report-publication.md) supersedes explicit model registration, sealing and raw-answer display. The version-1 records below retain their original verification and sending rules; owner-input framing and report query authority remain shared.
+
 Main-conversation admission and send claims use the [short IM platform mutex](2026-10-25-personal-im-updates.md) to select original configuration/fixed handles, not a QQ API captured at startup.
 
 ## Problem

@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-Partly superseded by [same-SubAgent note supervision](2026-11-02-personal-work-note-supervision.md): the sequential per-round delivery described below is replaced by one supervisor that steers every accepted note into the original child conversation and supervises all submissions through the end of the work, and append no longer rejects for unverified source effects. The durable admission, stable-key, source, entry and recovery-evidence rules below remain authoritative.
+Partly superseded by [same-SubAgent note supervision](2026-11-02-personal-work-note-supervision.md): the sequential per-round delivery described below is replaced by one supervisor that steers every accepted note into the original child conversation and supervises all submissions through the end of the work, and append no longer rejects for unverified source effects. [Request-bound work amendments](2026-11-04-personal-work-amendments.md) adds actual-request freshness and safe linked terminal continuation. The durable admission, stable-key, source, entry and recovery-evidence rules below remain authoritative.
 
 First save note body, stable host key and source in the original work document, without direct admission. Original WorkTask submits accepted notes sequentially after the current answer, deriving each request key from original work/note key. After each child execution is fully collected, the final transaction rechecks cancellation/note count. Continue the same work if new notes exist; otherwise release occupation with terminal state. Serialized note/final transactions need no second runtime state or closing flag. Final results point to the last accepted note's answer; native records retain history.
 

@@ -9,12 +9,16 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, ROOT_CONVERSATION_ID, type TaskId } from "@earendil-works/pi-durable";
+import { AgentDoc, createRegistry, defineExtension, defineTool, Harness, LiveDoc, ROOT_CONVERSATION_ID, type TaskId } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { Type } from "typebox";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
-import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
-import { appendPersonalWork, personalWorkNoteSource } from "../apps/ruukoto/src/personal-work.ts";
-import { PersonalDelegationDoc, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
-import { PersonalReportTask, personalReportResult, requestPersonalReport } from "../apps/ruukoto/src/personal-report.ts";
+import { personalProvider, recordedModels, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
+import { appendPersonalWork, personalBackgroundWork, personalSubAgent, PersonalWorkDoc, personalWorkNoteSource } from "../apps/ruukoto/src/personal-work.ts";
+import { PersonalAnalysisAdmission, personalAnalysisDelegations, PersonalDelegationDoc, cancelPersonalDelegation, delegatePersonalAnalysis, listPersonalDelegations, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
+import { personalDelegationReports, PersonalReportTask, personalReportResult, verifyPersonalReports } from "../apps/ruukoto/src/personal-report.ts";
+import { legacyPersonalDelegationReports, requestLegacyPersonalReport } from "../apps/ruukoto/src/personal-report-legacy.ts";
+import { personalTimeline } from "../apps/ruukoto/src/personal-history.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
@@ -30,6 +34,7 @@ const context = BACKGROUND_CONTEXT;
 const TOKEN = "123:report-test-only";
 const REPORT = "本报告的固定回答";
 const child = (request: RecordedRequest) => request.system?.includes("你是个人助手的子 Agent");
+const ownerText = (request: RecordedRequest) => String(request.messages.at(-1)?.content).replace(/^【本轮拥有者输入，独立于此前宿主汇总参考】\n/, "").replace(/\n【本轮拥有者输入结束】$/, "");
 const summary = (request: RecordedRequest) => String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考");
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
 const args = (action: string, values: Record<string, unknown> = {}) => JSON.stringify({ action, ...values });
@@ -52,7 +57,7 @@ async function fixture(t: TestContext, respond: { analyze?: Responder; summarize
     if (respond.chat) return respond.chat(request, index);
     const last = request.messages.at(-1);
     if (last?.role === "tool") return { kind: "text", text: String(last.content) };
-    const content = String(last?.content);
+    const content = ownerText(request);
     if (content === "multi") return { kind: "tool_calls", calls: ["A", "B"].map(id => ({ id, name: "background_work", arguments: { action: "delegate", content: id } })) };
     if (content.startsWith("{")) return { kind: "tool_calls", calls: [{ id: "action", name: "background_work", arguments: JSON.parse(content) as Record<string, unknown> }] };
     return { kind: "text", text: `聊天：${content}` };
@@ -102,20 +107,70 @@ async function first(p: PersonalHarness) { return (await p.harness.commit(tx => 
 async function finishMembers(p: PersonalHarness, ref: PersonalDelegationRef) { for (const member of (await delegation(p, ref)).members) await p.harness.waitForTask(member.taskId, context); }
 async function finishReport(p: PersonalHarness, ref: PersonalDelegationRef) { return p.harness.waitForTask((await delegation(p, ref)).report!.taskId, context); }
 
+async function legacyReportFixture(t: TestContext, active: boolean) {
+  const generating = gate(t); let started = false;
+  const f = await fixture(t, { summarize: async () => { started = true; if (active) await generating.wait; return { kind: "text", text: REPORT }; } });
+  const workTool = defineTool({
+    name: "background_work", description: "Delegate work and request its legacy report.",
+    parameters: Type.Object({ action: Type.Union([Type.Literal("delegate"), Type.Literal("report")]), content: Type.Optional(Type.String()), delegation: Type.Optional(Type.Integer()) }),
+    replay: "safe", executionMode: "sequential",
+    async execute(input, api, context) {
+      const live = await api.snapshot(LiveDoc, ROOT_CONVERSATION_ID, context); assert.equal(live?.run?.inputs.length, 1);
+      const candidate = await harness.submission(live!.run!.inputs[0], context), source = await candidate?.status(context); assert.ok(source?.requestId);
+      const sourceRequestId = source.requestId;
+      const value = await api.commit(async tx => {
+        if (input.action === "report") {
+          assert.ok(input.delegation);
+          const groups = await listPersonalDelegations(tx), ref = groups.items.find(group => group.ref.entryId === input.delegation)!.ref;
+          return { taskId: await requestLegacyPersonalReport(tx, ref, sourceRequestId, api.taskId) };
+        }
+        const model = (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model!;
+        const delegated = await delegatePersonalAnalysis(tx, model, { content: input.content!, requestId: `personal-tool:${api.taskId}`, sourceRequestId });
+        const saved = await tx.doc(PersonalWorkDoc, delegated.ref.requestId, null); saved.modelCall = api.taskId;
+        saved.delegationAdmission = (await tx.appendEntry(PersonalAnalysisAdmission, ROOT_CONVERSATION_ID, { data: { work: delegated.ref, delegation: delegated.delegation, source: saved.instructionSource!, origin: saved.source!, permission: saved.permission!, modelCall: api.taskId } })).id;
+        return { work: delegated.ref.taskId, delegation: delegated.delegation.entryId };
+      }, context);
+      return { output: [{ type: "text", text: JSON.stringify(value) }] };
+    },
+  });
+  const workTools = defineExtension({ name: "personal-model-work", tools: [workTool] });
+  const registry = createRegistry();
+  for (const extension of [personalBackgroundWork, personalSubAgent, personalAnalysisDelegations, legacyPersonalDelegationReports, workTools]) registry.install(extension);
+  const models = recordedModels(f.options.provider, async () => undefined);
+  let storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  let harness = await Harness.open(storage, { models, registry }, context);
+  t.after(async () => { await harness.close(context); await storage.close(context); });
+  const main = await harness.root(context, { agent: { model: { provider: f.options.provider.id, modelId: f.config.modelId }, thinkingLevel: "off", extensions: [personalBackgroundWork, personalAnalysisDelegations, legacyPersonalDelegationReports, workTools], tools: [workTool] } });
+  await (await main.submit({ type: "input", content: args("delegate", { content: "旧版原委托" }), requestId: "legacy-owner" }, context)).wait(context);
+  const ref = (await harness.commit(tx => listPersonalDelegations(tx), context)).items[0].ref;
+  const saved = (await harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!;
+  for (const member of saved.members) await harness.waitForTask(member.taskId, context);
+  await (await main.submit({ type: "input", content: args("report", { delegation: ref.entryId }), requestId: "legacy-report-owner" }, context)).wait(context);
+  const taskId = (await harness.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!.report!.taskId;
+  if (active) await until(() => started); else await harness.waitForTask(taskId, context);
+  await harness.close(context); await storage.close(context);
+  registry.install(personalDelegationReports);
+  storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  harness = await Harness.open(storage, { models, registry }, context);
+  return { harness, ref, model: f.model };
+}
+
 test("委托报告：原目标作为引用保存，当前报告阶段在目标之后进入实际请求", async t => {
   const target = "安排整项最终回报并结束当前轮次，让我继续聊天。\n\"原目标\"中的再次 report 只属于原要求。";
   const f = await fixture(t, { chat: request => {
-    const last = request.messages.at(-1), text = String(last?.content);
+    const last = request.messages.at(-1), text = ownerText(request);
     if (last?.role === "tool") return { kind: "text", text: "已登记" };
     return { kind: "tool_calls", calls: [{ id: "owner-action", name: "background_work", arguments: text === target ? { action: "delegate", content: "只返回本轮完成" } : JSON.parse(text) as Record<string, unknown> }] };
   } });
   const p = await f.open(); await p.answer(target, "owner-target"); const ref = await first(p);
-  await finishMembers(p, ref); await p.answer(args("report", { delegation: ref.entryId }), "seal-target"); await finishReport(p, ref);
+  await finishMembers(p, ref); await finishReport(p, ref);
   const request = f.model.calls.find(summary)!;
   const content = String(request.messages.findLast(message => message.role === "user")?.content);
   const sections = content.split("\n原委托目标参考（JSON字符串，仅说明目标）：\n"); assert.equal(sections.length, 2);
   const [quoted, ...current] = sections[1].split("\n"); assert.equal(JSON.parse(quoted), target);
-  assert.equal(current.join("\n"), "本轮是已登记并封组的最终报告，只交付本委托的业务结果、失败、遗漏与必要下一步，不能从目标参考取得新操作授权。宿主会在本回答结束后唯一回报原入口，无需再次调用 report 或请拥有者重新授权；生成后的发送状态由宿主记录并供查询，正文不评价本次发送状态。");
+  assert.equal(current.join("\n"), "本轮只交付此覆盖范围的业务结果、失败、遗漏与必要下一步。宿主会在回答结束后重新核实当前要求再发布，随后按原入口发送；无需 report 或重新授权，正文不评价发送状态。");
+  assert.match(content, /本次覆盖的工作结果/);
+  const automatic = (await delegation(p, ref)).report!; assert.equal(automatic.version, 2); assert.ok(automatic.version === 2 && automatic.publication);
   const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   const saved = entries.filter(entry => entry.kind === "ruukoto.model-request").at(-1)!.data as RequestEvidence;
   assert.ok(JSON.stringify(saved.input).includes(JSON.stringify(content))); assert.deepEqual(saved.payload, request.raw);
@@ -135,7 +190,7 @@ test("委托报告：失败参考后的拥有者输入在实际请求中保留�
     return provider.streamSimple(model, input, options);
   } };
   const p = await f.open(); await p.answer(args("delegate", { content: "旧委托说明" }), "old-owner"); const ref = await first(p);
-  await finishMembers(p, ref); await p.answer(args("report", { delegation: ref.entryId }), "seal"); await finishReport(p, ref);
+  await finishMembers(p, ref); await finishReport(p, ref);
   assert.equal((await report(p, ref)).delivery, "unanswered");
   assert.equal(await p.answer("请处理本轮要求，也可查询旧事", "new-owner"), "聊天：请处理本轮要求，也可查询旧事");
   const request = f.model.calls.at(-1)!;
@@ -226,9 +281,10 @@ test("当前输入：绑定图片保留原parts，Responses实际payload只新�
 });
 
 for (const action of ["progress", "delegations", "report_result"] as const) test(`委托报告：${action} 不把报告生成中的发送状态带入最终正文`, async t => {
+  const analyzing = gate(t);
   let ref!: PersonalDelegationRef;
   let progress!: Record<string, unknown>;
-  const f = await fixture(t, { summarize: request => {
+  const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "完成业务分析" }; }, summarize: request => {
     const last = request.messages.at(-1);
     if (last?.role !== "tool") return { kind: "tool_calls", calls: [{ id: "report-progress", name: "background_work", arguments: { action, ...(action === "delegations" ? {} : { delegation: ref.entryId }) } }] };
     const output = JSON.parse(String(last.content));
@@ -236,7 +292,7 @@ for (const action of ["progress", "delegations", "report_result"] as const) test
     return { kind: "text", text: progress.report || progress.delivery || progress.state ? "报告仍在生成中，等待发送。" : REPORT };
   } });
   const p = await f.open(); await p.answer(args("delegate", { content: "完成业务分析" }), "owner"); ref = await first(p);
-  await finishMembers(p, ref); await p.answer(args("report", { delegation: ref.entryId }), "seal"); await finishReport(p, ref);
+  analyzing.release(); await finishMembers(p, ref); await finishReport(p, ref);
   assert.equal((await report(p, ref)).text, REPORT);
   if (action === "report_result") assert.match(String(progress.next), /progress.*result/);
   else { assert.equal(progress.total, 1); assert.equal(progress.active, 0); assert.equal(progress.unverified, 0); }
@@ -245,60 +301,89 @@ for (const action of ["progress", "delegations", "report_result"] as const) test
   assert.equal((await p.harness.commit(tx => listPersonalDelegations(tx), context)).items[0].report?.delivery, "local");
 });
 
-test("委托报告：多成员等待不占主聊天，封组在共用追加与续派入口生效，重复登记保持原任务", async t => {
+test("委托报告：自动多成员汇总不占主聊天，追加与续派保持开放，显式汇总复用原安排", async t => {
   const analyzing = gate(t);
   const f = await fixture(t, { analyze: async request => { await analyzing.wait; return { kind: "text", text: `完整分析：${request.messages.at(-1)?.content}` }; } });
   const p = await f.open(); await p.answer("multi", "owner"); const ref = await first(p);
   await until(() => f.model.calls.filter(child).length === 2);
-  assert.equal((await report(p, ref)).delivery, "not_requested");
-  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "seal"), /最终汇总安排/);
   const saved = (await delegation(p, ref)).report!;
-  assert.equal(saved.delivery, "waiting"); assert.equal(f.model.calls.filter(summary).length, 0);
-  assert.equal(await p.answer("独立聊天", "chat"), "聊天：独立聊天");
-  assert.match(await p.answer(args("delegate", { content: "迟到成员", delegation: ref.entryId }), "late-member"), /delegation_sealed/);
-  const member = (await delegation(p, ref)).members[0];
-  assert.match(await p.answer(args("append", { work: member.taskId, content: "迟到说明" }), "late-note"), /delegation_sealed/);
-  await assert.rejects(p.work.append(member, { requestId: "host-note", content: "宿主说明", sourceRequestId: "owner" }), code("delegation_sealed"));
-  for (const kind of ["local", "telegram"] as const) await assert.rejects(p.harness.commit(tx => appendPersonalWork(tx, member, { requestId: `${kind}-note`, content: "追加说明", source: { kind } }), context), code("delegation_sealed"));
-  await assert.rejects(p.harness.commit(async tx => delegatePersonalAnalysis(tx, (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model!, { requestId: "host-member", content: "宿主续派", sourceRequestId: "owner" }, ref), context), code("delegation_sealed"));
-  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "seal-again"), /最终汇总安排/);
+  assert.equal(saved.version, 2); assert.equal(saved.delivery, "waiting"); assert.equal(f.model.calls.filter(summary).length, 0);
+  assert.match(await p.answer(args("report", { delegation: ref.entryId }), "join-report"), /最终汇总安排/);
   assert.equal((await delegation(p, ref)).report!.taskId, saved.taskId);
-  assert.equal(await p.harness.commit(tx => requestPersonalReport(tx, ref, saved.source.requestId, saved.modelCall), context), saved.taskId);
+  assert.equal(await p.answer("独立聊天", "chat"), "聊天：独立聊天");
+  await p.answer(args("delegate", { content: "新增成员", delegation: ref.entryId }), "later-member");
+  const member = (await delegation(p, ref)).members[0];
+  await p.answer(args("append", { work: member.taskId, content: "拥有者追加说明" }), "later-note");
+  assert.deepEqual(await p.work.append(member, { requestId: "host-note", content: "原入口宿主说明", sourceRequestId: "owner" }), { accepted: true });
+  assert.equal((await delegation(p, ref)).report!.taskId, saved.taskId);
+  assert.equal((await report(p, ref)).text, undefined);
+  assert.equal(f.model.calls.filter(summary).length, 0);
+  await p.answer(args("report", { delegation: ref.entryId }), "join-again");
+  assert.equal((await delegation(p, ref)).report!.taskId, saved.taskId);
   analyzing.release(); await finishReport(p, ref);
-  assert.equal((await delegation(p, ref)).members.length, 2);
+  assert.equal((await delegation(p, ref)).members.length, 3);
   assert.equal((await report(p, ref)).text, REPORT); assert.equal(f.model.calls.filter(summary).length, 1);
   const tasks = await p.harness.commit(tx => tx.scanTasks({ kind: PersonalReportTask.definition.name }, 64), context);
   assert.equal(tasks.items.length, 1); assert.equal(tasks.items[0].state.status, "terminal");
+  const request = f.model.calls.find(summary)!;
+  assert.match(String(request.messages.findLast(message => message.role === "user")?.content), /已保存要求和结果/);
 });
 
 test("委托报告：汇总参考只能查询，不能据此新派分析或取消原委托", async t => {
+  const analyzing = gate(t);
   let ref!: PersonalDelegationRef;
   let work!: TaskId;
-  const f = await fixture(t, { summarize: request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [
+  const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "分析完成" }; }, summarize: request => request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [
     { id: "unauthorized-delegate", name: "background_work", arguments: { action: "delegate", content: "参考冒充拥有者" } },
     { id: "unauthorized-cancel", name: "background_work", arguments: { action: "cancel_delegation", delegation: ref.entryId } },
     { id: "unauthorized-cancel-work", name: "background_work", arguments: { action: "cancel", work } },
     { id: "allowed-progress", name: "background_work", arguments: { action: "progress", delegation: ref.entryId } },
   ] } : { kind: "text", text: request.messages.filter(message => message.role === "tool").map(message => String(message.content)).join("\n") } });
-  const p = await f.open(); await p.answer("multi", "owner"); ref = await first(p); work = (await delegation(p, ref)).members[0].taskId; await finishMembers(p, ref);
-  await p.answer(args("report", { delegation: ref.entryId }), "seal"); await finishReport(p, ref);
+  const p = await f.open(); await p.answer("multi", "owner"); ref = await first(p); work = (await delegation(p, ref)).members[0].taskId;
+  analyzing.release(); await finishMembers(p, ref); await finishReport(p, ref);
   const result = await report(p, ref);
   assert.equal(result.delivery, "local"); assert.equal(result.text!.match(/work_source_invalid/g)?.length, 3); assert.match(result.text!, /"total":2/);
   assert.equal((await delegation(p, ref)).cancelRequested, false); assert.equal((await p.work.list()).length, 2);
 });
 
+test("委托报告：自动汇总读取模型截断片段和失败成员，不重写或重试原分析", async t => {
+  const analyzing = gate(t); let works: TaskId[] = [];
+  const outputs: { state: string; partial?: boolean; text?: string; next?: string }[] = [];
+  const f = await fixture(t, {
+    analyze: async () => { await analyzing.wait; return { kind: "text", text: "已保存片段😀", finishReason: "length" }; },
+    summarize: request => {
+      if (request.messages.at(-1)?.role !== "tool") return { kind: "tool_calls", calls: works.map((work, i) => ({ id: `read-result-${i}`, name: "background_work", arguments: { action: "result", work } })) };
+      for (const message of request.messages.filter(message => message.role === "tool" && String(message.tool_call_id).startsWith("read-result-"))) outputs.push(JSON.parse(String(message.content)));
+      return { kind: "text", text: outputs[0].partial && outputs[1].state === "failed" ? "A分析仅有截断片段，B分析失败，仍有遗漏。" : "未如实汇总" };
+    },
+  });
+  const provider = f.options.provider;
+  const p = await f.open({ provider: { ...provider, streamSimple: (model, input, options) => provider.streamSimple(model, input, { ...options, onPayload: async payload => {
+    const saved = await options?.onPayload?.(payload, model);
+    if (JSON.stringify(input.messages[0]).includes("你是个人助手的子 Agent") && input.messages.at(-1)?.role === "user" && input.messages.at(-1)?.content === "B") throw new Error("fixture-child-failed");
+    return saved ?? payload;
+  } }) } });
+  await p.answer("multi", "owner"); const ref = await first(p); works = (await delegation(p, ref)).members.map(member => member.taskId);
+  analyzing.release(); await finishReport(p, ref);
+  assert.equal(outputs.length, 2); assert.equal(outputs[0].state, "completed"); assert.equal(outputs[0].partial, true); assert.equal(outputs[0].text, "已保存片段😀"); assert.match(outputs[0].next!, /截断|遗漏/);
+  assert.equal(outputs[1].state, "failed"); assert.equal(outputs[1].text, undefined);
+  assert.equal((await report(p, ref)).text, "A分析仅有截断片段，B分析失败，仍有遗漏。");
+  const request = f.model.calls.find(summary)!; assert.match(String(request.messages.findLast(message => message.role === "user")?.content), /partial=true.*截断/);
+  assert.match(String(request.messages.findLast(message => message.role === "user")?.content), /"status":"failed"/);
+  assert.equal(f.model.calls.filter(child).length, 1); assert.equal(f.model.calls.filter(summary).length, 2);
+});
+
 test("委托报告：HTTP 前取消零汇总请求，在途取消保留迟到回答但不外发，其他聊天继续", async t => {
   for (const window of ["before-http", "in-flight"] as const) await t.test(window, async t => {
-    const generating = gate(t); let started = false;
-    const f = await fixture(t, { summarize: async () => { started = true; await generating.wait; return { kind: "text", text: REPORT }; } });
+    const analyzing = gate(t), generating = gate(t); let started = false;
+    const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "已完成成员" }; }, summarize: async () => { started = true; await generating.wait; return { kind: "text", text: REPORT }; } });
     let p!: PersonalHarness; let ref!: PersonalDelegationRef; let armed = window === "before-http";
     const provider = f.options.provider;
     p = await f.open({ provider: { ...provider, streamSimple: (model, input, options) => provider.streamSimple(model, input, { ...options, onPayload: async payload => {
       if (armed && JSON.stringify(input.messages.at(-1)).includes("宿主委托汇总参考")) { armed = false; await p.harness.commit(tx => cancelPersonalDelegation(tx, ref), context); }
       return await options?.onPayload?.(payload, model) ?? payload;
     } }) } });
-    await p.answer("multi", "owner"); ref = await first(p); await finishMembers(p, ref);
-    await p.answer(args("report", { delegation: ref.entryId }), "seal");
+    await p.answer("multi", "owner"); ref = await first(p); analyzing.release(); await finishMembers(p, ref);
     if (window === "in-flight") { await until(() => started); await p.harness.commit(tx => cancelPersonalDelegation(tx, ref), context); }
     await finishReport(p, ref); assert.equal((await report(p, ref)).delivery, "canceled");
     generating.release(); assert.equal(await p.answer("其他聊天", "independent"), "聊天：其他聊天");
@@ -310,7 +395,6 @@ test("委托报告：HTTP 前取消零汇总请求，在途取消保留迟到回
 test("委托报告：原生中止尚未 admission 的报告不新造输入，也不取消成员和主聊天", async t => {
   const analyzing = gate(t); const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "成员完成" }; } });
   const p = await f.open(); await p.answer("multi", "owner"); const ref = await first(p);
-  await p.answer(args("report", { delegation: ref.entryId }), "seal");
   const saved = (await delegation(p, ref)).report!; await p.harness.abortTask(saved.taskId, context); await finishReport(p, ref);
   assert.equal((await report(p, ref)).delivery, "canceled");
   assert.equal(await p.harness.commit(tx => tx.submissionByRequest(ROOT_CONVERSATION_ID, `personal-report:${saved.taskId}:0`), context), undefined);
@@ -324,7 +408,6 @@ test("委托报告：本机菜单经后台查询完整报告，Telegram 原菜�
     const telegram = entry === "telegram" ? await f.telegram() : undefined; const p = await f.open({ telegram });
     if (telegram) await f.receive(f.update("multi")); else await p.answer("multi", "owner");
     const ref = await first(p); await finishMembers(p, ref);
-    if (telegram) await f.receive(f.update(args("report", { delegation: ref.entryId }))); else await p.answer(args("report", { delegation: ref.entryId }), "seal");
     await finishReport(p, ref); const before = f.model.calls.length;
     if (telegram) {
       const list = await f.receive(f.update("/委托")); const detail = await f.receive(f.update("委托1", Number(list.platformMessageId)));
@@ -333,9 +416,13 @@ test("委托报告：本机菜单经后台查询完整报告，Telegram 原菜�
       const next = await f.receive(f.update("下一页报告", Number(firstPage.platformMessageId)));
       assert.match(next.reply!, /固定回答/); assert.equal(f.model.calls.length, before);
     } else {
-      await p.close(); await savePersonalConfig(f.directory, f.config); const backend = await startPersonalServer(f.directory); t.after(() => backend.stop());
+      await p.close(); await savePersonalConfig(f.directory, f.config); const backend = await startPersonalServer(f.directory);
       const choices = ["1", "4", "1", "3", "2"]; let output = "";
-      await managePersonalDelegations({ question: async () => choices.shift()!, write: text => { output += text; } }, f.directory);
+      try {
+        await managePersonalDelegations({ question: async () => choices.shift()!, write: text => { output += text; } }, f.directory);
+      } finally {
+        await backend.stop();
+      }
       assert.match(output, /完整报告已保存本机/); assert.match(output, /固定回答/); assert.equal(f.model.calls.length, before);
     }
   });
@@ -352,7 +439,7 @@ test("委托报告：取消与发送领取按事务顺序仲裁，已开始发�
     });
     const f = await fixture(t, stage === "before-claim" ? { summarize: async () => { entered = true; await held.wait; return { kind: "text", text: REPORT }; } } : {}); const telegram = await f.telegram(); const p = await f.open({ telegram });
     await f.receive(f.update("multi")); const ref = await first(p); await finishMembers(p, ref);
-    await f.receive(f.update(args("report", { delegation: ref.entryId }))); await until(() => entered);
+    await until(() => entered);
     await p.harness.commit(tx => cancelPersonalDelegation(tx, ref), context);
     const independent = p.answer("取消不影响其他聊天", "independent");
     held.release(); await finishReport(p, ref); assert.equal(await independent, "聊天：取消不影响其他聊天");
@@ -362,18 +449,31 @@ test("委托报告：取消与发送领取按事务顺序仲裁，已开始发�
 });
 
 test("委托报告：原 Submission 完成后真实强杀，恢复重接原回答且不串入其他主聊天", { timeout: 20000 }, async t => {
-  const f = await fixture(t, { summarize: () => ({ kind: "text", text: REPORT + "😀".repeat(50) }) });
-  let p = await f.open(); await p.answer("multi", "owner"); const ref = await first(p); await finishMembers(p, ref); await p.close();
-  const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,config,ref}=JSON.parse(process.env.RUUKOTO_REPORT_CRASH); setInterval(()=>{},1000); const p=await openPersonalHarness({directory,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=async(writes,c)=>{await commit(writes,c);if(writes.some(w=>w.type==="submission"&&w.value.requestId?.startsWith("personal-report:")&&w.value.status==="done")){process.stdout.write("report-answer-gap\\n");await new Promise(()=>{});}};return s;}});await p.answer(JSON.stringify({action:"report",delegation:ref.entryId}),"seal");`;
-  const processChild = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_REPORT_CRASH: JSON.stringify({ directory: f.directory, config: f.config, ref }) }, stdio: ["ignore", "pipe", "pipe"] });
+  const analyzing = gate(t);
+  const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "已完成分析" }; }, summarize: () => ({ kind: "text", text: REPORT + "😀".repeat(50) }) });
+  let p = await f.open(); await p.close();
+  const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,config}=JSON.parse(process.env.RUUKOTO_REPORT_CRASH); setInterval(()=>{},1000); const p=await openPersonalHarness({directory,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=async(writes,c)=>{await commit(writes,c);if(writes.some(w=>w.type==="submission"&&w.value.requestId?.startsWith("personal-report:")&&w.value.status==="done")){process.stdout.write("report-answer-gap\\n");await new Promise(()=>{});}};return s;}});await p.answer("multi","owner");process.stdout.write("arrangement-ready\\n");`;
+  const processChild = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_REPORT_CRASH: JSON.stringify({ directory: f.directory, config: f.config }) }, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; processChild.stdout.on("data", data => { output += data; }); processChild.stderr.pipe(process.stderr);
   t.after(() => { if (processChild.exitCode === null && processChild.signalCode === null) processChild.kill("SIGKILL"); });
+  await until(() => output.includes("arrangement-ready") && f.model.calls.filter(child).length === 2); analyzing.release();
   await until(() => output.includes("report-answer-gap")); const exited = once(processChild, "exit"); processChild.kill("SIGKILL"); await exited;
-  const calls = f.model.calls.filter(summary).length;
-  p = await f.open(); assert.equal(await p.answer("另一件事", "other-chat"), "聊天：另一件事"); await finishReport(p, ref);
+  assert.equal(processChild.signalCode, "SIGKILL");
+  const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  const task = (await storage.scanTasks({ kind: PersonalReportTask.definition.name }, 64, undefined, context)).items[0]; assert.ok(task);
+  const original = await storage.submissionByRequest(ROOT_CONVERSATION_ID, `personal-report:${task.id}:0`, context);
+  assert.ok(original?.type === "input" && original.status === "done");
+  assert.ok(await storage.entry(original.answer, context));
+  assert.equal((await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.report-publication").length, 0);
+  await storage.close(context);
+  const calls = f.model.calls.filter(summary).length; assert.equal(calls, 1);
+  p = await f.open(); const ref = await first(p); assert.equal(await p.answer("另一件事", "other-chat"), "聊天：另一件事"); await finishReport(p, ref);
   const saved = (await delegation(p, ref)).report!;
   const submission = await p.harness.commit(tx => tx.submissionByRequest(ROOT_CONVERSATION_ID, `personal-report:${saved.taskId}:0`), context);
   assert.equal(submission?.status, "done"); assert.ok(submission?.type === "input" && submission.status === "done"); assert.equal(saved.answer, submission.answer);
+  assert.equal(submission.id, original.id); assert.equal(submission.answer, original.answer);
+  const publications = (await p.harness.commit(tx => tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256), context)).items.filter(entry => entry.kind === "ruukoto.report-publication");
+  assert.equal(publications.length, 1); assert.equal(saved.version === 2 ? saved.publication : undefined, publications[0].id);
   assert.equal((await report(p, ref)).text, REPORT + "😀".repeat(50)); assert.equal(f.model.calls.filter(summary).length, calls);
   const page = await report(p, ref, 0, REPORT.length + 1); assert.equal(page.text, REPORT); assert.equal(page.nextOffset, REPORT.length);
   assert.equal(page.offset, 0); assert.equal(page.totalChars, REPORT.length + 100);
@@ -382,17 +482,26 @@ test("委托报告：原 Submission 完成后真实强杀，恢复重接原回�
 });
 
 test("委托报告：Telegram 已外发但结果未提交时强杀，重开未知不重发且固定原消息", { timeout: 20000 }, async t => {
-  const f = await fixture(t); const telegram = await f.telegram(); let p = await f.open({ telegram });
-  const original = f.update("multi"); await f.receive(original); const ref = await first(p); await finishMembers(p, ref); await p.close();
-  const update = f.update(args("report", { delegation: ref.entryId }));
-  const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts";import {personalProvider} from "./apps/ruukoto/src/personal-model.ts";import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node";const {directory,config,telegram,update}=JSON.parse(process.env.RUUKOTO_REPORT_SEND_CRASH);setInterval(()=>{},1000);const p=await openPersonalHarness({directory,telegram,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=async(writes,c)=>{if(writes.some(w=>w.type==="task"&&w.value.kind==="ruukoto.delegation-report"&&w.value.state.status==="terminal"&&w.value.state.outcome.result?.delivery==="sent")){process.stdout.write("report-send-gap\\n");await new Promise(()=>{});}return commit(writes,c);};return s;}});await p.telegram.receive(update);`;
-  const processChild = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_REPORT_SEND_CRASH: JSON.stringify({ directory: f.directory, config: f.config, telegram, update }) }, stdio: ["ignore", "pipe", "pipe"] });
+  const analyzing = gate(t);
+  const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "已完成分析" }; } }); const telegram = await f.telegram(); let p = await f.open({ telegram }); await p.close();
+  const original = f.update("multi");
+  const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts";import {personalProvider} from "./apps/ruukoto/src/personal-model.ts";import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node";const {directory,config,telegram,original}=JSON.parse(process.env.RUUKOTO_REPORT_SEND_CRASH);setInterval(()=>{},1000);const p=await openPersonalHarness({directory,telegram,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename);const commit=s.commit.bind(s);s.commit=async(writes,c)=>{if(writes.some(w=>w.type==="task"&&w.value.kind==="ruukoto.delegation-report"&&w.value.state.status==="terminal"&&w.value.state.outcome.result?.delivery==="sent")){process.stdout.write("report-send-gap\\n");await new Promise(()=>{});}return commit(writes,c);};return s;}});await p.telegram.receive(original);process.stdout.write("arrangement-ready\\n");`;
+  const processChild = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_REPORT_SEND_CRASH: JSON.stringify({ directory: f.directory, config: f.config, telegram, original }) }, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; processChild.stdout.on("data", data => { output += data; }); processChild.stderr.pipe(process.stderr);
   t.after(() => { if (processChild.exitCode === null && processChild.signalCode === null) processChild.kill("SIGKILL"); });
+  await until(() => output.includes("arrangement-ready") && f.model.calls.filter(child).length === 2); analyzing.release();
   await until(() => output.includes("report-send-gap")); const exited = once(processChild, "exit"); processChild.kill("SIGKILL"); await exited;
+  assert.equal(processChild.signalCode, "SIGKILL");
   const sends = f.sends.filter(send => send.text === REPORT); assert.equal(sends.length, 1); assert.equal(sends[0].chat_id, "456"); assert.deepEqual(sends[0].reply_parameters, { message_id: 11, allow_sending_without_reply: true });
-  p = await f.open({ telegram }); await finishReport(p, ref); await f.receive(update);
+  const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  const task = (await storage.scanTasks({ kind: PersonalReportTask.definition.name }, 64, undefined, context)).items[0]; assert.ok(task);
+  assert.equal(task.state.status, "running"); assert.ok(task.state.status === "running"); assert.deepEqual(task.state.checkpoint, { phase: "verify" });
+  assert.equal((await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.report-publication").length, 1);
+  await storage.close(context);
+  const calls = f.model.calls.length;
+  p = await f.open({ telegram }); const ref = await first(p); await finishReport(p, ref); await f.receive(original);
   assert.equal((await report(p, ref)).delivery, "effect_unknown"); assert.equal((await report(p, ref)).text, REPORT); assert.equal(f.sends.filter(send => send.text === REPORT).length, 1);
+  assert.equal(f.model.calls.length, calls);
   await p.close(); p = await f.open({ telegram }); await finishReport(p, ref); assert.equal(f.sends.filter(send => send.text === REPORT).length, 1);
 });
 
@@ -400,42 +509,78 @@ test("委托报告：Telegram 原入口换代取消待汇总，不能改发新�
   const analyzing = gate(t);
   const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "迟到分析" }; } });
   const telegram = await f.telegram(); let p = await f.open({ telegram });
-  await f.receive(f.update("multi")); const ref = await first(p); await f.receive(f.update(args("report", { delegation: ref.entryId })));
+  await f.receive(f.update("multi")); const ref = await first(p);
   await p.close(); p = await f.open({ telegram: { ...telegram, generation: randomUUID() } }); analyzing.release(); await finishReport(p, ref);
   assert.equal((await report(p, ref)).delivery, "canceled"); assert.equal(f.model.calls.filter(summary).length, 0); assert.equal(f.sends.filter(send => send.text === REPORT).length, 0);
 });
 
 test("委托报告：损坏报告、接纳、输入、回答或暂停关系在恢复请求前拒绝", async t => {
-  for (const mutation of ["extension", "report", "task", "admission", "input", "answer", "reply", "pause", "model-call"] as const) await t.test(mutation, async t => {
+  for (const mutation of ["extension", "report", "task", "admission", "input", "answer", "reply", "pause", "model-call", "coverage", "publication"] as const) await t.test(mutation, async t => {
     const f = await fixture(t); const p = await f.open(); await p.answer("multi", "owner"); const ref = await first(p); await finishMembers(p, ref);
-    await p.answer(args("report", { delegation: ref.entryId }), "seal"); await finishReport(p, ref);
+    await finishReport(p, ref);
     await p.harness.commit(async tx => {
       const value = (await tx.doc(PersonalDelegationDoc, String(ref.entryId), null)).delegation!; const saved = value.report!;
+      assert.ok(saved.version === 2);
       if (mutation === "extension") { const agent = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(agent.extensions)); agent.extensions = agent.extensions.filter(name => name !== "personal-delegation-reports"); }
       if (mutation === "report") delete value.report;
       if (mutation === "task") saved.taskId = value.members[0].taskId;
       if (mutation === "admission") saved.admission = saved.answer!;
-      if (mutation === "input") saved.content += "被改写的固定输入";
+      if (mutation === "input") saved.attempts[0].content += "被改写的固定输入";
       if (mutation === "answer") saved.answer = ref.entryId;
       if (mutation === "reply") saved.reply += "被改写的固定发送正文";
       if (mutation === "pause") saved.pauses = [saved.answer!];
       if (mutation === "model-call") saved.modelCall = value.members[0].taskId;
+      if (mutation === "coverage") saved.attempts[0].coverage = saved.answer!;
+      if (mutation === "publication") saved.publication = saved.answer!;
     }, context); await p.close(); const before = f.model.calls.length;
     await assert.rejects(f.open(), error => error instanceof PersonalError && error.code.startsWith("report_")); assert.equal(f.model.calls.length, before);
   });
 });
 
-test("委托报告：追加与封组按事务顺序仲裁，封组后重放既有追加不另造输入", async t => {
-  for (const order of ["append-first", "seal-first"] as const) await t.test(order, async t => {
+test("委托报告：原生 v1 完成记录保留完整回答，活动记录与损坏关系拒绝当前恢复", async t => {
+  for (const mutation of ["valid", "active", "report", "task", "admission", "input", "answer", "reply", "pause", "model-call"] as const) await t.test(mutation, async t => {
+    const f = await legacyReportFixture(t, mutation === "active"), before = f.model.calls.length;
+    if (mutation === "valid") {
+      await f.harness.commit(tx => verifyPersonalReports(tx, [String(f.ref.entryId)], true), context);
+      const saved = (await f.harness.snapshot(PersonalDelegationDoc, String(f.ref.entryId), context))!.delegation!.report!;
+      assert.equal(saved.version, undefined); assert.equal((await f.harness.commit(tx => personalReportResult(tx, f.ref), context)).text, REPORT);
+      const timeline = await f.harness.commit(tx => personalTimeline(tx, {}), context);
+      assert.equal(timeline.items.find(entry => entry.entry === saved.answer)?.text, REPORT);
+      assert.equal(timeline.items.some(entry => entry.kind === "ruukoto.report-publication"), false);
+      assert.equal(f.model.calls.length, before); return;
+    }
+    if (mutation !== "active") await f.harness.commit(async tx => {
+      const value = (await tx.doc(PersonalDelegationDoc, String(f.ref.entryId), null)).delegation!, saved = value.report!;
+      assert.notEqual(saved.version, 2);
+      if (mutation === "report") delete value.report;
+      if (mutation === "task") saved.taskId = value.members[0].taskId;
+      if (mutation === "admission") saved.admission = saved.answer!;
+      if (mutation === "input") saved.content += "被改写的旧输入";
+      if (mutation === "answer") saved.answer = f.ref.entryId;
+      if (mutation === "reply") saved.reply += "被改写的旧正文";
+      if (mutation === "pause") saved.pauses = [saved.answer!];
+      if (mutation === "model-call") saved.modelCall = value.members[0].taskId;
+    }, context);
+    await assert.rejects(f.harness.commit(tx => verifyPersonalReports(tx, [String(f.ref.entryId)], true), context), code(mutation === "active" ? "report_legacy_active" : "report_record_invalid"));
+    assert.equal(f.model.calls.length, before);
+  });
+});
+
+test("委托报告：显式汇总与追加按事务顺序均保持开放，重复说明不另造原生输入", async t => {
+  for (const order of ["append-first", "report-first"] as const) await t.test(order, async t => {
     const analyzing = gate(t); const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "结果" }; } });
     const p = await f.open(); await p.answer("multi", "owner"); const ref = await first(p); const member = (await delegation(p, ref)).members[0];
+    const automatic = (await delegation(p, ref)).report!.taskId;
     const append = () => p.harness.commit(async tx => appendPersonalWork(tx, member, { requestId: "race-note", content: "竞态追加", source: await personalWorkNoteSource(tx, "owner") }), context);
     if (order === "append-first") await append();
-    await p.answer(args("report", { delegation: ref.entryId }), "seal");
-    if (order === "seal-first") await assert.rejects(append(), code("delegation_sealed")); else await append();
+    await p.answer(args("report", { delegation: ref.entryId }), "join-report");
+    assert.deepEqual(await append(), { accepted: true });
+    assert.equal((await delegation(p, ref)).report!.taskId, automatic);
     analyzing.release(); await finishReport(p, ref);
     const conversation = (await p.harness.conversation(member.agentId, context))!;
     const entries = (await conversation.entries({}, 256, undefined, context)).items.filter(entry => entry.kind === "pi.user");
-    assert.equal(entries.length, order === "append-first" ? 2 : 1); assert.equal((await report(p, ref)).delivery, "local");
+    assert.equal(entries.length, 2); assert.equal((await report(p, ref)).delivery, "local");
+    const saved = (await delegation(p, ref)).report!;
+    assert.ok(saved.version === 2 && saved.publication); assert.equal(saved.version === 2 ? saved.attempts.at(-1)!.superseded : undefined, undefined);
   });
 });

@@ -176,7 +176,7 @@ test("委托报告：未知暂停跨重启，效果和停止都核实后安全�
     release();
     const members = (await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).members;
     await p.harness.waitForTask(members[0].ref.taskId, context);
-    await until(async () => !!operation && (window === "before-admission" || (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.attempt === 1));
+    await until(async () => !!operation && (window === "before-admission" || (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.pauses.length === 1));
     const summaries = () => f.server.calls.filter(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考"));
     assert.equal(summaries().length, 0);
     assert.equal(await p.answer("独立聊天", "other"), "其他聊天");
@@ -573,7 +573,7 @@ test("委托报告：检查停止未核实跨重启等待，核实后自动汇�
     if (window === "before-admission") await pause(); release();
     const members = (await p.harness.commit(tx => personalDelegationProgress(tx, group), context)).members;
     await p.harness.waitForTask(members[0].ref.taskId, context);
-    await until(async () => !!op && (window === "before-admission" || (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.attempt === 1));
+    await until(async () => !!op && (window === "before-admission" || (await p.harness.snapshot(PersonalDelegationDoc, String(group.entryId), context))!.delegation!.report!.pauses.length === 1));
     const summaries = () => f.server.calls.filter(request => String(request.messages.at(-1)?.content).startsWith("宿主委托汇总参考"));
     assert.equal(summaries().length, 0); assert.equal(f.starts(), 0);
     await p.close(); p = await f.open();
@@ -819,10 +819,14 @@ test("子服务：消费前 faulted 明确报告未执行，读取证据保留�
   assert.equal(f.calls().length, 0);
 });
 
-test("子服务：封组报告等原外部操作双事实，未知期间拒绝续派与追加", async t => {
+test("子服务：自动报告等原外部操作双事实，未知期间接纳说明但不执行续派", async t => {
   let group!: PersonalDelegationRef; let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
   const f = await fixture(t, async request => {
-    if (request.system?.includes("你是个人助手的子 Agent")) { await gate; return childRestart(request, 0); }
+    if (request.system?.includes("你是个人助手的子 Agent")) {
+      await gate;
+      if (String(request.messages.findLast(message => message.role === "user")?.content).startsWith("补充：")) return { kind: "text", text: "已核实原结果，未重做操作" };
+      return childRestart(request, 0);
+    }
     const last = request.messages.at(-1);
     if (last?.role === "tool") return { kind: "text", text: "安排已接纳" };
     if (last?.content === "委派") return { kind: "tool_calls", calls: [{ id: "delegate", name: "background_work", arguments: { action: "delegate", content: "重启" } }] };
@@ -837,7 +841,7 @@ test("子服务：封组报告等原外部操作双事实，未知期间拒绝�
   assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).delivery, "waiting");
   assert.equal(await p.answer("其他聊天", "other"), "独立聊天");
   await assert.rejects(p.work.delegate({ content: "换方式", requestId: "retry-group", sourceRequestId: "owner" }), code("work_source_paused"));
-  await assert.rejects(p.work.append(work, { content: "再试", requestId: "append-paused", sourceRequestId: "owner" }), code("delegation_sealed"));
+  assert.deepEqual(await p.work.append(work, { content: "补充：只报告原结果，不重做操作", requestId: "append-paused", sourceRequestId: "owner" }), { accepted: true });
   await p.service!.resolve(ref, "applied", "独立确认原效果"); await delay(30);
   assert.equal((await p.harness.commit(tx => personalReportResult(tx, group), context)).delivery, "waiting");
   fs.rmSync(path.join(f.helper, "stop-query-fails")); await p.harness.waitForTask(await p.requestServiceStop(ref), context);

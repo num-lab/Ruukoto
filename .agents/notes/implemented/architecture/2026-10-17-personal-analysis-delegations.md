@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Work amendments](2026-11-04-personal-work-amendments.md) supersede terminal append rejection with safe linked model-facing continuation. [Validated report publication](2026-11-04-personal-report-publication.md) supersedes the version-1 report lock for new host reports. Membership, original authority, cancellation and unresolved-effect checks remain.
+
 ## Problem
 
 [Model background analysis](2026-10-17-personal-model-work.md) and [additional instructions](2026-10-17-personal-work-notes.md) manage individual executions, not multiple analyses and continuation within one delegation. Closing the whole delegation when the original input is answered forces later main-Agent work into a new delegation. Canceling one member is not whole-delegation cancellation.

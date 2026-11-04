@@ -116,8 +116,8 @@ export function readPersonalToken(directory: string): string {
   return token;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md
 export async function startPersonalServer(directory: string, options: { development?: boolean; fileIo?: Parameters<typeof openPersonalHarness>[0]["fileIo"] } = {}) {
   const profile = lockPersonalProfile(directory);
   const socketPath = path.join(directory, "control.sock");
@@ -442,7 +442,7 @@ export async function startPersonalServer(directory: string, options: { developm
             const ref = await personalWorkRef(tx, id);
             if (url.pathname === "/work/cancel") { await requestPersonalWorkCancel(tx, ref); return { cancelRequested: true }; }
             if (url.pathname === "/work/close") { await closePersonalWorkAgent(tx, ref); return { closed: true }; }
-            return { summary: await personalWorkSummary(tx, ref), result: await personalWorkResult(tx, ref, offset) };
+            return { summary: await personalWorkSummary(tx, ref, { local: true }), result: await personalWorkResult(tx, ref, offset, 4096, { local: true }) };
           }, context);
         } else if (req.method === "GET" && ["/input", "/work/notes"].includes(url.pathname)) {
           const requestId = url.searchParams.get("requestId") ?? "";

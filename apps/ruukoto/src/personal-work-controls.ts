@@ -20,7 +20,7 @@ async function originalWork(tx: Tx, ref: PersonalWorkRef, value: TelegramControl
   if (actual.requestId !== ref.requestId || actual.agentId !== ref.agentId || !samePersonalEntry(source, value)) throw new PersonalError("work_original_entry_required", "此分析不属于原拥有者入口，请重新发送 /工作 查询；没有改变工作。");
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-work-controls.md
 export async function telegramWorkControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
   const choice = /^分析([1-8])$/.exec(value.content);
   if (!choice && !ACTIONS.includes(value.content) && !value.content.startsWith("补充：")) return false;
@@ -74,7 +74,7 @@ export async function verifyWorkMenu(tx: Tx, value: TelegramReceipt, enabled: bo
 }
 
 export function personalDelegationDescription(value: Pick<Awaited<ReturnType<typeof personalDelegationProgress>>, "content" | "total" | "active" | "unverified" | "state" | "paused" | "report">) {
-  const states: Record<string, string> = { active: "分析中", idle: "分析空闲，可继续原委托；尚未安排汇总", reporting: "已封组，等待成员或主 Agent 汇总", reported: "报告处理已结束，请核对送达状态", report_failed: "报告未完成，请查看原报告状态", canceling: "取消已登记，正在核实停止", canceled: "整项分析已取消，停止已核实", stop_unverified: "停止尚未核实，请检查原工作", paused: "服务效果待核实，分析委托暂停" };
+  const states: Record<string, string> = { active: "分析中", idle: "分析空闲，可继续原委托；尚未安排汇总", reporting: "等待已接纳工作完成与汇总，仍可补充要求", reported: "报告已发布，请核对送达状态", report_failed: "报告未完成，请查看原报告状态", canceling: "取消已登记，正在核实停止", canceled: "整项分析已取消，停止已核实", stop_unverified: "停止尚未核实，请检查原工作", paused: "服务效果待核实，分析委托暂停" };
   return `${value.content}；${states[value.state] ?? "状态无法核实"}；共 ${value.total} 项，活动 ${value.active} 项，停止未核实 ${value.unverified} 项${value.paused && value.state !== "paused" ? "；原服务效果待核实" : ""}${value.report ? `；${personalReportDelivery(value.report.delivery)}` : ""}`;
 }
 
@@ -87,7 +87,7 @@ async function originalDelegation(tx: Tx, ref: PersonalDelegationRef, input: Tel
   if (!samePersonalEntry(source, input)) throw new PersonalError("delegation_original_entry", "委托不属于原拥有者入口，未改变工作；请发送 /委托 查询。");
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-analysis-delegations.md
 export async function telegramDelegationControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
   const choice = /^委托([1-8])$/.exec(value.content);
   if (!choice && !["/委托", "更多委托", "刷新委托", "下一页分析", "取消整项分析", "查看报告", "下一页报告"].includes(value.content)) return false;
@@ -119,7 +119,7 @@ export async function telegramDelegationControl(tx: Tx, value: TelegramControlIn
       progress.state = progress.unverified ? "stop_unverified" : progress.active ? "canceling" : "canceled";
     }
     value.selection = { kind: "delegation", ref, ...(progress.nextOffset === undefined ? {} : { nextOffset: progress.nextOffset }) };
-    value.reply = `${personalDelegationDescription(progress)}。\n${progress.members.map(personalWorkDescription).join("\n")}\n回复本消息选择：刷新委托、查看报告、取消整项分析${progress.nextOffset === undefined ? "" : "、下一页分析"}。取消覆盖所属分析成员、其固定服务检查、服务重启及尚未开始的最终回报，不关闭身份，不包含独立宿主服务写操作。封组后不能续派或追加；未封组时单项结果与追加说明请发送 /工作 选择。`;
+    value.reply = `${personalDelegationDescription(progress)}。\n${progress.members.map(personalWorkDescription).join("\n")}\n回复本消息选择：刷新委托、查看报告、取消整项分析${progress.nextOffset === undefined ? "" : "、下一页分析"}。取消覆盖所属分析成员、其固定服务检查、服务重启及尚未开始的最终回报，不关闭身份，不包含独立宿主服务写操作。仍可补充要求；单项结果与活动工作说明请发送 /工作 选择。旧版本已封组记录只能查询原结果。`;
   } catch (error) {
     if (!(error instanceof PersonalError)) throw error;
     delete value.selection;

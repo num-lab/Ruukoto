@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { JsonValue } from "@earendil-works/chord";
 import { defineDoc, defineDocFamily, type JsonObject } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { dispatchPersonalSettings, executePersonalSettings, type PersonalSettingsIdentity } from "../apps/ruukoto/src/personal-settings.ts";
@@ -133,6 +134,21 @@ for (const example of cases) test(`设置占用扫描：${example.kind} 读取�
   const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
   try { assert.deepEqual(await personalSettingsExternalBlockers({ storage }), [{ kind: example.blocker, operation: 7 }]); }
   finally { await storage.close(context); }
+});
+
+test("Personal settings retain a healthy Cua launch only after its stop attempt is unverified", async t => {
+  const f = await fixture(t), p = await openPersonalHarness({ directory: f.directory, provider: personalProvider(f.config), modelId: f.config.modelId });
+  const mcp = defineDocFamily<JsonObject, null>({ kind: "ruukoto.mcp", scope: "session", version: 1, family: true, initial: () => ({}) });
+  const index = defineDoc<JsonObject>({ kind: "ruukoto.mcp-config", scope: "session", version: 1, initial: () => ({ operations: [] }) });
+  await p.harness.commit(async tx => {
+    (await tx.doc(index)).operations = [7];
+    (await tx.doc(mcp, "7", null)).operation = { operation: 7, service: "computer", config: { services: [{ id: "computer", cua: {} }] }, started: true, remoteEnded: true, effect: "returned", code: "returned", cuaLaunches: [{ entry: 8 }] };
+  }, context);
+  assert.deepEqual(await personalSettingsExternalBlockers({ harness: p.harness }), []);
+  await p.harness.commit(async tx => { const doc = await tx.doc(mcp, "7", null); (doc.operation as Record<string, JsonValue>).cuaStopPending = 9; }, context);
+  assert.deepEqual(await personalSettingsExternalBlockers({ harness: p.harness }), [{ kind: "mcp-unresolved", operation: 7 }]);
+  await p.close(); const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  try { assert.deepEqual(await personalSettingsExternalBlockers({ storage }), [{ kind: "mcp-unresolved", operation: 7 }]); } finally { await storage.close(context); }
 });
 
 test("设置占用扫描：32条输出之后仍校验未知版本，不将不可信记录当空闲", async t => {

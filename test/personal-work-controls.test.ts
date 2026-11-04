@@ -166,7 +166,9 @@ test("工作控制：本机认证/参数核实与引导查询关闭不调用模�
     const response = await new Promise<string>((resolve, reject) => { const request = http.request({ socketPath: path.join(f.directory, "control.sock"), path: route, method: route.includes("/work/") ? "POST" : "GET" }, response => { let body = ""; response.on("data", chunk => { body += String(chunk); }); response.on("end", () => resolve(body)); }); request.on("error", reject); request.end(); });
     assert.equal(JSON.parse(response).code, "control_unauthorized");
   }
-  for (const suffix of ["work=-1", "work=1.5", "work=9007199254740992", `work=${ref.taskId}&offset=-1`]) await assert.rejects(personalControl(f.directory, "GET", `/work?${suffix}`), code("work_input_invalid"));
+  for (const suffix of ["work=-1", "work=1.5", "work=9007199254740992", `work=${ref.taskId}&offset=-1`, `work=${ref.taskId}&factsOffset=-1`, `work=${ref.taskId}&factsOffset=1.5`]) await assert.rejects(personalControl(f.directory, "GET", `/work?${suffix}`), code("work_input_invalid"));
+  const factPage = await personalControl<{ result: { factsOffset: number; nextFactsOffset?: number } }>(f.directory, "GET", `/work?work=${ref.taskId}&factsOffset=8`);
+  assert.equal(factPage.result.factsOffset, 8); assert.equal(factPage.result.nextFactsOffset, undefined);
   const answers = ["1", "2", "4", "2", "5", "2"]; let output = "";
   await managePersonalWorks({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } }, f.directory);
   assert.match(output, /分析完成/); assert.match(output, /模型输出因长度限制截断/); assert.match(output, /空闲身份已关闭/); assert.doesNotMatch(output, /requestId|taskId|submission|UUID/);

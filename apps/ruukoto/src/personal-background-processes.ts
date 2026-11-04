@@ -1,19 +1,21 @@
-/** 会话后台持有独立 durable 记录；工具或创建轮结束均不释放目录。
- * Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-background-processes.md
+/** Persistent processes retain their directory claim after the creating reply ends.
+ * Note: See .agents/notes/implemented/feature/2026-10-21-personal-background-processes.md
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { copyJson } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, defineTool, hook, LiveDoc, ROOT_CONVERSATION_ID, ToolTask, type ConversationId, type Cursor, type EntryId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
+import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
+import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type Cursor, type DocumentObserver, type EntryId, type Harness, type TaskId, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
 import { BackgroundExecution, backgroundExecutionRef, prepareBackgroundExecution, stopBackgroundExecution } from "@ruukoto/agent/execution/background.ts";
 import { ExecutionError, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
 import { PersonalError } from "./personal-error.ts";
-import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
+import { capturePersonalToolInstructions, personalToolOrigin, requirePersonalChildBusinessTool, requirePersonalToolInstructionsFresh, verifyPersonalToolInstructions, type PersonalToolOrigin } from "./personal-tool-source.ts";
+import { PersonalAgentsDoc, PersonalWorkDoc, type PersonalToolInstructions } from "./personal-work.ts";
+import { requirePersonalControlledWork } from "./personal-interactive.ts";
 import { personalSource } from "./personal-source.ts";
 import { telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity } from "./personal-telegram-records.ts";
@@ -26,15 +28,16 @@ export const PERSONAL_BACKGROUND = "personal-background-processes";
 export const PERSONAL_BACKGROUND_TOOL_NAMES = ["process_start", "process_status", "process_output", "process_stop"];
 type State = "starting" | "running" | "stop_requested" | "stopped" | "stop_unverified";
 type ExecutionRef = Pick<ReturnType<typeof backgroundExecutionRef>, keyof ReturnType<typeof backgroundExecutionRef>>;
-export type PersonalBackgroundProcess = { id: string; operation: TaskId; taskId: TaskId; command: string; origin: PersonalToolOrigin; config: PersonalCommandConfig; configRevision?: string; configVersion?: string; directory: PersonalDirectory; admission: EntryId; accepted: EntryId; claim: EntryId; state: State; createdAt: number; launchClaim?: EntryId; fingerprint?: string; execution: ExecutionRef; stopped: boolean; partial: boolean; reason?: string; logs?: PersonalBackgroundLogs; exit?: { code: number | null; signal: string | null }; observation?: EntryId; observations?: EntryId[]; stopIntents?: Array<{ taskId: TaskId; entry: EntryId; reason: string }>; stopTask?: TaskId };
+export type PersonalBackgroundProcess = { id: string; operation: TaskId; taskId: TaskId; command: string; origin: PersonalToolOrigin; instructions?: PersonalToolInstructions; controlled?: { identity: string; entry: EntryId }; superseded?: { entry: EntryId; note: EntryId }; config: PersonalCommandConfig; configRevision?: string; configVersion?: string; directory: PersonalDirectory; admission: EntryId; accepted: EntryId; claim: EntryId; state: State; createdAt: number; launchClaim?: EntryId; fingerprint?: string; execution: ExecutionRef; stopped: boolean; partial: boolean; reason?: string; logs?: PersonalBackgroundLogs; exit?: { code: number | null; signal: string | null }; observation?: EntryId; observations?: EntryId[]; stopIntents?: Array<{ taskId: TaskId; entry: EntryId; reason: string }>; stopTask?: TaskId };
 type Closure = { requestId: string; actor?: PersonalEntryIdentity; through?: EntryId; processes: string[]; entry: EntryId };
 export const PersonalBackgroundDoc = defineDoc<{ ids: string[]; closures: Closure[] }>({ kind: "ruukoto.background-processes", scope: "session", version: 1, initial: () => ({ ids: [], closures: [] }) });
 export const PersonalBackgroundProcessDoc = defineDocFamily<{ process?: PersonalBackgroundProcess }, null>({ kind: "ruukoto.background-process", scope: "session", version: 1, family: true, initial: () => ({}) });
-const BackgroundAdmission = defineEntry<Omit<PersonalBackgroundProcess, "admission" | "claim" | "state" | "stopped" | "partial">>("ruukoto.background-admission");
+const BackgroundAdmission = defineEntry<Omit<PersonalBackgroundProcess, "admission" | "claim" | "state" | "stopped" | "partial" | "superseded">>("ruukoto.background-admission");
 const BackgroundLaunch = defineEntry<{ id: string; fingerprint: string }>("ruukoto.background-launch");
 const BackgroundObservation = defineEntry<{ id: string; state: State; stopped: boolean; partial: boolean; reason?: string; logs?: PersonalBackgroundLogs; exit?: { code: number | null; signal: string | null } }>("ruukoto.background-observation");
 const BackgroundStop = defineEntry<{ id: string; reason: string; taskId: TaskId }>("ruukoto.background-stop");
 const BackgroundClosure = defineEntry<Omit<Closure, "entry">>("ruukoto.background-closure");
+const BackgroundSupersession = defineEntry<{ id: string; operation: TaskId; note: EntryId }>("ruukoto.background-supersession");
 const context = BACKGROUND_CONTEXT;
 
 export async function personalBackgroundProcess(tx: Tx, id: string) {
@@ -43,8 +46,32 @@ export async function personalBackgroundProcess(tx: Tx, id: string) {
   return process;
 }
 export async function personalBackgroundProcesses(tx: Tx) { const result: PersonalBackgroundProcess[] = []; for (const id of (await tx.doc(PersonalBackgroundDoc)).ids) result.push(await personalBackgroundProcess(tx, id)); return result; }
+export async function personalBackgroundWork(tx: Tx, work: TaskId) { return (await personalBackgroundProcesses(tx)).filter(value => value.origin.work?.ref.taskId === work); }
+export async function requirePersonalBackgroundWorkStopped(tx: Tx, work: TaskId) { if ((await personalBackgroundWork(tx, work)).some(value => !value.stopped)) throw new PersonalError("work_stop_unverified", "原工作后台停止尚未核实，目录占用保留；请查询原后台。"); }
+export async function waitPersonalBackgroundWorkStopped(reader: DocumentObserver & Pick<Harness, "commit">, work: TaskId, taskContext: Context) {
+  const ids = await reader.commit(async tx => (await personalBackgroundWork(tx, work)).map(value => value.id), taskContext);
+  for (const id of ids) {
+    const watch = await reader.watchDoc(PersonalBackgroundProcessDoc, id, taskContext);
+    if (!watch) throw new PersonalError("background_not_found", "原工作后台记录缺失，占用保留；请检查档案。");
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const check = (value: typeof watch.value) => { if (!value?.process || value.process.origin.work?.ref.taskId !== work) reject(new PersonalError("background_source_invalid", "后台等待不属于原工作，占用保留；请检查档案。")); else if (value.process.stopped) resolve(); };
+        watch.start(async value => { check(value); }); check(watch.value);
+        void watch.closed.then(() => reject(new PersonalError("background_wait_stopped", "后台等待已结束，停止尚未核实；请查询原记录。")));
+      });
+    } finally { await watch.stop(); }
+  }
+}
+export async function supersedePersonalBackgroundOperations(tx: Tx, work: TaskId, note: EntryId) {
+  for (const value of await personalBackgroundWork(tx, work)) {
+    if (value.launchClaim || value.state !== "starting" || value.superseded) continue;
+    value.superseded = { entry: (await tx.appendEntry(BackgroundSupersession, ROOT_CONVERSATION_ID, { data: { id: value.id, operation: value.operation, note } })).id, note };
+    value.state = "stop_requested"; value.reason = "tool_requirements_changed";
+    await observe(tx, value);
+  }
+}
 export function personalBackgroundView(process: Readonly<PersonalBackgroundProcess>) {
-  const value = { process_id: process.id, state: process.state, command: process.command, source: process.origin.telegram ? process.origin.telegram.platform === "qq" ? "QQ" : "Telegram" : "本机", exit: process.exit ?? null, stopVerified: process.stopped, reason: process.reason ?? null, stdoutBytes: process.logs?.stdout.bytes ?? 0, stderrBytes: process.logs?.stderr.bytes ?? 0, partial: process.partial, createdAt: process.createdAt };
+  const value = { process_id: process.id, state: process.state, command: process.command, source: process.origin.telegram ? process.origin.telegram.platform === "qq" ? "QQ" : "Telegram" : "本机", ...(process.origin.work ? { work: process.origin.work.ref.taskId } : {}), exit: process.exit ?? null, stopVerified: process.stopped, reason: process.reason ?? null, stdoutBytes: process.logs?.stdout.bytes ?? 0, stderrBytes: process.logs?.stderr.bytes ?? 0, partial: process.partial, createdAt: process.createdAt };
   return copyJson(value) as typeof value;
 }
 function closedBefore(closures: readonly Closure[], origin: PersonalToolOrigin, accepted: EntryId) { return closures.some(closure => closure.through !== undefined && accepted <= closure.through && (!closure.actor || samePersonalEntry(closure.actor, origin.telegram))); }
@@ -52,10 +79,11 @@ async function observe(tx: Tx, process: PersonalBackgroundProcess) {
   process.observation = (await tx.appendEntry(BackgroundObservation, ROOT_CONVERSATION_ID, { data: { id: process.id, state: process.state, stopped: process.stopped, partial: process.partial, ...(process.reason ? { reason: process.reason } : {}), ...(process.logs ? { logs: process.logs } : {}), ...(process.exit ? { exit: process.exit } : {}) } })).id;
   process.observations ??= []; process.observations.push(process.observation);
 }
-async function currentOrigin(tx: Tx, api: Pick<ToolExecutionApi, "taskId" | "conversationId">, requestId?: string) {
-  const source = requestId ? await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId) : undefined;
-  const origin = await personalToolOrigin(tx, api, requestId, { allowBlocked: true });
-  if (api.conversationId !== ROOT_CONVERSATION_ID || origin.work || source?.conversationId !== ROOT_CONVERSATION_ID || (await personalSource(tx, origin.source.requestId, { active: true })).scheduled) throw new PersonalError("background_source_invalid", "本轮没有真实拥有者主会话来源；请结束本轮并报告拥有者。");
+async function currentOrigin(tx: Tx, api: Pick<ToolExecutionApi, "taskId" | "conversationId">, requestId?: string, instructions?: PersonalToolInstructions) {
+  const origin = await personalToolOrigin(tx, api, requestId, { allowBlocked: true, ...(instructions ? { snapshot: instructions.snapshot } : {}) });
+  const source = await personalSource(tx, origin.source.requestId, { active: true });
+  if (source.scheduled || api.conversationId !== ROOT_CONVERSATION_ID && !origin.work || !isDeepStrictEqual(source.source, origin.source)) throw new PersonalError("background_source_invalid", "本轮没有可核实的原拥有者来源；请结束本轮并报告拥有者。");
+  if (origin.work) await requirePersonalControlledWork(tx, origin.work.ref, "processes");
   return origin;
 }
 async function verifyOrigin(tx: Tx, process: PersonalBackgroundProcess, profile: string, launching = false) {
@@ -63,19 +91,30 @@ async function verifyOrigin(tx: Tx, process: PersonalBackgroundProcess, profile:
   if ((await tx.doc(PersonalCommandsDoc)).fingerprint !== personalCommandsFingerprint(process.config)) throw new PersonalError("background_source_invalid", "原命令配置失效；已请求停止后台，请查询原记录。");
   const original = await personalSource(tx, process.origin.source.requestId, { active: launching });
   if (original.scheduled || original.telegram && !await telegramSourceActive(tx, original.telegram) || !isDeepStrictEqual(original.source, process.origin.source) || !isDeepStrictEqual(original.permission, process.origin.permission) || !isDeepStrictEqual(original.telegram, process.origin.telegram) || process.origin.permission.mode !== "full_access") throw new PersonalError("background_source_invalid", "后台原入口或授权失效；已请求停止，请查询原记录。");
+  if (process.origin.work) {
+    if (!isDeepStrictEqual(await requirePersonalControlledWork(tx, process.origin.work.ref, "processes"), process.controlled)) throw new PersonalError("background_source_invalid", "后台原工作身份无法核实；请查询原记录。");
+    if ((await tx.doc(PersonalWorkDoc, process.origin.work.ref.requestId, null)).cancelRequested) throw new PersonalError("work_canceled", "原工作已取消，已请求停止所属后台。");
+    if (launching) {
+      if (!process.instructions) throw new PersonalError("work_instruction_invalid", "后台启动缺少原模型要求，未执行。");
+      await requirePersonalToolInstructionsFresh(tx, process.instructions.snapshot);
+      const current = await currentOrigin(tx, { taskId: process.operation, conversationId: process.origin.conversationId }, process.origin.source.requestId, process.instructions);
+      if (!isDeepStrictEqual(current, process.origin)) throw new PersonalError("background_source_invalid", "后台原工作或权限已变化，未启动。");
+    }
+  }
 }
 export async function personalBackgroundToolNames(tx: Tx, conversationId: ConversationId, available: readonly string[], requestId?: string) {
-  const records = (await personalBackgroundProcesses(tx)).filter(value => !value.stopped), active = records.length > 0;
-  if (conversationId !== ROOT_CONVERSATION_ID) return available.filter(name => !PERSONAL_BACKGROUND_TOOL_NAMES.includes(name));
+  if (conversationId !== ROOT_CONVERSATION_ID) {
+    const ref = (await tx.doc(PersonalAgentsDoc)).agents.find(value => value.id === conversationId)?.work;
+    if (ref) { try { await requirePersonalControlledWork(tx, ref, "processes"); return available.slice(); } catch (error) { if (!(error instanceof PersonalError)) throw error; } }
+    return available.filter(name => !PERSONAL_BACKGROUND_TOOL_NAMES.includes(name));
+  }
   const submission = requestId ? await tx.submissionByRequest(conversationId, requestId) : undefined;
-  let owner = false, fullAccess = false;
+  let owner = false;
   if (submission?.requestId) {
-    try { const source = await personalSource(tx, submission.requestId, { active: true }); owner = !source.scheduled; fullAccess = owner && source.permission.mode === "full_access" && records.every(value => source.telegram ? samePersonalEntry(source.telegram, value.origin.telegram) : !value.origin.telegram); }
+    try { owner = !(await personalSource(tx, submission.requestId, { active: true })).scheduled; }
     catch (error) { if (!(error instanceof PersonalError)) throw error; }
   }
-  if (!active) return available.filter(name => !PERSONAL_BACKGROUND_TOOL_NAMES.includes(name) || name !== "process_start" && owner || name === "process_start" && fullAccess);
-  const allowed = ["process_status", "process_output", ...(owner ? ["process_stop", "ask_user"] : []), ...(fullAccess ? ["browser"] : [])];
-  return available.filter(name => allowed.includes(name));
+  return available.filter(name => name !== "process_start" && (name !== "process_stop" || owner));
 }
 
 export function personalBackground(profile: string, initialConfig: PersonalCommandConfig, getHarness: () => Harness, isSuspended: () => boolean = () => false) {
@@ -225,33 +264,36 @@ export function personalBackground(profile: string, initialConfig: PersonalComma
     return (await source?.status(context))?.requestId;
   }
   async function authorize(tx: Tx, api: Pick<ToolExecutionApi, "conversationId" | "taskId">, requestId?: string) { return currentOrigin(tx, api, requestId); }
-  function visible(process: Readonly<PersonalBackgroundProcess>, origin?: PersonalToolOrigin) { return !origin?.telegram || samePersonalEntry(origin.telegram, process.origin.telegram); }
-  function requireVisible(process: Readonly<PersonalBackgroundProcess>, origin: PersonalToolOrigin) { if (!visible(process, origin)) throw new PersonalError("background_source_invalid", "后台属于另一原入口，请从原平台查询；旧入口可用本机管理。"); }
+  function visible(process: Readonly<PersonalBackgroundProcess>, origin?: PersonalToolOrigin) { return (!origin?.telegram || samePersonalEntry(origin.telegram, process.origin.telegram)) && (!origin?.work || isDeepStrictEqual(origin.work.ref, process.origin.work?.ref)); }
+  function requireVisible(process: Readonly<PersonalBackgroundProcess>, origin: PersonalToolOrigin) { if (!visible(process, origin)) throw new PersonalError("background_source_invalid", origin.work ? "后台属于另一工作；请查询本工作创建的后台。" : "后台属于另一原入口，请从原平台查询；旧入口可用本机管理。"); }
   const processId = Type.String({ minLength: 1, description: "本会话 process_start/status 返回的 process_id。" });
   const invoke = async (api: ToolExecutionApi, run: () => Promise<unknown>) => {
     try { const value = await run(); return { output: [{ type: "text" as const, text: JSON.stringify(value) }] }; }
     catch (error) { if (!(error instanceof PersonalError)) throw error; return { isError: true, output: [{ type: "text" as const, text: `${error.code}：${error.message}` }] }; }
   };
-  const start = defineTool({ name: "process_start", description: "在固定命令目录启动一次独立后台命令，返回本会话process_id和实际状态，不保证服务健康。跨消息保留，原轮结束或取消不停止。启动后本轮只可查状态/日志、停止、提问或浏览；修改文件、普通命令和同目录委派须先process_stop，再用process_status核实stopped且stopVerified。每会话最多一个未核实执行；无stdin/PTY；日志合计16MiB达到限额自动停止。启动未知先查原记录，勿重放命令。", parameters: Type.Object({ command: Type.String({ minLength: 1, maxLength: 16384, description: "非空Shell命令，最多16384字符，不含NUL；开发服务明确绑定本机地址。" }) }, { additionalProperties: false }), replay: "safe", executionMode: "sequential", async execute({ command }, api, callContext) { return invoke(api, async () => {
+  const start = defineTool({ name: "process_start", description: "在固定命令目录启动一次属于本工作的独立后台命令，返回process_id和实际状态，不保证服务健康。仅宿主指定的完全访问子工作可启动。跨消息和普通回复保留；取消所属工作停止本工作的后台，原操作不重放。修改同目录文件或执行普通命令须先process_stop，再用process_status核实stopped且stopVerified。无stdin/PTY；日志合计16MiB达到限额自动停止。启动未知先查原记录，勿重放命令。", parameters: Type.Object({ command: Type.String({ minLength: 1, maxLength: 16384, description: "非空Shell命令，最多16384字符，不含NUL；开发服务明确绑定本机地址。" }) }, { additionalProperties: false }), replay: "safe", executionMode: "sequential", async execute({ command }, api, callContext) { return invoke(api, async () => {
+    requirePersonalChildBusinessTool(api, "process_start");
     const requestId = await requestIdFor(api.conversationId);
     const record = await api.commit(async tx => {
       const existing = (await personalBackgroundProcesses(tx)).find(value => value.operation === api.taskId);
       if (existing) { if (existing.command !== command) throw new PersonalError("background_request_conflict", "原后台工具参数不符，未重放；请查询原记录。"); return { id: existing.id, taskId: existing.taskId }; }
       if (isSuspended()) throw new PersonalError("settings_target_suspended", "当前命令配置不接受新执行，未接纳后台；请结束本轮并报告拥有者，核实配置状态。");
-      const origin = await authorize(tx, api, requestId), state = await tx.doc(PersonalBackgroundDoc);
+      const instructions = await capturePersonalToolInstructions(tx, api);
+      const origin = await currentOrigin(tx, api, requestId, instructions), state = await tx.doc(PersonalBackgroundDoc);
+      if (!origin.work) throw new PersonalError("background_source_invalid", "后台启动需要宿主指定的子工作，未接纳。");
+      const controlled = await requirePersonalControlledWork(tx, origin.work.ref, "processes");
       const source = await personalSource(tx, origin.source.requestId);
       if (source.scheduled) throw new PersonalError("background_source_invalid", "定时工作不能启动会话后台，请结束本轮并报告拥有者。");
       const accepted = source.accepted;
       if (closing || origin.permission.mode !== "full_access" || closedBefore(state.closures, origin, accepted)) throw new PersonalError("background_source_invalid", "原拥有者输入不具启动资格或已结束后台；请结束本轮并报告拥有者。");
       if (!command.trim() || command.includes("\0")) throw new PersonalError("background_invalid_params", "命令须非空且不包含NUL，请修正命令。");
-      if ((await personalBackgroundProcesses(tx)).some(value => !value.stopped)) throw new PersonalError("background_pending", "本会话已有未核实停止的后台；先查停原执行，勿重放命令。");
       const selected = await tx.doc(PersonalCommandsDoc), configRevision = selected.configRevision, configVersion = selected.configVersion;
       await requirePersonalExecutionSelection(tx, api.taskId, "commands", configVersion ?? configRevision);
       verifyPersonalCommandConfig(config, profile, origin.permission.mode);
       const id = `process_${randomBytes(12).toString("hex")}`, directory = { path: config.workspace, ...config.identity }, execution = backgroundExecutionRef();
       const claim = await acquirePersonalDirectory(tx, { kind: "background", operation: api.taskId }, directory);
       const taskId = await tx.createTask(startTask, { id }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
-      const data = { id, operation: api.taskId, taskId, command, origin, config, ...(configRevision ? { configRevision } : {}), ...(configVersion ? { configVersion } : {}), directory, execution, accepted, createdAt: Date.now() };
+      const data = { id, operation: api.taskId, taskId, command, origin, ...(instructions ? { instructions } : {}), controlled, config, ...(configRevision ? { configRevision } : {}), ...(configVersion ? { configVersion } : {}), directory, execution, accepted, createdAt: Date.now() };
       const admission = await tx.appendEntry(BackgroundAdmission, ROOT_CONVERSATION_ID, { data });
       (await tx.doc(PersonalBackgroundProcessDoc, id, null)).process = { ...data, admission: admission.id, claim, state: "starting", stopped: false, partial: false }; state.ids.push(id);
       return { id, taskId };
@@ -283,13 +325,10 @@ export function personalBackground(profile: string, initialConfig: PersonalComma
     const closure = { ...data, entry: entry.id }; doc.closures.push(closure);
     return copyJson(closure) as Closure;
   }
-  const extension = defineExtension({ name: PERSONAL_BACKGROUND, tools: [start, status, output, stop], tasks: [startTask, stopTask], hooks: [hook(ToolTask, { async beforeTool(call, api) {
-    const requestId = await requestIdFor(api.conversationId);
-    const allowed = await commit(tx => personalBackgroundToolNames(tx, api.conversationId, [call.name], requestId));
-    if (!allowed.includes(call.name)) return { block: "会话后台仍持有目录或本轮来源不允许该操作；请查停原后台，核实后再继续业务操作。" };
-    return undefined;
-  } })] });
+  const extension = defineExtension({ name: PERSONAL_BACKGROUND, tools: [start, status, output, stop], tasks: [startTask, stopTask] });
   return { extension, directory, statusIn, outputIn, requestStop, closeIn,
+    async requestWorkStop(tx: Tx, work: TaskId) { const values = await personalBackgroundWork(tx, work); for (const value of values) if (!value.stopped) await requestStop(tx, value.id, "work_canceled"); return values.map(value => value.id); },
+    async waitWorkStopped(work: TaskId, taskContext: Context = context) { await waitPersonalBackgroundWorkStopped(getHarness(), work, taskContext); },
     publishConfig(next: PersonalCommandConfig) { verifyPersonalCommandConfig(next, profile, "full_access"); config = structuredClone(next); },
     async stopLive() { await Promise.allSettled([...units.values()].map(unit => unit.stop())); },
     async verifyEvidence() { const all = await commit(async tx => copyJson(await personalBackgroundProcesses(tx)) as PersonalBackgroundProcess[]); for (const process of all) if (process.logs) for (const stream of ["stdout", "stderr"] as const) readPersonalBackgroundLog(path.join(logsDirectory, process.id), process.logs, stream); },
@@ -318,12 +357,24 @@ export async function verifyPersonalBackground(tx: Tx, keys: string[], enabled: 
       if (!definition) throw invalid();
       try { normalized = validateToolArguments(definition, { ...call, arguments: copyJson(call.arguments) as { command: string } }); } catch { throw invalid(); }
     }
-    const data = { id: process.id, operation: process.operation, taskId: process.taskId, command: process.command, origin: process.origin, config: process.config, ...(process.configRevision ? { configRevision: process.configRevision } : {}), ...(process.configVersion ? { configVersion: process.configVersion } : {}), directory: process.directory, execution: process.execution, accepted: process.accepted, createdAt: process.createdAt };
-    if (!admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, data) || task?.kind !== "ruukoto.background-start" || task.version !== 1 || task.owner !== undefined || !task.background || task.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(task.input, { id: process.id }) || tool?.kind !== "pi.tool" || tool.conversationId !== ROOT_CONVERSATION_ID || tool.owner !== process.origin.generation || assistant?.byTaskId !== process.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== "process_start" || !isDeepStrictEqual(normalized, { command: process.command }) || process.origin.work || process.origin.conversationId !== ROOT_CONVERSATION_ID || process.origin.permission.mode !== "full_access" || !["starting", "running", "stop_requested", "stopped", "stop_unverified"].includes(process.state) || process.stopped !== (process.state === "stopped")) throw invalid();
+    const data = { id: process.id, operation: process.operation, taskId: process.taskId, command: process.command, origin: process.origin, ...(process.instructions ? { instructions: process.instructions } : {}), ...(process.controlled ? { controlled: process.controlled } : {}), config: process.config, ...(process.configRevision ? { configRevision: process.configRevision } : {}), ...(process.configVersion ? { configVersion: process.configVersion } : {}), directory: process.directory, execution: process.execution, accepted: process.accepted, createdAt: process.createdAt };
+    if (!admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, data) || task?.kind !== "ruukoto.background-start" || task.version !== 1 || task.owner !== undefined || !task.background || task.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(task.input, { id: process.id }) || tool?.kind !== "pi.tool" || tool.conversationId !== process.origin.conversationId || tool.owner !== process.origin.generation || assistant?.byTaskId !== process.origin.generation || assistant.id >= admission.id || call?.type !== "toolCall" || call.name !== "process_start" || !isDeepStrictEqual(normalized, { command: process.command }) || process.origin.permission.mode !== "full_access" || !["starting", "running", "stop_requested", "stopped", "stop_unverified"].includes(process.state) || process.stopped !== (process.state === "stopped")) throw invalid();
+    if (process.origin.work) {
+      if (process.origin.work.ref.agentId !== process.origin.conversationId || !process.instructions || !isDeepStrictEqual(await requirePersonalControlledWork(tx, process.origin.work.ref, "processes"), process.controlled)) throw invalid();
+      await verifyPersonalToolInstructions(tx, process.instructions, process.origin, process.admission, process.operation);
+    } else if (process.origin.conversationId !== ROOT_CONVERSATION_ID || process.instructions || process.controlled) throw invalid();
     const source = await personalSource(tx, process.origin.source.requestId);
     if (source.scheduled || source.accepted !== process.accepted || !isDeepStrictEqual(source.source, process.origin.source) || !isDeepStrictEqual(source.permission, process.origin.permission) || !isDeepStrictEqual(source.telegram, process.origin.telegram)) throw invalid();
     if (process.launchClaim) { const entry = await tx.entry(BackgroundLaunch, process.launchClaim); if (!entry || entry.id <= admission.id || !process.fingerprint || !isDeepStrictEqual(entry.data, { id: process.id, fingerprint: process.fingerprint })) throw invalid(); }
     else if (process.fingerprint || process.state === "running") throw invalid();
+    if (process.superseded) {
+      const entry = await tx.entry(BackgroundSupersession, process.superseded.entry), note = await tx.entry(process.superseded.note), data = note?.data;
+      if (!process.origin.work || process.launchClaim || !entry || entry.id <= process.admission || entry.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(entry.data, { id: process.id, operation: process.operation, note: process.superseded.note }) || note?.kind !== "ruukoto.work-note-admission" || note.id <= process.admission || note.id >= entry.id || !data || typeof data !== "object" || Array.isArray(data) || !isDeepStrictEqual(data.ref, process.origin.work.ref) || process.instructions?.snapshot.notes.some(value => value.admission === note.id)) throw invalid();
+    }
+    if (process.instructions && process.launchClaim) {
+      const work = await tx.doc(PersonalWorkDoc, process.origin.work!.ref.requestId, null);
+      if ((work.notes ?? []).some(note => note.admission !== undefined && note.admission < process.launchClaim! && !process.instructions!.snapshot.notes.some(captured => captured.admission === note.admission))) throw invalid();
+    }
     if (process.launchClaim && !process.logs) throw invalid();
     if ((process.observations?.at(-1) !== process.observation) || process.observations?.some((id, index, all) => id <= process.admission || index > 0 && id <= all[index - 1])) throw invalid();
     for (const intent of process.stopIntents ?? []) {
@@ -336,8 +387,8 @@ export async function verifyPersonalBackground(tx: Tx, keys: string[], enabled: 
   for (const closure of doc.closures) { const entry = await tx.entry(BackgroundClosure, closure.entry); if (!entry || !isDeepStrictEqual(entry.data, { requestId: closure.requestId, ...(closure.actor ? { actor: closure.actor } : {}), ...(closure.through ? { through: closure.through } : {}), processes: closure.processes }) || closure.processes.some(id => !values.some(value => value.id === id && value.admission < entry.id))) throw invalid(); }
   let conversations: Cursor | undefined;
   do { const page = await tx.scanConversations({}, 256, conversations); for (const conversation of page.items) { let cursor: Cursor | undefined; do { const entries = await tx.scanEntries({ conversationId: conversation.id, order: "ascending" }, 256, cursor); for (const entry of entries.items) {
-    if ((BackgroundAdmission.is(entry) || BackgroundLaunch.is(entry) || BackgroundObservation.is(entry) || BackgroundClosure.is(entry) || BackgroundStop.is(entry)) && conversation.id !== ROOT_CONVERSATION_ID) throw invalid();
-    if (BackgroundAdmission.is(entry) && !values.some(value => value.admission === entry.id) || BackgroundLaunch.is(entry) && !values.some(value => value.launchClaim === entry.id) || BackgroundObservation.is(entry) && !values.some(value => value.observations?.includes(entry.id)) || BackgroundClosure.is(entry) && !doc.closures.some(value => value.entry === entry.id) || BackgroundStop.is(entry) && !values.some(value => value.stopIntents?.some(intent => intent.entry === entry.id))) throw invalid();
+    if ((BackgroundAdmission.is(entry) || BackgroundLaunch.is(entry) || BackgroundObservation.is(entry) || BackgroundClosure.is(entry) || BackgroundStop.is(entry) || BackgroundSupersession.is(entry)) && conversation.id !== ROOT_CONVERSATION_ID) throw invalid();
+    if (BackgroundAdmission.is(entry) && !values.some(value => value.admission === entry.id) || BackgroundLaunch.is(entry) && !values.some(value => value.launchClaim === entry.id) || BackgroundObservation.is(entry) && !values.some(value => value.observations?.includes(entry.id)) || BackgroundClosure.is(entry) && !doc.closures.some(value => value.entry === entry.id) || BackgroundStop.is(entry) && !values.some(value => value.stopIntents?.some(intent => intent.entry === entry.id)) || BackgroundSupersession.is(entry) && !values.some(value => value.superseded?.entry === entry.id)) throw invalid();
   } cursor = entries.next; } while (cursor); } conversations = page.next; } while (conversations);
   for (const kind of ["ruukoto.background-start", "ruukoto.background-stop"]) { let cursor: Cursor | undefined; do { const page = await tx.scanTasks({ kind }, 256, cursor); for (const task of page.items) if (!values.some(value => kind === "ruukoto.background-start" ? value.taskId === task.id : value.stopIntents?.some(intent => intent.taskId === task.id))) throw invalid(); cursor = page.next; } while (cursor); }
 }

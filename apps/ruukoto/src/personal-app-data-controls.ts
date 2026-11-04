@@ -24,6 +24,7 @@ export async function personalAppDataControl(tx: Tx, value: TelegramControlInput
     if (!operation) throw new PersonalError("app_data_menu_stale", "没有改变操作，请从 /应用数据 选择原记录。");
     await appDataOriginal(tx, operation, value);
     const terminal = (await tx.task(operation))?.state.status === "terminal";
+    const savedDetail = value.content === "重新核实数据回执" ? await appDataDetail(tx, operation) : undefined;
     if (value.content === "数据批准本次" || value.content === "数据拒绝") {
       if (selected?.kind !== "app-data") throw new PersonalError("app_data_menu_stale", "批准或拒绝须回复原详情菜单。");
       const decision = value.content === "数据批准本次" ? "approved" : "rejected";
@@ -31,7 +32,7 @@ export async function personalAppDataControl(tx: Tx, value: TelegramControlInput
     } else if (value.content === "重新核实数据回执") {
       await appDataRecheck(tx, directory, operation); value.appDataRecheck = { operation };
     } else if (!choice && (selected?.kind !== "app-data" || !["刷新数据操作", "下一页数据原记录"].includes(value.content) || value.content === "下一页数据原记录" && selected.nextOffset === undefined)) throw new PersonalError("app_data_menu_stale", "请回复原详情菜单刷新或继续读取。");
-    const detail = await appDataDetail(tx, operation, value.content === "下一页数据原记录" && selected?.kind === "app-data" ? selected.nextOffset! : 0), current = await appDataOperation(tx, operation);
+    const detail = savedDetail ?? await appDataDetail(tx, operation, value.content === "下一页数据原记录" && selected?.kind === "app-data" ? selected.nextOffset! : 0), current = await appDataOperation(tx, operation);
     value.selection = { kind: "app-data", operation, ...(detail.nextOffset === undefined ? {} : { nextOffset: detail.nextOffset }) };
     value.reply = `${detail.text}\n批准仅登记本次决定，不表示执行成功。回复本消息：刷新数据操作${detail.nextOffset === undefined ? "" : "、下一页数据原记录"}${current.decision === "pending" && !current.result && !current.started ? "、数据批准本次、数据拒绝" : ""}${current.started && (!current.result || current.result.effect === "effect_unknown") && terminal ? "、重新核实数据回执" : ""}。缺库/换库/坏回执须保留档案并恢复可信原库；核实只读原回执，不重发修改。`;
   } catch (error) { if (!(error instanceof PersonalError)) throw error; delete value.selection; value.reply = `${error.message} 请发送 /应用数据 查询原操作。`; }

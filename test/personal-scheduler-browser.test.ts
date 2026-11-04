@@ -37,11 +37,12 @@ async function fixture(t: TestContext, action: "pause" | "open") {
       doc.stateJson = stateJson; doc.bindingEntry = (await tx.appendEntry(conversationId, { kind: "ruukoto.browser-binding-changed", data: { stateJson, sessionId, generation: value.generation, state: value.state } })).id;
     }, context);
   };
-  const previous = { start: BrowserManager.prototype.start, status: BrowserManager.prototype.status, command: BrowserManager.prototype.command, pause: BrowserManager.prototype.pause, close: BrowserManager.prototype.close };
+  const previous = { start: BrowserManager.prototype.start, status: BrowserManager.prototype.status, command: BrowserManager.prototype.command, pause: BrowserManager.prototype.pause, resume: BrowserManager.prototype.resume, close: BrowserManager.prototype.close };
   BrowserManager.prototype.status = session => structuredClone(binding(session));
   BrowserManager.prototype.start = async session => { const value = binding(session); value.state = "ready"; await persist(session); return structuredClone(value); };
-  BrowserManager.prototype.command = async () => ({ data: { title: "隔离网页" } });
+  BrowserManager.prototype.command = async () => ({ data: { title: "隔离网页", refs: { e1: { role: "button", name: "Continue" } } } });
   BrowserManager.prototype.pause = async (session, taskId) => { const value = binding(session); value.state = "paused"; value.pauseTaskId = taskId; await persist(session); return structuredClone(value); };
+  BrowserManager.prototype.resume = async session => { const value = binding(session); value.state = "ready"; value.generation = randomUUID(); value.pauseTaskId = null; await persist(session); return structuredClone(value); };
   BrowserManager.prototype.close = async session => { stops.push(session); const verified = session === String(ROOT_CONVERSATION_ID) || stopVerified; binding(session).state = verified ? "closed" : "unavailable"; await persist(session); return verified; };
   const model = new MockModelServer(request => request.messages.at(-1)?.role === "user" && request.messages.at(-1)?.content === "本轮浏览器工作" ? { kind: "tool_calls", calls: [{ id: "start-browser", name: "browser", arguments: { action: "start" } }, { id: "use-browser", name: "browser", arguments: { action, ...(action === "open" ? { url: "https://example.com" } : {}) } }] } : { kind: "text", text: "完整定时结果" });
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_SCHEDULE_BROWSER_TEST_KEY", contextWindow: 128000, maxTokens: 4096 }, previousKey = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
@@ -56,7 +57,7 @@ async function fixture(t: TestContext, action: "pause" | "open") {
 
 test("定时浏览器组合：人工暂停占用跨首次回答保留，取消关闭原会话后收尾", async t => {
   const f = await fixture(t, "pause");
-  await until(async () => { const run = await f.run(); return run.sealed && !!(await f.p.harness.snapshot(PersonalBrowserSessionDoc, String(run.conversationId), context))?.pause; });
+  await until(async () => { const run = await f.run(); return !!(await f.p.harness.snapshot(PersonalBrowserSessionDoc, String(run.conversationId), context))?.pause; });
   const waiting = await f.run(); assert.equal(waiting.result, undefined); assert.equal((await f.p.harness.snapshot(PersonalScheduleDoc, f.plan.id, context))?.plan?.activeRun, f.runId);
   assert.equal(await f.p.answer("主聊天仍可继续", "independent-owner"), "完整定时结果");
   await f.p.harness.commit(tx => f.p.scheduler.cancel(tx, f.plan.id, { kind: "local", requestId: randomUUID() }), context);
@@ -74,11 +75,11 @@ test("定时浏览器组合：成功网页动作的停止核实失败不释放�
   assert.equal((await f.run()).result?.status, "completed"); assert.equal((await f.p.harness.snapshot(PersonalScheduleDoc, f.plan.id, context))?.plan?.activeRun, undefined);
 });
 
-test("定时浏览器组合：人工暂停的独立停止核实唤醒会话等待，不依赖操作再次变化", async t => {
+test("Personal scheduled browser pause resumes only after a fresh explicit choice", async t => {
   const f = await fixture(t, "pause");
-  await until(async () => { const run = await f.run(); return run.sealed && !!(await f.p.harness.snapshot(PersonalBrowserSessionDoc, String(run.conversationId), context))?.pause; });
+  await until(async () => { const run = await f.run(); return !!(await f.p.harness.snapshot(PersonalBrowserSessionDoc, String(run.conversationId), context))?.pause; });
   const waiting = await f.run(), operation = await f.p.harness.commit(async tx => { const value = (await browserOperations(tx)).filter(value => value.origin.source.requestId === waiting.requestId).at(-1)!; return { operation: value.operation, stopped: value.stopped }; }, context);
-  assert.equal(operation.stopped, true); assert.equal(await f.p.browser!.verifyStop(operation.operation), true);
+  assert.equal(operation.stopped, false); await f.p.harness.commit(tx => f.p.browser!.chooseResume(tx, operation.operation, undefined, randomUUID()), context);
   await until(async () => !!(await f.run()).result);
   assert.equal((await f.p.harness.snapshot(PersonalScheduleDoc, f.plan.id, context))?.plan?.activeRun, undefined);
 });

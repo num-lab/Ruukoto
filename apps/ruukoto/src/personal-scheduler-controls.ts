@@ -8,7 +8,7 @@ import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInpu
 import type { personalScheduler } from "./personal-scheduler.ts";
 import { personalScheduleRun } from "./personal-scheduler-records.ts";
 
-type Scheduler = Pick<ReturnType<typeof personalScheduler>, "create" | "createByRequest" | "list" | "get" | "cancel" | "runs" | "result">;
+type Scheduler = Pick<ReturnType<typeof personalScheduler>, "create" | "createByRequest" | "list" | "get" | "cancel" | "cancelRun" | "runs" | "result">;
 export type PersonalScheduleCreateBody = Omit<Parameters<Scheduler["create"]>[1], "rule"> & { rule: ScheduleRule };
 
 export function parsePersonalScheduleCreate(value: unknown): PersonalScheduleCreateBody {
@@ -20,7 +20,7 @@ type Draft = { requestId: string; step: "kind" | "zone" | "custom-zone" | "at" |
 export type PersonalScheduleMenu = { kind: "schedule-list"; ids: string[]; nextOffset?: number } | { kind: "schedule"; id: string } | { kind: "schedule-runs"; id: string; runIds: string[]; nextOffset?: number } | { kind: "schedule-run"; id: string; runId: string; nextOffset?: number } | { kind: "schedule-draft"; draft: Draft };
 export const personalSchedulerControls = defineExtension({ name: "personal-scheduler-controls" });
 const DAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-const ACTIONS = ["/定时", "新建计划", "更多计划", "刷新计划", "查看运行", "更多运行", "刷新运行", "查看定时报告", "下一页定时报告", "取消这项计划", "放弃创建", "确认创建计划"];
+const ACTIONS = ["/定时", "新建计划", "更多计划", "刷新计划", "查看运行", "更多运行", "刷新运行", "查看定时报告", "下一页定时报告", "取消本次运行", "取消这项计划", "放弃创建", "确认创建计划"];
 const preview = (text: string) => Array.from(text).length > 2400 ? Array.from(text).slice(0, 2400).join("") + "…（显示已截断，计划保存完整要求）" : text;
 
 export function personalScheduleRuleDescription(rule: ScheduleRule) {
@@ -149,12 +149,18 @@ export async function personalScheduleControl(tx: Tx, value: TelegramControlInpu
       return true;
     }
     const runId = runChoice && menu?.kind === "schedule-runs" ? menu.runIds[Number(runChoice[1]) - 1] : menu?.kind === "schedule-run" ? menu.runId : undefined;
-    if (runId && (runChoice || ["刷新运行", "查看定时报告", "下一页定时报告"].includes(value.content))) {
+    if (runId && (runChoice || ["刷新运行", "查看定时报告", "下一页定时报告", "取消本次运行"].includes(value.content))) {
       if ((await personalScheduleRun(tx, runId)).planId !== id) throw new PersonalError("schedule_menu_stale", "原运行不属于此计划，请发送 /定时 重新选择。");
       if (value.content === "下一页定时报告" && (menu?.kind !== "schedule-run" || menu.nextOffset === undefined)) throw new PersonalError("schedule_menu_stale", "此菜单没有下一页报告，请回复原运行菜单选择查看定时报告。");
+      if (value.content === "取消本次运行") {
+        if (menu?.kind !== "schedule-run") throw new PersonalError("schedule_menu_stale", "请从原运行菜单选择取消本次运行。");
+        await scheduler.cancelRun(tx, runId, { kind: "im", input: structuredClone(value), menuRequestId: selected!.requestId });
+        value.scheduleRunCancel = { runId }; value.selection = { kind: "schedule-run", id, runId };
+        value.reply = "本次运行取消已登记，未来计划保留；回复「刷新运行」核实停止与效果。"; return true;
+      }
       const result = await scheduler.result(tx, runId, value.content === "下一页定时报告" && menu?.kind === "schedule-run" ? menu.nextOffset! : 0, 2400);
       value.selection = { kind: "schedule-run", id, runId, ...(result.nextOffset === undefined ? {} : { nextOffset: result.nextOffset }) };
-      value.reply = `${personalScheduleRunDescription(result)}。\n${result.text ?? "暂无完整报告，请稍后刷新原运行。"}\n回复本消息选择：刷新运行、查看定时报告、查看运行、刷新计划${result.nextOffset === undefined ? "。" : "、下一页定时报告。"}`;
+      value.reply = `${personalScheduleRunDescription(result)}。\n${result.text ?? "暂无完整报告，请稍后刷新原运行。"}\n回复本消息选择：刷新运行、查看定时报告、查看运行、刷新计划${["completed", "failed", "canceled", "canceling"].includes(result.state) ? "" : "、取消本次运行"}${result.nextOffset === undefined ? "。" : "、下一页定时报告。"}`;
       return true;
     }
     if (choice || value.content === "刷新计划") {
@@ -175,8 +181,8 @@ export async function verifyScheduleControls(tx: Tx, keys: string[], enabled: bo
     const value = (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt;
     if (!value) throw invalid();
     const menu = value.selection;
-    if (!(menu?.kind.startsWith("schedule")) && !value.scheduleCreate && !value.scheduleCancel) continue;
-    if (!enabled || !value.direct || !value.control || value.scheduleCreate && value.scheduleCancel) throw invalid();
+    if (!(menu?.kind.startsWith("schedule")) && !value.scheduleCreate && !value.scheduleCancel && !value.scheduleRunCancel) continue;
+    if (!enabled || !value.direct || !value.control || [value.scheduleCreate, value.scheduleCancel, value.scheduleRunCancel].filter(Boolean).length > 1) throw invalid();
     const selected = await telegramSelection(tx, value), previous = selected?.selection;
     if (menu?.kind === "schedule-draft") {
       if (value.content === "新建计划") {
@@ -198,11 +204,12 @@ export async function verifyScheduleControls(tx: Tx, keys: string[], enabled: bo
         if (menu.kind === "schedule" && !choice && !["刷新计划", "取消这项计划"].includes(value.content)) throw invalid();
         if (menu.kind === "schedule-runs" && (!Array.isArray(menu.runIds) || menu.runIds.length > 8 || new Set(menu.runIds).size !== menu.runIds.length || !["查看运行", "更多运行"].includes(value.content))) throw invalid();
         if (value.content === "更多运行" && (previous?.kind !== "schedule-runs" || previous.nextOffset === undefined)) throw invalid();
-        if (menu.kind === "schedule-run" && (runChoice ? previous?.kind !== "schedule-runs" || previous.runIds[Number(runChoice[1]) - 1] !== menu.runId : previous?.kind !== "schedule-run" || previous.runId !== menu.runId || !["刷新运行", "查看定时报告", "下一页定时报告"].includes(value.content))) throw invalid();
+        if (menu.kind === "schedule-run" && (runChoice ? previous?.kind !== "schedule-runs" || previous.runIds[Number(runChoice[1]) - 1] !== menu.runId : previous?.kind !== "schedule-run" || previous.runId !== menu.runId || !["刷新运行", "查看定时报告", "下一页定时报告", "取消本次运行"].includes(value.content))) throw invalid();
         if (value.content === "下一页定时报告" && (previous?.kind !== "schedule-run" || previous.nextOffset === undefined)) throw invalid();
       }
       if (value.content === "取消这项计划" && !value.scheduleCancel) throw invalid();
       if (value.scheduleCancel && (value.scheduleCancel.id !== menu.id || menu.kind !== "schedule" || previous?.kind !== "schedule" || value.content !== "取消这项计划")) throw invalid();
+      if (value.content === "取消本次运行" && !value.scheduleRunCancel || value.scheduleRunCancel && (menu.kind !== "schedule-run" || previous?.kind !== "schedule-run" || menu.runId !== value.scheduleRunCancel.runId || previous.runId !== menu.runId || value.content !== "取消本次运行")) throw invalid();
       for (const runId of menu.kind === "schedule-runs" ? menu.runIds : menu.kind === "schedule-run" ? [menu.runId] : []) if ((await personalScheduleRun(tx, runId)).planId !== menu.id) throw invalid();
     } else throw invalid();
     if (menu && "nextOffset" in menu && menu.nextOffset !== undefined && (!Number.isSafeInteger(menu.nextOffset) || menu.nextOffset < 0)) throw invalid();

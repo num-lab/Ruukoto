@@ -16,7 +16,7 @@ See the [architecture](docs/architecture.md) for their separate runtimes and sha
 
 ## Quick Start
 
-Use an ordinary macOS or Linux account with Node ≥ 24.15, Git, ripgrep (`rg`), Bash and Python 3 with PTY support. Linux native tests also require the [sandbox prerequisites](deploy/native/README.md), which CI prepares automatically. Restricted execution uses native sandboxes. Personal file search and Personal file operations have their own workers built by `build:worker`; file operations run one bounded worker per job — see the [durable module](docs/modules/personal-durable.md) for the lifecycle and capacity facts.
+Use an ordinary macOS or Linux account with Node ≥ 24.15, Git, ripgrep (`rg`), Bash and Python 3 with PTY support. Linux native tests also require the [sandbox prerequisites](deploy/native/README.md), which CI prepares automatically. Restricted execution uses native sandboxes. `build:worker` builds Personal file-search, file-operation and application-data workers; synchronous file and SQLite jobs run outside main — see the [durable module](docs/modules/personal-durable.md) for their lifecycle.
 
 ```bash
 npm run setup       # Install both lockfiles, check prerequisites and install the commit hook
@@ -61,6 +61,8 @@ npm run code -- ../my-project  # Create/reuse the workspace and enter a new conv
 ```
 
 The isolated Personal amendment/model check uses an explicitly selected configuration and never enables IM. After `npm run build:worker`, run `RUN_MODEL_CHECK=1 RUN_PERSONAL_AMENDMENT_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-amendment-model-acceptance.test.ts`; set `RUN_PERSONAL_AMENDMENT_MODEL=provider/model` when the file contains several models. See [external acceptance](docs/development-acceptance.md#personal-amendments-and-reports) for its limits.
+
+For M2 app-data/MCP routing, run `RUN_MODEL_CHECK=1 RUN_PERSONAL_M2_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m2-model-acceptance.test.ts` after building workers; select `RUN_PERSONAL_M2_MODEL=provider/model` for multiple models. [M2 acceptance](docs/development-acceptance.md#personal-m2-execution) separates model routing from actual Linux resource and SQLite checks.
 
 ## Documentation
 

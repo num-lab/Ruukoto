@@ -15,27 +15,51 @@ import { DatabaseSync } from "node:sqlite";
 import { test, type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, type ConversationId, type TaskId } from "@earendil-works/pi-durable";
+import { AgentDoc, LiveDoc, type ConversationId, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
 import { appDataDecide, appDataList, appDataOperations, appDataRecheck, PersonalAppDataDoc, PERSONAL_APP_DATA_TOOLS } from "../apps/ruukoto/src/personal-app-data.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { AppDataStore } from "../packages/agent/src/app-data/store.ts";
 import { AppDataQueryRunner } from "../packages/agent/src/app-data/query.ts";
+import { personalAppDataIo, type PersonalAppDataIo } from "../apps/ruukoto/src/personal-app-data-io.ts";
+import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 const context = BACKGROUND_CONTEXT;
 const define = { table: "todos", fields: [{ name: "title", type: "text" }], expected_schema_version: 0, reason: "记录待办" };
 const insert = { table: "todos", records: [{ title: "买茶" }, { title: "买米" }], expected_schema_version: 1, reason: "新增待办" };
 const call = (name: string, args: Record<string, unknown>, id = name) => ({ kind: "tool_calls" as const, calls: [{ id, name, arguments: args }] });
-async function fixture(t: TestContext, responder: Responder, extra: Partial<Pick<Parameters<typeof openPersonalHarness>[0], "telegram" | "qq">> = {}) {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "ruukoto-app-data-"))), server = new MockModelServer(responder), previous = process.env.APP_DATA_TEST_KEY;
+async function fixture(t: TestContext, responder: Responder, extra: Partial<Pick<Parameters<typeof openPersonalHarness>[0], "telegram" | "qq" | "appDataIo" | "openStorage">> = {}) {
+  let businessCalls = 0;
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "ruukoto-app-data-"))), server = new MockModelServer(async request => {
+    const input = String(request.messages.at(-1)?.content);
+    if (!request.system?.includes("你是个人助手的子 Agent") && input.startsWith("app-data-owner:")) return { kind: "text", text: "已接纳" };
+    return responder(request, businessCalls++);
+  }), previous = process.env.APP_DATA_TEST_KEY;
   const baseUrl = await server.start(); process.env.APP_DATA_TEST_KEY = "test-only";
   const options = { directory, provider: personalProvider({ api: "openai-completions", baseUrl, modelId: "app-data-model", apiKeyEnv: "APP_DATA_TEST_KEY", contextWindow: 128000, maxTokens: 2048 }), modelId: "app-data-model", ...extra };
   let p: PersonalHarness; const open = async () => p = await openPersonalHarness(options);
   t.after(async () => { await p?.close(); await server.close(); if (previous === undefined) delete process.env.APP_DATA_TEST_KEY; else process.env.APP_DATA_TEST_KEY = previous; fs.rmSync(directory, { recursive: true, force: true }); });
+  isolateSkillHome(t);
   await open();
-  return { directory, server, options, baseUrl, open, get p() { return p; }, file: path.join(directory, "agent-data", "main.db"), operations: () => p.harness.commit(async tx => JSON.parse(JSON.stringify(await appDataOperations(tx))) as Awaited<ReturnType<typeof appDataOperations>>, context) };
+  const begin = async (input: string, requestId: string) => {
+    await p.answer(`app-data-owner:${input}`, requestId);
+    return p.work.delegate({ content: input, requestId: `app-data-work:${requestId}`, sourceRequestId: requestId, appData: true });
+  };
+  const answer = async (input: string, requestId: string) => {
+    const ref = await begin(input, requestId);
+    const submission = await until(async () => p.harness.commit(tx => tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`), context));
+    await until(async () => { const current = await p.harness.commit(tx => tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`), context); return current?.status === "done" || current?.status === "unanswered" ? current : undefined; });
+    const current = await p.harness.commit(tx => tx.submissionByRequest(ref.agentId, `personal-work:${ref.taskId}`), context);
+    if (current?.status !== "done" || current.type !== "input") return "工作结果待核实";
+    const entry = await p.harness.commit(tx => tx.entry(current.answer as EntryId), context), message = entry?.model?.[0];
+    const result = message?.role === "assistant" ? message.content.filter(part => part.type === "text").map(part => part.text).join("") : "";
+    if (!(await p.harness.commit(tx => personalServiceSourceBlocker(tx, requestId), context))) await p.harness.waitForTask(ref.taskId, context);
+    return result;
+  };
+  return { directory, server, options, baseUrl, open, answer, begin, get p() { return p; }, file: path.join(directory, "agent-data", "main.db"), operations: () => p.harness.commit(async tx => JSON.parse(JSON.stringify(await appDataOperations(tx))) as Awaited<ReturnType<typeof appDataOperations>>, context) };
 }
 async function until<T>(fn: () => Promise<T | undefined>, message = "等待状态") { for (let i = 0; i < 400; i++) { const value = await fn(); if (value) return value; await delay(10); } throw new Error(message); }
 function sql(file: string, query: string) { const db = new DatabaseSync(file); try { return db.prepare(query).all().map(row => ({ ...row })); } finally { db.close(); } }
@@ -44,12 +68,12 @@ test("应用数据：六工具真实SQLite接线，同轮多调用有独立回�
   // 同轮多调用归并在一个持久化批次里；整段输入最多四批，八项调用压缩为四批。
   const batch = (...items: ReturnType<typeof call>[]) => ({ kind: "tool_calls" as const, calls: items.flatMap(item => item.calls) });
   const f = await fixture(t, (_request, i) => [batch(call("app_data_query", { mode: "schema" }), call("app_data_define_table", define)), batch(call("app_data_insert", { ...insert, records: [insert.records[0]] }, "one"), call("app_data_insert", { ...insert, records: [insert.records[1]] }, "two")), batch(call("app_data_update", { table: "todos", rows: [{ id: 1, expected_version: 1, set: { title: "绿茶" } }], reason: "更正" }), call("app_data_delete", { table: "todos", rows: [{ id: 2, expected_version: 1 }], reason: "完成" })), batch(call("app_data_migrate", { expected_schema_version: 1, steps: [{ op: "add_field", table: "todos", field: { name: "memo", type: "text", nullable: true } }], reason: "增加备注" }), call("app_data_query", { mode: "rows", table: "todos" }, "rows"), call("app_data_query", { mode: "changes" }, "changes"))][i] ?? { kind: "text", text: "已更新待办" });
-  assert.equal(await f.p.answer("保存并更新待办", "app-data-source"), "已更新待办");
+  assert.equal(await f.answer("保存并更新待办", "app-data-source"), "已更新待办");
   const ops = await f.operations(); assert.equal(ops.length, 6); assert.equal(new Set(ops.map(op => op.opId)).size, 6); assert.ok(ops.every(op => op.result?.effect === "committed"));
   assert.deepEqual(sql(f.file, 'SELECT title, memo, _version FROM todos'), [{ title: "绿茶", memo: null, _version: 2 }]);
   const audit = sql(f.file, "SELECT task_id, session_id, operation FROM app_audit"); assert.equal(audit.length, 6); assert.ok(audit.every(row => String(row.task_id).startsWith("durable:") && String(row.operation).includes("requestFingerprint")));
   assert.deepEqual(sql(f.file, "SELECT value FROM app_meta WHERE key='schema_version'"), [{ value: "2" }]);
-  const tools = JSON.stringify(f.server.calls[0]); for (const name of PERSONAL_APP_DATA_TOOLS) assert.match(tools, new RegExp(name));
+  const tools = JSON.stringify(f.server.calls.find(request => request.system?.includes("你是个人助手的子 Agent"))); for (const name of PERSONAL_APP_DATA_TOOLS) assert.match(tools, new RegExp(name));
   await f.p.close(); await f.open(); assert.deepEqual(await f.operations(), ops);
 });
 
@@ -57,7 +81,7 @@ test("应用数据：破坏性操作三模式，批准单次消费且修订变�
   for (const mode of ["auto-review", "confirm", "full_access"] as const) await t.test(mode, async t => {
     const f = await fixture(t, (_request, i) => [call("app_data_define_table", define), call("app_data_insert", insert), call("app_data_update", { table: "todos", rows: [{ id: 1, expected_version: 1, set: { title: "甲" } }, { id: 2, expected_version: 1, set: { title: "乙" } }], reason: "批量更正" }), call("app_data_migrate", { expected_schema_version: 1, steps: [{ op: "drop_table", table: "todos" }], reason: "清理表" })][i] ?? { kind: "text", text: "结束" });
     await f.p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = mode; }, context);
-    const answer = f.p.answer("批量整理待办", `mode-${mode}`);
+    const answer = f.answer("批量整理待办", `mode-${mode}`);
     const op = await until(async () => (await f.operations()).find(op => op.name === "app_data_update"));
     if (mode !== "full_access") {
       assert.equal(op.decision, "pending"); assert.equal(op.started, undefined); assert.equal(sql(f.file, "SELECT title FROM todos")[0].title, "买茶");
@@ -73,9 +97,9 @@ test("应用数据：破坏性操作三模式，批准单次消费且修订变�
 
 test("应用数据：绑定库缺失或换库不会重建，其他聊天仍可继续，查询子进程复核身份", async t => {
   const f = await fixture(t, (_request, i) => i === 0 ? call("app_data_define_table", define) : i === 2 ? call("app_data_insert", insert) : { kind: "text", text: "继续聊天" });
-  await f.p.answer("建表", "create"); await f.p.close();
+  await f.answer("建表", "create"); await f.p.close();
   fs.renameSync(f.file, `${f.file}.saved`); await f.open();
-  assert.equal(fs.existsSync(f.file), false); await f.p.answer("新增", "missing"); assert.equal(fs.existsSync(f.file), false);
+  assert.equal(fs.existsSync(f.file), false); await f.answer("新增", "missing"); assert.equal(fs.existsSync(f.file), false);
   assert.equal(await f.p.answer("聊天", "independent"), "继续聊天");
   await f.p.close(); fs.renameSync(`${f.file}.saved`, f.file); await f.open();
   const binding = (await f.p.harness.snapshot(PersonalAppDataDoc, context))!;
@@ -93,7 +117,7 @@ async function crashInsert(f: Awaited<ReturnType<typeof fixture>>, directory = f
 }
 test("应用数据：提交后durable结果前强杀，重启原键核实且只写一次", async t => {
   const f = await fixture(t, (_request, i) => i === 0 ? call("app_data_define_table", define) : i === 2 ? call("app_data_insert", insert) : { kind: "text", text: "已核实" });
-  await f.p.answer("准备表", "prepare"); await crashInsert(f);
+  await f.answer("准备表", "prepare"); await crashInsert(f);
   assert.equal(sql(f.file, "SELECT * FROM todos").length, 2);
   await f.open(); await f.p.harness.waitForIdle(context);
   const ops = await f.operations(); assert.equal(ops.length, 2); assert.ok(ops.every(op => op.result?.effect === "committed"));
@@ -106,11 +130,11 @@ test("应用数据：提交后durable结果前强杀，重启原键核实且只�
 test("应用数据：强杀后缺库、换库和合法JSON损坏回执保持未知，不重放且其他工作继续", async t => {
   for (const fault of ["missing", "identity", "receipt", "receipt-key", "receipt-removed"] as const) await t.test(fault, async t => {
     const f = await fixture(t, (_request, i) => i === 0 ? call("app_data_define_table", define) : i === 2 ? call("app_data_insert", insert) : { kind: "text", text: "独立工作继续" });
-    await f.p.answer("准备表", "prepare"); await crashInsert(f);
+    await f.answer("准备表", "prepare"); await crashInsert(f);
     const original = fs.readFileSync(f.file); const wal = fs.existsSync(`${f.file}-wal`) ? fs.readFileSync(`${f.file}-wal`) : undefined;
     if (fault === "missing") { for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${f.file}${suffix}`, { force: true }); }
     else { const db = new DatabaseSync(f.file); try { if (fault === "identity") db.exec("UPDATE app_meta SET value='appdb_changed' WHERE key='instance_id'"); else if (fault === "receipt-key") db.exec("UPDATE app_audit SET op_id='corrupted-key' WHERE tool_name='app_data_insert'"); else if (fault === "receipt-removed") db.exec("DELETE FROM app_audit WHERE tool_name='app_data_insert'"); else db.exec("UPDATE app_audit SET affected='corrupt-but-valid-text' WHERE tool_name='app_data_insert'"); } finally { db.close(); } }
-    await f.open(); await f.p.harness.waitForIdle(context);
+    await f.open(); await until(async () => (await f.operations())[1]?.result?.effect === "effect_unknown" ? true : undefined);
     const op = (await f.operations())[1]; assert.equal(op.result?.effect, "effect_unknown");
     assert.deepEqual(await f.p.harness.commit(tx => personalServiceSourceBlocker(tx, "crash-source"), context), { appData: String(op.operation), admission: op.admission });
     await assert.rejects(f.p.work.delegate({ content: "不能换子工作重试", requestId: "blocked-child", sourceRequestId: "crash-source" }), error => error instanceof Error && "code" in error && error.code === "work_source_paused");
@@ -119,7 +143,7 @@ test("应用数据：强杀后缺库、换库和合法JSON损坏回执保持未�
     await f.p.close();
     for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${f.file}${suffix}`, { force: true });
     fs.writeFileSync(f.file, original); if (wal) fs.writeFileSync(`${f.file}-wal`, wal);
-    await f.open(); await f.p.harness.commit(tx => appDataRecheck(tx, f.directory, op.operation), context);
+    await f.open(); await f.p.harness.waitForTask(op.operation, context); const recheck = await f.p.harness.commit(tx => appDataRecheck(tx, f.directory, op.operation), context); if (recheck) await f.p.harness.waitForTask(recheck, context);
     assert.equal((await f.operations())[1].result?.effect, "committed"); assert.equal(sql(f.file, "SELECT * FROM todos").length, 2);
   });
 });
@@ -127,7 +151,7 @@ test("应用数据：强杀后缺库、换库和合法JSON损坏回执保持未�
 test("应用数据：批准后revision或权限变化不执行；默认模式变化不扩大旧输入", async t => {
   for (const fault of ["revision", "permission"] as const) await t.test(fault, async t => {
     const f = await fixture(t, (_request, i) => [call("app_data_define_table", define), call("app_data_insert", insert), call("app_data_delete", { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "批量完成" })][i] ?? { kind: "text", text: "已停止原操作" });
-    const answer = f.p.answer("批量完成", "pending-source");
+    const answer = f.answer("批量完成", "pending-source");
     const op = await until(async () => (await f.operations()).find(op => op.name === "app_data_delete"));
     await f.p.harness.commit(async tx => {
       await appDataDecide(tx, f.directory, op.operation, "approved");
@@ -197,7 +221,11 @@ test("应用数据：真实Telegram宿主菜单失效批准仍可恢复，错回
   const previous = process.env.APP_DATA_BOT_KEY; process.env.APP_DATA_BOT_KEY = "123:test-only";
   t.after(async () => { bot.closeAllConnections(); await new Promise<void>(resolve => bot.close(() => resolve())); if (previous === undefined) delete process.env.APP_DATA_BOT_KEY; else process.env.APP_DATA_BOT_KEY = previous; });
   const telegram = { version: 1 as const, enabled: true, generation: randomUUID(), apiBase: `http://127.0.0.1:${address.port}`, tokenEnv: "APP_DATA_BOT_KEY", tokenDigest: createHash("sha256").update("123:test-only").digest("hex"), botId: "123", ownerId: "456", boundary: 0 };
-  const f = await fixture(t, (_request, i) => [call("app_data_define_table", define), call("app_data_insert", insert), call("app_data_delete", { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "批量删除" })][i] ?? { kind: "text", text: "本次已停止" }, { telegram });
+  let childCalls = 0;
+  const f = await fixture(t, request => {
+    if (!request.system?.includes("你是个人助手的子 Agent")) return String(request.messages.at(-1)?.content) === "批量完成" ? call("background_work", { action: "delegate", content: "批量删除待办", appData: true }) : { kind: "text", text: "本次已停止" };
+    return [call("app_data_define_table", define), call("app_data_insert", insert), call("app_data_delete", { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "批量删除" })][childCalls++] ?? { kind: "text", text: "本次已停止" };
+  }, { telegram });
   let message = 0;
   const receive = async (text: string, replyTo?: number, control = true) => {
     const id = ++message; await f.p.telegram.receive({ update_id: id, message: { message_id: id, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: 123, is_bot: true } } }) } });
@@ -232,7 +260,7 @@ test("应用数据：初始化意图落盘后强杀，可按固定身份继续�
 test("应用数据：查询完整预算大于默认工具预览，64KiB内结果不被二次截断", async t => {
   const records = ["甲", "乙", "丙"].map(prefix => ({ title: prefix + "x".repeat(8000) }));
   const f = await fixture(t, (_request, i) => [call("app_data_define_table", define), call("app_data_insert", { ...insert, records }), call("app_data_query", { mode: "rows", table: "todos" })][i] ?? { kind: "text", text: "完整读到三行" });
-  await f.p.answer("保存后读完整结果", "query-budget");
+  await f.answer("保存后读完整结果", "query-budget");
   const message = f.server.calls.at(-1)!.messages.at(-1)!; assert.equal(message.role, "tool");
   const result = JSON.parse(String(message.content)) as { rows: { title: string }[]; complete: boolean };
   assert.equal(result.complete, true); assert.deepEqual(result.rows.map(row => row.title), records.map(row => row.title));
@@ -251,5 +279,55 @@ test("应用数据：start已提交但原工具未结束时人工重核拒绝，
     };
     return storage;
   } });
-  try { await p.answer("创建表", "active-recheck"); assert.ok(attempted); await attempted; assert.equal(sql(f.file, "SELECT * FROM app_audit").length, 1); } finally { await p.close(); }
+  try { await p.answer("app-data-owner:创建表", "active-recheck"); const ref = await p.work.delegate({ content: "创建表", requestId: "active-recheck-work", sourceRequestId: "active-recheck", appData: true }); await p.harness.waitForTask(ref.taskId, context); assert.ok(attempted); await attempted; assert.equal(sql(f.file, "SELECT * FROM app_audit").length, 1); } finally { await p.close(); }
+});
+
+test("M2 app-data: pending and approved unconsumed writes are superseded on amendment and reopen", async t => {
+  for (const approved of [false, true]) await t.test(approved ? "approved" : "pending", async t => {
+    let armed = false, held = false, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const io = personalAppDataIo();
+    const injected: PersonalAppDataIo = { ...io, get inFlight() { return io.inFlight; }, async run(job, callContext) { if (armed && job.kind === "inspect" && !("write" in job && job.write)) { held = true; await gate; } return io.run(job, callContext); } };
+    const f = await fixture(t, request => request.messages.at(-1)?.role === "tool" ? { kind: "text", text: "原操作已停止" } : call("app_data_migrate", { expected_schema_version: 1, steps: [{ op: "drop_table", table: "todos" }], reason: "原要求清理表" }), { appDataIo: injected });
+    const store = new AppDataStore(f.file); try { store.defineTable({ ...define, opId: "prepare", ctx: { taskId: "test", sessionId: "test", agentId: "test" } }); } finally { store.close(); }
+    const work = await f.begin("原要求清理表", "m2-data-original");
+    const pending = await until(async () => (await f.operations()).find(value => value.decision === "pending"));
+    const original = structuredClone(pending);
+    if (approved) { armed = true; await f.p.harness.commit(tx => appDataDecide(tx, f.directory, pending.operation, "approved"), context); await until(async () => held ? true : undefined); }
+    await f.p.answer("app-data-owner:保留原表", "m2-data-amend");
+    const result = await f.p.work.append(work, { requestId: "m2-data-note", sourceRequestId: "m2-data-amend", content: "保留原表，结束本轮，不进行删除。" });
+    assert.equal(result.accepted, true); release();
+    const changed = await until(async () => (await f.operations()).find(value => value.operation === pending.operation && value.superseded));
+    assert.equal(changed.started, undefined); assert.equal(changed.result?.effect, "not_committed"); assert.equal(changed.result?.code, "tool_requirements_changed"); assert.deepEqual(changed.origin, original.origin); assert.equal(changed.decision, approved ? "approved" : "pending");
+    await f.p.work.cancel(work); assert.equal(sql(f.file, "SELECT name FROM sqlite_master WHERE name='todos'").length, 1);
+    assert.equal(sql(f.file, "SELECT * FROM app_audit WHERE tool_name='app_data_migrate'").length, 0);
+    await f.p.close(); await f.open(); assert.deepEqual((await f.operations()).find(value => value.operation === pending.operation)?.superseded, changed.superseded);
+  });
+});
+
+test("M2 app-data: delayed preparation cannot admit an old model request while main remains usable", async t => {
+  let armed = false, held = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), io = personalAppDataIo();
+  const injected: PersonalAppDataIo = { ...io, get inFlight() { return io.inFlight; }, async run(job, callContext) { if (armed && job.kind === "inspect" && "write" in job && job.write) { held = true; await gate; } return io.run(job, callContext); } };
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "tool" ? { kind: "text", text: "已读取更新" } : call("app_data_define_table", define), { appDataIo: injected });
+  armed = true; const work = await f.begin("建原表", "m2-data-preparing"); await until(async () => held ? true : undefined);
+  assert.equal(await f.p.answer("app-data-owner:改为只报告", "m2-data-current"), "已接纳");
+  await f.p.work.append(work, { requestId: "m2-data-current-note", sourceRequestId: "m2-data-current", content: "只报告，不创建原表。" }); release();
+  await until(async () => f.server.calls.some(request => request.messages.some(message => message.role === "tool" && String(message.content).includes("tool_requirements_changed"))) ? true : undefined);
+  await f.p.work.cancel(work); assert.equal((await f.operations()).length, 0); assert.equal(sql(f.file, "SELECT * FROM app_audit").length, 0);
+  const notes = (await f.p.harness.snapshot(PersonalWorkDoc, work.requestId, context))?.notes; assert.equal(notes?.[0].content, "只报告，不创建原表。");
+  await f.p.close(); await f.open(); assert.equal((await f.operations()).length, 0);
+});
+
+test("M2 app-data: a held started worker leaves main usable and its eventual write receipt survives amendment and cancellation", async t => {
+  let workerStarted = false;
+  const io = personalAppDataIo({ stallMs: kind => kind === "execute" ? 600 : 0, workerProbe: (_worker, job) => { if (job.kind === "execute") workerStarted = true; } });
+  const f = await fixture(t, request => request.messages.at(-1)?.role === "tool" ? { kind: "text", text: "原写入已结束" } : call("app_data_define_table", define), { appDataIo: io });
+  const work = await f.begin("保存原表", "m2-data-started"); await until(async () => workerStarted ? true : undefined);
+  const started = (await f.operations())[0]; assert.ok(started.started);
+  const before = Date.now(); assert.equal(await f.p.answer("app-data-owner:后续不再添加表", "m2-data-started-amend"), "已接纳"); assert.ok(Date.now() - before < 500);
+  await f.p.work.append(work, { requestId: "m2-data-started-note", sourceRequestId: "m2-data-started-amend", content: "保留已完成的原写入，后续不再添加表。" });
+  const committed = await until(async () => (await f.operations()).find(value => value.result?.effect === "committed")); assert.equal(committed.superseded, undefined); assert.deepEqual(committed.origin, started.origin);
+  await f.p.work.cancel(work); assert.equal(sql(f.file, "SELECT * FROM app_audit").length, 1);
+  await f.p.close(); await f.open(); assert.deepEqual((await f.operations())[0].result, committed.result);
 });

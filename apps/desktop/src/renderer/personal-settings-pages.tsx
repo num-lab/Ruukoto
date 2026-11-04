@@ -63,10 +63,11 @@ function CuaControls({ state }: { state: PersonalSettingsPageState }) {
       {state.cua?.available && <SettingsRow title="运行状态" description={state.cua.paused ? state.cua.busy ? "正在暂停" : "已暂停" : "可用"}>
         <SettingsButton disabled={state.disabled || state.cua.paused && state.cua.busy} onClick={() => void state.controlCua(state.cua!.paused ? "resume" : "pause")}>{state.cua.paused ? "继续" : "暂停"}</SettingsButton>
       </SettingsRow>}
-      {state.cua?.operations.map(item => <SettingsRow key={item.operation} title={`${item.service} · ${item.tool}`} description={item.effect === "effect_unknown" ? "结果待确认" : "连接已中断"} footer={<>
+      {state.cua?.operations.map(item => <SettingsRow key={item.operation} title={`${item.service} · ${item.tool}`} description={item.cuaStopUnverified ? "连接停止待核实" : item.cuaRecovery === "begun" || item.cuaRecovery === "observed" ? "等待新观察确认" : item.effect === "effect_unknown" ? "结果待确认" : "连接已中断"} footer={<>
         {state.cuaImages.filter(image => image.operation === item.operation && image.observation === item.cuaObservation).map((image, index) => <img key={`${image.observation}:${image.id}`} src={image.src} alt={`恢复现场新截图 ${index + 1}`} style={{ maxWidth: "100%", height: "auto" }} onLoad={() => state.cuaImageLoaded(image.operation, image.observation, image.id, true)} onError={() => state.cuaImageLoaded(image.operation, image.observation, image.id, false)} />)}
       </>}>
         {item.cuaRecovery === "frozen" && <SettingsButton disabled={state.disabled} onClick={() => state.prepareCua("stop", item.operation)}>停止沙箱</SettingsButton>}
+        {item.cuaStopUnverified && (!item.cuaRecovery || item.cuaRecovery === "accepted") && <SettingsButton disabled={state.disabled} onClick={() => void state.controlCua("stop", item.operation)}>核实连接停止</SettingsButton>}
         {(item.cuaRecovery === "stopped" || item.cuaRecovery === "begun" || item.cuaRecovery === "observed") && <>
           <SettingsButton disabled={state.disabled} onClick={() => void state.controlCua("observe", item.operation)}>{item.cuaRecovery === "observed" ? "重新截图" : "检查并恢复"}</SettingsButton>
           {item.cuaRecovery === "observed" && !state.cuaImages.some(image => image.operation === item.operation && image.observation === item.cuaObservation) && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.loadCuaImages(item.operation)}>查看截图</SettingsButton>}

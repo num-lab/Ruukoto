@@ -77,9 +77,10 @@ async function viewRuns(io: PersonalCliIO, directory: string, id: string) {
     while (true) {
       const result = await personalControl<Awaited<ReturnType<Scheduler["result"]>>>(directory, "GET", `/schedule/run/result?run=${encodeURIComponent(run.id)}&offset=${resultOffset}`);
       io.write(`${personalScheduleRunDescription({ ...run, ...result })}\n${result.text ?? "原运行暂无完整报告，请刷新查询。"}\n`);
-      const actions = ["刷新运行", ...(result.nextOffset === undefined ? [] : ["下一页报告"]), "返回运行列表"];
+      const actions = ["刷新运行", ...(result.nextOffset === undefined ? [] : ["下一页报告"]), ...(["completed", "failed", "canceled", "canceling"].includes(result.state) ? [] : ["只取消本次运行"]), "返回运行列表"];
       const action = actions[await choose(io, "原定时运行", actions)];
       if (action === "返回运行列表") break;
+      if (action === "只取消本次运行") { await personalControl(directory, "POST", `/schedule/run/cancel?run=${encodeURIComponent(run.id)}`); io.write("本次运行取消已登记，未来计划保留；查询原运行核实停止和效果。\n"); }
       resultOffset = action === "下一页报告" ? result.nextOffset! : 0;
     }
   }

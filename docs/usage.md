@@ -69,6 +69,8 @@ These use profiles separate from daily data. Their launchers own and stop the de
 
 Settings writes use original-key receipts to distinguish saved, applied and uncertain outcomes. Closing the daily menu does not stop an already running production backend; choose its stop action. IM `/帮助` lists available commands; `/后台` shows logs and controls Personal session background work.
 
+Main delegates waiting file, network, app-data, MCP, command, service and browser/computer work. Ask status questions normally; changed requirements go to the original background work and replace its unstarted operations, including unused approvals. Browser/computer work queues under the original full-access permission. After human takeover, choose continuation and use the new observation; old screenshots or references cannot resume it. Processes survive ordinary replies, and canceling their assignment stops only its processes. In scheduled-run management, “只取消本次运行” preserves future triggers; canceling the plan stops future triggers too.
+
 ## 3. Models and Configuration
 
 Personal's capability/model menu guides provider selection, credential environment-variable references and explicit connection tests. Environment references avoid copying credentials into a new profile, but the selected backend process must actually receive those variables.

@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, ROOT_CONVERSATION_ID, type EntryId } from "@earendil-works/pi-durable";
+import { AgentDoc, Harness, ROOT_CONVERSATION_ID, type ConversationId, type EntryId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalDelegationDoc } from "../apps/ruukoto/src/personal-delegation.ts";
@@ -17,7 +17,7 @@ import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/p
 import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { parsePersonalBrowser, savePersonalBrowser } from "../apps/ruukoto/src/personal-browser-config.ts";
-import { browserOperations, browserResolve, PERSONAL_BROWSER, type PersonalBrowserOperation } from "../apps/ruukoto/src/personal-browser.ts";
+import { browserOperations, browserResolve, PERSONAL_BROWSER, PersonalBrowserDoc, PersonalBrowserSessionDoc, type PersonalBrowserOperation } from "../apps/ruukoto/src/personal-browser.ts";
 import { PERSONAL_MEDIA } from "../apps/ruukoto/src/personal-media.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { LocalInputDoc } from "../apps/ruukoto/src/personal-local-records.ts";
@@ -54,27 +54,39 @@ async function workText(p: PersonalHarness, input: Parameters<PersonalHarness["w
   do { const page = await p.harness.commit(tx => personalWorkResult(tx, work, offset), context); text += page.text ?? ""; offset = page.nextOffset; } while (offset !== undefined);
   return { work, text };
 }
+async function settleBrowserWork(p: PersonalHarness) {
+  await until(async () => p.harness.commit(async tx => (await browserOperations(tx)).some(value => value.observation !== undefined), context));
+  const values = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await browserOperations(tx))) as PersonalBrowserOperation[], context);
+  for (const value of values) if (value.origin.work) {
+    await p.harness.waitForTask(value.origin.work.ref.taskId, context);
+    const work = (await p.harness.snapshot(PersonalWorkDoc, value.origin.work.ref.requestId, context))!;
+    if (work.delegation) { const delegation = (await p.harness.snapshot(PersonalDelegationDoc, String(work.delegation.entryId), context))!.delegation!; if (delegation.report) await p.harness.waitForTask(delegation.report.taskId, context); }
+  }
+}
 function binding(): BrowserBinding { return { sessionId: String(ROOT_CONVERSATION_ID), generation: "integration-browser", kind: "owned", state: "ready", profileDir: null, socketDir: "", cliSession: "", cdpUrl: null, targetId: null, chrome: null, daemon: null, dashboard: null, chromePending: false, daemonPending: false, dashboardPending: false, lockDir: null, pauseTaskId: null, pauseAfterSeq: null, outcomeUnknown: false, failureCode: null, dashboardUrl: null, headed: false }; }
 
 async function fixture(t: TestContext, options: { general?: boolean; browser?: boolean; imageInput?: boolean; responder?: Responder } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync("/tmp/rk-bi-")), directory = path.join(root, "profile"), workspace = path.join(root, "workspace"); fs.mkdirSync(workspace);
-  const model = new MockModelServer(options.responder ?? respond), config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RK_BROWSER_INTEGRATION_MODEL_KEY", contextWindow: 128000, maxTokens: 8192, imageInput: options.imageInput ?? true }, previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
+  const model = new MockModelServer(async (request, index) => { const result = await (options.responder ?? respond)(request, index); return result.kind === "tool_calls" && !request.system?.includes("你是个人助手的子 Agent") ? { ...result, calls: result.calls.map(call => call.name === "browser" ? { ...call, name: "background_work", arguments: { action: "delegate", content: invoke("browser", call.arguments) } } : call) } : result; }), config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RK_BROWSER_INTEGRATION_MODEL_KEY", contextWindow: 128000, maxTokens: 8192, imageInput: options.imageInput ?? true }, previous = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
   const browserConfig = parsePersonalBrowser({ version: 1, generation: "integration-config", binaryPath: "/unused/agent-browser", chromePath: "/unused/chrome", headed: false }), identity = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "integration-tools", workspace, identity: { dev: identity.dev, ino: identity.ino }, credentials: [] });
   let current: PersonalHarness | undefined, backend: Awaited<ReturnType<typeof startPersonalServer>> | undefined, state = binding(), calls = 0, stopVerified = true, unknown = false;
+  let persistenceHarness: Harness | undefined; const openHarness = Harness.open;
+  t.mock.method(Harness, "open", async (...args: Parameters<typeof Harness.open>) => { persistenceHarness = await openHarness(...args); return persistenceHarness; });
+  const persist = async (sessionId: string) => { if (!persistenceHarness) return; await persistenceHarness.commit(async tx => { const id = createHash("sha256").update(`${directory}\0${sessionId}`).digest("hex").slice(0, 24), value = { ...state, sessionId, socketDir: `/tmp/ruukoto-browser-${process.getuid?.() ?? "unknown"}-${id}`, cliSession: `rk-${id}` }, stateJson = JSON.stringify({ version: 1, bindings: [value] }), conversationId = Number(sessionId) as ConversationId, doc = conversationId === ROOT_CONVERSATION_ID ? await tx.doc(PersonalBrowserDoc) : await tx.doc(PersonalBrowserSessionDoc, sessionId, null); doc.stateJson = stateJson; doc.bindingEntry = (await tx.appendEntry(conversationId, { kind: "ruukoto.browser-binding-changed", data: { stateJson, sessionId, generation: value.generation, state: value.state } })).id; }, context); };
   const previousMethods = { command: BrowserManager.prototype.command, status: BrowserManager.prototype.status, close: BrowserManager.prototype.close };
-  BrowserManager.prototype.status = () => structuredClone(state);
-  BrowserManager.prototype.close = async () => { if (stopVerified) state.state = "closed"; return stopVerified; };
-  BrowserManager.prototype.command = async (_session, args) => { calls++; if (unknown) throw new BrowserError("outcome_unknown", "原网页应答丢失", true); if (args[0] === "screenshot") fs.writeFileSync(args[1], png); return { data: { refs: { e1: { role: "button", name: "确认" } } } }; };
+  BrowserManager.prototype.status = sessionId => structuredClone({ ...state, sessionId });
+  BrowserManager.prototype.close = async sessionId => { if (stopVerified) state.state = "closed"; await persist(sessionId); return stopVerified; };
+  BrowserManager.prototype.command = async (sessionId, args) => { calls++; state.state = "ready"; await persist(sessionId); if (unknown) throw new BrowserError("outcome_unknown", "原网页应答丢失", true); if (args[0] === "screenshot") fs.writeFileSync(args[1], png); return { data: { refs: { e1: { role: "button", name: "确认" } } } }; };
   t.after(async () => { stopVerified = true; await backend?.stop(); await current?.close(); await model.close(); Object.assign(BrowserManager.prototype, previousMethods); if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; fs.rmSync(root, { recursive: true, force: true }); });
   const open = async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => { current = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId, ...(options.browser === false ? {} : { browser: browserConfig }), ...(options.general ? { tools } : {}), ...overrides }); state = binding(); return current; };
   const mode = async (value: "confirm" | "full_access" | "auto-review") => { assert.ok(current); await current.harness.commit(async tx => { const doc = await tx.doc(PersonalPermissionsDoc); doc.mode = value; doc.version++; }, context); };
-  const operations = async () => { assert.ok(current); return current.harness.commit(async tx => JSON.parse(JSON.stringify(await browserOperations(tx))) as PersonalBrowserOperation[], context); };
+  const operations = async () => { assert.ok(current); await until(async () => await current!.harness.commit(async tx => (await browserOperations(tx)).length > 0, context) || (await current!.work.list()).every(value => !value.work)); return current.harness.commit(async tx => JSON.parse(JSON.stringify(await browserOperations(tx))) as PersonalBrowserOperation[], context); };
   return { directory, root, workspace, config, browserConfig, tools, model, open, mode, operations, calls: () => calls, stop(value: boolean) { stopVerified = value; }, unknown(value: boolean) { unknown = value; },
     async server() { await savePersonalConfig(directory, config); if (options.browser !== false) await savePersonalBrowser(directory, browserConfig); if (options.general) await savePersonalTools(directory, tools); backend = await startPersonalServer(directory); state = binding(); return backend; },
   };
 }
 
-test("个人组合：browser仅主会话原完全访问输入可见，默认变化不扩旧排队输入或子工作", async t => {
+test("Personal browser eligibility retains original full-access work and leaves main coordination available", async t => {
   let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
   const f = await fixture(t, { responder: async (request, index) => { if (index === 0) await gate; return respond(request, index); } }), p = await f.open();
   await f.mode("confirm");
@@ -84,19 +96,20 @@ test("个人组合：browser仅主会话原完全访问输入可见，默认变�
   assert.ok(f.model.calls.slice(0, 2).every(request => !toolNames(request).includes("browser"))); assert.equal(f.calls(), 0);
   assert.equal((await p.harness.snapshot(LocalInputDoc, "queued-restricted", context))!.permission!.mode, "confirm");
   await p.answer(browser("open", { url: "https://example.com" }), "new-full");
-  assert.ok(f.model.calls.some(request => toolNames(request).includes("browser"))); assert.equal(f.calls(), 1);
+  await until(() => f.calls() === 1); assert.ok(f.model.calls.some(request => request.system?.includes("你是个人助手的子 Agent") && toolNames(request).includes("browser")));
   await p.answer("交给子工作", "owner-for-child");
   const work = await p.work.delegate({ requestId: "integration-child", sourceRequestId: "owner-for-child", content: "子工作分析" }); await p.harness.waitForTask(work.taskId, context);
-  const childCalls = f.model.calls.filter(request => request.system?.includes("你是个人助手的子 Agent")); assert.ok(childCalls.length > 0); assert.ok(childCalls.every(request => !toolNames(request).includes("browser")));
-  const child = await p.harness.conversation(work.agentId, context); assert.ok(child); assert.ok(!(await child.agent(context)).tools.some(tool => tool.name === "browser"));
+  const childCalls = f.model.calls.filter(request => request.system?.includes("你是个人助手的子 Agent")); assert.ok(childCalls.length > 0); assert.ok(childCalls.some(request => toolNames(request).includes("browser")));
+  const child = await p.harness.conversation(work.agentId, context); assert.ok(child); assert.ok((await child.agent(context)).tools.some(tool => tool.name === "browser"));
+  assert.ok(f.model.calls.filter(request => !request.system?.includes("你是个人助手的子 Agent")).every(request => !toolNames(request).includes("browser")));
 });
 
 test("个人组合：截图经真实media/provider恢复，无general也能读产物且本机独占导出", async t => {
   const f = await fixture(t), p = await f.open(); await f.mode("full_access");
-  await p.answer(browser("screenshot"), "screenshot"); const operation = (await f.operations())[0];
+  await p.answer(browser("screenshot"), "screenshot"); await settleBrowserWork(p); const operation = (await f.operations())[0];
   assert.ok(operation.artifact && operation.image); assert.match(operation.image.data, /ruukotoImage/);
-  assert.match(JSON.stringify(f.model.calls.at(-1)!.raw), new RegExp(png.toString("base64")));
-  const originalEntries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
+  assert.ok(f.model.calls.some(request => request.system?.includes("你是个人助手的子 Agent") && JSON.stringify(request.raw).includes(png.toString("base64"))));
+  const originalEntries = (await (await p.harness.conversation(operation.origin.conversationId, context))!.entries({ order: "ascending" }, 256, undefined, context)).items;
   assert.doesNotMatch(JSON.stringify(originalEntries), new RegExp(png.toString("base64")));
   // read_artifact 等等待业务工具只保留在子 Agent；主会话产物由本机控制面按原字节核实导出。
   await p.close(); const server = await f.server();
@@ -119,7 +132,7 @@ test("个人组合：已配置浏览器不阻断委托汇报，参考轮次只�
   const agent = (await p.work.list()).find(value => value.work)!;
   const registered = { work: agent.work!.taskId, delegation: (await p.harness.snapshot(PersonalWorkDoc, agent.work!.requestId, context))!.delegation!.entryId };
   work = registered.work;
-  assert.ok(toolNames(f.model.calls[0]).includes("browser"));
+  assert.ok(!toolNames(f.model.calls[0]).includes("browser"));
   await p.answer(invoke("background_work", { action: "report", delegation: registered.delegation }), "browser-report-seal");
   const group = (await p.harness.snapshot(PersonalDelegationDoc, String(registered.delegation), context))!.delegation!;
   await p.harness.waitForTask(group.report!.taskId, context);
@@ -150,14 +163,14 @@ test("个人组合：认证本机HTTP选择模式只影响以后接纳的输入"
   await personalControl(f.directory, "POST", "/permissions", { mode: "confirm" }); await input("受限文字");
   assert.ok(!toolNames(f.model.calls.at(-1)!).includes("browser"));
   const before = f.model.calls.length; await personalControl(f.directory, "POST", "/permissions", { mode: "full_access" }); assert.equal(f.model.calls.length, before);
-  await input(browser("open", { url: "https://example.com" })); assert.ok(f.model.calls.slice(before).some(request => toolNames(request).includes("browser"))); assert.equal(f.calls(), 1);
+  await input(browser("open", { url: "https://example.com" })); await until(() => f.calls() === 1); assert.ok(f.model.calls.slice(before).some(request => request.system?.includes("你是个人助手的子 Agent") && toolNames(request).includes("browser")));
   await server.stop();
 });
 
 
 test("个人组合：纯文字模型在截图前明确拒绝，文件图片保留原产物且不发送缺图请求", async t => {
   const f = await fixture(t, { general: true, imageInput: false }), p = await f.open(); await f.mode("full_access");
-  const screenshot = await p.answer(browser("screenshot"), "unsupported-screenshot");
+  await p.answer("截图", "unsupported-screenshot"); const screenshot = (await workText(p, { requestId: "unsupported-screenshot-work", sourceRequestId: "unsupported-screenshot", content: browser("screenshot") })).text;
   assert.match(screenshot, /image_input_unsupported/); assert.equal(f.calls(), 0); assert.equal((await f.operations()).length, 0);
   const filename = path.join(f.workspace, "photo.png"); fs.writeFileSync(filename, png);
   await p.answer("读图", "unsupported-file");
@@ -175,13 +188,13 @@ test("个人组合：旧本机来源委派沿原模式，权限反链损坏不�
 });
 
 for (const missing of [PERSONAL_MEDIA, PERSONAL_BROWSER]) test(`个人组合：移除已用${missing}扩展在任何恢复请求前拒绝`, async t => {
-  const f = await fixture(t), p = await f.open(); await f.mode("full_access"); await p.answer(browser("screenshot"), "registered-image");
+  const f = await fixture(t), p = await f.open(); await f.mode("full_access"); await p.answer(browser("screenshot"), "registered-image"); await settleBrowserWork(p);
   await p.harness.commit(async tx => { const agent = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(agent.extensions)); agent.extensions = agent.extensions.filter(name => name !== missing); }, context);
   const before = f.model.calls.length; await p.close(); await assert.rejects(f.open(), code(missing === PERSONAL_MEDIA ? "media_record_invalid" : "browser_config_missing")); assert.equal(f.model.calls.length, before);
 });
 
 for (const kind of ["ruukoto.media", "ruukoto.image", "ruukoto.browser", "ruukoto.browser-operation"]) test(`个人组合：${kind}新版本在恢复或外调前拒绝`, async t => {
-  const f = await fixture(t), p = await f.open(); await f.mode("full_access"); await p.answer(browser("screenshot"), "registered-image"); await p.close(); const before = f.model.calls.length;
+  const f = await fixture(t), p = await f.open(); await f.mode("full_access"); await p.answer(browser("screenshot"), "registered-image"); await settleBrowserWork(p); await p.close(); const before = f.model.calls.length;
   const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
   try {
     const page = await storage.scanDocuments({ kind, scope: { kind: "session" }, at: "current" }, 1, undefined, context), record = page.items[0]; assert.ok(record);
@@ -210,7 +223,7 @@ test("个人组合：Telegram浏览器菜单沿原actor核实效果与后台停�
   };
   f.stop(false); f.unknown(true);
   await receive(1, browser("open", { url: "https://example.com" }));
-  const operation = (await f.operations())[0]; assert.ok(operation); assert.equal(operation.effect, "effect_unknown"); assert.equal(operation.stopped, false);
+  await until(async () => (await f.operations())[0]?.observation !== undefined); const operation = (await f.operations())[0]; assert.ok(operation); assert.equal(operation.effect, "effect_unknown"); assert.equal(operation.stopped, false);
   const before = f.model.calls.length;
   await receive(2, "/浏览器"); assert.match(sends.at(-1)!.text, /浏览器1/);
   await receive(3, "浏览器1", sends.at(-1)!.id); assert.match(sends.at(-1)!.text, /浏览器确认已生效/);
@@ -221,6 +234,6 @@ test("个人组合：Telegram浏览器菜单沿原actor核实效果与后台停�
   assert.equal((await f.operations())[0].resolution!.actor, "telegram:123:456:5");
   await receive(6, "刷新浏览器", sends.at(-1)!.id); f.stop(true);
   const stopped = await receive(7, "停止并核实浏览器", sends.at(-1)!.id); assert.ok(stopped.browserStop);
-  await p.harness.waitForTask(stopped.browserStop.taskId, context); assert.equal((await f.operations())[0].stopped, true); assert.equal(f.model.calls.length, before); assert.equal(f.calls(), 1);
-  await p.close(); await f.open({ telegram }); assert.equal(f.model.calls.length, before);
+  await p.harness.waitForTask(stopped.browserStop.taskId, context); assert.equal((await f.operations())[0].stopped, true); assert.ok(f.model.calls.slice(before).every(request => request.system?.includes("本轮来源为宿主委托汇总参考"))); assert.equal(f.calls(), 1);
+  await settleBrowserWork(p); const completedCalls = f.model.calls.length; await p.close(); await f.open({ telegram }); assert.equal(f.model.calls.length, completedCalls);
 });

@@ -70,7 +70,7 @@ test("协调预算：主会话请求不携已移交工具，仍发出的等待�
   const mains = f.server.calls.filter(request => !childRequest(request) && !request.system?.includes("审批审查员"));
   assert.ok(mains.length >= 2);
   for (const request of mains) {
-    assert.match(request.system ?? "", /子 Agent 可用 read_file、write_file 直接读写文件，无需命令/);
+    assert.match(request.system ?? "", /子 Agent 可直接读写文件/);
     for (const name of toolNames(request)) assert.ok(!MIGRATED.includes(name), `主请求不应提供 ${name}`);
   }
   const children = f.server.calls.filter(childRequest);

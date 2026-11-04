@@ -30,7 +30,7 @@ export async function configurePersonalScheduledConversation(tx: Tx, conversatio
 }
 
 // Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
-export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runtime: PersonalScheduleRuntime, context: Context, cancel: boolean, stopBrowser?: (conversationId: ConversationId) => Promise<boolean>) {
+export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runtime: PersonalScheduleRuntime, context: Context, cancel: boolean, stopBrowser?: (conversationId: ConversationId) => Promise<boolean>, releaseBrowser?: (conversationId: ConversationId, context: Context) => Promise<void>) {
   let started = false;
   await runtime.commit(async tx => { started = !!(await tx.submissionByRequest(run.conversationId, run.requestId))?.entry; return undefined; }, context);
   if (!started) {
@@ -69,6 +69,7 @@ export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runti
     }
     await stop();
     await runtime.commit(async tx => { if (!await browserSessionStopped(tx, run.conversationId)) throw new PersonalError("schedule_stop_unverified", "原浏览器停止尚未核实，定时运行继续保留占用；请从原浏览器菜单核实停止。"); return undefined; }, context);
+    await releaseBrowser?.(run.conversationId, context);
     let failed = false;
     const facts: string[] = [];
     await runtime.commit(async tx => {

@@ -11,7 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { test, type TestContext } from "node:test";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, type TaskDefinition } from "@earendil-works/pi-durable";
 import { answerPersonalQuestion, PersonalQuestionDoc, PersonalQuestionsDoc } from "../apps/ruukoto/src/personal-questions.ts";
 import { personalSource } from "../apps/ruukoto/src/personal-source.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -20,10 +20,12 @@ import { startMockOneBot, MOCK_QQ_ACCOUNT, MOCK_QQ_SECRET } from "./helpers/mock
 import { PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram-records.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
+import { PersonalWorkDoc, appendPersonalWork, personalWorkNoteSource, personalWorkResult, requestPersonalWorkCancel } from "../apps/ruukoto/src/personal-work.ts";
+import { PersonalDelegationDoc } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalDirectoryClaimsDoc, acquirePersonalDirectory, personalDirectoriesConflict } from "../apps/ruukoto/src/personal-directory-claims.ts";
-import { PersonalBackgroundProcessDoc, PersonalBackgroundDoc } from "../apps/ruukoto/src/personal-background-processes.ts";
+import { PersonalBackgroundProcessDoc, PersonalBackgroundDoc, requirePersonalBackgroundWorkStopped } from "../apps/ruukoto/src/personal-background-processes.ts";
 import { toolOperations, toolResolve } from "../apps/ruukoto/src/personal-tools.ts";
 import { openPersonalFileIo } from "../apps/ruukoto/src/personal-file-io.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
@@ -44,7 +46,17 @@ async function fixture(t: TestContext, respond?: Responder, real = false, short 
     t.mock.method(BackgroundExecution, "launch", async (_prepared: Parameters<typeof BackgroundExecution.launch>[0], _command: string, _operation: string, value: BackgroundExecutionObserver) => { launches++; observer = value; value.data("stdout", Buffer.from([0x61, 0xff, 0x62])); value.data("stderr", Buffer.from("stderr-value")); return { async stop() { stops++; return { exited: !failStop, outputComplete: true }; } }; });
   }
   const model: PersonalModelConfig = { api: "openai-completions", baseUrl: "", modelId: "mock-model", apiKeyEnv: "RUUKOTO_BACKGROUND_TEST_KEY", contextWindow: 128000, maxTokens: 1024 };
-  const server = new PersonalMockModelServer(respond ?? ((request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: "printf hello; sleep 300" } }] } : { kind: "text", text: "已接纳" })); model.baseUrl = await server.start();
+  const sourceResponder = respond ?? ((_request, index) => index === 0 ? { kind: "tool_calls" as const, calls: [{ id: "start", name: "process_start", arguments: { command: "printf hello; sleep 300" } }] } : { kind: "text" as const, text: "已接纳" });
+  let mainIndex = 0;
+  const server = new PersonalMockModelServer(async (request, index) => {
+    const last = request.messages.at(-1), text = String(last?.content);
+    if (request.system?.includes("你是个人助手的子 Agent") && last?.role === "user" && text.startsWith("process-fixture:")) return { kind: "tool_calls", calls: [{ id: "owned-start", name: "process_start", arguments: JSON.parse(text.slice("process-fixture:".length)) }] };
+    if (request.system?.includes("你是个人助手的子 Agent") && String(request.messages.findLast(message => message.role === "user")?.content).startsWith("process-fixture:")) return { kind: "text", text: "后台已启动" };
+    if (request.system?.includes("本轮来源为宿主委托汇总参考")) return { kind: "text", text: "后台已启动" };
+    const response = await sourceResponder(request, request.system?.includes("你是个人助手的子 Agent") ? index : mainIndex++);
+    if (response.kind !== "tool_calls" || request.system?.includes("你是个人助手的子 Agent")) return response;
+    return { ...response, calls: response.calls.map(call => call.name === "process_start" ? { ...call, name: "background_work", arguments: { action: "delegate", content: `process-fixture:${JSON.stringify(call.arguments)}` } } : call) };
+  }); model.baseUrl = await server.start();
   const oldKey = process.env[model.apiKeyEnv]; process.env[model.apiKeyEnv] = "test-only";
   const config = { version: 1 as const, workspace, identity: { dev: identity.dev, ino: identity.ino }, machineId, tmpdir: fs.realpathSync(os.tmpdir()) };
   let personal: PersonalHarness | undefined;
@@ -53,12 +65,12 @@ async function fixture(t: TestContext, respond?: Responder, real = false, short 
     async open(overrides: Pick<Parameters<typeof openPersonalHarness>[0], "openStorage" | "telegram" | "qq" | "fileIo"> = {}) { personal = await openPersonalHarness({ ...overrides, directory, commands: config, provider: personalProvider(model), modelId: model.modelId, tools: { version: 1, generation: "test", workspace, identity: config.identity, credentials: [] } }); return personal; },
   };
 }
-async function active(p: PersonalHarness) { const index = await p.harness.snapshot(PersonalBackgroundDoc, context); assert.equal(index!.ids.length, 1); return (await p.harness.snapshot(PersonalBackgroundProcessDoc, index!.ids[0], context))!.process!; }
+async function active(p: PersonalHarness) { await until(async () => ((await p.harness.snapshot(PersonalBackgroundDoc, context))?.ids.length ?? 0) > 0); const index = await p.harness.snapshot(PersonalBackgroundDoc, context); assert.equal(index!.ids.length, 1); await until(async () => (await p.harness.snapshot(PersonalBackgroundProcessDoc, index!.ids[0], context))!.process!.state !== "starting"); return (await p.harness.snapshot(PersonalBackgroundProcessDoc, index!.ids[0], context))!.process!; }
 async function allow(p: PersonalHarness) { await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context); }
 
-test("个人后台：跨轮保留独立Task和目录，原字节日志可读；同轮业务工具被挡，停止核实后写入恢复", async t => {
+test("个人后台：跨轮保留工作来源与目录，主会话继续协调；停止核实后写入恢复", async t => {
   let workspace = "";
-  // 等待业务工具只在子 Agent 内执行；恢复写入经委派工作完成。
+  // File work and process startup both execute in their original child assignment.
   const f = await fixture(t, (request, index) => {
     if (request.system?.includes("你是个人助手的子 Agent")) return request.messages.at(-1)?.role === "user" ? { kind: "tool_calls", calls: [{ id: "resume-write", name: "write_file", arguments: { path: path.join(workspace, "resume.txt"), content: "after-stop" } }] } : { kind: "text", text: "已恢复" };
     if (index === 0) return { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: "sleep 300" } }, { id: "write", name: "write_file", arguments: { path: path.join(workspace, "blocked.txt"), content: "bad" } }] };
@@ -70,25 +82,78 @@ test("个人后台：跨轮保留独立Task和目录，原字节日志可读；�
   let process = await active(p);
   assert.equal(process.state, "running"); assert.equal(process.stopped, false); assert.equal(f.launches(), 1); assert.equal(fs.existsSync(path.join(workspace, "blocked.txt")), false);
   assert.equal((await p.harness.getTask(process.taskId, context))!.background, true); assert.equal((await p.harness.getTask(process.taskId, context))!.owner, undefined);
-  assert.match(JSON.stringify(f.server.calls.at(-1)?.messages), /后台仍持有目录/);
-  const names = f.server.calls.at(-1)!.tools!.map(tool => (tool.function as { name: string }).name).sort(); assert.deepEqual(names, ["ask_user", "process_output", "process_status", "process_stop"]);
+  await p.answer("查询启动情况", "main-query");
+  const names = f.server.calls.findLast(request => !request.system?.includes("你是个人助手的子 Agent"))!.tools!.map(tool => (tool.function as { name: string }).name);
+  assert.ok(names.includes("background_work")); assert.ok(!names.includes("process_start"));
+  assert.ok(process.origin.work); assert.notEqual(process.origin.conversationId, ROOT_CONVERSATION_ID);
   assert.deepEqual(Buffer.from((await p.background!.output(process.id, "stdout")).base64, "base64"), Buffer.from([0x61, 0xff, 0x62]));
   assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 1);
   await p.answer("后续普通聊天", "later-owner"); assert.equal(f.launches(), 1); assert.equal((await active(p)).state, "running");
   await p.background!.stop(process.id); await until(async () => (await active(p)).stopped);
   process = await active(p); assert.equal(process.state, "stopped"); assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 0);
   await p.answer("恢复写入", "after-stop-owner");
-  // 纯安排批让出后由子工作完成写入：以终态文件内容核实，避免与工作登记终结竞速。
+  // Arrangement completion precedes the child write, so inspect the actual final content.
   await until(async () => fs.readFileSync(path.join(workspace, "resume.txt"), "utf8") === "after-stop");
 });
 
-test("个人后台：交接后取消创建轮不停止独立后台，后续显式停止才释放", async t => {
-  const f = await fixture(t, (_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: "sleep 300" } }] } : { kind: "text", text: "等待取消的长回答".repeat(100), chunkDelayMs: 100 });
-  const p = await f.open(); await allow(p); const submission = await p.submit("启动", "cancel-owner");
-  await until(async () => f.server.calls.length >= 2); const background = await active(p); assert.equal(background.state, "running");
-  await p.main.abort(context); assert.equal((await submission.wait(context)).status, "unanswered"); await delay(700);
-  assert.equal((await active(p)).state, "running"); assert.equal(f.stops(), 0); assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 1);
-  await p.background!.stop(background.id); await until(async () => (await active(p)).stopped);
+test("Personal processes survive an ordinary reply; canceling completed work stops its process", async t => {
+  const f = await fixture(t), p = await f.open(); await allow(p); await p.answer("启动", "process-owner");
+  const background = await active(p), ref = background.origin.work!.ref;
+  await p.harness.waitForTask(ref.taskId, context); await p.answer("普通聊天", "later-input");
+  assert.equal((await active(p)).state, "running"); assert.equal(f.stops(), 0);
+  const result = await p.harness.commit(tx => personalWorkResult(tx, ref), context);
+  assert.deepEqual(result.processes, [{ process_id: background.id, state: "running", stopVerified: false, reason: null, createdAt: background.createdAt }]);
+  const status = await p.background!.status(background.id);
+  assert.ok("command" in status); assert.equal(status.command, "printf hello; sleep 300");
+  assert.ok("stdoutBytes" in status); assert.ok("stderrBytes" in status);
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, ref), context); p.harness.resume();
+  await until(async () => (await active(p)).stopped);
+  assert.equal(f.launches(), 1); assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 0);
+});
+
+test("Personal process amendments supersede an admitted startup before its launch boundary", async t => {
+  const f = await fixture(t, () => ({ kind: "text", text: "完成" })), p = await f.open(); await allow(p); await p.answer("原后台要求", "startup-owner");
+  const definition = p.background!.extension.tasks!.find(task => task.definition.name === "ruukoto.background-start")!.definition as TaskDefinition<{ id: string }, { phase: "start" | "verify" }, object, object>;
+  const start = definition.phases.start;
+  let release!: () => void, entered = false; const gate = new Promise<void>(resolve => { release = resolve; });
+  t.mock.method(definition.phases, "start", async (...args: Parameters<typeof start>) => { entered = true; await gate; await start(...args); });
+  const work = await p.work.delegate({ requestId: "startup-work", sourceRequestId: "startup-owner", content: "process-fixture:{\"command\":\"sleep 300\"}" });
+  try {
+    await until(async () => entered);
+    const id = (await p.harness.snapshot(PersonalBackgroundDoc, context))!.ids[0], admitted = (await p.harness.snapshot(PersonalBackgroundProcessDoc, id, context))!.process!;
+    assert.equal(admitted.state, "starting"); assert.equal(admitted.launchClaim, undefined); assert.equal(f.launches(), 0);
+    await p.answer("新要求只报告状态", "startup-amendment");
+    await p.harness.commit(async tx => appendPersonalWork(tx, work, { requestId: "startup-note", content: "只报告状态", source: await personalWorkNoteSource(tx, "startup-amendment") }), context); p.harness.resume();
+    assert.ok((await p.harness.snapshot(PersonalBackgroundProcessDoc, id, context))!.process!.superseded);
+  } finally { release(); }
+  await p.harness.waitForTask(work.taskId, context);
+  const stopped = await active(p); assert.equal(stopped.stopped, true); assert.equal(stopped.launchClaim, undefined); assert.equal(stopped.reason, "tool_requirements_changed"); assert.equal(f.launches(), 0);
+  assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 0);
+  await p.close(); const restored = await f.open(); assert.equal((await active(restored)).reason, "tool_requirements_changed"); assert.equal(f.launches(), 0);
+});
+
+test("Personal process cancellation and tool management retain the original assignment", async t => {
+  let processId = "";
+  const f = await fixture(t, request => {
+    const last = request.messages.at(-1);
+    if (request.system?.includes("你是个人助手的子 Agent") && last?.role === "user" && last.content === "other-work-stop") return { kind: "tool_calls", calls: [{ id: "other-stop", name: "process_stop", arguments: { process_id: processId } }] };
+    return { kind: "text", text: "完成" };
+  }), p = await f.open(); await allow(p); await p.answer("原拥有者输入", "owner");
+  const original = await p.work.delegate({ requestId: "process-work", sourceRequestId: "owner", content: "process-fixture:{\"command\":\"sleep 300\"}" });
+  await p.harness.waitForTask(original.taskId, context); const process = await active(p); processId = process.id;
+  const other = await p.work.delegate({ requestId: "other-work", sourceRequestId: "owner", agentId: original.agentId, content: "other-work-stop" });
+  await p.harness.waitForTask(other.taskId, context);
+  const result = await p.harness.commit(tx => personalWorkResult(tx, other), context);
+  assert.match(JSON.stringify(f.server.calls), /后台属于另一原入口|后台属于另一工作|background_source_invalid/);
+  assert.equal(result.state, "completed"); assert.equal((await active(p)).stopped, false); assert.equal(f.stops(), 0);
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, other), context); await delay(600);
+  assert.equal((await active(p)).stopped, false);
+  f.failStop(true); await p.harness.commit(tx => requestPersonalWorkCancel(tx, original), context); p.harness.resume();
+  await until(async () => (await active(p)).state === "stop_unverified");
+  await assert.rejects(p.harness.commit(tx => requirePersonalBackgroundWorkStopped(tx, original.taskId), context), code("work_stop_unverified"));
+  f.failStop(false); await p.background!.stop(processId); await until(async () => (await active(p)).stopped);
+  assert.equal(f.launches(), 1);
+  await p.close(); const restored = await f.open(); assert.equal((await active(restored)).origin.work!.ref.taskId, original.taskId); assert.equal(f.launches(), 1);
 });
 
 test("个人后台：完全访问启动和持续监督不扫描保护树，目录身份变化仍停止", async t => {
@@ -143,7 +208,7 @@ test("个人后台结束屏障：Telegram结束不拦住此前接纳的本机输
   const f = await fixture(t, async (_request, index) => { if (index === 0) { await held; return { kind: "tool_calls", calls: [{ id: "start", name: "process_start", arguments: { command: "sleep 300" } }] }; } return { kind: "text", text: "已接纳" }; });
   const p = await f.open(); await allow(p); const answer = p.answer("启动", "local-before-telegram-end"); await until(async () => f.server.calls.length === 1);
   await p.harness.commit(tx => p.background!.closeIn(tx, randomUUID(), { botId: "123", ownerId: "456", generation: "telegram-entry" }), context); release(); await answer;
-  assert.equal(f.launches(), 1); assert.equal((await active(p)).state, "running");
+  assert.equal((await active(p)).state, "running"); assert.equal(f.launches(), 1);
 });
 
 test("个人后台：停止未核实保留claim，后续write和普通命令认领均拒绝，可信重核才释放", async t => {
@@ -167,6 +232,9 @@ test("个人后台：预算停止保留16MiB原字节和partial，篡改日志�
 
 for (const corruption of ["missing", "pointer"] as const) test(`个人后台：结束原键固定目标；恢复拒绝${corruption}认领断链且零新增派发`, async t => {
   const f = await fixture(t), p = await f.open(); await allow(p); await p.answer("启动", "owner"); const process = await active(p), key = randomUUID();
+  const ref = process.origin.work!.ref; await p.harness.waitForTask(ref.taskId, context);
+  const work = (await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!, delegation = (await p.harness.snapshot(PersonalDelegationDoc, String(work.delegation!.entryId), context))!.delegation!;
+  await p.harness.waitForTask(delegation.report!.taskId, context);
   const closure = await p.background!.end(key); await until(async () => (await active(p)).stopped);
   assert.deepEqual(await p.background!.end(key), closure); assert.equal((await p.background!.endStatus(key)).stopVerified, true);
   await p.harness.commit(async tx => { if (corruption === "missing") (await tx.doc(PersonalDirectoryClaimsDoc)).claims.length = 0; else (await tx.doc(PersonalBackgroundProcessDoc, process.id, null)).process!.claim = process.admission; }, context); await p.close();
@@ -231,7 +299,10 @@ for (const platform of ["telegram", "qq"] as const) test(`个人后台原菜单�
   await open(); const initial = receive("启动后台"); await until(async () => f.server.calls.length === 1);
   const other = platform === "telegram" ? { platform: "qq" as const, ...qq } : telegram;
   await p.harness.commit(tx => p.background!.closeIn(tx, randomUUID(), other), context); release(); await initial;
-  const backgroundProcess = await active(p), calls = f.server.calls.length;
+  const backgroundProcess = await active(p); await p.harness.waitForTask(backgroundProcess.origin.work!.ref.taskId, context);
+  const work = (await p.harness.snapshot(PersonalWorkDoc, backgroundProcess.origin.work!.ref.requestId, context))!;
+  const delegation = (await p.harness.snapshot(PersonalDelegationDoc, String(work.delegation!.entryId), context))!.delegation!; await p.harness.waitForTask(delegation.report!.taskId, context);
+  const calls = f.server.calls.length;
   const list = await receive("/后台"), detail = await receive("后台1", Number(list.value.platformMessageId)); assert.match(detail.value.reply!, /running/);
   assert.match((await receive("后台输出", Number(detail.value.platformMessageId))).value.reply!, /a.*b/s);
   assert.equal((await receive("停止此后台")).value.backgroundAction, undefined);
@@ -245,7 +316,7 @@ for (const platform of ["telegram", "qq"] as const) test(`个人后台原菜单�
   await close(); await open(); assert.equal((await active(p)).id, backgroundProcess.id); assert.equal((await active(p)).stopped, true); await close();
 });
 
-test("个人问题与后台：持有目录时提问收窄当前轮，答案新轮仍只有后台观测工具", async t => {
+test("Personal questions narrow the pending question round while process ownership keeps main coordination usable", async t => {
   const f = await fixture(t, request => {
     const last = request.messages.at(-1);
     if (last?.role !== "user") return { kind: "text", text: "已登记" };
@@ -258,7 +329,7 @@ test("个人问题与后台：持有目录时提问收窄当前轮，答案新�
   assert.deepEqual(names(f.server.calls.at(-1)!), ["process_output", "process_status"]);
   const id = (await p.harness.snapshot(PersonalQuestionsDoc, context))!.ids[0], question = (await p.harness.snapshot(PersonalQuestionDoc, id, context))!.question!;
   const receipt = await p.harness.commit(tx => answerPersonalQuestion(tx, { question: id, version: question.version, requestId: randomUUID(), answers: [{ text: "仍要先停" }] }, { kind: "local" }), context); p.harness.resume(); await p.harness.waitForTask(receipt.taskId!, context);
-  assert.deepEqual(names(f.server.calls.at(-1)!), ["ask_user", "process_output", "process_status", "process_stop"]);
+  assert.ok(names(f.server.calls.at(-1)!).includes("background_work")); assert.ok(!names(f.server.calls.at(-1)!).includes("process_start"));
   assert.equal((await active(p)).state, "running"); assert.equal(f.launches(), 1);
   await p.background!.stop((await active(p)).id); await until(async () => (await active(p)).stopped);
 });
@@ -286,7 +357,7 @@ test("个人问题与后台：答复接纳后关闭，排队续接不能借稍�
   assert.ok(!source.scheduled); assert.ok(source.entry.id > closure.entry); assert.equal(source.accepted, receipt.entry);
   assert.equal(f.launches(), 0); assert.equal((await p.harness.snapshot(PersonalBackgroundDoc, context))!.ids.length, 0);
   assert.equal((await p.harness.snapshot(PersonalDirectoryClaimsDoc, context))!.claims.filter(value => !value.released).length, 0);
-  assert.match(JSON.stringify(f.server.calls), /原拥有者输入不具启动资格或已结束后台/);
+  assert.ok(f.server.calls.every(request => !request.system?.includes("你是个人助手的子 Agent") || !request.tools?.some(tool => (tool.function as { name: string }).name === "process_start")));
   await p.close(); await f.open(); assert.equal(f.launches(), 0);
 });
 

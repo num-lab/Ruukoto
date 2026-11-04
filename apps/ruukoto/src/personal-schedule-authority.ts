@@ -9,7 +9,7 @@ import { personalToolOrigin } from "./personal-tool-source.ts";
 import { personalSource } from "./personal-source.ts";
 import { PersonalPermissionsDoc, personalPermissionFor, telegramSelection, telegramSourceActive } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc, samePersonalEntry } from "./personal-telegram-records.ts";
-import type { PersonalSchedule, PersonalScheduleActor, PersonalScheduleAuthority, PersonalScheduleCancellation } from "./personal-scheduler-records.ts";
+import type { PersonalSchedule, PersonalScheduleActor, PersonalScheduleAuthority, PersonalScheduleCancellation, PersonalScheduleRun, PersonalScheduleRunCancellation } from "./personal-scheduler-records.ts";
 
 type Authority = Omit<PersonalScheduleAuthority, "proof"> & { kind: PersonalScheduleActor["kind"]; requestId: string; menuRequestId?: string; modelCall?: number };
 const ScheduleAuthorityAdmission = defineEntry<Authority>("ruukoto.schedule-authority");
@@ -19,8 +19,8 @@ function normalizedArguments(definition: ToolRegistration | undefined, call: Too
   try { return validateToolArguments(definition, { ...call, arguments: copyJson(call.arguments) as Record<string, JsonValue> }) as Record<string, JsonValue>; } catch { throw invalid(); }
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
-export async function authorizePersonalSchedule(tx: Tx, actor: PersonalScheduleActor): Promise<PersonalScheduleAuthority> {
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
+async function scheduleActor(tx: Tx, actor: PersonalScheduleActor): Promise<Authority> {
   let value: Authority;
   if (actor.kind === "model") {
     if (actor.conversationId !== ROOT_CONVERSATION_ID) throw invalid();
@@ -33,9 +33,20 @@ export async function authorizePersonalSchedule(tx: Tx, actor: PersonalScheduleA
     const permission = await personalPermissionFor(tx, input);
     value = { kind: actor.kind, requestId: input.requestId, menuRequestId: menu.requestId, permission: { mode: permission.mode, version: permission.version }, telegram: { ...(input.platform ? { platform: input.platform } : {}), botId: input.botId, ownerId: input.ownerId, generation: input.generation, mode: permission.mode, version: permission.version } };
   } else {
+    if (typeof actor.requestId !== "string" || !actor.requestId.trim() || actor.requestId.length > 256) throw invalid();
     const permission = await tx.doc(PersonalPermissionsDoc);
     value = { kind: actor.kind, requestId: actor.requestId, permission: { mode: permission.mode, version: permission.version } };
   }
+  return value;
+}
+
+export async function validatePersonalScheduleActor(tx: Tx, actor: PersonalScheduleActor): Promise<Omit<PersonalScheduleAuthority, "proof">> {
+  const value = await scheduleActor(tx, actor);
+  return { permission: { ...value.permission }, ...(value.telegram ? { telegram: { ...value.telegram } } : {}), ...(value.source ? { source: { ...value.source } } : {}) };
+}
+
+export async function authorizePersonalSchedule(tx: Tx, actor: PersonalScheduleActor): Promise<PersonalScheduleAuthority> {
+  const value = await scheduleActor(tx, actor);
   const proof = (await tx.appendEntry(ScheduleAuthorityAdmission, ROOT_CONVERSATION_ID, { data: value })).id;
   return { permission: { ...value.permission }, ...(value.telegram ? { telegram: { ...value.telegram } } : {}), ...(value.source ? { source: { ...value.source } } : {}), proof: { authority: proof } };
 }
@@ -74,4 +85,25 @@ export async function verifyPersonalScheduleCancellation(tx: Tx, plan: PersonalS
   }
   const input = (await tx.doc(PersonalTelegramReceiptDoc, actor.input.requestId, null)).receipt, menu = input && await telegramSelection(tx, input);
   if (!input?.direct || !input.control || input.content !== "取消这项计划" || !samePersonalEntry(input, plan.telegram) || !samePersonalEntry(input, value.telegram) || value.requestId !== input.requestId || value.menuRequestId !== menu?.requestId || menu?.requestId !== actor.menuRequestId || menu.selection?.kind !== "schedule" || menu.selection.id !== plan.id || input.scheduleCancel?.id !== plan.id) throw invalid();
+}
+
+export async function verifyPersonalScheduleRunCancellation(tx: Tx, run: PersonalScheduleRun, cancellation: PersonalScheduleRunCancellation, cancelTool?: ToolRegistration) {
+  if (cancellation.reason === "task") { if (!isDeepStrictEqual(cancellation, { runId: run.id, reason: "task" })) throw invalid(); return; }
+  if (cancellation.reason !== "owner" || cancellation.runId !== run.id || !run.cancelEntry) throw invalid();
+  const { actor, authority } = cancellation, proof = authority.proof;
+  if (!proof || typeof proof !== "object" || Array.isArray(proof) || typeof proof.authority !== "number") throw invalid();
+  const entry = await tx.entry(ScheduleAuthorityAdmission, proof.authority as EntryId), value = entry?.data;
+  if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || entry.id <= run.admission || entry.id >= run.cancelEntry || !value || value.kind !== actor.kind || !isDeepStrictEqual(value.permission, authority.permission) || !isDeepStrictEqual(value.telegram, authority.telegram) || !isDeepStrictEqual(value.source, authority.source)) throw invalid();
+  if (actor.kind === "local") { if (value.requestId !== actor.requestId || value.source || value.telegram) throw invalid(); return; }
+  if (actor.kind === "model") {
+    const source = await personalSource(tx, actor.requestId), call = await tx.task(actor.taskId), input = call?.input;
+    const assistant = input && typeof input === "object" && !Array.isArray(input) && typeof input.assistant === "number" ? await tx.entry(input.assistant as EntryId) : undefined;
+    const part = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && part.id === (input && typeof input === "object" && !Array.isArray(input) ? input.callId : undefined));
+    if (actor.conversationId !== ROOT_CONVERSATION_ID || source.scheduled || value.modelCall !== actor.taskId || value.requestId !== actor.requestId || !isDeepStrictEqual(value.source, source.source) || call?.kind !== "pi.tool" || call.conversationId !== ROOT_CONVERSATION_ID || assistant?.byTaskId !== call.owner || assistant!.id <= source.entry.id || assistant!.id >= entry.id || part?.type !== "toolCall" || part.name !== "schedule_cancel") throw invalid();
+    const args = normalizedArguments(cancelTool, part);
+    if (args.run !== run.id || args.plan !== undefined) throw invalid();
+    return;
+  }
+  const receipt = (await tx.doc(PersonalTelegramReceiptDoc, actor.input.requestId, null)).receipt, menu = receipt && await telegramSelection(tx, receipt);
+  if (!receipt?.direct || !receipt.control || receipt.content !== "取消本次运行" || value.requestId !== receipt.requestId || value.menuRequestId !== actor.menuRequestId || menu?.requestId !== actor.menuRequestId || menu.selection?.kind !== "schedule-run" || menu.selection.runId !== run.id || !samePersonalEntry(receipt, authority.telegram)) throw invalid();
 }

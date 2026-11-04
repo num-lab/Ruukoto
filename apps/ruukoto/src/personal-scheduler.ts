@@ -19,6 +19,7 @@ export type PersonalScheduleRuntime = TaskRuntime<RunInput, { phase: "run" } | {
 export type PersonalSchedulerDeps = {
   /** Barrier-carrying main-input admission; applied only when the run's conversation is the root. */
   admitInput?: PersonalMainAdmission;
+  validateActor(tx: Tx, actor: PersonalScheduleActor): Promise<Omit<PersonalScheduleAuthority, "proof">>;
   authorize(tx: Tx, actor: PersonalScheduleActor): Promise<PersonalScheduleAuthority>;
   verifyCreator(tx: Tx, plan: PersonalSchedule): Promise<void>;
   captureScope(tx: Tx): Promise<PersonalScheduleScope>;
@@ -272,16 +273,33 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
     const authority = await deps.authorize(tx, actor);
     if (actor.kind === "im" && !samePersonalEntry(authority.telegram, plan.telegram)) throw new PersonalError("schedule_original_entry", "此计划不属于当前拥有者原入口，请从原入口查询。");
     if (activeRun && !plan.canceled) mergeMissed(plan, activeRun);
-    if (!plan.cancelEntry) plan.cancelEntry = (await tx.appendEntry(ScheduleCancellation, ROOT_CONVERSATION_ID, { data: { planId: id, actor: copy(actor), authority: copy(authority), ...(plan.activeRun ? { activeRun: plan.activeRun } : {}) } })).id;
+    if (!plan.cancelEntry) plan.cancelEntry = (await tx.appendEntry(ScheduleCancellation, ROOT_CONVERSATION_ID, { data: { planId: id, actor: copy(actor), authority: copy(authority), ...(activeRun && !activeRun.cancelRequested ? { activeRun: activeRun.id } : {}) } })).id;
     plan.canceled = true; plan.nextDueAt = null;
-    if (plan.activeRun) { const run = await personalScheduleRun(tx, plan.activeRun); run.cancelRequested = true; run.cancelEntry = plan.cancelEntry; run.sealed = true; }
+    if (activeRun && !activeRun.cancelRequested) { activeRun.cancelRequested = true; activeRun.cancelEntry = plan.cancelEntry; activeRun.sealed = true; }
     for (const runId of (await tx.doc(PersonalSchedulesDoc)).runs) { const run = await personalScheduleRun(tx, runId); if (run.planId === id && run.delivery?.state === "pending") { run.delivery.state = "canceled"; delete run.delivery.observation; } }
     return copy(plan);
+  }
+  // Note: See .agents/notes/implemented/architecture/2026-11-04-personal-m2-execution.md
+  async function cancelRun(tx: Tx, id: string, actor: PersonalScheduleActor) {
+    const run = await personalScheduleRun(tx, id), plan = await personalSchedule(tx, run.planId);
+    if (run.result || run.cancelRequested) {
+      const authority = await deps.validateActor(tx, actor);
+      if (authority.telegram && !samePersonalEntry(authority.telegram, plan.telegram) || actor.kind === "im" && !samePersonalEntry(authority.telegram, plan.telegram)) throw new PersonalError("schedule_original_entry", "此运行不属于原拥有者入口，未取消；请从原入口查询。");
+      return copy(run);
+    }
+    for (const ref of run.members) await requestPersonalWorkCancel(tx, ref);
+    const authority = await deps.authorize(tx, actor);
+    if (authority.telegram && !samePersonalEntry(authority.telegram, plan.telegram) || actor.kind === "im" && !samePersonalEntry(authority.telegram, plan.telegram)) throw new PersonalError("schedule_original_entry", "此运行不属于原拥有者入口，未取消；请从原入口查询。");
+    mergeMissed(plan, run);
+    run.cancelRequested = true; run.sealed = true;
+    run.cancelEntry = (await tx.appendEntry(ScheduleRunCancellation, run.conversationId, { data: { runId: id, reason: "owner", actor: copy(actor), authority: copy(authority) } })).id;
+    if (run.delivery?.state === "pending") { run.delivery.state = "canceled"; delete run.delivery.observation; }
+    return copy(run);
   }
   async function list(tx: Tx, offset = 0, actor?: PersonalEntryIdentity) { pageOffset(offset); const plans: PersonalSchedule[] = []; for (const id of (await tx.doc(PersonalSchedulesDoc)).plans.slice().reverse()) { const plan = await personalSchedule(tx, id); if (!actor || samePersonalEntry(actor, plan.telegram)) plans.push(plan); } return { items: plans.slice(offset, offset + 8).map(plan => copy(plan)), ...(offset + 8 < plans.length ? { nextOffset: offset + 8 } : {}) }; }
   async function runs(tx: Tx, id: string, offset = 0) { pageOffset(offset); await personalSchedule(tx, id); const items = []; for (const runId of (await tx.doc(PersonalSchedulesDoc)).runs.slice().reverse()) { const run = await personalScheduleRun(tx, runId); if (run.planId === id) items.push({ id: run.id, planId: id, scheduledFor: run.scheduledFor, mergedFrom: run.mergedFrom, mergedThrough: run.mergedThrough, state: await runState(tx, run), ...(run.delivery ? { delivery: run.delivery.state } : {}) }); } return { items: items.slice(offset, offset + 8), ...(offset + 8 < items.length ? { nextOffset: offset + 8 } : {}) }; }
   async function result(tx: Tx, id: string, offset = 0, size = 4096) { pageOffset(offset); if (!Number.isSafeInteger(size) || size < 1 || size > 16384) throw new PersonalError("schedule_input_invalid", "结果分页大小无效，请重新查询原运行。"); const run = await personalScheduleRun(tx, id); return { runId: id, state: await runState(tx, run), ...(run.result ? pageText(run.result.text, offset, size) : {}), ...(run.delivery ? { delivery: run.delivery.state } : {}) }; }
-  return { extension: defineExtension({ name: PERSONAL_SCHEDULER, tasks: [supervisorTask, runTask, sendTask] }), runTask, sendTask, supervisorTask, create, createByRequest, list, get: async (tx: Tx, id: string) => copy(await personalSchedule(tx, id)), cancel, runs, result, scan,
+  return { extension: defineExtension({ name: PERSONAL_SCHEDULER, tasks: [supervisorTask, runTask, sendTask] }), runTask, sendTask, supervisorTask, create, createByRequest, list, get: async (tx: Tx, id: string) => copy(await personalSchedule(tx, id)), cancel, cancelRun, runs, result, scan,
     start,
     verifyCreator: deps.verifyCreator,
   };

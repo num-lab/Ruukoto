@@ -32,7 +32,7 @@ async function socketFixture(t: TestContext, loseCreate = false) {
   const directory = fs.mkdtempSync(path.join(tmpdir(), "personal-schedule-ui-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const token = "a".repeat(64); fs.writeFileSync(path.join(directory, "control.token"), token);
-  let created: PersonalScheduleCreateBody | undefined, creates = 0, canceled = false;
+  let created: PersonalScheduleCreateBody | undefined, creates = 0, canceled = false, runState = "completed";
   const report = "甲".repeat(4500) + "🦉末页";
   const routes: string[] = [];
   const server = http.createServer(async (req, res) => {
@@ -47,15 +47,16 @@ async function socketFixture(t: TestContext, loseCreate = false) {
       result = { id: "saved-plan" };
     } else if (req.method === "GET" && url.pathname === "/schedules") result = { items: created ? [{ ...created, id: "saved-plan", canceled, nextDueAt: null }] : [] };
     else if (req.method === "GET" && url.pathname === "/schedule") result = url.searchParams.has("requestId") ? created?.requestId === url.searchParams.get("requestId") ? { id: "saved-plan" } : null : { ...created, id: "saved-plan", canceled, nextDueAt: null };
-    else if (req.method === "GET" && url.pathname === "/schedule/runs") result = { items: [{ id: "saved-run", planId: "saved-plan", scheduledFor: "2026-10-18T00:00:00Z", mergedFrom: "2026-10-18T00:00:00Z", mergedThrough: "2026-10-18T00:00:00Z", state: "completed", delivery: "local" }] };
-    else if (req.method === "GET" && url.pathname === "/schedule/run/result") { const offset = Number(url.searchParams.get("offset")); result = { runId: "saved-run", state: "completed", text: report.slice(offset, offset + 4096), delivery: "local", ...(offset + 4096 < report.length ? { nextOffset: offset + 4096 } : {}) }; }
+    else if (req.method === "GET" && url.pathname === "/schedule/runs") result = { items: [{ id: "saved-run", planId: "saved-plan", scheduledFor: "2026-10-18T00:00:00Z", mergedFrom: "2026-10-18T00:00:00Z", mergedThrough: "2026-10-18T00:00:00Z", state: runState, delivery: "local" }] };
+    else if (req.method === "GET" && url.pathname === "/schedule/run/result") { const offset = Number(url.searchParams.get("offset")); result = { runId: "saved-run", state: runState, text: report.slice(offset, offset + 4096), delivery: "local", ...(offset + 4096 < report.length ? { nextOffset: offset + 4096 } : {}) }; }
     else if (req.method === "POST" && url.pathname === "/schedule/cancel") { canceled = true; result = { cancelRequested: true }; }
+    else if (req.method === "POST" && url.pathname === "/schedule/run/cancel") { assert.equal(url.searchParams.get("run"), "saved-run"); runState = "canceling"; result = { cancelRequested: true }; }
     else { res.writeHead(404).end(); return; }
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ v: 1, ok: true, result }));
   });
   server.listen(path.join(directory, "control.sock")); await once(server, "listening");
   t.after(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())));
-  return { directory, routes, created: () => created, creates: () => creates, report, seed: () => { created = body(); } };
+  return { directory, routes, created: () => created, creates: () => creates, report, canceled: () => canceled, seed: (active = false) => { created = body(); if (active) runState = "running"; } };
 }
 
 test("调度向导：选择每周与IANA时区并保存多星期，用户不提供内部键", async t => {
@@ -88,6 +89,16 @@ test("调度向导：从计划选择原运行、分页完整报告与整项取�
   assert.doesNotMatch(s.prompts.join("\n"), /requestId|planId|runId|UUID|内部键/);
 });
 
+test("Schedule CLI: canceling the selected run preserves the future plan", async t => {
+  const f = await socketFixture(t); f.seed(true);
+  const s = scripted(["2", "1", "2", "1", "3", "3", "3", "2", "4", "2", "4"]);
+  await managePersonalSchedules(s.io, f.directory);
+  assert.equal(s.remaining.length, 0); assert.equal(f.canceled(), false);
+  assert.equal(f.routes.filter(route => route === "POST /schedule/run/cancel").length, 1);
+  assert.equal(f.routes.filter(route => route === "POST /schedule/cancel").length, 0);
+  assert.match(s.output(), /未来计划保留/); assert.doesNotMatch(s.prompts.join("\n"), /requestId|planId|runId|UUID|内部键/);
+});
+
 test("调度向导：坏规则不保存，返回不创建，独立待核实文件可由原档案保护", async t => {
   const s = scripted(["1", "1", "2026-10-20T09:00:00"]);
   await assert.rejects(choosePersonalScheduleRule(s.io), code("schedule_rule_invalid"));
@@ -109,7 +120,7 @@ async function controlsFixture(t: TestContext) {
   const models = recordedModels(personalProvider({ api: "openai-completions", baseUrl: "http://127.0.0.1:1", modelId: "unused", apiKeyEnv: "SCHEDULER_UI_UNUSED_KEY", contextWindow: 4096, maxTokens: 1024 }), async () => { assert.fail("宿主调度菜单不能调用模型"); });
   const harness = await Harness.open(new MemoryStorage(), { registry, models }, context);
   const p = { harness, main: await harness.root(context) }; t.after(() => harness.close(context));
-  let serial = 0, creates = 0, cancels = 0; const plans = new Map<string, PersonalSchedule>(), keys: string[] = [], runs = new Map<string, PersonalScheduleRun>();
+  let serial = 0, creates = 0, cancels = 0, runCancels = 0; const plans = new Map<string, PersonalSchedule>(), keys: string[] = [], runs = new Map<string, PersonalScheduleRun>();
   const scheduler: Scheduler = {
     async create(_tx, input, actor) {
       const prior = [...plans.values()].find(plan => plan.requestId === input.requestId); if (prior) return prior;
@@ -123,6 +134,7 @@ async function controlsFixture(t: TestContext) {
     async list(_tx, _offset, actor) { return { items: [...plans.values()].filter(plan => !actor || samePersonalEntry(plan.telegram, actor)) }; },
     async get(_tx, id) { const plan = plans.get(id); assert.ok(plan); return plan; },
     async cancel(_tx, id, actor: PersonalScheduleActor) { assert.equal(actor.kind, "im"); plans.get(id)!.canceled = true; cancels++; return plans.get(id)!; },
+    async cancelRun(_tx, id, actor: PersonalScheduleActor) { assert.equal(actor.kind, "im"); const run = runs.get(id); assert.ok(run); run.cancelRequested = true; runCancels++; return run; },
     async runs(_tx, id) { return { items: [...runs.values()].filter(run => run.planId === id).map(run => ({ id: run.id, planId: id, scheduledFor: run.scheduledFor, mergedFrom: run.mergedFrom, mergedThrough: run.mergedThrough, state: "completed", delivery: "sent" as const })) }; },
     async result(_tx, runId, offset = 0, size = 4096) { assert.equal(size, 2400); return { runId, state: "completed", text: offset ? "🦉原报告末页" : "甲".repeat(2399), ...(offset ? {} : { nextOffset: 2399 }), delivery: "sent" }; },
   };
@@ -141,7 +153,7 @@ async function controlsFixture(t: TestContext) {
     const run: PersonalScheduleRun = { id: `run-${planId}`, planId, planVersion: 1, scheduledFor: "2026-10-18T00:00:00Z", mergedFrom: "2026-10-18T00:00:00Z", mergedThrough: "2026-10-18T00:00:00Z", admission: 1 as EntryId, taskId: receipt.taskId, conversationId: p.main.id, requestId: `run-source-${planId}`, cancelRequested: false, sealed: true, members: [] };
     runs.set(run.id, run); await p.harness.commit(async tx => { (await tx.doc(PersonalScheduleRunDoc, run.id, null)).run = run; }, context); return run;
   }
-  return { p, scheduler, keys, plans, receive, addRun, creates: () => creates, cancels: () => cancels };
+  return { p, scheduler, keys, plans, receive, addRun, creates: () => creates, cancels: () => cancels, runCancels: () => runCancels };
 }
 
 test("双平台定时菜单：逐步草稿与确认回链零模型，同草稿重复确认只创建一项", async t => {
@@ -175,4 +187,25 @@ test("定时菜单：跨平台、摘录、未送达及无原菜单不能创建�
   await f.p.harness.commit(async tx => { const value = (await tx.doc(PersonalTelegramReceiptDoc, draft.requestId, null)).receipt!; assert.ok(value.selection?.kind === "schedule-draft"); value.selection.draft.step = "confirm"; }, context);
   await assert.rejects(f.p.harness.commit(tx => verifyScheduleControls(tx, f.keys, true, f.scheduler), context), code("schedule_menu_invalid"));
   assert.equal(f.creates(), 0); assert.equal(f.cancels(), 0); assert.ok((await f.p.harness.inspect(context)).tasks.every(task => task.record.kind === "ruukoto.telegram-input"));
+});
+
+test("Schedule IM controls: only the original delivered run choice cancels this occurrence", async t => {
+  const f = await controlsFixture(t);
+  for (const platform of [undefined, "qq"] as const) {
+    let menu = await f.receive("/定时", undefined, platform); menu = await f.receive("新建计划", menu, platform);
+    for (const content of ["每日", "东京", "09:30", "计划", "本次要求"]) menu = await f.receive(content, menu, platform);
+    const created = await f.receive("确认创建计划", menu, platform), run = await f.addRun(created.scheduleCreate!.id, created);
+    const runs = await f.receive("查看运行", created, platform), selected = await f.receive("运行1", runs, platform);
+    const missing = await f.receive("取消本次运行", undefined, platform);
+    const wrongMenu = await f.receive("取消本次运行", created, platform);
+    const crossed = await f.receive("取消本次运行", selected, platform === "qq" ? undefined : "qq");
+    const forwarded = await f.receive("取消本次运行", selected, platform, false);
+    const unsent = await f.receive("运行1", runs, platform, true, false), lost = await f.receive("取消本次运行", unsent, platform);
+    for (const refused of [missing, wrongMenu, crossed, forwarded, lost]) assert.equal(refused.scheduleRunCancel, undefined);
+    const canceled = await f.receive("取消本次运行", selected, platform);
+    assert.deepEqual(canceled.scheduleRunCancel, { runId: run.id }); assert.match(canceled.reply!, /未来计划保留/);
+    assert.equal(f.plans.get(run.planId)!.canceled, false);
+  }
+  assert.equal(f.runCancels(), 2); assert.equal(f.cancels(), 0);
+  await f.p.harness.commit(tx => verifyScheduleControls(tx, f.keys, true, f.scheduler), context);
 });

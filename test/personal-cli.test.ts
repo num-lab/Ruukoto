@@ -705,7 +705,12 @@ test("本机应用数据：认证API批准原操作与CLI按列表查看，无�
     { name: "app_data_insert", arguments: { table: "todos", records: [{ title: "甲" }, { title: "乙" }], reason: "新增" } },
     { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "完成" } },
   ];
-  const f = await fixture(t, (_request, index) => calls[index] ? { kind: "tool_calls", calls: [{ id: `app-data-${index}`, ...calls[index] }] } : { kind: "text", text: "业务已完成" });
+  let childCalls = 0;
+  const f = await fixture(t, request => {
+    if (!request.system?.includes("你是个人助手的子 Agent")) return String(request.messages.at(-1)?.content) === "整理待办" ? { kind: "tool_calls", calls: [{ id: "app-data-work", name: "background_work", arguments: { action: "delegate", content: "整理待办", appData: true } }] } : { kind: "text", text: "业务已完成" };
+    const index = childCalls++;
+    return calls[index] ? { kind: "tool_calls", calls: [{ id: `app-data-${index}`, ...calls[index] }] } : { kind: "text", text: "业务已完成" };
+  });
   const server = await f.start();
   const input = preparePersonalInput(f.dir, "整理待办"); await personalControl(f.dir, "POST", "/inputs", input);
   let operation = 0;
@@ -713,6 +718,7 @@ test("本机应用数据：认证API批准原操作与CLI按列表查看，无�
   const unauthorized = await raw(f.dir, "POST", `/app-data/decide?operation=${operation}`, JSON.stringify({ decision: "approved" })); assert.notEqual(unauthorized.status, 200);
   await personalControl(f.dir, "POST", `/app-data/decide?operation=${operation}`, { decision: "approved" });
   await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
+  await until(async () => (await personalControl<{ items: { operation: number; effect: string }[] }>(f.dir, "GET", "/app-data/operations")).items[0]?.effect === "committed");
   const page = await personalControl<{ items: { operation: number; effect: string }[] }>(f.dir, "GET", "/app-data/operations"); assert.equal(page.items[0].effect, "committed");
   await personalControl(f.dir, "POST", `/app-data/recheck?operation=${operation}`);
   const answers = ["1", "1", "4"], output: string[] = [];

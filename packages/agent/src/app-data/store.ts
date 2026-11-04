@@ -270,12 +270,14 @@ CREATE INDEX IF NOT EXISTS idx_app_audit_seq ON app_audit (seq);
 `;
 
 export interface AppDataStoreOptions {
-  /** 只读打开（查询子进程）；默认读写。 */
+  /** Open read-only for queries; writable by default. */
   readOnly?: boolean;
-  /** 已绑定库只核实原身份，不创建或补齐缺失记录。 */
+  /** Verify the bound database without creating or repairing records. */
   expectedInstanceId?: string;
-  /** 首次初始化事务内写入宿主预先登记的身份。 */
+  /** Record the host's original identity in the initialization transaction. */
   initialInstanceId?: string;
+  /** SQLite busy timeout in milliseconds; omitted uses the native zero-wait default. */
+  timeout?: number;
 }
 
 export class AppDataStore {
@@ -294,10 +296,10 @@ export class AppDataStore {
       if (!fs.existsSync(file)) {
         throw new AppDataError("app_data_unavailable", `应用数据库不存在：${file}`);
       }
-      this.db = new DatabaseSync(file, { readOnly: this.readOnly });
+      this.db = new DatabaseSync(file, { readOnly: this.readOnly, timeout: opts.timeout });
     } else {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-      this.db = new DatabaseSync(file);
+      this.db = new DatabaseSync(file, { timeout: opts.timeout });
       this.db.exec("PRAGMA journal_mode = WAL;");
       this.db.exec("PRAGMA synchronous = FULL;");
     }

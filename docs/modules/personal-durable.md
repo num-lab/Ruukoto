@@ -2,9 +2,9 @@
 
 ## Responsibilities and Boundaries
 
-`apps/ruukoto/src/personal-*.ts` owns the Personal product's Pi 1.3.0 durable runtime: one main conversation, persistent analysis, schedules, memory and local/IM/remote entry points. It provides command workers, browser tools, application-data access, approvals and structured owner questions. File preparation, revalidation and execution run in one fixed worker per job, outside the host event loop and Session transactions. A stuck job leaves unrelated file operations available while capacity remains.
+`apps/ruukoto/src/personal-*.ts` owns the Personal product's Pi 1.3.0 durable runtime: one main conversation, persistent analysis, schedules, memory and local/IM/remote entry points. It provides command workers, browser tools, application-data access, approvals and structured owner questions. File and application SQLite operations run in fixed workers outside the host event loop and Session transactions. A stuck file job leaves unrelated file operations available while capacity remains.
 
-Waiting business tools run only inside SubAgents: main model requests never offer them and their main-conversation execution is refused before any effect, so waiting operations never hold the main generation. Each owner input may commit at most four persisted tool-call batches; a noncompliant overrun stops the input through a durable cutoff that cancels exactly the work it admitted, appends a public marker with the cancellation registration, and notifies the original local or IM entry factually — cancellation registered is never reported as physically stopped — while a compliant model simply answers in prose once the offer is empty. While a cutoff's cancellation registration is unfinished, new main submissions are admitted durably as queued — accepted immediately, never self-placed — and the coordinator places the queue itself once registration completes; queued inputs are parked so that foreign writes such as background compaction summaries can never advance them ahead of a pending registration, and a run that ends without a boundary likewise leaves the queue to the coordinator, which applies the same final boundary its callers would have.
+Main delegates waiting business calls to SubAgents: its requests omit ordinary tools, app-data, MCP calls, service inspection/restart, commands, browser operations and process startup. Independent scheduled conversations retain their original captured scope. Main execution safeguards return handled errors before effects. Each owner input may commit at most four persisted tool-call batches; a noncompliant overrun stops the input through a durable cutoff that cancels exactly the work it admitted, appends a public marker with the cancellation registration, and notifies the original local or IM entry factually — cancellation registered is never reported as physically stopped — while a compliant model simply answers in prose once the offer is empty. While a cutoff's cancellation registration is unfinished, new main submissions are admitted durably as queued — accepted immediately, never self-placed — and the coordinator places the queue itself once registration completes; queued inputs are parked so that foreign writes such as background compaction summaries can never advance them ahead of a pending registration, and a run that ends without a boundary likewise leaves the queue to the coordinator, which applies the same final boundary its callers would have.
 
 [Deployment](deploy.md) owns systemd configuration; [runtime](runtime.md) describes the separate Coding engine; [execution](execution.md) describes shared native primitives.
 
@@ -18,15 +18,16 @@ Waiting business tools run only inside SubAgents: main model requests never offe
 | `ruukoto maintenance` | Verify and explicitly control the production service |
 | `ruukoto remote` | Pair/revoke remote devices; host HTTPS/WSS with `remote serve` |
 
-| Tool family | Main tools and responsibility |
+| Tool family | Tools and responsibility |
 | --- | --- |
 | Analysis/delegation | `background_work`: persistent children, amendments, bounded operation/decision queries, redisplay and published reports |
 | Questions | `ask_user`: one to three structured questions and continuation after answers |
-| Scheduling | `schedule_create`, `schedule_query`, `schedule_cancel`: timed work in independent conversations |
+| Scheduling | `schedule_create`, `schedule_query`, `schedule_cancel`: independent timed work, with separate occurrence and future-plan cancellation |
 | Memory/history | `memory`, `history_search`, `history_read`: versioned facts and history lookup |
 | Files/network | `read_file`, `write_file`, `web_search`, `http_request`, `list_files`, `search_files`, `read_artifact`: child-side access within granted scope, with approvals where required |
-| Browser | `browser`: browser operation and screenshots |
-| Application data | `app_data_*`: dedicated business database access |
+| Browser/computer | `browser` and configured Cua tools: host-qualified child work, serial resource ownership, fresh takeover observations |
+| Application data | `app_data_*`: explicitly delegated business database access; fixed SQLite worker jobs |
+| Persistent processes | `process_start`, `process_status`, `process_output`, `process_stop`: work-owned startup and independent lifetime across replies |
 | MCP | `mcp_tools`, `mcp_call`, `read_mcp_result`: eligible discovery, calls and original results; Pi handles transport/paging |
 
 ## Data and State
@@ -57,6 +58,7 @@ stateDiagram-v2
 | MCP | `mcp.json` configuration v4 and durable operation entries |
 | File I/O | Versioned job admissions and lifecycle entries: original tool/work/source, host identity, immutable input, deadline, settlement and stopping evidence |
 | Work and report selections | Actual model-request evidence: received instructions, native inputs and report source/coverage |
+| Interactive resources | Host work qualification, FIFO claims, acquisition and release entries with original stop evidence |
 | Published reports | Immutable publication references to original answers; drafts remain inspectable in conversation history |
 | Native owner display | Data-only admission entry and reciprocal request/submission/history association; native model history remains unchanged |
 
@@ -88,7 +90,9 @@ Platform message identity deduplicates admission. Auto-review handles eligible r
 
 ### Amendments and Final Reports
 
-Main handles a progress question through canonical work and operation queries. A requested redisplay identifies the same original decision and grants no approval. An append records changed or additional requirements for the same work and SubAgent. Every accepted append makes its older unstarted ordinary operations known not executed, including approved but unconsumed actions, while preserving their requests and decisions. The child reads the saved update at a model boundary and prepares a new exact action. Admission and consumption check what that actual request received, including delayed old responses and note-only runs. Misclassifying a progress question as append has the same conservative invalidation cost; a started effect cannot be undone by an amendment.
+Main handles a progress question through canonical work and operation queries. Work results include current MCP, app-data, browser, process and resource state alongside command, service and ordinary-tool facts. A requested redisplay identifies the same original decision and grants no approval. An append records changed or additional requirements for the same work and SubAgent. Every accepted append makes its older unstarted operations known not executed across enabled families, including approved but unconsumed actions, while preserving their requests and decisions. The child reads the saved update at a model boundary and prepares a new exact action. Admission and consumption check what that actual request received and the current live input membership, including delayed old responses and note-only runs. Misclassifying a progress question as append has the same conservative invalidation cost; a started effect cannot be undone by an amendment.
+
+Work result queries expose at most eight facts per family. `factsOffset` and `nextFactsOffset` page those facts independently of the answer's `offset` and `nextOffset`; summaries and delegation progress include the first fact page. When facts are paged, `factCounts` gives each family's total, pending and unknown counts across all records. A missing operation on one page does not establish that work has no pending decisions or unknown effects. Process facts show brief status; process management retains the original command and output details.
 
 Delegated requirements preserve the owner's exact target, literal content and restrictions without adding verification effects. Progress and redisplay answers use concise natural language; internal identifiers, fields, tool names and versions are reserved for requested technical evidence. These instructions guide the model; actual model-request captures and scenario interaction provide separate evidence of its behavior.
 
@@ -124,6 +128,20 @@ When a sent write/unknown-effect call loses its reply, its source stops automati
 
 Manual finalization adds facts; it never removes the original source's automatic-execution prohibition. New independent owner input may use the same service: its URL is not a business-resource lock. Old SSE reinspection tasks retire without networking after restart; recovery and queries read original records.
 
+### Interactive Ownership and Persistent Processes
+
+Original full-access work receives a host-recorded controlled identity for configured browser, computer and process capabilities. One assignment holds a managed browser or Cua sandbox resource; later assignments persist in FIFO order with their original permissions. Normal completion and cancellation close the original browser or CLI and wait for exact stopping and required effect evidence. Resource release and WorkTask completion commit together after checking notes accepted during cleanup, so an active amended work keeps its original claim. Unknown stopping keeps the work and resource owned while main answers other inputs.
+
+Browser takeover requires an original-entry continuation choice and a new snapshot before later actions. Browser connection management targets the current child owner and binds stopping and its evidence to the captured original execution; a historical operation cannot stop or mark a reused child's later browser stopped. Cua requires a new screenshot and acceptance of that exact observation, including when a paused in-flight call later succeeds. Old choices and observations cannot resume a later pause. A later connection-stop failure can be rechecked while preserving the accepted takeover. Automatic CLI cleanup preserves the Linux sandbox; stopping the whole sandbox remains an explicit owner action because unsaved state may be lost. The existing Cua connection handles one configured target at a time and refuses another while occupied or stopping. A successor for the same resource waits for cleanup or recovery to finish and rechecks its original instructions before connecting. Reopen verifies all resource participants and release evidence against immutable history.
+
+Processes survive ordinary child replies under their original assignment and directory claims. Canceling that assignment stops only its owned managed executions, even after the WorkTask has completed. Reused SubAgents cannot manage another work's processes. Historical processes retain their original provenance; directory conflicts and unknown stopping still prevent unsafe writes.
+
+### Application Data and Schedule Cancellation
+
+App-data work requires explicit delegation eligibility. Fixed worker jobs open only the bound application database, perform preparation/query/write/receipt inspection, and exit before results are used. Each handle waits at most one second for a SQLite lock, including concurrent WAL recovery at opening; an expired opening wait reports busy rather than a missing or corrupt database. Inspection/query/receipt jobs request termination after two seconds, initialization/writes after ten seconds. Aborts, deadlines and profile close join the original worker; an active native SQLite call can delay exit while main remains available. A host crash ends all writer threads. Started writes recover from original audit receipts without replay. Approval records no database wait inside the Session transaction, and the application write transaction rechecks the approved revision. Receipt recheck is an independent host task.
+
+Canceling one scheduled occurrence records its original owner authority, cancels its derived work and leaves future triggers intact. Canceling the plan also stops future triggers. A later plan cancellation preserves an earlier run cancellation entry. Unknown effects and unverified resources keep the original run occupied until their existing verification paths settle.
+
 ## Invariants and Failure Handling
 
 - One instance owns one exclusive durable Harness; local, IM and desktop entries share its conversation facts.
@@ -131,7 +149,7 @@ Manual finalization adds facts; it never removes the original source's automatic
 - Restart recovery reconciles pending work without repeating completed facts or replaying unknown external effects.
 - Accepted follow-up instructions keep the original work's SubAgent and stable native keys: the same task steers each accepted note into that conversation in admission order, supervises every submission through completion, cancellation or failure, and reports each note's real state instead of replaying it under a new key.
 - A local empty model answer without persisted handoff facts reports an error while retaining the original native history.
-- Unstarted ordinary operations require the instructions actually present in their recorded model request; a later append cannot leave an older action executable.
+- Unstarted operations across enabled families require the instructions actually present in their recorded model request; a later append cannot leave an older action executable.
 - Report publication and external send claims verify their covered requirements independently. Published history stays immutable, and an already-started send keeps its original outcome identity across successor reports.
 - Desktop approval remains the original native/IM operation decision. Display, redisplay and client reconnection grant no authority; native cannot approve an IM-origin item.
 - Sending retains destination and outcome identity across connection failures. An inconclusive sent operation is not automatically retried as if unsent.
@@ -153,3 +171,4 @@ Manual finalization adds facts; it never removes the original source's automatic
 - [Personal foundation integration and failure evidence](../../.agents/notes/implemented/bug-fix/2026-11-04-personal-foundation-integration.md)
 - [Personal validated report publication](../../.agents/notes/implemented/architecture/2026-11-04-personal-report-publication.md)
 - [Personal desktop file loop](../../.agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md)
+- [Personal execution across waiting capabilities](../../.agents/notes/implemented/architecture/2026-11-04-personal-m2-execution.md)

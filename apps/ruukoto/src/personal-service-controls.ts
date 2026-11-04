@@ -48,9 +48,9 @@ async function summary(tx: Tx, ref: PersonalServiceOperationRef): Promise<Person
   const pending = (await tx.doc(PersonalPendingInspectionsDoc)).tasks.includes(ref.taskId);
   const unknown = op.consumed && op.result?.effect === "effect_unknown" && op.result.code !== "started";
   const task = await tx.task(ref.taskId);
-  const canDecide = !op.telegram && op.mode !== "full_access" && !!op.snapshot && !op.consumed && !op.cancelRequested && op.decision === "pending" && task?.state.status !== "terminal" && !task?.abortRequested;
+  const canDecide = !op.telegram && op.mode !== "full_access" && !!op.snapshot && !op.consumed && !op.cancelRequested && !op.result && op.decision === "pending" && task?.state.status !== "terminal" && !task?.abortRequested;
   const verification = op.result?.effect === "effect_unknown" ? `；${op.resolution ? `效果已核实：${op.resolution.effect === "applied" ? "已生效" : "未生效"}` : "未保存人工效果核实"}；${op.launcherStopped ? "原写操作停止已核实" : "原写操作停止未核实"}` : op.result ? "；写操作无需人工效果核实或停止重核" : "";
-  const status = `${op.result?.code === "started" ? "已开始，结果尚未核实" : op.result?.effect === "effect_unknown" ? "效果未知" : op.result?.effect === "executed" ? "重启命令已结束，不代表业务健康" : op.result?.effect === "not_executed" ? "已知未执行" : "尚未得到执行结果"}（${op.result?.code ?? "pending"}）${verification}${pending ? "；审批前检查停止未核实，请从检查菜单管理" : ""}`;
+  const status = `${op.superseded ? "要求已更新，这项旧服务操作没有执行；原请求和批准决定仍保留" : op.result?.code === "started" ? "已开始，结果尚未核实" : op.result?.effect === "effect_unknown" ? "效果未知" : op.result?.effect === "executed" ? "重启命令已结束，不代表业务健康" : op.result?.effect === "not_executed" ? "已知未执行" : "尚未得到执行结果"}（${op.result?.code ?? "pending"}）${verification}${pending ? "；审批前检查停止未核实，请从检查菜单管理" : ""}`;
   let stop: string | undefined;
   let cursor: Cursor | undefined;
   do {
@@ -82,7 +82,7 @@ export async function personalServiceDetail(tx: Tx, ref: PersonalServiceOperatio
 
 export function personalServiceDescription(item: PersonalServiceSummary) { return `${item.unit}；${item.status}${item.stop ? `；最近停止重核：${item.stop}` : ""}`; }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-service-recovery-controls.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-service-recovery-controls.md
 export function personalServiceControls(getHarness: () => Harness, getService: () => ServiceAPI | undefined) {
   const task = defineTask<StopInput, { phase: "run" }, { stopped: boolean; code: string }>({
     name: TASK, version: 1, initial: () => ({ phase: "run" }),

@@ -1,9 +1,10 @@
 import { openPersonalHarness } from "../../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider } from "../../apps/ruukoto/src/personal-model.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 const [directory, baseUrl, phase] = process.argv.slice(2);
-if (!directory || !baseUrl) throw new Error("缺少测试档案或模型替身地址");
+if (!directory || !baseUrl) throw new Error("Missing test profile or provider endpoint");
 const p = await openPersonalHarness({ directory, modelId: "app-data-model", provider: personalProvider({ api: "openai-completions", baseUrl, modelId: "app-data-model", apiKeyEnv: "APP_DATA_TEST_KEY", contextWindow: 128000, maxTokens: 2048 }), openStorage: async file => {
   const storage = await openNodeSqliteStorage(file), commit = storage.commit.bind(storage);
   storage.commit = (writes, context) => {
@@ -13,5 +14,7 @@ const p = await openPersonalHarness({ directory, modelId: "app-data-model", prov
   };
   return storage;
 } });
-await p.answer("强杀窗口插入", "crash-source");
-throw new Error("未触发预期强杀窗口");
+await p.answer("app-data-owner:强杀窗口插入", "crash-source");
+const work = await p.work.delegate({ content: "强杀窗口插入", requestId: "app-data-crash-work", sourceRequestId: "crash-source", appData: true });
+await p.harness.waitForTask(work.taskId, BACKGROUND_CONTEXT);
+throw new Error("Expected crash window was not reached");

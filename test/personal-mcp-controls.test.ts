@@ -40,7 +40,11 @@ async function fixture(t: TestContext, unknown = false) {
   const target = { id: "owner-service", label: "拥有者文档服务", endpoint: mcp.url };
   const discovered = await discoverPersonalMcp(target);
   const mcpConfig: PersonalMcpConfig = { version: 4, generation: randomUUID(), services: [{ ...target, enabled: true, tools: discovered, toolEffects: Object.fromEntries(discovered.map(tool => [tool.name, "unknown" as const])) }] };
-  const model = new MockModelServer((_request, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "original-call", name: "mcp_call", arguments: { service: target.id, tool: "write", arguments: {} } }] } : { kind: "text", text: "已核对原响应" });
+  let childCalls = 0;
+  const model = new MockModelServer(request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) return childCalls++ === 0 ? { kind: "tool_calls", calls: [{ id: "original-call", name: "mcp_call", arguments: { service: target.id, tool: "write", arguments: {} } }] } : { kind: "text", text: "已核对原响应" };
+    return String(request.messages.at(-1)?.content) === "执行 MCP 写入" ? { kind: "tool_calls", calls: [{ id: "delegate-mcp", name: "background_work", arguments: { action: "delegate", content: "执行 MCP 写入" } }] } : { kind: "text", text: "已核对原响应" };
+  });
   const config: PersonalModelConfig = { api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_MCP_UI_MODEL_KEY", contextWindow: 128000, maxTokens: 4096 };
   const bot = http.createServer(async (req, res) => {
     for await (const chunk of req) void chunk;
@@ -73,10 +77,10 @@ async function fixture(t: TestContext, unknown = false) {
 }
 
 test("MCP 未装配：宿主只回复配置指引，不能登记恢复时无效的菜单", async t => {
-  const f = await fixture(t), dir = directory(t);
+  const f = await fixture(t), dir = fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-mcp-ui-"));
   const options = { directory: dir, provider: personalProvider(f.config), modelId: f.config.modelId, telegram: f.telegram };
   let empty = await openPersonalHarness(options);
-  t.after(async () => { await empty.close(); });
+  t.after(async () => { await empty.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const calls = f.model.calls.length;
   await empty.telegram.receive({ update_id: 1, message: { message_id: 1, chat: { id: 456, type: "private" }, from: { id: 456, is_bot: false }, text: "/MCP" } });
   const received = (await empty.harness.snapshot(PersonalTelegramReceiptDoc, "telegram:123:456:1", context))!.receipt!;
@@ -189,6 +193,24 @@ test("MCP 操作向导：分页固定原操作，批准和效果核实分别提�
   assert.deepEqual(routes, ["GET /mcp/operations?offset=0", "GET /mcp/operations?offset=8", "GET /mcp/operation?operation=12&offset=0", "GET /mcp/operation?operation=12&offset=1200", "POST /mcp/decide?operation=12", "GET /mcp/operation?operation=12&offset=0", "POST /mcp/resolve?operation=12", "GET /mcp/operation?operation=12&offset=0", "GET /mcp/operations?offset=0"]);
 });
 
+
+test("MCP operation CLI offers exact connection-stop verification after accepted takeover", async t => {
+  const dir = directory(t); fs.writeFileSync(path.join(dir, "control.token"), "a".repeat(64));
+  const item = { operation: 12, service: "电脑", tool: "computer_screenshot", decision: "pending", started: true, remoteEnded: true, effect: "returned", canDecide: false, canResolve: false, canEnd: false, cuaRecovery: "accepted", cuaStopUnverified: true };
+  let verified = false, output = "";
+  const server = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    let result;
+    if (req.url === "/mcp/cua-recover?operation=12") { assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), { action: "stop" }); verified = true; result = { saved: true }; }
+    else if (req.url?.startsWith("/mcp/operation?")) result = { summary: { ...item, cuaStopUnverified: !verified }, text: "原连接记录" };
+    else result = { items: verified ? [] : [item] };
+    res.end(JSON.stringify({ v: 1, ok: true, result }));
+  });
+  server.listen(path.join(dir, "control.sock")); await once(server, "listening"); t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
+  const answers = ["1", "2", "2", "1"];
+  await managePersonalMcp({ question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: text => { output += text; } }, dir);
+  assert.equal(answers.length, 0); assert.equal(verified, true); assert.match(output, /核实原电脑连接停止/); assert.doesNotMatch(output, /确认停止原运行代/);
+});
 
 test("MCP 本机控制：先认证再校验原操作与正文，非法请求不调用模型或远端", async t => {
   const dir = fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-mcp-http-"));

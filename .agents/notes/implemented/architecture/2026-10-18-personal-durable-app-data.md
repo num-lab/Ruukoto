@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Personal M2 execution](2026-11-04-personal-m2-execution.md) supersedes main business eligibility and host-thread SQLite work with explicit child work, request freshness, conservative unstarted supersession and fixed worker jobs. Manual recheck now registers independent receipt inspection; original database identity, approval, revision and no-replay guarantees remain.
+
 ## Problem
 
 [Personal migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) keeps separate application SQLite storage, while old adapters bind core Task/ApprovalGate. Business commit and durable tool result share no transaction. Reentering write APIs may duplicate effects or fail to read an old result after directory changes.

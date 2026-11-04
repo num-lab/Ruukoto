@@ -64,7 +64,7 @@ export interface PersonalCuaStatus {
   available: boolean;
   paused: boolean;
   busy: boolean;
-  operations: { operation: number; service: string; tool: string; effect: string; code: string; cuaRecovery?: "frozen" | "stopped" | "begun" | "observed" | "accepted"; cuaObservation?: number; images: { id: string; mime: string; bytes: number; sha256: string }[] }[];
+  operations: { operation: number; service: string; tool: string; effect: string; code: string; cuaStopUnverified?: boolean; cuaRecovery?: "frozen" | "stopped" | "begun" | "observed" | "accepted"; cuaObservation?: number; images: { id: string; mime: string; bytes: number; sha256: string }[] }[];
 }
 
 export interface PersonalMcpOperationSummary {
@@ -75,5 +75,6 @@ export interface PersonalMcpOperationSummary {
   code: string;
   canEnd: boolean;
   ended: boolean;
+  cuaStopUnverified?: boolean;
   cuaRecovery?: "frozen" | "stopped" | "begun" | "observed" | "accepted";
 }

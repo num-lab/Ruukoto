@@ -39,7 +39,8 @@ export const ScheduleResult = defineEntry<{ runId: string; status: "completed" |
 export const ScheduleSendAdmission = defineEntry<{ runId: string; taskId: TaskId; text: string }>("ruukoto.schedule-send-admission");
 export type PersonalScheduleCancellation = { planId: string; actor: PersonalScheduleActor; authority: PersonalScheduleAuthority; activeRun?: string };
 export const ScheduleCancellation = defineEntry<PersonalScheduleCancellation>("ruukoto.schedule-cancellation");
-export const ScheduleRunCancellation = defineEntry<{ runId: string; reason: "task" }>("ruukoto.schedule-run-cancellation");
+export type PersonalScheduleRunCancellation = { runId: string; reason: "task" } | { runId: string; reason: "owner"; actor: PersonalScheduleActor; authority: PersonalScheduleAuthority };
+export const ScheduleRunCancellation = defineEntry<PersonalScheduleRunCancellation>("ruukoto.schedule-run-cancellation");
 export const ScheduledWorkAdmission = defineEntry<{ runId: string; work: PersonalWorkRef; modelCall: TaskId; content: string; label?: string; appData?: boolean }>("ruukoto.scheduled-work-admission");
 export const ScheduleSendClaim = defineEntry<{ runId: string; taskId: TaskId; text: string; telegram: PersonalTelegramSource; configurationVersion?: string }>("ruukoto.schedule-send-claim");
 export const ScheduleSendObservation = defineEntry<{ runId: string; state: PersonalScheduleDelivery["state"]; code?: string; platformMessageId?: string }>("ruukoto.schedule-send-observation");
@@ -107,7 +108,7 @@ async function verifyRunAnswers(tx: Tx, run: PersonalScheduleRun) {
     if (run.result && (run.result.text !== text || run.result.status !== (summary.failed ? "failed" : "completed"))) throw invalid();
   } else if (run.result?.status === "completed" || run.result && run.result.status !== "canceled" && submission?.status === "done") throw invalid();
 }
-export async function verifySchedules(tx: Tx, planKeys: string[], runKeys: string[], enabled: boolean, verifyCreator?: (tx: Tx, plan: PersonalSchedule) => Promise<void>, verifyCancel?: (tx: Tx, plan: PersonalSchedule, cancellation: PersonalScheduleCancellation) => Promise<void>, scheduledWorkTool?: ToolRegistration) {
+export async function verifySchedules(tx: Tx, planKeys: string[], runKeys: string[], enabled: boolean, verifyCreator?: (tx: Tx, plan: PersonalSchedule) => Promise<void>, verifyCancel?: (tx: Tx, plan: PersonalSchedule, cancellation: PersonalScheduleCancellation) => Promise<void>, scheduledWorkTool?: ToolRegistration, verifyRunCancel?: (tx: Tx, run: PersonalScheduleRun, cancellation: PersonalScheduleRunCancellation) => Promise<void>) {
   const index = await tx.doc(PersonalSchedulesDoc);
   await verifyScheduleSupervisor(tx);
   if ((!enabled && (planKeys.length || runKeys.length)) || !isDeepStrictEqual([...index.plans].sort(), [...planKeys].sort()) || !isDeepStrictEqual([...index.runs].sort(), [...runKeys].sort()) || new Set(index.plans).size !== index.plans.length || new Set(index.runs).size !== index.runs.length) throw invalid();
@@ -115,6 +116,7 @@ export async function verifySchedules(tx: Tx, planKeys: string[], runKeys: strin
   for (const id of index.plans) { const plan = await personalSchedule(tx, id); await verifyPlan(tx, plan); await verifyCreator?.(tx, plan); if (plan.cancelEntry) { const cancellation = await tx.entry(ScheduleCancellation, plan.cancelEntry); if (!cancellation || cancellation.conversationId !== ROOT_CONVERSATION_ID || cancellation.data.planId !== plan.id || cancellation.id <= plan.admission) throw invalid(); await verifyCancel?.(tx, plan, cancellation.data); } if (requests.has(plan.requestId)) throw invalid(); requests.add(plan.requestId); if (plan.activeRun && !index.runs.includes(plan.activeRun)) throw invalid(); }
   for (const id of index.runs) {
     const run = await personalScheduleRun(tx, id), plan = await personalSchedule(tx, run.planId); await verifyRun(tx, run, plan); if (!index.plans.includes(run.planId) || conversations.has(run.conversationId)) throw invalid(); conversations.add(run.conversationId);
+    if (run.cancelEntry) { const entry = await tx.entry(ScheduleRunCancellation, run.cancelEntry); if (entry) { if (!verifyRunCancel && entry.data.reason !== "task") throw invalid(); await verifyRunCancel?.(tx, run, entry.data); } }
     const submission = await tx.submissionByRequest(run.conversationId, run.requestId); if (submission?.entry) await personalScheduledSource(tx, run.requestId); else if (run.entryId !== undefined || run.submissionId !== undefined && run.submissionId !== submission?.id) throw invalid();
     const workAdmissions: { id: EntryId; data: { runId: string; work: PersonalWorkRef; modelCall: TaskId; content: string; label?: string; appData?: boolean } }[] = [];
     let entryCursor; do { const page = await tx.scanEntries({ conversationId: run.conversationId }, 256, entryCursor); for (const entry of page.items) if (ScheduledWorkAdmission.is(entry)) workAdmissions.push(entry); entryCursor = page.next; } while (entryCursor);

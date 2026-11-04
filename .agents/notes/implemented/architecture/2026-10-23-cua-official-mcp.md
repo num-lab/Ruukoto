@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Personal M2 execution](2026-11-04-personal-m2-execution.md) supersedes Personal main-session ownership with host-qualified assignment ownership, persistent FIFO claims and bound healthy takeover history. Fixed official programs, explicit whole-sandbox stopping, fresh observation acceptance and Coding's independent connection ownership remain.
+
 [MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) updates client ownership, Personal v4 and combined recovery interaction. Fixed programs, persistent connections, real stopping proof, no original-action replay and acceptance of a specific new observation remain. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) retires Code project configuration and schema 49-to-50 migration, not persistent connections, unresolved recovery or Personal formats. Historical choices below remain explicitly distinguished from current behavior.
 
 ## Problem

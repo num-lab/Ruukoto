@@ -1,10 +1,11 @@
-import { defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { defineExtension, defineTool, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
-import { activePersonalWorkInspection, PersonalWorkDoc } from "./personal-work.ts";
+import { PersonalWorkDoc } from "./personal-work.ts";
+import { capturePersonalToolInstructions, personalToolOrigin, requirePersonalChildBusinessTool } from "./personal-tool-source.ts";
 import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperation, personalServiceOperationsIn, personalServiceResult, ServiceOperationEvidence, type personalServiceOperations } from "./personal-service-operations.ts";
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
+// Note: See .agents/notes/implemented/architecture/2026-11-04-personal-m2-execution.md
 export function personalServiceWork(request: ReturnType<typeof personalServiceOperations>["request"]) {
   const restart = defineTool({
     name: "service_restart",
@@ -14,6 +15,7 @@ export function personalServiceWork(request: ReturnType<typeof personalServiceOp
     executionMode: "sequential",
     async execute({ unit }, api, context) {
       try {
+        requirePersonalChildBusinessTool(api, "service_restart");
         const ref = await api.commit(async tx => {
           const requestId = `personal-service-tool:${api.taskId}`;
           const previous = (await personalServiceOperationsIn(tx)).find(op => op.ref.requestId === requestId);
@@ -21,14 +23,11 @@ export function personalServiceWork(request: ReturnType<typeof personalServiceOp
             if (previous.unit !== unit || previous.work?.tool !== api.taskId || previous.work.ref.agentId !== api.conversationId) throw new PersonalError("service_work_invalid", "原子操作与工具不符，已停止；请向拥有者报告并保留档案。");
             return { ...previous.ref };
           }
-          const live = await tx.doc(LiveDoc, api.conversationId);
-          const tool = await tx.task(api.taskId);
-          const generation = tool?.owner && await tx.task(tool.owner);
-          const input = tool?.input;
-          if (api.conversationId === ROOT_CONVERSATION_ID || tool?.kind !== "pi.tool" || tool.conversationId !== api.conversationId || tool.abortRequested || tool.state.status === "terminal" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || generation?.kind !== "pi.generation" || generation.conversationId !== api.conversationId || generation.abortRequested || generation.state.status === "terminal" || live.run?.taskId !== generation.id || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("service_work_inactive", "服务工具不属于活动子工作，未执行；请结束本轮并报告拥有者。");
-          const source = await activePersonalWorkInspection(tx, api.conversationId, live.run.inputs);
-          const work = await tx.doc(PersonalWorkDoc, source.work.ref.requestId, null);
-          return request(tx, { unit, requestId, sourceRequestId: work.source!.requestId, mode: source.work.permission.mode }, { ...source.work, sources: source.sources, tool: api.taskId, generation: generation.id });
+          const instructions = await capturePersonalToolInstructions(tx, api);
+          const origin = await personalToolOrigin(tx, api, undefined, instructions ? { snapshot: instructions.snapshot } : undefined);
+          if (!origin.work) throw new PersonalError("service_work_inactive", "服务工具不属于活动子工作，未执行；请结束本轮并报告拥有者。");
+          const work = await tx.doc(PersonalWorkDoc, origin.work.ref.requestId, null);
+          return request(tx, { unit, requestId, sourceRequestId: work.source!.requestId, mode: origin.work.permission.mode }, { ...origin.work, sources: origin.sources, tool: api.taskId, generation: origin.generation }, instructions);
         }, context);
         const settled = await api.waitForTask(ref.taskId, context);
         const result = await api.commit(async tx => { const op = await personalServiceOperation(tx, ref); await interruptedPersonalService(tx, op); return { ...personalServiceResult(op, true), next: "用 read_service_operation 读取原证据；verification 是宿主当前核实事实，历史 effect_unknown 不表示仍待核实。新操作仍须本轮授权，勿自动重试。" }; }, context);

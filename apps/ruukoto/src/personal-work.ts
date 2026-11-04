@@ -4,7 +4,7 @@ import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts"
 import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
 import { PERSONAL_MEDIA } from "./personal-media.ts";
 import { PERSONAL_FILE_SEARCH } from "./personal-file-search.ts";
-import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, supersedePersonalToolOperations, personalWorkToolFacts, toolOperations, toolUnresolved, waitWorkTools, type ToolQueryIdentity } from "./personal-tools.ts";
+import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, supersedePersonalToolOperations, personalToolSummary, toolOperations, toolUnresolved, waitWorkTools, type ToolQueryIdentity } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createHash } from "node:crypto";
@@ -12,27 +12,31 @@ import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context"
 import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationHandle, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type Submission, type SubmissionId, type SubmissionRecord, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperationsIn, personalServiceResult, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
+import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperationsIn, personalServiceResult, personalServiceUnresolved, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, supersedePersonalServices, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 import { requirePersonalDelegationActive, requirePersonalDelegationOpen, requirePersonalDelegationReady, requirePersonalDelegationInput, type PersonalDelegationRef, type PersonalWorkSource } from "./personal-delegation.ts";
 import { PersonalPendingInspectionsDoc, pendingWorkInspection } from "./personal-service-inspection.ts";
 import { personalSubAgentServices } from "./personal-services.ts";
-import { PERSONAL_COMMAND_WORK, personalCommandResult, personalWorkCommands, requirePersonalCommandsStopped, waitPersonalCommand } from "./personal-command-work.ts";
+import { PERSONAL_COMMAND_WORK, personalCommandResult, personalWorkCommands, requirePersonalCommandsStopped, waitPersonalCommand, supersedePersonalCommands } from "./personal-command-work.ts";
 
-import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, mcpOperations, mcpUnresolved, requireWorkMcpStopped, waitWorkMcp } from "./personal-mcp.ts";
+import { PERSONAL_MCP, PERSONAL_MCP_TOOLS, mcpOperations, mcpUnresolved, mcpStoppingUnverified, preparePersonalWorkMcpRelease, requireWorkMcpStopped, waitWorkMcp, supersedePersonalMcpOperations } from "./personal-mcp.ts";
 import { personalSource } from "./personal-source.ts";
 import { registerPersonalReportForAdmission } from "./personal-report.ts";
 import { personalCoordinationCutoff } from "./personal-coordination.ts";
 import { scheduledConversation, SCHEDULE_SUMMARY_INPUT } from "./personal-scheduler-records.ts";
 import { LiveDoc } from "@earendil-works/pi-durable";
+import { qualifyPersonalControlledWork, personalInteractiveWorkClaims, type PersonalControlledWork } from "./personal-interactive.ts";
+import { PERSONAL_BACKGROUND, PERSONAL_BACKGROUND_TOOL_NAMES, personalBackgroundWork as personalWorkProcesses, requirePersonalBackgroundWorkStopped, waitPersonalBackgroundWorkStopped, supersedePersonalBackgroundOperations } from "./personal-background-processes.ts";
+import { PERSONAL_BROWSER, PERSONAL_BROWSER_TOOL_NAMES, browserOperations, browserUnresolved, preparePersonalWorkBrowserRelease, requireWorkBrowserStopped, supersedePersonalBrowserOperations } from "./personal-browser.ts";
+import { supersedePersonalAppDataOperations } from "./personal-app-data.ts";
 
 type WorkResult = { submissionId: SubmissionId };
 export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; agentId: ConversationId };
 type AgentIndex = { id: ConversationId; label: string; closed: boolean; work?: PersonalWorkRef };
 type NoteSource = { kind: "input"; requestId: string; submissionId: SubmissionId; entryId: EntryId; modelCall?: TaskId } | { kind: "local" } | { kind: "telegram" | "qq" };
 type WorkNote = { admission?: EntryId; requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
-type WorkFacts = { appData?: boolean; delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; continuation?: { version: 1; predecessor: PersonalWorkRef; admission: EntryId }; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
+type WorkFacts = { appData?: boolean; controlled?: PersonalControlledWork; delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; continuation?: { version: 1; predecessor: PersonalWorkRef; admission: EntryId }; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
 type WorkInput = { requestId: string; agentId: ConversationId; content: string };
 const context = BACKGROUND_CONTEXT;
 export const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
@@ -60,6 +64,11 @@ async function release(tx: Tx, input: WorkInput, taskId: TaskId) {
   await requireWorkToolsStopped(tx, taskId);
   if (await pendingWorkInspection(tx, taskId)) throw new PersonalError("work_stop_unverified", "子工作仍有未核实的检查，占用保留；请核实原检查停止。");
   await requireWorkAppDataStopped(tx, taskId);
+  await requireWorkBrowserStopped(tx, taskId);
+  if ((await tx.doc(PersonalWorkDoc, input.requestId, null)).cancelRequested) await requirePersonalBackgroundWorkStopped(tx, taskId);
+  const releaseBrowser = await preparePersonalWorkBrowserRelease(tx, taskId), releaseMcp = await preparePersonalWorkMcpRelease(tx, taskId);
+  await releaseBrowser(); await releaseMcp();
+  if ((await personalInteractiveWorkClaims(tx, taskId)).some(claim => !claim.released)) throw new PersonalError("work_stop_unverified", "原浏览器或电脑尚未核实停止，保留原归属；请查询原工作。");
   await configureAppDataChild(tx, agent.id, false);
   delete agent.work;
 }
@@ -104,8 +113,12 @@ async function settleAppData(runtime: TaskRuntime<WorkInput, { phase: "run" }, W
   await waitWorkAppData(runtime, ids, context);
 }
 
-async function settleWorkResources(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, object>, child: ConversationHandle, taskId: TaskId, context: Context, cancel: boolean) {
+type PersonalWorkExecutionHooks = { settleResources(taskId: TaskId, cancel: boolean, context: Context): Promise<void> };
+async function settleWorkResources(runtime: TaskRuntime<WorkInput, { phase: "run" }, WorkResult, PersonalWorkExecutionHooks>, child: ConversationHandle, taskId: TaskId, context: Context, cancel: boolean) {
   await child.abort(context, { background: true });
+  let failure: unknown;
+  await runtime.hooks.each("settleResources", async handler => { try { await handler(taskId, cancel, context); } catch (error) { failure ??= error; } });
+  if (failure) throw failure;
   await Promise.all([settleCommands(runtime, taskId, context, cancel), settleServices(runtime, taskId, context, cancel), settleMcp(runtime, taskId, context), settleTools(runtime, taskId, context), settleAppData(runtime, taskId, context)]);
   await waitForInspections(runtime, taskId, context);
 }
@@ -128,9 +141,9 @@ async function waitForInspections(runtime: TaskRuntime<WorkInput, { phase: "run"
 // Note: See .agents/notes/implemented/architecture/2026-10-17-personal-background-work.md
 // Note: See .agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md
 // Note: See .agents/notes/implemented/bug-fix/2026-11-04-personal-foundation-integration.md
-export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResult>({
+export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResult, PersonalWorkExecutionHooks>({
   name: "ruukoto.background-work",
-  version: 3,
+  version: 4,
   initial: () => ({ phase: "run" }),
   phases: {
     async run(task, runtime, context) {
@@ -221,8 +234,8 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
               const work = await facts(tx, ref);
               await occupancy(tx, task.input, task.id);
               if (work.cancelRequested) {
-                await release(tx, task.input, task.id);
-                return { status: "terminal", outcome: { status: "aborted" } };
+                resume = true;
+                return undefined;
               }
               if ((work.notes?.length ?? 0) > tracked.size - 1) { resume = true; return undefined; }
               await release(tx, task.input, task.id);
@@ -326,6 +339,10 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   work.source = { requestId: input.sourceRequestId, submissionId: source.id, entryId: entry.id };
   work.permission = { mode: permission.mode, version: permission.version };
   if (telegram) work.telegram = telegram;
+  await qualifyPersonalControlledWork(tx, ref, origin);
+  const child = await tx.doc(AgentDoc, ref.agentId), main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
+  if (!Array.isArray(child.extensions) || !Array.isArray(child.tools) || !Array.isArray(main.extensions)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
+  for (const [extension, names] of [[PERSONAL_BROWSER, PERSONAL_BROWSER_TOOL_NAMES], [PERSONAL_BACKGROUND, PERSONAL_BACKGROUND_TOOL_NAMES]] as const) if (main.extensions.includes(extension) && !child.extensions.includes(extension)) { child.extensions.push(extension); child.tools.push(...names); }
   return ref;
 }
 
@@ -370,9 +387,16 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   if (input.source.kind === "input") { const source = await personalSource(tx, input.source.requestId, { active: true }); if (source.submission.id !== input.source.submissionId || source.entry.id !== input.source.entryId || (source.telegram && !samePersonalEntry(source.telegram, work.telegram))) throw new PersonalError("work_original_entry_required", "此说明不属于原拥有者入口，请从原入口查询。"); if (await personalCoordinationCutoff(tx, input.source.requestId)) throw new PersonalError("work_source_inactive", "原工作输入已超出协调批次并停止，未接纳说明；请查询原工作。"); }
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
   work.notes ??= [];
+  const commands = await personalWorkCommands(tx, ref.taskId), services = await personalWorkServices(tx, ref.taskId);
   const admission = (await tx.appendEntry(PersonalWorkNoteAdmission, ROOT_CONVERSATION_ID, { data: { ref: { ...ref }, ...input } })).id;
   work.notes.push({ ...input, admission });
   await supersedePersonalToolOperations(tx, ref.taskId, admission);
+  await supersedePersonalMcpOperations(tx, ref.taskId, admission);
+  await supersedePersonalAppDataOperations(tx, ref.taskId, admission);
+  await supersedePersonalBrowserOperations(tx, ref.taskId, admission);
+  await supersedePersonalBackgroundOperations(tx, ref.taskId, admission);
+  await supersedePersonalCommands(tx, ref.taskId, admission, commands);
+  await supersedePersonalServices(tx, ref.taskId, admission, services);
   if (work.delegation) await registerPersonalReportForAdmission(tx, work.delegation, admission);
   return { accepted: true };
 }
@@ -450,7 +474,7 @@ export async function requestPersonalWorkCancel(tx: Tx, ref: PersonalWorkRef) {
   const work = await facts(tx, ref);
   const task = await tx.task(ref.taskId);
   if (!task) throw new PersonalError("work_task_missing", "后台工作的执行记录缺失，请保留档案并检查存储。");
-  if (task.state.status !== "terminal") {
+  if (task.state.status !== "terminal" || (await personalWorkProcesses(tx, ref.taskId)).some(value => !value.stopped)) {
     work.cancelRequested = true;
     for (const op of await personalWorkServices(tx, ref.taskId)) if ((await tx.task(op.ref.taskId))?.state.status !== "terminal") op.cancelRequested = true;
     for (const op of await personalWorkCommands(tx, ref.taskId)) if ((await tx.task(op.ref.taskId))?.state.status !== "terminal") op.cancelRequested = true;
@@ -481,7 +505,7 @@ export async function personalWorkStatus(tx: Tx, ref: PersonalWorkRef) {
   if (!agent) throw new PersonalError("work_agent_missing", "后台工作的身份缺失，请保留档案并检查存储。");
   const last = work.notes?.at(-1);
   const submission = await tx.submissionByRequest(ref.agentId, last ? noteSubmissionKey(ref, last) : `personal-work:${ref.taskId}`);
-  const stopVerified = task.state.status === "terminal" && ["completed", "failed", "aborted"].includes(task.state.outcome.status) && agent.work?.taskId !== ref.taskId;
+  const stopVerified = task.state.status === "terminal" && ["completed", "failed", "aborted"].includes(task.state.outcome.status) && agent.work?.taskId !== ref.taskId && (!work.cancelRequested || (await personalWorkProcesses(tx, ref.taskId)).every(value => value.stopped)) && (await personalInteractiveWorkClaims(tx, ref.taskId)).every(value => value.released !== undefined);
   return { task, submission, cancelRequested: work.cancelRequested, stopVerified, notes: work.notes?.length ?? 0 };
 }
 
@@ -496,12 +520,6 @@ export async function requirePersonalWorkContinuation(tx: Tx, ref: PersonalWorkR
   await requireWorkToolsStopped(tx, ref.taskId);
   await requireWorkAppDataStopped(tx, ref.taskId);
   if (await pendingWorkInspection(tx, ref.taskId)) throw new PersonalError("work_continuation_unavailable", "原工作仍有待核实检查，未接纳后续工作；请查询原检查并核实停止。");
-}
-
-async function workServiceResults(tx: Tx, taskId: TaskId) {
-  const results = [];
-  for (const op of await personalWorkServices(tx, taskId)) results.push(personalServiceResult(op, (await tx.task(op.ref.taskId))?.state.status === "terminal"));
-  return results;
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-personal-subagent-service-operations.md
@@ -550,17 +568,58 @@ export async function personalServiceTranscriptFacts(tx: Tx, conversationId: Con
   return results;
 }
 
-export type PersonalWorkResult = { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; offset?: number; totalChars?: number; partial?: boolean; commands?: ReturnType<typeof personalCommandResult>[]; services?: ReturnType<typeof personalServiceResult>[]; tools?: Awaited<ReturnType<typeof personalWorkToolFacts>>; notice?: string; nextOffset?: number; notes?: { requestId: string; state: string }[] };
+// Fact pages are independent of answer text; counts cover every page so omitted blockers remain visible.
+// Note: See .agents/notes/implemented/architecture/2026-11-04-personal-m2-execution.md
+export async function personalWorkExecutionFacts(tx: Tx, taskId: TaskId, factsOffset = 0, identity?: ToolQueryIdentity) {
+  if (!Number.isSafeInteger(factsOffset) || factsOffset < 0) throw new PersonalError("work_input_invalid", "工作事实分页位置无效，请使用原查询返回的位置。");
+  const commands = (await personalWorkCommands(tx, taskId)).map(personalCommandResult);
+  const services = []; const serviceValues = await personalWorkServices(tx, taskId);
+  for (const value of serviceValues) services.push(personalServiceResult(value, (await tx.task(value.ref.taskId))?.state.status === "terminal"));
+  const toolValues = (await toolOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId).reverse();
+  const mcpValues = (await mcpOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId);
+  const appDataValues = (await appDataOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId);
+  const browserValues = (await browserOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId);
+  const processValues = await personalWorkProcesses(tx, taskId), resources = await personalInteractiveWorkClaims(tx, taskId);
+  const count = <T>(values: T[], pending: (value: T) => boolean, unknown: (value: T) => boolean) => ({ total: values.length, pending: values.filter(pending).length, unknown: values.filter(unknown).length });
+  const factCounts = {
+    commands: count(commands, value => value.effect === undefined || value.code === "started" || value.requiresVerification, value => value.code !== "started" && value.requiresVerification),
+    services: count(serviceValues, value => !value.result && value.decision !== "rejected" || personalServiceUnresolved(value), value => value.result?.code !== "started" && personalServiceUnresolved(value)),
+    tools: count(toolValues, value => !value.observation && value.approval !== "rejected" || toolUnresolved(value) || value.fileJobUnverified === true, value => value.code !== "started" && (toolUnresolved(value) || value.fileJobUnverified === true)),
+    mcp: count(mcpValues, value => !value.observation && value.decision !== "rejected" || mcpUnresolved(value) || mcpStoppingUnverified(value), value => mcpStoppingUnverified(value) || value.code !== "started" && (value.effect === "effect_unknown" && !value.resolution && (!value.config.services.find(service => service.id === value.service)?.cua || mcpUnresolved(value)) || mcpUnresolved(value) && !value.remoteEnded && !(value.effect === "no_write" && value.cua?.recovery?.stopped && value.cuaLaunches?.every(launch => launch.stopped)))),
+    appData: count(appDataValues, value => !value.result && value.decision !== "rejected" || appDataUnresolved(value), value => value.result?.effect === "effect_unknown"),
+    browser: count(browserValues, value => !value.observation || browserUnresolved(value), value => value.code !== "started" && browserUnresolved(value)),
+    processes: count(processValues, value => value.state === "starting" || value.state === "stop_requested" || value.state === "stop_unverified", value => value.state === "stop_unverified"),
+    resources: count(resources, value => !value.acquired && !value.released, () => false),
+  };
+  const total = Math.max(...Object.values(factCounts).map(value => value.total)), end = factsOffset + 8;
+  const commandPage = commands.slice(factsOffset, end), servicePage = services.slice(factsOffset, end);
+  const unknownMcp = mcpValues.filter(value => value.effect === "effect_unknown"), unknownPage = mcpValues.slice(factsOffset, end).filter(value => value.effect === "effect_unknown");
+  const mcpNotice = unknownPage.map(value => {
+    const service = value.config.services.find(service => service.id === value.service)!;
+    if (service.cua && !mcpUnresolved(value) && !mcpStoppingUnverified(value)) return `${service.label}/${value.tool}：原电脑调用结果未知已保留，恢复的新观察已接受；该旧调用未重做。当前待办以等待与停止状态为准。`;
+    return `原 MCP 调用结果未知：${service.label}/${value.tool}${value.ended ? "（拥有者已人工结束工作，未知事实保留）" : "（等待拥有者人工收尾）"}。`;
+  }).join("\n");
+  const mcpBlocked = unknownMcp.some(value => !value.config.services.find(service => service.id === value.service)?.cua || mcpUnresolved(value) || mcpStoppingUnverified(value));
+  const notice = [commandPage.length ? `当前宿主命令事实（优先于历史子回答）：\n${commandPage.map(command => command.verification).join("\n")}` : "", servicePage.length ? `当前宿主服务事实（优先于历史子回答）：\n${servicePage.map(service => service.verification).join("\n")}` : "", mcpNotice || (unknownMcp.length ? "原 MCP 调用结果未知历史保留；请用 nextFactsOffset 翻页或查询原 MCP 记录，当前待办以 factCounts 与等待和停止状态为准。" : ""), mcpBlocked ? "同一来源不再执行；电脑须从原入口完成停止核实与新观察接受。" : ""].filter(Boolean).join("\n");
+  return {
+    ...(commands.length ? { commands: commandPage } : {}), ...(services.length ? { services: servicePage } : {}),
+    ...(toolValues.length ? { tools: { items: toolValues.slice(factsOffset, end).map(value => personalToolSummary(value, identity)), ...(end < toolValues.length ? { nextOffset: end } : {}) } } : {}),
+    ...(mcpValues.length ? { mcp: mcpValues.slice(factsOffset, end).map(value => ({ operation: value.operation, service: value.config.services.find(service => service.id === value.service)!.label, tool: value.tool, decision: value.decision, started: value.started, effect: value.effect, code: value.code, waiting: mcpUnresolved(value), stopUnverified: mcpStoppingUnverified(value), ...(value.superseded ? { superseded: true } : {}) })) } : {}),
+    ...(appDataValues.length ? { appData: appDataValues.slice(factsOffset, end).map(value => ({ operation: value.operation, tool: value.name, table: value.params.table, decision: value.decision, started: value.started !== undefined, effect: value.result?.effect ?? (value.started ? "effect_unknown" : "not_committed"), code: value.result?.code ?? "awaiting_approval", waiting: appDataUnresolved(value), ...(value.superseded ? { superseded: true } : {}) })) } : {}),
+    ...(browserValues.length ? { browser: browserValues.slice(factsOffset, end).map(value => ({ operation: value.operation, action: value.params.action, started: value.started, effect: value.effect, code: value.code, stopped: value.stopped, waiting: browserUnresolved(value), ...(value.superseded ? { superseded: true } : {}) })) } : {}),
+    ...(processValues.length ? { processes: processValues.slice(factsOffset, end).map(value => ({ process_id: value.id, state: value.state, stopVerified: value.stopped, reason: value.reason ?? null, createdAt: value.createdAt })) } : {}),
+    ...(resources.length ? { resources: resources.slice(factsOffset, end).map(value => ({ resource: value.resource, state: value.released ? "released" : value.acquired ? "owned" : "queued" })) } : {}),
+    ...(notice ? { notice } : {}),
+    ...(total > 8 || factsOffset > 0 ? { factsOffset, factCounts, ...(end < total ? { nextFactsOffset: end } : {}) } : {}),
+  };
+}
+type ExecutionFacts = Awaited<ReturnType<typeof personalWorkExecutionFacts>>;
+export type PersonalWorkResult = ExecutionFacts & { work: TaskId; state: string; cancelRequested?: boolean; next?: string; text?: string; offset?: number; totalChars?: number; partial?: boolean; nextOffset?: number; notes?: { requestId: string; state: string }[] };
 
-export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 0, size = 4096, identity?: ToolQueryIdentity): Promise<PersonalWorkResult> {
+export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 0, size = 4096, identity?: ToolQueryIdentity, factsOffset = 0): Promise<PersonalWorkResult> {
   const { task, submission, cancelRequested } = await personalWorkStatus(tx, ref);
   const state = task.state.status === "terminal" ? task.state.outcome.status : task.state.status;
-  const commands = (await personalWorkCommands(tx, ref.taskId)).map(personalCommandResult);
-  const services = await workServiceResults(tx, ref.taskId);
-  const unknownMcp = (await mcpOperations(tx)).filter(value => value.origin.work?.ref.taskId === ref.taskId && value.effect === "effect_unknown");
-  const notice = [commands.length ? `当前宿主命令事实（优先于历史子回答）：\n${commands.map(command => command.verification).join("\n")}` : "", services.length ? `当前宿主服务事实（优先于历史子回答）：\n${services.map(service => service.verification).join("\n")}` : "", unknownMcp.length ? `原 MCP 调用结果未知：${unknownMcp.map(value => `${value.config.services.find(service => service.id === value.service)!.label}/${value.tool}${value.ended ? "（拥有者已人工结束工作，未知事实保留）" : "（等待拥有者人工收尾）"}`).join("、")}；同一来源不再执行。` : ""].filter(Boolean).join("\n");
-  const tools = await personalWorkToolFacts(tx, ref.taskId, 0, identity);
-  const executionFacts = { ...(commands.length ? { commands } : {}), ...(services.length ? { services } : {}), ...(tools.items.length ? { tools } : {}), ...(notice ? { notice } : {}) };
+  const executionFacts = await personalWorkExecutionFacts(tx, ref.taskId, factsOffset, identity);
   // Native submission status records admission and completion, not proof the model read a note.
   const noteFacts = [];
   for (const note of (await facts(tx, ref)).notes ?? []) noteFacts.push({ requestId: note.requestId, state: (await tx.submissionByRequest(ref.agentId, noteSubmissionKey(ref, note)))?.status ?? "not_submitted" });
@@ -576,7 +635,7 @@ export async function personalWorkResult(tx: Tx, ref: PersonalWorkRef, offset = 
   return { work: ref.taskId, state, ...executionFacts, ...notes, text: text.slice(offset, end), offset, totalChars: text.length, partial, ...(partial ? { next: "模型输出因长度限制截断，仅为已保存片段。请报告遗漏，不自动续写或重试外部操作。" } : {}), ...(end < text.length ? { nextOffset: end } : {}) };
 }
 
-export type PersonalWorkSummary = { ref: PersonalWorkRef; label: string; content: string; state: string; cancelRequested: boolean; stopVerified: boolean; closed: boolean; notes: number; services?: ReturnType<typeof personalServiceResult>[]; tools?: Awaited<ReturnType<typeof personalWorkToolFacts>> };
+export type PersonalWorkSummary = ExecutionFacts & { ref: PersonalWorkRef; label: string; content: string; state: string; cancelRequested: boolean; stopVerified: boolean; closed: boolean; notes: number };
 
 export async function personalWorkSummary(tx: Tx, ref: PersonalWorkRef, identity?: ToolQueryIdentity): Promise<PersonalWorkSummary> {
   const status = await personalWorkStatus(tx, ref);
@@ -584,8 +643,7 @@ export async function personalWorkSummary(tx: Tx, ref: PersonalWorkRef, identity
   const input = status.task.input;
   const content = input && typeof input === "object" && !Array.isArray(input) && input.content;
   if (typeof content !== "string") throw new PersonalError("work_missing", "后台工作说明缺失，请保留档案并检查存储。");
-  const services = await workServiceResults(tx, ref.taskId), tools = await personalWorkToolFacts(tx, ref.taskId, 0, identity);
-  return { ref, label: agent.label, content: content.slice(0, 160), state: status.task.state.status === "terminal" ? status.task.state.outcome.status : status.task.state.status, cancelRequested: status.cancelRequested, stopVerified: status.stopVerified, closed: agent.closed, notes: status.notes, ...(services.length ? { services } : {}), ...(tools.items.length ? { tools } : {}) };
+  return { ref, label: agent.label, content: content.slice(0, 160), state: status.task.state.status === "terminal" ? status.task.state.outcome.status : status.task.state.status, cancelRequested: status.cancelRequested, stopVerified: status.stopVerified, closed: agent.closed, notes: status.notes, ...await personalWorkExecutionFacts(tx, ref.taskId, 0, identity) };
 }
 
 export async function listPersonalWorks(tx: Tx, offset = 0, source?: PersonalEntryIdentity) {
@@ -642,7 +700,9 @@ export function personalWork(harness: Harness, model: ModelRef | (() => ModelRef
     async cancel(ref: PersonalWorkRef) {
       await harness.commit(tx => requestPersonalWorkCancel(tx, ref), context);
       await harness.abortTask(ref.taskId, context);
-      return harness.waitForTask(ref.taskId, context);
+      const result = await harness.waitForTask(ref.taskId, context);
+      await waitPersonalBackgroundWorkStopped(harness, ref.taskId, context);
+      return result;
     },
     async closeAgent(id: ConversationId) {
       await harness.commit(tx => closePersonalAgent(tx, id), context);
@@ -772,7 +832,7 @@ export async function verifyPersonalWorkInstructions(tx: Tx, conversationId: Con
     if (!agent || snapshot.work.agentId !== conversationId || !isDeepStrictEqual(expected.work, snapshot.work)) throw invalid();
   } else if (!agent?.work || !isDeepStrictEqual(agent.work, snapshot.work)) throw invalid();
   const work = await facts(tx, snapshot.work), task = await tx.task(snapshot.work.taskId);
-  if (!task || task.version !== PersonalWorkTask.definition.version) throw invalid();
+  if (!task || task.version < 3 || task.version > PersonalWorkTask.definition.version) throw invalid();
   if (expected?.cutoff !== undefined && snapshot.cutoff !== expected.cutoff) throw invalid();
   if (expected?.inputs && !isDeepStrictEqual(snapshot.nativeInputs, expected.inputs)) throw invalid();
   const original = await tx.submissionByRequest(snapshot.work.agentId, `personal-work:${snapshot.work.taskId}`);

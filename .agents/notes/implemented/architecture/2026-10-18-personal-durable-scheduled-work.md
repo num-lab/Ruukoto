@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Personal M2 execution](2026-11-04-personal-m2-execution.md) adds original-authority occurrence cancellation while preserving future triggers and earlier immutable run-cancellation records. Scheduled browser work joins the instance FIFO and releases only after original stopping and effects settle; existing schedule scope and report/send authority remain.
+
 [Online IM updates](2026-10-25-personal-im-updates.md) pins handles/configuration versions for admission/report sending. Original plans retain creation-source/scope limits. [Request configuration](2026-10-25-personal-request-configuration.md) narrows request selection and continuous MCP-label compatibility; [execution configuration versions](2026-10-25-personal-execution-configuration-versions.md) owns command/service migration. Other creation-scope, permission and whole-work cleanup rules remain.
 
 ## Problem

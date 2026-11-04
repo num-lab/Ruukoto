@@ -83,8 +83,10 @@ test("模型工作：实际委派不阻塞主聊天，分页读原结果，复�
   const entries = (await p.main.entries({ order: "ascending" }, 256, undefined, context)).items;
   const evidence = entries.filter(entry => entry.kind === "ruukoto.model-request").map(entry => entry.data as RequestEvidence);
   assert.match(JSON.stringify(evidence[0].input), /background_work/); assert.deepEqual(evidence[1].payload, f.server.calls[0].raw);
-  const offered = f.server.calls[0].tools?.find(tool => (tool.function as { name: string }).name === "background_work")?.function as { parameters: { properties: { content: { description: string } } } } | undefined;
+  const offered = f.server.calls[0].tools?.find(tool => (tool.function as { name: string }).name === "background_work")?.function as { description: string; parameters: { properties: { content: { description: string } } } } | undefined;
   assert.match(offered!.parameters.properties.content.description, /原样保留.*字面正文.*末尾换行.*不得.*添加换行.*不得增加读取/);
+  assert.match(offered!.description, /MCP.*read_mcp_result/);
+  assert.match(offered!.description, /appData.*应用数据.*operation\/operations.*不能/);
   await p.close(); const restored = await f.open(); assert.equal((await restored.work.list())[0].closed, true);
 });
 

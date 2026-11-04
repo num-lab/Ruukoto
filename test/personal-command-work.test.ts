@@ -15,7 +15,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, ROOT_CONVERSATION_ID, SessionFailed, type StorageWrite } from "@earendil-works/pi-durable";
+import { AgentDoc, ROOT_CONVERSATION_ID, SessionFailed, type StorageWrite, type PhaseHandler } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { PersonalCommandDoc, PersonalCommandsDoc, personalCommandWork, resolvePersonalCommand, personalCommandConfiguration, personalCommandsFingerprint, type PersonalCommandRef } from "../apps/ruukoto/src/personal-command-work.ts";
@@ -38,7 +38,7 @@ import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { isolateSkillHome } from "./helpers/skill-home.ts";
 
-// Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 const context = BACKGROUND_CONTEXT;
 const machineId = "a".repeat(32), bootId = "12345678-1234-1234-1234-123456789abc";
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
@@ -135,6 +135,7 @@ async function fixture(t: TestContext, command = "echo x >> count", respond?: Re
     if (previous === undefined) delete process.env[model.apiKeyEnv]; else process.env[model.apiKeyEnv] = previous;
     fs.rmSync(root, { recursive: true, force: true });
   });
+  isolateSkillHome(t);
   return { root, directory, workspace, commands, server, provider: options.provider,
     open: async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => personal = await openPersonalHarness({ ...options, ...overrides }),
     failStop: (value = true) => { stopFails = value; }, failReceipt: (value = true) => { receiptFails = value; },
@@ -145,6 +146,56 @@ const draft = (requestId: string, agentId?: PersonalWorkRef["agentId"]) => ({ re
 async function source(p: PersonalHarness) { await p.answer("拥有者委派来源", "owner-source"); }
 async function original(p: PersonalHarness) { await until(async () => (await p.commands!.list()).items.length > 0); return (await p.commands!.list()).items[0].ref; }
 async function unknown(p: PersonalHarness, ref: PersonalCommandRef) { await until(async () => { const value = await p.commands!.detail(ref, "stdout"); return value.result?.effect === "effect_unknown" && value.result.code !== "started"; }); }
+
+test("M2 commands: delayed old model call cannot launch after an amendment", { timeout: 30_000 }, async t => {
+  let entered = false, release!: () => void;
+  const pause = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t, "", async request => {
+    if (!request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "main ready" };
+    const last = request.messages.at(-1), content = request.messages.findLast(message => message.role === "user")?.content;
+    if (last?.role === "user" || content === "new command" && !String(last?.content).includes('"effect":"returned"')) {
+      if (content === "old command") { entered = true; await pause; }
+      return { kind: "tool_calls", calls: [{ id: content === "old command" ? "old" : "new", name: "run_command", arguments: { command: `echo ${content === "old command" ? "old" : "new"} >> count` } }] };
+    }
+    return { kind: "text", text: "done" };
+  });
+  const p = await f.open(); await source(p);
+  const work = await p.work.delegate({ ...draft("m2-delayed"), content: "old command" }); await until(() => entered);
+  await p.work.append(work, { requestId: "new", sourceRequestId: "owner-source", content: "new command" });
+  assert.equal(await p.answer("independent", "independent"), "main ready");
+  release(); await p.harness.waitForTask(work.taskId, context);
+  assert.equal(f.launches(), 1); assert.equal(fs.readFileSync(path.join(f.workspace, "count"), "utf8"), "new\n");
+  const values = (await p.commands!.list()).items;
+  assert.equal(values.length, 1); assert.equal(values[0].command, "echo new >> count");
+  const saved = (await p.harness.snapshot(PersonalCommandDoc, values[0].ref.requestId, context))!.command!;
+  assert.equal(saved.instructions!.snapshot.notes.length, 1); assert.equal(saved.superseded, undefined);
+  await p.close(); await f.open(); assert.equal(f.launches(), 1);
+});
+
+test("M2 commands: amendment after directory preparation prevents stale launch and retains claim evidence", { timeout: 30_000 }, async t => {
+  let release!: () => void, claimed = false;
+  const pause = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+  const f = await fixture(t), p = await f.open(); await source(p);
+  const definition = (await p.main.agent(context)).extensions.find(extension => extension.name === "personal-command-work")!.tasks![0].definition;
+  const originalPrepare = definition.phases.prepare as PhaseHandler<{ requestId: string }, { phase: "prepare" }, { phase: "prepare" | "verify" }, { effect: "returned" | "not_executed" | "effect_unknown"; code: string; exitCode?: number }, object>;
+  const prepare: typeof originalPrepare = async (current, runtime, ctx) => originalPrepare(current, { ...runtime, commit: async (change, commitContext) => {
+    await runtime.commit(change, commitContext);
+    const input = current.input; assert.ok(input && typeof input === "object" && !Array.isArray(input) && typeof input.requestId === "string");
+    const value = (await runtime.snapshot(PersonalCommandDoc, input.requestId, commitContext))?.command;
+    if (!claimed && value?.directoryClaim && !value.started) { claimed = true; await pause; }
+  } }, ctx);
+  Object.assign(definition.phases, { prepare });
+  t.after(() => { Object.assign(definition.phases, { prepare: originalPrepare }); });
+  const work = await p.work.delegate(draft("m2-prepared")); await until(() => claimed);
+  const ref = await original(p);
+  await p.work.append(work, { requestId: "amend", sourceRequestId: "owner-source", content: "finish without command" });
+  const stopped = (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!;
+  assert.equal(stopped.started, false); assert.equal(stopped.result?.code, "tool_requirements_changed");
+  assert.ok(stopped.superseded); assert.ok(stopped.preparationStop); assert.ok(stopped.directoryClaim);
+  release(); await p.harness.waitForTask(work.taskId, context);
+  assert.equal(f.launches(), 0); assert.equal(fs.existsSync(path.join(f.workspace, "count")), false);
+  await p.close(); await f.open(); assert.equal(f.launches(), 0);
+});
 
 for (const mode of ["confirm", "auto-review", "full_access"] as const) test(`durable 命令：${mode} 保留原权限、原生 owned Task 和双流分页，非零结果也释放身份`, async t => {
   const exitCode = mode === "confirm" ? 0 : 37;
@@ -273,7 +324,7 @@ for (const scenario of ["restricted", "full_access", "unproved-stop"] as const) 
   fs.copyFileSync(database, snapshot);
   const mutations = scenario === "restricted" ? ["admission", "permission", "claim", "worker", "mounts", "stop-task"] : scenario === "full_access" ? ["full-env", "full-mounts", "full-node"] : ["unproved-stop"];
   for (const mutation of mutations) await t.test(mutation, async () => {
-    // 关闭后的基线每次独立复制回原路径，保留档案、workspace 与原命令的真实身份。
+    // Restore the closed baseline at the same path to preserve execution identities.
     fs.copyFileSync(snapshot, database);
     const p = await f.open();
     const saved = structuredClone((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!);
@@ -296,7 +347,7 @@ for (const scenario of ["restricted", "full_access", "unproved-stop"] as const) 
     }, context);
     await p.close();
     if (forgedPreparation) {
-      // 自算指纹与记录一致仍不能替代宿主钉定的 worker 和可见目录。
+      // A matching fingerprint cannot replace the pinned worker and visible directory.
       const db = new DatabaseSync(database);
       try {
         db.prepare("UPDATE entries SET record = json_set(record, '$.data.prepared', json(?)) WHERE id = ?").run(JSON.stringify(saved.prepared), saved.startEntry!);
@@ -341,7 +392,7 @@ test("durable 命令：受限命令绑定原请求技能快照并入只读根，
     let instance = await f.open();
     const mutated = structuredClone((await instance.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!);
     if (mutation === "legacy") {
-      // 旧格式命令没有技能字段：从命令、接纳与执行意图中整体移除，按旧校验恢复
+      // Remove skill fields from the command, admission and intent to exercise legacy recovery.
       delete mutated.skills;
       delete mutated.prepared!.spec.readRoots;
       mutated.prepared!.input.mounts = mutated.prepared!.input.mounts.filter(mount => mount.path !== skillReal);
@@ -463,7 +514,7 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未�
       if (last?.role === "user" && last.content === "执行命令") return { kind: "tool_calls", calls: [{ id: "command", name: "run_command", arguments: { command: "echo x >> count" } }] };
       await waiting; return { kind: "text", text: "另一成员完成" };
     }
-    // 批内附查询调用不让出：原源未知效果在后续 service_inspect 批前已暂停，拒绝由回执文本承载。
+    // The mixed query batch continues; main service inspection then returns its handled refusal.
     if (last?.role === "user" && last.content === "委派并检查") return { kind: "tool_calls", calls: [...["执行命令", "等待成员"].map((content, i) => ({ id: `member-${i}`, name: "background_work", arguments: { action: "delegate", content } })), { id: "works", name: "background_work", arguments: { action: "list" } }] };
     if (last?.role === "tool" && !inspected) {
       await unknown(p, await original(p));
@@ -481,7 +532,7 @@ for (const mode of ["full_access"] as const) test(`durable 命令：${mode} 未�
   const service: ServiceManagerConfig = { helperPath, policyPath, useSudo: false, sudoPath: "/usr/bin/sudo", timeouts: { inspectMs: 1000, restartMs: 1000, stopMs: 1000 } };
   f.failReceipt(); f.failStop(); p = await f.open({ service, serviceOperations: true });
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = mode; }, context);
-  assert.match(await p.answer("委派并检查", "owner-source"), /work_source_paused/);
+  assert.match(await p.answer("委派并检查", "owner-source"), /personal_tool_main_ineligible/);
   const ref = await original(p), saved = (await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!;
   assert.deepEqual(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "owner-source"), context), { command: ref.requestId, admission: saved.admission });
   await assert.rejects(p.service!.request({ requestId: "service-bypass", sourceRequestId: "owner-source", unit, mode: "full_access" }), code("work_source_paused"));

@@ -189,27 +189,28 @@ for (const initial of [true, false]) {
     test(`个人 MCP 配置：${initial ? "首次启用" : "变更"}保存不依赖无关未决 ${pending}`, async t => {
       const f = fixture(t);
       const provider = personalProvider({ api: "openai-completions", baseUrl: "https://unused.example.test", modelId: "mock-model", apiKeyEnv: "UNUSED_MCP_CONFIG_KEY", contextWindow: 128000, maxTokens: 1024 });
-      // 只建立真实业务格式，不发模型请求；之后直接写 durable 原生记录覆盖未决状态。
+      // Initialize the business format without a model call, then write native pending records.
       const harness = await openPersonalHarness({ profile: f.profile, provider, modelId: "mock-model" });
       await harness.close();
       const profile = lockPersonalProfile(f.directory);
-      t.after(() => profile.release());
-      if (!initial) await savePersonalMcp(profile, config);
-      const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
       try {
-        if (pending === "task") {
-          const id = await storage.mintId<TaskId<JsonValue>>();
-          const task: TaskRecord<JsonValue, JsonValue, JsonValue> = { id, conversationId: ROOT_CONVERSATION_ID, kind: "test.pending", version: 1, input: {}, background: false, abortRequested: false, state: { status: "pending", checkpoint: { phase: "pending" } } };
-          await storage.commit([{ type: "task", value: task }], context);
-        } else {
-          const id = await storage.mintId<SubmissionId>();
-          await storage.commit([{ type: "submission", value: { id, conversationId: ROOT_CONVERSATION_ID, type: "input", status: "queued" } }], context);
-        }
-      } finally { await storage.close(context); }
-      await savePersonalMcp(profile, config);
-      assert.deepEqual(readPersonalMcp(profile)?.services, config.services);
-      await migratePersonalMcp(profile);
-      assert.equal(readPersonalMcp(profile)?.version, 4);
+        if (!initial) await savePersonalMcp(profile, config);
+        const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+        try {
+          if (pending === "task") {
+            const id = await storage.mintId<TaskId<JsonValue>>();
+            const task: TaskRecord<JsonValue, JsonValue, JsonValue> = { id, conversationId: ROOT_CONVERSATION_ID, kind: "test.pending", version: 1, input: {}, background: false, abortRequested: false, state: { status: "pending", checkpoint: { phase: "pending" } } };
+            await storage.commit([{ type: "task", value: task }], context);
+          } else {
+            const id = await storage.mintId<SubmissionId>();
+            await storage.commit([{ type: "submission", value: { id, conversationId: ROOT_CONVERSATION_ID, type: "input", status: "queued" } }], context);
+          }
+        } finally { await storage.close(context); }
+        await savePersonalMcp(profile, config);
+        assert.deepEqual(readPersonalMcp(profile)?.services, config.services);
+        await migratePersonalMcp(profile);
+        assert.equal(readPersonalMcp(profile)?.version, 4);
+      } finally { profile.release(); }
     });
   }
 }

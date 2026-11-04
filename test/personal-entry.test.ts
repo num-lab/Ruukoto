@@ -226,6 +226,7 @@ test("原生 watch 在源码重载前等待旧个人后台释放锁，忽略继�
   const repo = temp(t), home = temp(t), daily = temp(t);
   fs.mkdirSync(path.join(repo, "apps/ruukoto"), { recursive: true });
   fs.cpSync(path.join(root, "apps/ruukoto/src"), path.join(repo, "apps/ruukoto/src"), { recursive: true });
+  fs.cpSync(path.join(root, "worker"), path.join(repo, "worker"), { recursive: true });
   fs.writeFileSync(path.join(repo, "package.json"), '{"type":"module"}\n');
   fs.symlinkSync(path.join(root, "node_modules"), path.join(repo, "node_modules"));
   const directory = personalDevDirectory(repo, home), f = await fixture(t, directory);

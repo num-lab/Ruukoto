@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { EntryId } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, type EntryId, type TaskId } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
@@ -17,10 +17,11 @@ import { parsePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { mcpUnresolved, mcpSourceBlocker, PersonalMcpDoc, verifyMcp, waitWorkMcp, PersonalMcpConfigDoc } from "../apps/ruukoto/src/personal-mcp.ts";
 import { mcpResponseEnded } from "@ruukoto/agent/mcp/transport.ts";
 import { personalCuaLinux, type CuaLinuxGeneration } from "../apps/ruukoto/src/personal-cua-linux.ts";
-import { personalWorkResult } from "../apps/ruukoto/src/personal-work.ts";
+import { personalWorkExecutionFacts, personalWorkResult, requestPersonalWorkCancel, PersonalWorkDoc, PersonalWorkTask, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { personalSettingsExternalBlockers } from "../apps/ruukoto/src/personal-settings-blockers.ts";
 import { lockPersonalProfile } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
+import { PersonalInteractiveResourceDoc, verifyPersonalInteractive } from "../apps/ruukoto/src/personal-interactive.ts";
 const context = BACKGROUND_CONTEXT;
 const definitions = ["computer_screenshot", "computer_click", "computer_shell"].map(name => ({ name, inputSchema: { type: "object", properties: { sandbox: { type: "string" }, session: { type: "string" }, hang: { type: "boolean" }, bad: { type: "string" } }, additionalProperties: false } }));
 async function fixture(t: TestContext, images = true, cua = true) {
@@ -31,20 +32,53 @@ async function fixture(t: TestContext, images = true, cua = true) {
   let generation: CuaLinuxGeneration = { containerId: "b".repeat(64), startedAt: "2026-10-23T01:00:00Z", bootId: "c".repeat(36), pid: 42, processIdentity: "10" }, stopped = false, sequence = 0;
   let programFailure = false; const stoppedScopes: string[] = [];
   const host: ReturnType<typeof personalCuaLinux> = { ...personalCuaLinux(), verifyTarget() {}, async generation() { return generation; }, async stopped() { return stopped; }, async stop() { stopped = true; return true; }, async restart() { stopped = false; generation = { ...generation, startedAt: "2026-10-23T02:00:00Z" }; return generation; }, prepare(program) { return { scope: `scope-${++sequence}`, description: "test", program }; }, async execution(scope, description) { return { scope, description, invocationId: "test", group: "/test", dev: 1, ino: 1 }; }, async stopCli() { return true; }, async stopPrepared(scope) { stoppedScopes.push(scope); return true; }, async program() { return { command: process.execPath, args: programFailure ? ["-e", "process.exit(2)"] : [fileURLToPath(new URL("./helpers/personal-cua-stdio-fixture.mjs", import.meta.url)), sent, schema], env: { PATH: "/usr/bin:/bin", HOME: directory } }; } };
-  const model = new PersonalMockModelServer(request => {
-    const last = request.messages.at(-1), content = String(last?.content);
+  let releaseChild: (() => void) | undefined, closing = false;
+  const model = new PersonalMockModelServer(async request => {
+    const tail = request.messages.at(-1), last = tail?.role === "user" && Array.isArray(tail.content) ? request.messages.findLast(message => message.role === "tool") : tail, content = String(last?.content);
     if (last?.role === "user" && content.startsWith("HTTP:")) return { kind: "tool_calls", calls: [{ id: "http", name: "http_request", arguments: { url: content.slice(5), method: "GET" } }] };
     if (last?.role === "user" && content === "工具清单") return { kind: "tool_calls", calls: [{ id: "list", name: "mcp_tools", arguments: {} }] };
     if (last?.role === "user" && content.startsWith("调用:")) return { kind: "tool_calls", calls: [{ id: "call", name: "mcp_call", arguments: JSON.parse(content.slice(3)) }] };
+    if (request.system?.includes("你是个人助手的子 Agent") && last?.role === "tool" && String(last.content).includes("remoteEnded") && !closing) await new Promise<void>(resolve => { releaseChild = resolve; });
     return { kind: "text", text: last?.role === "tool" ? content : "完成" };
   });
   process.env.RUUKOTO_CUA_MODEL_TEST_KEY = "test-only";
   const provider = personalProvider({ api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_CUA_MODEL_TEST_KEY", contextWindow: 128000, maxTokens: 8192, imageInput: images });
   let current: PersonalHarness | undefined;
   const open = async () => current = await openPersonalHarness({ directory, provider, modelId: "mock-model", mcp: config, tools, mcpCuaHost: host, mcpTimeouts: { callTimeoutMs: 100 } });
-  t.after(async () => { await current?.close(); await model.close(); delete process.env.RUUKOTO_CUA_MODEL_TEST_KEY; fs.rmSync(root, { recursive: true, force: true }); });
+  t.after(async () => { closing = true; releaseChild?.(); await current?.close(); await model.close(); delete process.env.RUUKOTO_CUA_MODEL_TEST_KEY; fs.rmSync(root, { recursive: true, force: true }); });
   const calls = () => fs.readFileSync(sent, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)).filter(item => item.method === "tools/call");
-  return { directory, config, model, host, open, calls, stoppedScopes, setDefinitions(tools: object[]) { fs.writeFileSync(schema, JSON.stringify(tools)); }, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
+  let work: PersonalWorkRef | undefined;
+  async function waitUntil(check: () => boolean | Promise<boolean>) {
+    const end = Date.now() + 10000;
+    while (!await check()) { assert.ok(Date.now() < end, "waiting for Cua work"); await new Promise(resolve => setTimeout(resolve, 5)); }
+  }
+  async function answer(p: PersonalHarness, content: string, requestId: string) {
+    if (!content.startsWith("调用:")) return p.answer(content, requestId);
+    await p.answer("电脑工作", requestId);
+    const previous = (await p.harness.snapshot(PersonalMcpConfigDoc, context))!.operations.slice(), modelBefore = model.calls.length;
+    if (work && (await p.harness.commit(tx => tx.task(work!.taskId), context))?.state.status !== "terminal") {
+      await p.work.append(work, { requestId: `cua-note:${requestId}`, sourceRequestId: requestId, content });
+      await waitUntil(async () => (await p.harness.snapshot(PersonalWorkDoc, work!.requestId, context))!.notes!.at(-1)!.submissionId !== undefined);
+      await waitUntil(() => releaseChild !== undefined);
+      const release = releaseChild; releaseChild = undefined; release?.();
+    } else work = await p.work.delegate({ requestId: `cua-work:${requestId}`, sourceRequestId: requestId, content });
+    let operation: TaskId | undefined;
+    await waitUntil(async () => {
+      for (const id of (await p.harness.snapshot(PersonalMcpConfigDoc, context))!.operations) if (!previous.includes(id)) {
+        const value = (await p.harness.snapshot(PersonalMcpDoc, String(id), context))!.operation!;
+        if (value.origin.work?.ref.taskId === work!.taskId) { operation = id; return value.observation !== undefined && (releaseChild !== undefined || !value.remoteEnded && value.started || value.takeover !== undefined); }
+      }
+      const live = await p.harness.commit(tx => tx.task(work!.taskId), context);
+      return live?.state.status === "terminal" || model.calls.slice(modelBefore).some(request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "tool");
+    });
+    if (operation === undefined) {
+      const failed = model.calls.slice(modelBefore).findLast(request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "tool");
+      return typeof failed?.messages.at(-1)?.content === "string" ? failed.messages.at(-1)!.content as string : (await p.harness.commit(tx => personalWorkResult(tx, work!), context)).text ?? "";
+    }
+    const saved = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
+    return JSON.stringify({ operation, effect: saved.effect, code: saved.code, remoteEnded: saved.remoteEnded });
+  }
+  return { answer, release() { const release = releaseChild; releaseChild = undefined; release?.(); }, currentWork: () => work, holdCall() { fs.writeFileSync(sent + ".hold", ""); }, releaseCall() { fs.writeFileSync(sent + ".release", ""); }, async finish(p: PersonalHarness) { if (!work) return; closing = true; releaseChild?.(); await p.harness.waitForTask(work.taskId, context); closing = false; work = undefined; }, directory, config, model, host, open, calls, stoppedScopes, setDefinitions(tools: object[]) { fs.writeFileSync(schema, JSON.stringify(tools)); }, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
 }
 const input = (tool: string, args: Record<string, unknown> = {}) => "调用:" + JSON.stringify({ service: "desktop", tool, arguments: args });
 
@@ -54,9 +88,9 @@ test("Personal Cua：持续连接、真实固定目标与受限定义进入模�
   const before = baseline.model.calls.at(-1)!;
   const f = await fixture(t), p = await f.open(); await f.full(p);
   await p.answer("工具清单", "list");
-  await p.answer(input("computer_screenshot"), "observe");
+  await f.answer(p, input("computer_screenshot"), "observe");
   const original = (await p.mcp!.list()).items[0];
-  const next = JSON.parse(await p.answer(input("computer_click"), "click"));
+  const next = JSON.parse(await f.answer(p, input("computer_click"), "click"));
   assert.equal(original.effect, "returned"); assert.equal(next.effect, "returned");
   assert.equal(f.calls().length, 2); assert.equal(f.calls()[0].pid, f.calls()[1].pid);
   assert.deepEqual(f.calls()[1].params.arguments, { sandbox: "local:desktop" });
@@ -68,15 +102,15 @@ test("Personal Cua：持续连接、真实固定目标与受限定义进入模�
   const exposed = JSON.parse(String(listResult.content)).tools[0].definition;
   assert.equal(exposed.inputSchema.properties.sandbox, undefined); assert.equal(exposed.inputSchema.properties.session, undefined);
   const restricted = JSON.parse(saved.modelDefinition!); assert.deepEqual(restricted.inputSchema.properties, { hang: { type: "boolean" }, bad: { type: "string" } });
-  assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes("电脑连接跨调用保留"));
+  assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes("电脑连接在同一工作内跨调用保留"));
   const estimate = (request: typeof before) => ({ systemPrompt: Math.ceil((request.system?.length ?? 0) / 4), toolSchemas: Math.ceil(JSON.stringify(request.tools ?? []).length / 4) });
   t.diagnostic(JSON.stringify({ estimatedTokens: { before: estimate(before), after: estimate(f.model.calls.at(-1)!) } }));
-  await p.answer(input("computer_click", { sandbox: "local:other" }), "override"); assert.equal(f.calls().length, 2);
+  await f.answer(p, input("computer_click", { sandbox: "local:other" }), "override"); assert.equal(f.calls().length, 2);
 });
 test("Personal Cua：恢复允许描述变化，参数 schema 改变仍拒绝", async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const { operation } = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const { operation } = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   await p.mcp!.recoverCua(operation, "stop");
   f.setDefinitions(definitions.map(tool => ({ ...tool, inputSchema: { ...tool.inputSchema, required: ["sandbox"] } })));
   await assert.rejects(p.mcp!.recoverCua(operation, "observe"), { code: "cua_definition_changed" });
@@ -89,13 +123,13 @@ test("Personal Cua：恢复允许描述变化，参数 schema 改变仍拒绝", 
 });
 test("Personal Cua：文本模型在电脑动作前拒绝且零发送", async t => {
   const f = await fixture(t, false), p = await f.open(); await f.full(p);
-  const answer = await p.answer(input("computer_screenshot"), "text-model");
+  const answer = await f.answer(p, input("computer_screenshot"), "text-model");
   assert.ok(answer.includes("model_image_unsupported")); assert.equal(f.calls().length, 0);
 });
 test("Personal Cua：丢答冷恢复保留unknown和remoteEnded，接受新观察才释放全部原等待", async t => {
   const f = await fixture(t); let p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const answer = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost")), operation = answer.operation;
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const answer = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost")), operation = answer.operation;
   assert.equal(answer.effect, "effect_unknown"); assert.equal(f.calls().length, 2);
   await p.close(); p = await f.open();
   assert.equal(mcpUnresolved((await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!), true);
@@ -104,30 +138,40 @@ test("Personal Cua：丢答冷恢复保留unknown和remoteEnded，接受新观�
   await assert.rejects(p.mcp!.recoverCua(operation, "accept"));
   await p.mcp!.recoverCua(operation, "stop"); await p.mcp!.recoverCua(operation, "observe");
   assert.equal(f.calls().length, 3);
+  const unknownFacts = await p.harness.commit(tx => personalWorkExecutionFacts(tx, f.currentWork()!.taskId, 8), context);
+  assert.deepEqual(unknownFacts.factCounts!.mcp, { total: 2, pending: 1, unknown: 1 });
   await p.mcp!.recoverCua(operation, "accept", (await p.mcp!.detail(operation)).summary.cuaObservation);
   const original = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
   assert.equal(original.remoteEnded, false); assert.equal(original.effect, "effect_unknown"); assert.equal(mcpUnresolved(original), false);
   assert.equal(await p.harness.commit(tx => mcpSourceBlocker(tx, "lost"), context), undefined);
   await waitWorkMcp(p.harness, [operation], context);
+  await p.harness.waitForTask(f.currentWork()!.taskId, context);
+  const recoveredFacts = await p.harness.commit(tx => personalWorkExecutionFacts(tx, f.currentWork()!.taskId, 8), context);
+  assert.deepEqual(recoveredFacts.factCounts!.mcp, { total: 2, pending: 0, unknown: 0 });
+  assert.doesNotMatch(recoveredFacts.notice!, /同一来源不再执行/);
+  const recoveredPage = await p.harness.commit(tx => personalWorkExecutionFacts(tx, f.currentWork()!.taskId), context);
+  assert.match(recoveredPage.notice!, /原电脑调用结果未知已保留，恢复的新观察已接受/);
+  assert.doesNotMatch(recoveredPage.notice!, /同一来源不再执行/);
   assert.deepEqual(await personalSettingsExternalBlockers({ harness: p.harness }), []);
   assert.equal((await p.mcp!.detail(operation)).summary.cuaRecovery, "accepted");
-  await p.answer(input("computer_screenshot"), "new-work-observe");
-  await p.answer(input("computer_click"), "new-work"); assert.equal(f.calls().length, 5);
+  await f.answer(p, input("computer_screenshot"), "new-work-observe");
+  await f.answer(p, input("computer_click"), "new-work"); assert.equal(f.calls().length, 5);
+  await f.finish(p);
   await p.close(); p = await f.open();
   assert.equal(mcpUnresolved((await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!), false);
 });
 
 for (const bad of ["empty", "invalid", "error"]) test(`Personal Cua：${bad} 截图不能开放点击`, async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot", { bad }), "bad-image");
-  await p.answer(input("computer_click"), "blocked-click");
+  await f.answer(p, input("computer_screenshot", { bad }), "bad-image");
+  await f.answer(p, input("computer_click"), "blocked-click");
   assert.equal(f.calls().length, 1);
   assert.equal((await p.mcp!.list()).items[0].code, "cua_observation_required");
 });
 test("Personal Cua：未决电脑调用不会破坏独立HTTP目标检查，恢复失败仍不接受旧图", async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   const server = http.createServer((_request, response) => response.end("独立HTTP成功")); server.listen(0, "127.0.0.1"); await once(server, "listening");
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
   const address = server.address(); assert.ok(address && typeof address !== "string");
@@ -145,8 +189,8 @@ test("Personal Cua：未决电脑调用不会破坏独立HTTP目标检查，恢�
 
 test("Personal Cua：成功观察后再次观察失败，冷启动可继续恢复且不接受旧截图", async t => {
   const f = await fixture(t); let p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "observe");
   const old = (await p.mcp!.detail(unknown.operation)).summary.cuaObservation;
   f.setImageMode("empty"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"));
@@ -164,8 +208,8 @@ for (const [mode, code] of [["error", "cua_observation_failed"], ["invalid", "cu
   let stops = 0, restarts = 0; const stop = f.host.stop, restart = f.host.restart;
   f.host.stop = async execution => { stops++; return stop(execution); };
   f.host.restart = async execution => { restarts++; return restart(execution); };
-  await p.answer(input("computer_screenshot"), "initial");
-  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   await p.mcp!.recoverCua(unknown.operation, "stop");
   f.setImageMode(mode); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"), { code });
   const failed = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!, recovery = failed.cua!.recovery!;
@@ -201,8 +245,8 @@ for (const [mode, code] of [["error", "cua_observation_failed"], ["invalid", "cu
 });
 for (const damage of ["missing-id", "null-response"]) test(`Personal Cua：恢复应答 ${damage} 损坏时按类型拒绝冷启动且不外调`, async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   await p.mcp!.recoverCua(unknown.operation, "stop");
   f.setImageMode("error"); await assert.rejects(p.mcp!.recoverCua(unknown.operation, "observe"), { code: "cua_observation_failed" });
   const recovery = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!.cua!.recovery!, responseId = recovery.responses![0];
@@ -232,63 +276,84 @@ test("Personal Cua Linux：错误容器和自动重启策略拒绝，未执行Do
   assert.ok(calls.every(args => args[0] === "--host" && args[1] === "unix:///var/run/docker.sock" && args[2] === "inspect"));
 });
 
-test("Personal Cua：初始化失败保留启动和停止事实，冷核实失败只禁电脑不禁聊天", async t => {
+test("Personal Cua：初始化失败保留启动和停止事实，关闭后的停止证据跨冷启动保留", async t => {
   const f = await fixture(t); let p = await f.open(); await f.full(p); f.failProgram();
-  await p.answer(input("computer_screenshot"), "init-failure");
+  await f.answer(p, input("computer_screenshot"), "init-failure");
   const operation = (await p.mcp!.list()).items[0].operation;
   const value = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
   assert.equal(value.started, false); assert.equal(value.cuaLaunches?.length, 1); assert.ok(value.cuaLaunches[0].stopped); assert.equal(f.stoppedScopes.length, 1); assert.equal(f.calls().length, 0);
-  f.failProgram(false); await p.answer(input("computer_screenshot"), "valid-launch");
+  f.failProgram(false); await f.answer(p, input("computer_screenshot"), "valid-launch");
+  await f.finish(p);
   await p.close(); f.host.stopPrepared = async () => false;
   p = await f.open();
   assert.equal(await p.answer("普通聊天", "chat"), "完成");
-  await p.answer(input("computer_screenshot"), "blocked"); assert.equal(f.calls().length, 1);
+  await f.answer(p, input("computer_screenshot"), "new-observation"); assert.equal(f.calls().length, 2);
 });
 test("Personal Cua：空闲CLI退出后丢弃观察，新连接截图前零点击", async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
+  await f.answer(p, input("computer_screenshot"), "initial");
   const originalPid = f.calls()[0].pid;
   process.kill(originalPid, "SIGTERM"); await new Promise(resolve => setTimeout(resolve, 50));
-  await p.answer(input("computer_click"), "stale-click"); assert.equal(f.calls().length, 1);
-  await p.answer(input("computer_screenshot"), "fresh"); assert.equal(f.calls().length, 2); assert.notEqual(f.calls()[1].pid, originalPid);
+  await f.answer(p, input("computer_click"), "stale-click"); assert.equal(f.calls().length, 1);
+  await f.answer(p, input("computer_screenshot"), "fresh"); assert.equal(f.calls().length, 2); assert.notEqual(f.calls()[1].pid, originalPid);
 });
 
-test("Personal Cua：暂停立即拒绝新调用并跨重启保留，继续后重新截图才允许点击", async t => {
+test("Personal Cua: a paused assignment requires a new bound observation across reopen", async t => {
   const f = await fixture(t); let p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "before-pause");
+  const original = JSON.parse(await f.answer(p, input("computer_screenshot"), "before-pause"));
   await p.mcp!.pauseCua(true);
   assert.equal((await p.mcp!.cuaStatus()).paused, true);
-  const paused = await p.answer(input("computer_click"), "paused");
-  assert.match(paused, /cua_paused/); assert.equal(f.calls().length, 1);
+  const pausedFacts = await p.harness.commit(tx => personalWorkExecutionFacts(tx, f.currentWork()!.taskId, 8), context);
+  assert.deepEqual(pausedFacts.factCounts!.mcp, { total: 1, pending: 1, unknown: 0 });
+  assert.equal(pausedFacts.notice, undefined);
+  assert.equal(await p.answer("暂停时仍可聊天", "ordinary-chat"), "完成");
+  const work = f.currentWork()!;
+  assert.deepEqual(await p.work.append(work, { requestId: "paused-amendment", sourceRequestId: "ordinary-chat", content: input("computer_screenshot") }), { accepted: true });
+  const deadline = Date.now() + 1000;
+  while ((await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.notes!.at(-1)!.submissionId === undefined) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  f.release(); await new Promise(resolve => setTimeout(resolve, 40));
+  assert.equal(f.calls().length, 1);
+  assert.equal((await p.harness.commit(tx => tx.task(work.taskId), context))!.state.status, "running");
+  await assert.rejects(p.mcp!.pauseCua(false), { code: "cua_frozen" });
   await p.close(); p = await f.open();
   assert.equal((await p.mcp!.cuaStatus()).paused, true);
+  await p.mcp!.recoverCua(original.operation, "observe");
+  const observation = (await p.mcp!.detail(original.operation)).summary.cuaObservation!;
+  await assert.rejects(p.mcp!.recoverCua(original.operation, "accept", (observation - 1) as EntryId), { code: "cua_observation_stale" });
+  await p.mcp!.recoverCua(original.operation, "accept", observation);
   await p.mcp!.pauseCua(false);
-  const click = JSON.parse(await p.answer(input("computer_click"), "without-new-picture"));
-  assert.equal(click.code, "cua_observation_required"); assert.equal(f.calls().length, 1);
-  await p.answer(input("computer_screenshot"), "new-picture");
-  await p.answer(input("computer_click"), "new-click");
-  assert.equal(f.calls().length, 3);
+  const resumedDeadline = Date.now() + 1000;
+  while (f.calls().length < 3) { assert.ok(Date.now() < resumedDeadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, work.requestId, context))!.notes!.length, 1);
+  await f.finish(p);
+  const click = JSON.parse(await f.answer(p, input("computer_click"), "without-new-picture"));
+  assert.equal(click.code, "cua_observation_required"); assert.equal(f.calls().length, 3);
+  await f.answer(p, input("computer_screenshot"), "new-picture");
+  await f.answer(p, input("computer_click"), "new-click");
+  assert.equal(f.calls().length, 5);
 });
 
-test("Personal Cua：暂停停止暂未核实，重核成功后可继续并重新观察", async t => {
+test("Personal Cua: unverified CLI stopping keeps the paused work until fresh observation acceptance", async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "before-pause");
+  const original = JSON.parse(await f.answer(p, input("computer_screenshot"), "before-pause"));
   let stops = 0; f.host.stopCli = async () => ++stops > 1;
   await assert.rejects(p.mcp!.pauseCua(true), { code: "cua_stop_unverified" });
   assert.equal((await p.mcp!.cuaStatus()).paused, true);
+  await assert.rejects(p.mcp!.pauseCua(false), { code: "cua_frozen" });
+  await p.mcp!.recoverCua(original.operation, "observe");
+  await p.mcp!.recoverCua(original.operation, "accept", (await p.mcp!.detail(original.operation)).summary.cuaObservation);
   await p.mcp!.pauseCua(false);
   assert.equal((await p.mcp!.cuaStatus()).paused, false);
-  const click = JSON.parse(await p.answer(input("computer_click"), "without-new-picture"));
-  assert.equal(click.code, "cua_observation_required"); assert.equal(f.calls().length, 1);
-  await p.answer(input("computer_screenshot"), "new-picture");
-  assert.equal((await p.mcp!.list()).items[0].code, "returned");
-  await p.answer(input("computer_click"), "new-click"); assert.equal(f.calls().length, 3);
+  const click = JSON.parse(await f.answer(p, input("computer_click"), "without-new-picture"));
+  assert.equal(click.code, "cua_observation_required"); assert.equal(f.calls().length, 2);
+  await f.answer(p, input("computer_screenshot"), "new-picture");
+  await f.answer(p, input("computer_click"), "new-click"); assert.equal(f.calls().length, 4);
 });
 
 test("Personal Cua：恢复图片分页绑定最新观察，重观察启动失败使旧接受失效且保留暂停", async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   await p.mcp!.pauseCua(true);
   await p.mcp!.recoverCua(unknown.operation, "stop"); await p.mcp!.recoverCua(unknown.operation, "observe");
   const detail = await p.mcp!.detail(unknown.operation), observation = detail.summary.cuaObservation!, image = detail.recoveryImages![0];
@@ -305,8 +370,8 @@ test("Personal Cua：恢复图片分页绑定最新观察，重观察启动失�
 
 test("Personal Cua：在途调用期间暂停先拒绝新发送，丢答后继续仍要求完整恢复", async t => {
   const f = await fixture(t), p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const pending = p.answer(input("computer_click", { hang: true }), "in-flight");
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const pending = f.answer(p, input("computer_click", { hang: true }), "in-flight");
   const deadline = Date.now() + 1000;
   while (f.calls().length < 2) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 2)); }
   const paused = await p.mcp!.pauseCua(true); assert.equal(paused.paused, true); assert.equal(paused.busy, true);
@@ -322,8 +387,8 @@ test("Personal Cua：v3 格式迁入 v4 不改变旧执行身份或自锁，旧�
   fs.writeFileSync(path.join(f.directory, "mcp.json"), JSON.stringify(f.config) + "\n", { mode: 0o600 });
   profile.release();
   let p = await f.open(); await f.full(p);
-  await p.answer(input("computer_screenshot"), "initial");
-  const unknown = JSON.parse(await p.answer(input("computer_click", { hang: true }), "lost"));
+  await f.answer(p, input("computer_screenshot"), "initial");
+  const unknown = JSON.parse(await f.answer(p, input("computer_click", { hang: true }), "lost"));
   const original = (await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!;
   await p.close();
   const { migratePersonalMcp } = await import("../apps/ruukoto/src/personal-mcp-config.ts");
@@ -338,4 +403,268 @@ test("Personal Cua：v3 格式迁入 v4 不改变旧执行身份或自锁，旧�
   assert.equal((await p.mcp!.detail(unknown.operation)).summary.cuaRecovery, "accepted");
   assert.equal((await p.harness.snapshot(PersonalMcpDoc, String(unknown.operation), context))!.operation!.remoteEnded, false);
   assert.equal(f.calls().length, 3);
+});
+
+test("Personal Cua: two assignments keep serial ownership until the original CLI stop is verified", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await f.answer(p, input("computer_screenshot"), "serial-first");
+  const original = f.currentWork()!;
+  await p.answer("另一个电脑任务", "serial-second");
+  const next = await p.work.delegate({ requestId: "cua-serial-second", sourceRequestId: "serial-second", content: input("computer_screenshot") });
+  const { PersonalInteractiveResourceDoc } = await import("../apps/ruukoto/src/personal-interactive.ts");
+  const resource = `cua:${"b".repeat(64)}`, deadline = Date.now() + 2000;
+  while ((await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))?.claims.length !== 2) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  assert.equal(f.calls().length, 1);
+  const claims = (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!;
+  assert.equal(claims.owner, claims.claims[0].claim);
+  assert.equal(claims.claims[1].acquired, undefined);
+  f.host.stopCli = async () => false; f.host.stopPrepared = async () => false;
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, original), context);
+  await p.harness.abortTask(original.taskId, context);
+  await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(f.calls().length, 1);
+  assert.equal((await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.owner, claims.claims[0].claim);
+  assert.equal((await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.claims[1].acquired, undefined);
+  assert.equal((await p.harness.snapshot(PersonalWorkDoc, original.requestId, context))!.cancelRequested, true);
+  assert.equal(await p.answer("核实时还能聊天", "serial-chat"), "完成");
+  f.host.stopCli = async () => true; f.host.stopPrepared = async () => true;
+  const originalOperation = (await p.mcp!.list()).items.find(item => item.started)!.operation;
+  await p.mcp!.recoverCua(originalOperation, "stop");
+  const nextDeadline = Date.now() + 2000;
+  while (f.calls().length < 2) { assert.ok(Date.now() < nextDeadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  const after = (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!;
+  assert.ok(after.claims[0].released); assert.equal(after.owner, after.claims[1].claim); assert.ok(after.claims[1].acquired! > after.claims[0].released!);
+  assert.equal((await p.harness.snapshot(PersonalMcpDoc, String((await p.mcp!.list()).items[0].operation), context))!.operation!.origin.work!.ref.taskId, next.taskId);
+});
+
+test("Personal Cua: reopening rejects a released claim without the owned CLI stop evidence", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await f.answer(p, input("computer_screenshot"), "evidence-owner");
+  const work = f.currentWork()!; await f.finish(p);
+  const { PersonalInteractiveResourceDoc } = await import("../apps/ruukoto/src/personal-interactive.ts");
+  const resource = `cua:${"b".repeat(64)}`;
+  const claim = (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.claims[0];
+  assert.ok(claim.released); assert.ok(claim.stopped?.length);
+  const operation = (await p.mcp!.list()).items[0].operation;
+  const saved = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
+  assert.equal(saved.origin.work!.ref.taskId, work.taskId);
+  await p.harness.commit(async tx => { (await tx.doc(PersonalInteractiveResourceDoc, resource, null)).claims[0].stopped = []; }, context);
+  await p.close(); await assert.rejects(f.open(), { code: "mcp_record_invalid" });
+  assert.equal(f.calls().length, 1);
+});
+
+test("Personal Cua: a later takeover preserves the prior accepted choice and requires its own observation", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const original = JSON.parse(await f.answer(p, input("computer_screenshot"), "twice-owner"));
+  assert.equal((await p.mcp!.cuaStatus()).operations.length, 0, "ordinary persistent CLI is not unverified stopping");
+  await p.mcp!.pauseCua(true); await p.mcp!.recoverCua(original.operation, "observe");
+  const first = (await p.mcp!.detail(original.operation)).summary.cuaObservation!;
+  await p.mcp!.recoverCua(original.operation, "accept", first); await p.mcp!.pauseCua(false);
+  await p.mcp!.pauseCua(true);
+  await assert.rejects(p.mcp!.recoverCua(original.operation, "accept", first), { code: "cua_observation_stale" });
+  await p.mcp!.recoverCua(original.operation, "observe");
+  const second = (await p.mcp!.detail(original.operation)).summary.cuaObservation!;
+  assert.notEqual(second, first);
+  await p.mcp!.recoverCua(original.operation, "accept", second); await p.mcp!.pauseCua(false);
+  const saved = (await p.harness.snapshot(PersonalMcpDoc, String(original.operation), context))!.operation!;
+  assert.equal(saved.previousTakeovers?.length, 1); assert.equal(saved.previousTakeovers[0].observation!.entry, first);
+  await f.finish(p); await p.close(); const reopened = await f.open();
+  assert.deepEqual((await reopened.harness.snapshot(PersonalMcpDoc, String(original.operation), context))!.operation!.previousTakeovers, saved.previousTakeovers);
+  assert.equal(f.calls().length, 3);
+});
+
+
+test("Personal Cua: takeover during a successful in-flight call requires a new exact observation", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  await f.answer(p, input("computer_screenshot"), "inflight-start");
+  f.holdCall();
+  const pending = f.answer(p, input("computer_click"), "inflight-click");
+  const deadline = Date.now() + 1000;
+  while (f.calls().length < 2) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  await p.mcp!.pauseCua(true); f.releaseCall();
+  const result = JSON.parse(await pending);
+  assert.equal(result.effect, "returned"); assert.equal(f.calls().length, 2);
+  assert.equal((await p.mcp!.detail(result.operation)).summary.cuaRecovery, "begun");
+  await assert.rejects(p.mcp!.pauseCua(false), { code: "cua_frozen" });
+  await p.mcp!.recoverCua(result.operation, "observe");
+  const observation = (await p.mcp!.detail(result.operation)).summary.cuaObservation!;
+  await p.mcp!.recoverCua(result.operation, "accept", observation);
+  const originalAcceptance = (await p.harness.snapshot(PersonalMcpDoc, String(result.operation), context))!.operation!.takeover!.accepted;
+  await p.mcp!.recoverCua(result.operation, "accept", observation);
+  assert.equal((await p.harness.snapshot(PersonalMcpDoc, String(result.operation), context))!.operation!.takeover!.accepted, originalAcceptance);
+  await p.mcp!.pauseCua(false);
+  assert.equal(f.calls().length, 3);
+});
+
+test("Personal Cua: every queued claim requires its original MCP participant", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const first = JSON.parse(await f.answer(p, input("computer_screenshot"), "claim-owner"));
+  const resource = `cua:${"b".repeat(64)}`, state = (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!;
+  await p.harness.commit(async tx => {
+    const doc = await tx.doc(PersonalInteractiveResourceDoc, resource, null), { origin, instructions } = doc.claims[0];
+    const admission = await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "ruukoto.interactive-admission", data: { version: 1, resource, origin, instructions: instructions! } });
+    doc.claims.push({ claim: admission.id, origin, instructions });
+  }, context);
+  await p.harness.commit(tx => verifyPersonalInteractive(tx, [resource]), context);
+  await assert.rejects(p.harness.commit(tx => verifyMcp(tx, [String(first.operation)]), context), { code: "mcp_record_invalid" });
+  await p.harness.commit(async tx => { Object.assign(await tx.doc(PersonalInteractiveResourceDoc, resource, null), state); }, context);
+});
+
+test("Personal Cua: cancellation after accepted takeover rechecks only its original CLI", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const first = JSON.parse(await f.answer(p, input("computer_screenshot"), "accepted-owner"));
+  await p.mcp!.pauseCua(true); await p.mcp!.recoverCua(first.operation, "observe");
+  const observation = (await p.mcp!.detail(first.operation)).summary.cuaObservation!;
+  await p.mcp!.recoverCua(first.operation, "accept", observation); await p.mcp!.pauseCua(false);
+  const original = (await p.harness.snapshot(PersonalMcpDoc, String(first.operation), context))!.operation!, work = f.currentWork()!;
+  let sandboxStops = 0; f.host.stop = async () => { sandboxStops++; return true; };
+  f.host.stopCli = async () => false; f.host.stopPrepared = async () => false;
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, work), context); await p.harness.abortTask(work.taskId, context);
+  const deadline = Date.now() + 2000;
+  while (!(await p.mcp!.detail(first.operation)).summary.cuaStopUnverified) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  assert.equal((await p.mcp!.detail(first.operation)).summary.cuaRecovery, "accepted");
+  assert.notEqual((await p.harness.getTask(work.taskId, context))!.state.status, "terminal");
+  assert.equal(await p.answer("核实时继续聊天", "accepted-stop-chat"), "完成");
+  f.host.stopCli = async () => true; f.host.stopPrepared = async () => true;
+  await p.mcp!.recoverCua(first.operation, "stop"); await p.harness.waitForTask(work.taskId, context);
+  const saved = (await p.harness.snapshot(PersonalMcpDoc, String(first.operation), context))!.operation!;
+  assert.equal(saved.takeover!.accepted, original.takeover!.accepted); assert.equal(saved.evidence.request, original.evidence.request); assert.equal(sandboxStops, 0);
+  assert.equal((await p.mcp!.detail(first.operation)).summary.cuaStopUnverified, false);
+  const calls = f.calls().length; await p.mcp!.recoverCua(first.operation, "stop"); assert.equal(f.calls().length, calls);
+  await p.close(); await f.open(); assert.equal(f.calls().length, calls);
+});
+
+test("Personal Cua: rejecting another sandbox keeps the current assignment connection", async t => {
+  const f = await fixture(t), firstService = f.config.services[0];
+  f.config.services.push({ ...firstService, id: "second-desktop", cua: { ...firstService.cua!, sandbox: "local:second", sandboxId: "d".repeat(64) } });
+  const p = await f.open(); await f.full(p);
+  const first = JSON.parse(await f.answer(p, input("computer_screenshot"), "first-desktop-owner"));
+  let stops = 0; f.host.stopCli = async () => { stops++; return true; };
+  await p.answer("另一台电脑的工作", "second-desktop-owner");
+  const second = await p.work.delegate({ requestId: "second-desktop-work", sourceRequestId: "second-desktop-owner", content: "调用:" + JSON.stringify({ service: "second-desktop", tool: "computer_screenshot", arguments: {} }) });
+  const deadline = Date.now() + 2000;
+  while (!(await p.mcp!.list()).items.some(item => item.service === "电脑" && item.operation !== first.operation && item.code === "cua_binding_busy")) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  const other = (await p.mcp!.list()).items.find(item => item.operation !== first.operation)!;
+  await p.harness.waitForTask(other.operation, context);
+  assert.equal(stops, 0); assert.equal(f.calls().length, 1);
+  const resource = (await p.harness.snapshot(PersonalInteractiveResourceDoc, `cua:${"b".repeat(64)}`, context))!;
+  assert.ok(resource.owner); assert.equal(resource.claims[0].released, undefined);
+  assert.equal((await p.harness.snapshot(PersonalMcpDoc, String(other.operation), context))!.operation!.origin.work!.ref.taskId, second.taskId);
+});
+
+test("Personal Cua: an amendment during resource collection retains the claim until final completion", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const resource = `cua:${"b".repeat(64)}`, original = PersonalWorkTask.definition.phases.run;
+  let work: PersonalWorkRef | undefined;
+  let collecting!: () => void, releaseCollect!: () => void;
+  const reached = new Promise<void>(resolve => { collecting = resolve; }), held = new Promise<void>(resolve => { releaseCollect = resolve; });
+  t.after(releaseCollect);
+  let paused = false;
+  t.mock.method(PersonalWorkTask.definition.phases, "run", async (...[task, runtime, context]: Parameters<typeof original>) => original(task, { ...runtime, hooks: { each: async (name, invoke) => {
+    await runtime.hooks.each(name, invoke);
+    if (!paused && task.id === work?.taskId && name === "settleResources") { paused = true; collecting(); await held; }
+  } } }, context));
+  const first = JSON.parse(await f.answer(p, input("computer_screenshot"), "collect-owner"));
+  work = f.currentWork()!;
+  await p.answer("原工作收尾时新增要求", "collect-amend-owner");
+  const second = await p.work.delegate({ requestId: "collect-waiter", sourceRequestId: "collect-amend-owner", content: input("computer_screenshot") });
+  const deadline = Date.now() + 2000;
+  while ((await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.claims.length !== 2) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); }
+  f.release(); await reached;
+  await p.work.append(work, { requestId: "collect-amendment", sourceRequestId: "collect-amend-owner", content: input("computer_screenshot") });
+  const before = (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!;
+  assert.equal(before.owner, before.claims[0].claim); assert.equal(before.claims[0].released, undefined); assert.equal(before.claims[1].acquired, undefined);
+  releaseCollect();
+  const freshDeadline = Date.now() + 2000;
+  let fresh = false;
+  while (!fresh) {
+    for (const item of (await p.mcp!.list()).items) if (item.operation !== first.operation && item.effect === "returned" && (await p.harness.snapshot(PersonalMcpDoc, String(item.operation), context))!.operation!.origin.work?.ref.taskId === work.taskId) fresh = true;
+    assert.ok(Date.now() < freshDeadline); if (!fresh) await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  const final = (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!;
+  assert.equal(final.claims.length, 2); assert.equal(final.owner, final.claims[0].claim); assert.equal(final.claims[1].acquired, undefined); assert.equal(f.calls().length, 2);
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, second), context); await p.harness.abortTask(second.taskId, context); await p.harness.waitForTask(second.taskId, context);
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, work), context); await p.harness.abortTask(work.taskId, context); await p.harness.waitForTask(work.taskId, context);
+  assert.equal((await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.claims[0].released !== undefined, true);
+});
+test("Personal Cua: closing the original connection cannot bind another target before exact stop", { timeout: 20000 }, async t => {
+  const f = await fixture(t), firstService = f.config.services[0];
+  f.config.services.push({ ...firstService, id: "second-desktop", cua: { ...firstService.cua!, sandbox: "local:second", sandboxId: "d".repeat(64) } });
+  const p = await f.open(); await f.full(p);
+  const first = JSON.parse(await f.answer(p, input("computer_screenshot"), "closing-owner")), originalWork = f.currentWork()!;
+  const firstValue = (await p.harness.snapshot(PersonalMcpDoc, String(first.operation), context))!.operation!;
+  let enterStop!: () => void, releaseStop!: () => void;
+  const entered = new Promise<void>(resolve => { enterStop = resolve; }), stopped = new Promise<void>(resolve => { releaseStop = resolve; });
+  t.after(() => releaseStop());
+  const stopCli = f.host.stopCli;
+  let hold = true;
+  f.host.stopCli = async value => { if (hold) { hold = false; enterStop(); await stopped; } return stopCli(value); };
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, originalWork), context); await p.harness.abortTask(originalWork.taskId, context); await entered;
+  await p.answer("another independent target", "closing-next-owner");
+  const next = await p.work.delegate({ requestId: "closing-next-work", sourceRequestId: "closing-next-owner", content: "调用:" + JSON.stringify({ service: "second-desktop", tool: "computer_screenshot", arguments: {} }) });
+  const deadline = Date.now() + 2000;
+  let second: TaskId | undefined;
+  while (second === undefined || !(await p.harness.snapshot(PersonalMcpDoc, String(second), context))!.operation!.observation) {
+    second = (await p.harness.snapshot(PersonalMcpConfigDoc, context))!.operations.find(id => id !== first.operation);
+    assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  const value = (await p.harness.snapshot(PersonalMcpDoc, String(second), context))!.operation!;
+  const callsBeforeStop = f.calls().length;
+  releaseStop(); await p.harness.waitForTask(originalWork.taskId, context);
+  assert.equal(callsBeforeStop, 1, "The singleton cannot launch another target while its original stop is pending.");
+  assert.equal(value.started, false);
+  assert.equal(value.code, "cua_binding_busy");
+  const final = (await p.harness.snapshot(PersonalMcpDoc, String(first.operation), context))!.operation!;
+  assert.equal(final.cuaLaunches![0].entry, firstValue.cuaLaunches![0].entry);
+  assert.ok(final.cuaLaunches![0].stopped); assert.equal(value.cuaLaunches, undefined);
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, next), context); await p.harness.abortTask(next.taskId, context); await p.harness.waitForTask(next.taskId, context);
+});
+
+for (const duringWait of ["continue", "amend", "cancel"] as const) test(`Personal Cua: queued exact-stop recovery completion handles ${duringWait} without stale execution`, { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const first = JSON.parse(await f.answer(p, input("computer_screenshot"), "recovery-tail-first")), work = f.currentWork()!;
+  await p.answer("Queue another computer assignment", "recovery-tail-next");
+  const next = await p.work.delegate({ requestId: "recovery-tail-next-work", sourceRequestId: "recovery-tail-next", content: input("computer_screenshot") });
+  const resource = `cua:${"b".repeat(64)}`;
+  const until = async (check: () => boolean | Promise<boolean>) => { const deadline = Date.now() + 2000; while (!await check()) { assert.ok(Date.now() < deadline); await new Promise(resolve => setTimeout(resolve, 5)); } };
+  await until(async () => (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.claims.length === 2);
+  const second = (await p.mcp!.list()).items.find(value => value.operation !== first.operation)!.operation;
+  f.host.stopCli = async () => false; f.host.stopPrepared = async () => false;
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, work), context); await p.harness.abortTask(work.taskId, context);
+  await until(async () => (await p.mcp!.detail(first.operation)).summary.cuaStopUnverified);
+  let entered!: () => void, release!: () => void;
+  const reached = new Promise<void>(resolve => { entered = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  t.after(release);
+  f.host.stopCli = async () => true;
+  f.host.stopPrepared = async () => { entered(); await held; return true; };
+  const recovering = p.mcp!.recoverCua(first.operation, "stop");
+  t.after(async () => { release(); await recovering; }); await reached;
+  await p.harness.waitForTask(work.taskId, context);
+  await until(async () => (await p.harness.snapshot(PersonalInteractiveResourceDoc, resource, context))!.claims[1].acquired !== undefined);
+  assert.equal(await p.answer("Main while exact-stop recovery finishes", "recovery-tail-chat"), "完成");
+  const waiting = (await p.harness.snapshot(PersonalMcpDoc, String(second), context))!.operation!;
+  assert.equal(waiting.started, false); assert.equal(waiting.observation, undefined); assert.equal(f.calls().length, 1);
+  if (duringWait === "amend") await p.work.append(next, { requestId: "recovery-tail-amendment", sourceRequestId: "recovery-tail-chat", content: "Updated requirement; make no computer calls." });
+  if (duringWait === "cancel") { await p.harness.commit(tx => requestPersonalWorkCancel(tx, next), context); await p.harness.abortTask(next.taskId, context); }
+  release(); await recovering;
+  await until(async () => (await p.harness.snapshot(PersonalMcpDoc, String(second), context))!.operation!.observation !== undefined);
+  const final = (await p.harness.snapshot(PersonalMcpDoc, String(second), context))!.operation!;
+  if (duringWait === "continue") { assert.equal(final.code, "returned"); assert.equal(f.calls().length, 2); }
+  else { assert.equal(final.started, false); assert.equal(final.effect, "not_executed"); assert.equal(f.calls().length, 1); if (duringWait === "amend") assert.equal(final.code, "tool_requirements_changed"); }
+  await p.harness.commit(tx => requestPersonalWorkCancel(tx, next), context); await p.harness.abortTask(next.taskId, context); await p.harness.waitForTask(next.taskId, context);
+});
+
+test("Personal Cua: a stopped interrupted read awaits fresh recovery without an unknown effect", { timeout: 20000 }, async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const result = JSON.parse(await f.answer(p, input("computer_screenshot", { hang: true }), "read-recovery"));
+  const work = f.currentWork()!;
+  const before = (await p.harness.snapshot(PersonalMcpDoc, String(result.operation), context))!.operation!;
+  assert.equal(before.effect, "no_write"); assert.equal(before.remoteEnded, false);
+  const pendingFacts = await p.harness.commit(tx => personalWorkExecutionFacts(tx, work.taskId, 8), context);
+  assert.deepEqual(pendingFacts.factCounts!.mcp, { total: 1, pending: 1, unknown: 1 });
+  await p.mcp!.recoverCua(result.operation, "stop");
+  const stopped = (await p.harness.snapshot(PersonalMcpDoc, String(result.operation), context))!.operation!;
+  assert.ok(stopped.cua!.recovery!.stopped); assert.ok(stopped.cuaLaunches!.every(launch => launch.stopped));
+  const facts = await p.harness.commit(tx => personalWorkExecutionFacts(tx, work.taskId, 8), context);
+  assert.deepEqual(facts.factCounts!.mcp, { total: 1, pending: 1, unknown: 0 });
 });

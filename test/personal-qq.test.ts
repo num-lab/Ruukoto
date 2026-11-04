@@ -381,7 +381,11 @@ test("QQ：应用数据批准固定原平台，跨平台菜单无效且重启保
     { name: "app_data_insert", arguments: { table: "todos", records: [{ title: "甲" }, { title: "乙" }], reason: "新增" } },
     { name: "app_data_delete", arguments: { table: "todos", rows: [{ id: 1, expected_version: 1 }, { id: 2, expected_version: 1 }], reason: "完成" } },
   ];
-  const f = await fixture(t, (_request, i) => actions[i] ? { kind: "tool_calls", calls: [{ id: `qq-app-data-${i}`, ...actions[i] }] } : { kind: "text", text: "业务已完成" }); let p = await f.open();
+  let childCalls = 0;
+  const f = await fixture(t, request => {
+    if (request.system?.includes("你是个人助手的子 Agent")) { const i = childCalls++; return actions[i] ? { kind: "tool_calls", calls: [{ id: `qq-app-data-${i}`, ...actions[i] }] } : { kind: "text", text: "业务已完成" }; }
+    return String(request.messages.at(-1)?.content) === "整理待办" ? { kind: "tool_calls", calls: [{ id: "qq-app-data-delegate", name: "background_work", arguments: { action: "delegate", content: "整理待办", appData: true } }] } : { kind: "text", text: "业务已完成" };
+  }); let p = await f.open();
   await p.qq.receive(event(80, "整理待办"));
   const operations = () => p.harness.commit(async tx => JSON.parse(JSON.stringify(await appDataOperations(tx))) as Awaited<ReturnType<typeof appDataOperations>>, context);
   await until(async () => (await operations()).some(op => op.name === "app_data_delete"));
@@ -390,6 +394,7 @@ test("QQ：应用数据批准固定原平台，跨平台菜单无效且重启保
   const wrong = await f.receive("数据批准本次", Number(detail.value.platformMessageId), "telegram"); assert.equal(wrong.value.appDataDecision, undefined); assert.equal((await operations()).at(-1)!.decision, "pending");
   await assert.rejects(p.harness.commit(tx => appDataDecide(tx, f.options.directory, op.operation, "approved"), context), code("app_data_original_entry"));
   const approved = await f.receive("数据批准本次", Number(detail.value.platformMessageId)); await settled(p, 80);
+  await until(async () => (await operations()).at(-1)?.result?.effect === "committed");
   assert.equal((await operations()).at(-1)!.result?.effect, "committed"); assert.equal((await operations()).at(-1)!.actor, approved.key);
   await f.stop(); p = await f.open(); assert.equal((await operations()).at(-1)!.result?.effect, "committed");
 });

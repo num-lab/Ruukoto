@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { createInterface } from "node:readline";
 const [record, definitions] = process.argv.slice(2);
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
@@ -11,6 +12,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   else if (message.method === "tools/list") result = { tools: JSON.parse(fs.readFileSync(definitions, "utf8")) };
   else if (message.method === "tools/call") {
     if (message.params.arguments.hang) continue;
+    if (fs.existsSync(record + ".hold")) while (!fs.existsSync(record + ".release")) await delay(5);
     const mode = message.params.arguments.bad ?? (fs.existsSync(record + ".mode") ? fs.readFileSync(record + ".mode", "utf8") : "");
     result = message.params.name === "computer_screenshot" ? { content: mode === "empty" ? [{ type: "text", text: "无图" }] : [{ type: "image", data: mode === "invalid" ? "aGVsbG8=" : png, mimeType: "image/png" }], ...(mode === "error" ? { isError: true } : {}) } : { content: [{ type: "text", text: "操作已返回" }] };
   }

@@ -250,6 +250,11 @@ export async function startPersonalServer(directory: string, options: { developm
           const id = url.searchParams.get("run");
           if (!id || id.length > 256) throw new PersonalError("schedule_input_invalid", "请选择原计划列表中的运行。");
           result = await instance.harness.commit(tx => instance.scheduler.result(tx, id, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "POST" && url.pathname === "/schedule/run/cancel") {
+          const id = url.searchParams.get("run");
+          if (!id || id.length > 256) throw new PersonalError("schedule_input_invalid", "请选择原计划中的运行。");
+          await instance.harness.commit(tx => instance.scheduler.cancelRun(tx, id, { kind: "local", requestId: randomUUID() }), context);
+          instance.harness.resume(); result = { cancelRequested: true };
         } else if ((req.method === "GET" && ["/schedule", "/schedule/runs"].includes(url.pathname)) || (req.method === "POST" && url.pathname === "/schedule/cancel")) {
           const requestId = url.searchParams.get("requestId");
           if (url.pathname === "/schedule" && requestId !== null) {
@@ -290,14 +295,20 @@ export async function startPersonalServer(directory: string, options: { developm
           }, context);
           result = { saved: true };
         } else if (req.method === "GET" && url.pathname === "/browser") {
-          result = { enabled: !!instance.browser, ...(instance.browser?.status() ?? {}) };
+          result = { enabled: !!instance.browser, ...await instance.browser?.connectionStatus() };
         } else if (req.method === "GET" && url.pathname === "/browser/operations") {
           result = await instance.harness.commit(tx => browserList(tx, queryNumber(url, "offset", 0)), context);
         } else if (req.method === "GET" && url.pathname === "/browser/operation") {
           result = await instance.harness.commit(tx => browserDetail(tx, queryNumber(url, "operation") as TaskId, queryNumber(url, "offset", 0)), context);
+        } else if (req.method === "POST" && url.pathname === "/browser/resume") {
+          if (!instance.browser) throw new PersonalError("browser_config_missing", "浏览器未装配，请核实原配置。");
+          const value = await readControlJSON(req);
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 1 || !("requestId" in value) || typeof value.requestId !== "string" || !PERSONAL_REQUEST_ID.test(value.requestId)) throw new PersonalError("browser_choice_invalid", "继续浏览器须使用原请求标识，丢答后查询原选择。");
+          const choice = await instance.harness.commit(tx => instance.browser!.chooseResume(tx, queryNumber(url, "operation") as TaskId, undefined, value.requestId as string), context);
+          result = { choice, saved: true };
         } else if (req.method === "POST" && url.pathname === "/browser/stop") {
           if (!instance.browser) throw new PersonalError("browser_config_missing", "浏览器未装配，请停止后台后通过向导配置。");
-          result = { stopped: url.searchParams.has("operation") ? await instance.browser.verifyStop(queryNumber(url, "operation") as TaskId) : await instance.browser.stop() };
+          result = { stopped: url.searchParams.has("operation") ? await instance.browser.verifyStop(queryNumber(url, "operation") as TaskId) : await instance.browser.stopCurrent() };
         } else if (req.method === "POST" && url.pathname === "/browser/resolve") {
           const value = await readControlJSON(req);
           if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !("effect" in value) || value.effect !== "applied" && value.effect !== "not_applied" || !("evidence" in value) || typeof value.evidence !== "string") throw new PersonalError("browser_resolution_invalid", "请选择原网页效果并填写独立核实证据。");
@@ -446,11 +457,12 @@ export async function startPersonalServer(directory: string, options: { developm
         } else if ((req.method === "GET" && url.pathname === "/work") || (req.method === "POST" && ["/work/cancel", "/work/close"].includes(url.pathname))) {
           const id = queryNumber(url, "work") as TaskId;
           const offset = queryNumber(url, "offset", 0);
+          const factsOffset = queryNumber(url, "factsOffset", 0);
           result = await instance.harness.commit(async tx => {
             const ref = await personalWorkRef(tx, id);
             if (url.pathname === "/work/cancel") { await requestPersonalWorkCancel(tx, ref); return { cancelRequested: true }; }
             if (url.pathname === "/work/close") { await closePersonalWorkAgent(tx, ref); return { closed: true }; }
-            return { summary: await personalWorkSummary(tx, ref, { local: true }), result: await personalWorkResult(tx, ref, offset, 4096, { local: true }) };
+            return { summary: await personalWorkSummary(tx, ref, { local: true }), result: await personalWorkResult(tx, ref, offset, 4096, { local: true }, factsOffset) };
           }, context);
         } else if (req.method === "GET" && ["/input", "/work/notes"].includes(url.pathname)) {
           const requestId = url.searchParams.get("requestId") ?? "";
@@ -529,7 +541,7 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | Record<string, never> | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest, timeoutMs?: number): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | Record<string, never> | { requestId: string } | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest, timeoutMs?: number): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
     const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });

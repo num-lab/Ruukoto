@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Personal M2 execution](../architecture/2026-11-04-personal-m2-execution.md) supersedes main-only startup and child exclusion with host-qualified full-access work. Processes retain independent lifetime across normal replies; assignment cancellation stops only its own executions, including after normal work completion. Original legacy sources, directory claims, logs and exact stop verification remain.
+
 [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) removes protection scans from full-access background setup/supervision. Provenance, cwd identity, stop, and claim rules remain.
 
 ## Problem

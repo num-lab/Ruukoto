@@ -44,6 +44,17 @@ RUN_MODEL_CHECK=1 RUN_PERSONAL_AMENDMENT_MODELS_FILE=/absolute/models.json npx t
 
 Set `RUN_PERSONAL_AMENDMENT_MODEL=provider/model` if the selected file contains several models. This checks actual model routing and the ordinary file loop; native desktop cards, real IM delivery and optional execution families require their separate acceptance.
 
+## Personal M2 Execution
+
+M2 model acceptance creates fresh profiles with a seeded application database and a loopback MCP fixture. It checks held batch-update and MCP-write approvals, a progress query that preserves the original decision, an amendment delivered to the same child and a fresh exact approval, then natural-language cancellation and reopen without writes or MCP sends. It permits at most 32 requests and six minutes, uses the explicitly selected literal/environment credential and writes redacted request/operation evidence outside the checkout.
+
+```bash
+npm run build:worker
+RUN_MODEL_CHECK=1 RUN_PERSONAL_M2_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m2-model-acceptance.test.ts
+```
+
+Set `RUN_PERSONAL_M2_MODEL=provider/model` when the file contains several models. Real isolated Linux browser, official Cua and persistent-process checks separately establish resource ownership, fresh takeover observations, exact stopping and recovery. Application-data isolation also needs a real synchronous SQLite workload with an overlapping main reply and original worker exit/receipt evidence; delaying a Promise before SQLite does not prove that property. Desktop interaction and real IM remain separate acceptance.
+
 ## Evidence and Cleanup
 
 See [smoke instructions](../verification/smoke/README.md) for arguments, authentication, exit codes and cleanup. Keep credentials in protected files outside the checkout. [Release acceptance](release-acceptance.md#current-rerun-entry-points) defines upgrade baselines and old names. Missing `test:model` configuration is a skip, not a pass. Model execution and installation upgrades are separate checks; Docker history and simulated IM do not prove native isolation or real IM acceptance. [Archived privileged scripts](../verification/archive/README.md) require isolation of system writes before anyone restores execution.

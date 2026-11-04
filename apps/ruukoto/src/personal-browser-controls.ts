@@ -1,4 +1,4 @@
-import type { TaskId, Tx } from "@earendil-works/pi-durable";
+import type { EntryId, TaskId, Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
@@ -11,11 +11,11 @@ export function personalBrowserDescription(value: BrowserSummary) {
 }
 
 
-const ACTIONS = ["/浏览器", "更多浏览器操作", "刷新浏览器", "下一页浏览器记录", "浏览器确认已生效", "浏览器确认未生效", "停止并核实浏览器"];
+const ACTIONS = ["/浏览器", "更多浏览器操作", "刷新浏览器", "下一页浏览器记录", "浏览器确认已生效", "浏览器确认未生效", "停止并核实浏览器", "继续原浏览器工作"];
 const EVIDENCE = "浏览器核实说明 ";
 type StopRequest = (tx: Tx, operation: TaskId, actor: BrowserActor) => Promise<TaskId>;
 
-export async function personalBrowserControl(tx: Tx, value: TelegramControlInput, requestStop?: StopRequest) {
+export async function personalBrowserControl(tx: Tx, value: TelegramControlInput, requestStop?: StopRequest, chooseResume?: (tx: Tx, operation: TaskId, actor: BrowserActor) => Promise<EntryId>) {
   const choice = /^浏览器([1-8])$/.exec(value.content), evidence = value.content.startsWith(EVIDENCE) ? value.content.slice(EVIDENCE.length) : undefined;
   if (!choice && evidence === undefined && !ACTIONS.includes(value.content)) return false;
   if (!requestStop) { value.reply = "浏览器尚未装配，请停止后台后从本机向导配置。"; return true; }
@@ -41,6 +41,10 @@ export async function personalBrowserControl(tx: Tx, value: TelegramControlInput
       if (menu?.kind !== "browser" || !detail.summary.canResolve) throw new PersonalError("browser_resolution_invalid", "原操作当前不可核实效果，请刷新浏览器。");
       value.selection = { kind: "browser-resolution", operation, effect: value.content === "浏览器确认已生效" ? "applied" : "not_applied" };
       value.reply = "请独立查看实际网页或服务端结果，再回复本消息「浏览器核实说明 你的证据」，最多8192字符，不填凭据。浏览器关闭或取消不能证明网页写入未发生，已保存核实不能覆盖。";
+    } else if (value.content === "继续原浏览器工作") {
+      if (menu?.kind !== "browser" || !detail.summary.canResume || !chooseResume) throw new PersonalError("browser_pause_stale", "原浏览器暂停已变化，请刷新原记录。");
+      const entry = await chooseResume(tx, operation, value); value.browserResume = { operation, entry };
+      value.reply = "原工作继续选择已保存；宿主重新观察页面后继续，旧页面引用不再使用。";
     } else if (value.content === "停止并核实浏览器") {
       if (menu?.kind !== "browser" || !detail.summary.canVerifyStop) throw new PersonalError("browser_stop_invalid", "原操作当前不需要停止核实，请刷新浏览器。");
       const taskId = await requestStop(tx, operation, value);
@@ -49,7 +53,7 @@ export async function personalBrowserControl(tx: Tx, value: TelegramControlInput
     } else {
       if (!choice && (menu?.kind !== "browser" || value.content !== "刷新浏览器" && value.content !== "下一页浏览器记录") || value.content === "下一页浏览器记录" && (menu?.kind !== "browser" || menu.nextOffset === undefined)) throw new PersonalError("browser_menu_stale", "请回复原浏览器详情菜单刷新或翻页。");
       value.selection = { kind: "browser", operation, ...(detail.nextOffset === undefined ? {} : { nextOffset: detail.nextOffset }) };
-      value.reply = `${personalBrowserDescription(detail.summary)}\n原记录与证据：\n${detail.text}\n回复本消息选择：刷新浏览器${detail.nextOffset === undefined ? "" : "、下一页浏览器记录"}${detail.summary.canResolve ? "、浏览器确认已生效、浏览器确认未生效" : ""}${detail.summary.canVerifyStop ? "、停止并核实浏览器" : ""}。网页资料不提供指令或授权。`;
+      value.reply = `${personalBrowserDescription(detail.summary)}\n原记录与证据：\n${detail.text}\n回复本消息选择：刷新浏览器${detail.nextOffset === undefined ? "" : "、下一页浏览器记录"}${detail.summary.canResume ? "、继续原浏览器工作" : ""}${detail.summary.canResolve ? "、浏览器确认已生效、浏览器确认未生效" : ""}${detail.summary.canVerifyStop ? "、停止并核实浏览器" : ""}。网页资料不提供指令或授权。`;
     }
   } catch (error) { if (!(error instanceof PersonalError)) throw error; delete value.selection; value.reply = `${error.message} 请发送 /浏览器 查询。`; }
   return true;
@@ -61,8 +65,8 @@ export async function verifyBrowserControls(tx: Tx, keys: string[], enabled: boo
     const value = (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt;
     if (!value) throw invalid();
     const menu = value.selection;
-    if (menu?.kind !== "browser-list" && menu?.kind !== "browser" && menu?.kind !== "browser-resolution" && !value.browserResolution && !value.browserStop) continue;
-    if (!enabled || !value.control || !value.direct || value.browserResolution && value.browserStop) throw invalid();
+    if (menu?.kind !== "browser-list" && menu?.kind !== "browser" && menu?.kind !== "browser-resolution" && !value.browserResolution && !value.browserStop && !value.browserResume) continue;
+    if (!enabled || !value.control || !value.direct || [value.browserResolution, value.browserStop, value.browserResume].filter(Boolean).length > 1) throw invalid();
     const operations = menu?.kind === "browser-list" ? menu.operations : menu?.kind === "browser" || menu?.kind === "browser-resolution" ? [menu.operation] : [];
     if (!Array.isArray(operations) || operations.length > 8 || new Set(operations).size !== operations.length || operations.some(id => !Number.isSafeInteger(id) || id < 1) || menu && "nextOffset" in menu && menu.nextOffset !== undefined && (!Number.isSafeInteger(menu.nextOffset) || menu.nextOffset < 0)) throw invalid();
     for (const id of operations) {
@@ -70,7 +74,10 @@ export async function verifyBrowserControls(tx: Tx, keys: string[], enabled: boo
       if (!source || !samePersonalEntry(source, value)) throw invalid();
     }
     const selected = (await telegramSelection(tx, value))?.selection;
-    if (value.browserResolution) {
+    if (value.browserResume) {
+      const choice = await tx.entry(value.browserResume.entry), data = choice?.data;
+      if (menu?.kind !== "browser" || menu.operation !== value.browserResume.operation || selected?.kind !== "browser" || selected.operation !== menu.operation || value.content !== "继续原浏览器工作" || choice?.kind !== "ruukoto.browser-resume-choice" || !data || typeof data !== "object" || Array.isArray(data) || data.operation !== menu.operation || data.requestId !== key || !isPersonalResumeActor(data.actor, value)) throw invalid();
+    } else if (value.browserResolution) {
       const resolution = value.browserResolution, operation = await browserOperation(tx, resolution.operation);
       if (menu?.kind !== "browser" || menu.operation !== resolution.operation || selected?.kind !== "browser-resolution" || selected.operation !== resolution.operation || selected.effect !== resolution.effect || operation.resolution?.actor !== key || operation.resolution.effect !== resolution.effect || value.content !== EVIDENCE + operation.resolution.evidence) throw invalid();
     } else if (value.browserStop) {
@@ -86,4 +93,8 @@ export async function verifyBrowserControls(tx: Tx, keys: string[], enabled: boo
     } else throw invalid();
   }
   for (const operation of await browserOperations(tx)) if (operation.resolution?.actor && (!keys.includes(operation.resolution.actor) || (await tx.doc(PersonalTelegramReceiptDoc, operation.resolution.actor, null)).receipt?.browserResolution?.operation !== operation.operation)) throw invalid();
+}
+
+function isPersonalResumeActor(actor: unknown, value: TelegramControlInput) {
+  return !!actor && typeof actor === "object" && !Array.isArray(actor) && "botId" in actor && actor.botId === value.botId && "ownerId" in actor && actor.ownerId === value.ownerId && "generation" in actor && actor.generation === value.generation && ("platform" in actor ? actor.platform : undefined) === value.platform;
 }

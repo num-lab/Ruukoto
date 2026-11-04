@@ -447,6 +447,28 @@ test("旧 Personal Cua begun或stopped直接检查恢复，v3格式不阻塞原�
   assert.equal(h.calls.some(call => call.request.action === "begin"), false); assert.equal(h.writes().length, 0);
 });
 
+test("Personal Cua connection-stop verification uses the original control without sandbox confirmation", async () => {
+  const h = harness("computer"); await h.state.read();
+  h.state.cua = { available: true, paused: false, busy: false, operations: [{ operation: 12, service: "电脑", tool: "computer_screenshot", effect: "returned", code: "returned", cuaStopUnverified: true, images: [] }] };
+  h.hooks.query = async request => request.op === "mcp.cua-control" ? ok({ profile, available: true, paused: false, busy: false, operations: [] }) : assert.fail(String(request.op));
+  await h.state.controlCua("stop", 12);
+  assert.equal(h.state.cuaConfirmation, null);
+  assert.deepEqual(h.calls.find(call => call.request.op === "mcp.cua-control")?.request, { v: 1, op: "mcp.cua-control", profile, expectedRevision: mcpRevision, action: "stop", operation: 12 });
+  assert.equal(h.writes().length, 0);
+});
+
+test("Personal Cua offers connection-stop verification after an accepted takeover", async t => {
+  const h = harness("computer"); await h.state.read();
+  h.state.cua = { available: true, paused: false, busy: false, operations: [{ operation: 12, service: "电脑", tool: "computer_screenshot", effect: "returned", code: "returned", cuaStopUnverified: true, cuaRecovery: "accepted", images: [] }] };
+  const { renderToStaticMarkup } = await import("react-dom/server"), { createElement } = await import("react");
+  const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
+  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
+  t.after(() => server.close());
+  const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
+  const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
+  assert.match(html, /核实连接停止/); assert.doesNotMatch(html, /停止沙箱/);
+});
+
 test("Personal Cua 截图缺页或哈希不符不显示，目标缺安装仍可编辑普通HTTP服务", async () => {
   const h = harness("mcp"); await h.state.read();
   h.hooks.query = async () => ok({ product: "ruukoto", profile, targets: [], issues: [{ code: "cua_artifact_missing", message: "请安装官方固定版本。" }] });

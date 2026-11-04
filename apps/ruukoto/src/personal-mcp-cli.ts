@@ -157,11 +157,12 @@ export async function managePersonalMcp(io: PersonalCliIO, directory: string): P
       const detail = await personalControl<Awaited<ReturnType<typeof mcpDetail>>>(directory, "GET", `/mcp/operation?operation=${operation}&offset=${detailOffset}`);
       io.write(`\n${personalMcpDescription(detail.summary)}\n原请求、响应与核实证据：\n${detail.text}\n`);
 
-      const actions = ["刷新原操作", ...(detail.nextOffset === undefined ? [] : ["下一页原记录"]), ...(detail.summary.canDecide ? ["批准本次 MCP 操作", "拒绝本次 MCP 操作"] : []), ...(detail.summary.canResolve ? ["确认业务已生效", "确认业务未生效"] : []), ...(detail.summary.canEnd ? ["结束此工作，保留结果未知"] : []), ...(detail.summary.cuaRecovery === "frozen" ? ["停止原电脑运行代并保留磁盘"] : detail.summary.cuaRecovery === "stopped" ? ["检查结果并恢复（取新截图）"] : detail.summary.cuaRecovery === "begun" ? ["读取恢复新截图"] : detail.summary.cuaRecovery === "observed" ? ["查看恢复新截图", "重新读取恢复截图", ...(viewedObservation === detail.summary.cuaObservation ? ["接受新截图并开放新工作"] : [])] : []), "返回操作列表"];
+      const actions = ["刷新原操作", ...(detail.nextOffset === undefined ? [] : ["下一页原记录"]), ...(detail.summary.canDecide ? ["批准本次 MCP 操作", "拒绝本次 MCP 操作"] : []), ...(detail.summary.canResolve ? ["确认业务已生效", "确认业务未生效"] : []), ...(detail.summary.canEnd ? ["结束此工作，保留结果未知"] : []), ...(detail.summary.cuaStopUnverified && (!detail.summary.cuaRecovery || detail.summary.cuaRecovery === "accepted") ? ["核实原电脑连接停止"] : []), ...(detail.summary.cuaRecovery === "frozen" ? ["停止原电脑运行代并保留磁盘"] : detail.summary.cuaRecovery === "stopped" ? ["检查结果并恢复（取新截图）"] : detail.summary.cuaRecovery === "begun" ? ["读取恢复新截图"] : detail.summary.cuaRecovery === "observed" ? ["查看恢复新截图", "重新读取恢复截图", ...(viewedObservation === detail.summary.cuaObservation ? ["接受新截图并开放新工作"] : [])] : []), "返回操作列表"];
       const action = actions[await choose(io, "原 MCP 操作", actions)];
       if (action === "返回操作列表") break;
       if (action === "下一页原记录") { detailOffset = detail.nextOffset!; continue; }
       detailOffset = 0;
+      if (action === "核实原电脑连接停止") { await personalControl(directory, "POST", `/mcp/cua-recover?operation=${operation}`, { action: "stop" }); io.write("原连接停止核实已登记，请刷新原记录查看；电脑沙箱保留。\n"); continue; }
       if (action === "查看恢复新截图") { viewedObservation = undefined; if (await viewPersonalCuaImages(io, directory, detail.recoveryImages ?? [])) viewedObservation = detail.summary.cuaObservation; continue; }
       const recovery = { "停止原电脑运行代并保留磁盘": "stop", "检查结果并恢复（取新截图）": "observe", "读取恢复新截图": "observe", "重新读取恢复截图": "observe", "接受新截图并开放新工作": "accept" } as const;
       if (action in recovery) {

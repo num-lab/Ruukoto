@@ -17,7 +17,7 @@ import { PersonalMcpDoc, PersonalMcpConfigDoc } from "../apps/ruukoto/src/person
 import { migratePersonalMcp, personalMcpCredential, parsePersonalMcp, readPersonalMcp, savePersonalMcp } from "../apps/ruukoto/src/personal-mcp-config.ts";
 import { lockPersonalProfile, type PersonalProfileLock } from "../apps/ruukoto/src/personal-profile.ts";
 import { PersonalConfigurationDoc, PersonalSettingsOperationDoc } from "../apps/ruukoto/src/personal-settings-records.ts";
-import { PersonalWorkDoc, requestPersonalWorkCancel, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
+import { PersonalWorkDoc, requestPersonalWorkCancel, personalWorkResult, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalDelegationDoc, listPersonalDelegations, personalDelegationProgress, type PersonalDelegationRef } from "../apps/ruukoto/src/personal-delegation.ts";
 import { personalReportResult } from "../apps/ruukoto/src/personal-report.ts";
 import { personalServiceSourceBlocker } from "../apps/ruukoto/src/personal-service-operations.ts";
@@ -77,6 +77,22 @@ async function fixture(t: TestContext, server: Awaited<ReturnType<typeof remote>
 async function mode(p: PersonalHarness, value: "confirm" | "auto-review" | "full_access") { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = value; permission.version++; }, context); }
 async function first(p: PersonalHarness) { await until(async () => !!(await p.mcp!.list()).items.length); return (await p.mcp!.list()).items[0].operation; }
 async function record(p: PersonalHarness, operation: TaskId) { return (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!; }
+async function mcpAnswer(p: PersonalHarness, content: string, requestId: string) {
+  await p.answer("MCP工作", requestId);
+  const work = await p.work.delegate({ requestId: `mcp-test:${requestId}`, sourceRequestId: requestId, content });
+  let operation: TaskId | undefined;
+  await until(async () => {
+    for (const id of (await p.harness.snapshot(PersonalMcpConfigDoc, context))!.operations) {
+      const value = await record(p, id);
+      if (value.origin.work?.ref.taskId === work.taskId) { operation = id; return value.observation !== undefined; }
+    }
+    return (await p.harness.commit(tx => tx.task(work.taskId), context))?.state.status === "terminal";
+  });
+  if (operation === undefined) return (await p.harness.commit(tx => personalWorkResult(tx, work, 0, 16384), context)).text ?? "";
+  const value = await record(p, operation!);
+  if (value.remoteEnded || !value.started) await p.harness.waitForTask(work.taskId, context);
+  return JSON.stringify({ operation: value.operation, effect: value.effect, code: value.code, remoteEnded: value.remoteEnded });
+}
 async function details(p: PersonalHarness, operation: TaskId) {
   let text = "", offset = 0;
   do { const page = await p.mcp!.detail(operation, offset); assert.ok(page.text.length <= 3072); text += page.text; offset = page.nextOffset ?? -1; } while (offset >= 0);
@@ -92,7 +108,7 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
     const provider = personalProvider({ ...f.modelConfig, imageInput: true });
     let p = await f.open({ provider }); await mode(p, "full_access");
     if (variant === "disk") fs.writeFileSync(path.join(f.directory, "artifacts"), "blocked", { mode: 0o600 });
-    const answer = await p.answer(invocation(), "image-call");
+    const answer = await mcpAnswer(p, invocation(), "image-call");
     const operation = await first(p), saved = await record(p, operation), failed = variant === "invalid" || variant === "disk";
     assert.equal(saved.effect, "returned"); assert.equal(saved.remoteEnded, true);
     assert.equal(saved.code, variant === "error" ? "tool_error" : "returned");
@@ -103,7 +119,7 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
     assert.ok(!JSON.stringify(detail).includes(MCP_PNG), "模型分页证据不能含图片 base64 文本");
     if (!failed) assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes(`data:image/png;base64,${MCP_PNG}`), answer);
     else assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes("勿因缺图重试原动作"));
-    const requests = await p.harness.commit(async tx => (await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256)).items.filter(entry => entry.kind === "ruukoto.model-request"), context);
+    const requests = await p.harness.commit(async tx => (await tx.scanEntries({ conversationId: saved.origin.conversationId, order: "ascending" }, 256)).items.filter(entry => entry.kind === "ruukoto.model-request"), context);
     assert.ok(!JSON.stringify(requests).includes(MCP_PNG), "实际模型请求证据只保存可重建的引用");
     if (!failed) assert.ok(JSON.stringify(requests).includes("ruukotoImage"));
     const task = await p.harness.commit(tx => tx.task(operation), context);
@@ -117,6 +133,8 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
     if (variant === "disk") fs.unlinkSync(path.join(f.directory, "artifacts"));
     await p.close(); p = await f.open({ provider });
     await p.answer("描述原图", "after-reopen");
+    const recalled = await p.work.delegate({ requestId: "image-recall", sourceRequestId: "after-reopen", content: "描述原图", agentId: saved.origin.conversationId });
+    await p.harness.waitForTask(recalled.taskId, context);
     if (!failed) assert.ok(JSON.stringify(f.model.calls.at(-1)!.raw).includes(`data:image/png;base64,${MCP_PNG}`));
     assert.equal(server.calls.length, 1);
     await p.harness.commit(async tx => { const value = (await tx.doc(PersonalMcpDoc, String(operation), null)).operation!; value.imageProjection!.issues.push("tampered"); }, context);
@@ -125,12 +143,12 @@ for (const variant of ["pure", "mixed", "error", "invalid", "disk"] as const) {
   });
 }
 
-test("durable MCP：主会话完全访问保留原定义、原参数与完整长响应分页", { timeout: 20000 }, async t => {
+test("durable MCP：子工作完全访问保留原定义、原参数与完整长响应分页", { timeout: 20000 }, async t => {
   const result = { content: [{ type: "text", text: "完整原文".repeat(3000) }], structuredContent: { nested: ["原始值", { count: 7 }] } };
   const server = await remote(t, () => ({ result })), f = await fixture(t, server);
   const p = await f.open(); await mode(p, "full_access");
   assert.deepEqual((JSON.parse(await p.answer("definitions", "definitions")) as { tools: { definition: McpRemoteTool }[] }).tools[0].definition, definition);
-  const answer = JSON.parse(await p.answer(invocation(), "owner-call")) as { operation: TaskId; effect: string; code: string };
+  const answer = JSON.parse(await mcpAnswer(p, invocation(), "owner-call")) as { operation: TaskId; effect: string; code: string };
   assert.equal(answer.effect, "returned"); assert.equal(answer.code, "returned");
   const detail = await details(p, answer.operation);
   assert.deepEqual(detail.definition, definition); assert.deepEqual(detail.arguments, { value: "原参数" });
@@ -148,7 +166,7 @@ test("durable MCP：已完成旧历史显式迁入后逐服务启停，原接纳
   const server = await remote(t), f = await fixture(t, server);
   await savePersonalMcp(f.directory, f.mcp);
   let p = await f.open(); await mode(p, "full_access");
-  const answer = JSON.parse(await p.answer(invocation(), "old-call")) as { operation: TaskId };
+  const answer = JSON.parse(await mcpAnswer(p, invocation(), "old-call")) as { operation: TaskId };
   const original = await record(p, answer.operation), originalDetail = await details(p, answer.operation);
   await p.close();
   await migratePersonalMcp(f.directory);
@@ -167,7 +185,7 @@ test("durable MCP：已完成旧历史显式迁入后逐服务启停，原接纳
   const definitions = JSON.parse(await p.answer("definitions", "disabled-definitions")) as { tools: { service: string }[] };
   assert.deepEqual(definitions.tools.map(tool => tool.service), ["other"]);
   const requests = server.requests.length;
-  assert.match(await p.answer(invocation(), "disabled-call"), /mcp_tool_unavailable/);
+  assert.match(await mcpAnswer(p, invocation(), "disabled-call"), /mcp_tool_unavailable/);
   assert.equal(server.requests.length, requests);
   assert.equal((await p.mcp!.list()).items.length, 1);
   assert.deepEqual(await record(p, answer.operation), original);
@@ -178,7 +196,7 @@ test("durable MCP：已完成旧历史显式迁入后逐服务启停，原接纳
   const enabled = parsePersonalMcp({ ...disabled, generation: "enabled-again", services: disabled.services.map(service => ({ ...service, enabled: true })) });
   await savePersonalMcp(f.directory, enabled);
   p = await f.open({ mcp: enabled });
-  await p.answer(invocation(), "enabled-call");
+  await mcpAnswer(p, invocation(), "enabled-call");
   assert.equal(server.calls.length, 2);
   assert.deepEqual(await record(p, answer.operation), original);
   await p.close(); p = await f.open({ mcp: enabled });
@@ -190,10 +208,10 @@ test("durable MCP：独立拥有者工作可用同端点别名，原未知事实
   const server = await remote(t, () => undefined), f = await fixture(t, server);
   const mcp = parsePersonalMcp({ ...f.mcp, services: [f.mcp.services[0], { ...f.mcp.services[0], id: "alias", endpoint: server.endpoint + "?alias=1" }] });
   const p = await f.open({ mcp, mcpTimeouts: { callTimeoutMs: 30 } }); await mode(p, "full_access");
-  await p.answer(invocation(), "original");
+  await mcpAnswer(p, invocation(), "original");
   const original = await record(p, await first(p));
   assert.equal(original.remoteEnded, false); assert.equal(server.calls.length, 1);
-  await p.answer(`mcp:${JSON.stringify({ service: "alias", tool: "act", arguments: { value: "另一来源" } })}`, "independent-alias");
+  await mcpAnswer(p, `mcp:${JSON.stringify({ service: "alias", tool: "act", arguments: { value: "另一来源" } })}`, "independent-alias");
   assert.equal(server.calls.length, 2);
   assert.equal((await p.mcp!.list()).items[0].effect, "effect_unknown");
 });
@@ -201,7 +219,7 @@ test("durable MCP：独立拥有者工作可用同端点别名，原未知事实
 for (const damage of ["observation", "arguments", "approval"] as const) test(`durable MCP：${damage} 原证据损坏时启动拒绝，不能重新外调`, { timeout: 20000 }, async t => {
   const server = await remote(t, () => undefined), f = await fixture(t, server);
   const p = await f.open({ mcpTimeouts: { callTimeoutMs: 30 } }); await mode(p, "full_access");
-  await p.answer(invocation(), "original"); const operation = await first(p);
+  await mcpAnswer(p, invocation(), "original"); const operation = await first(p);
   await p.harness.commit(async tx => {
     const value = (await tx.doc(PersonalMcpDoc, String(operation), null)).operation!;
     if (damage === "observation") delete value.observation;
@@ -216,7 +234,7 @@ for (const damage of ["observation", "arguments", "approval"] as const) test(`du
 for (const failure of ["tool", "rpc"] as const) test(`durable MCP：完整保存 ${failure} 错误原响应且不伪装未知`, { timeout: 20000 }, async t => {
   const reply: RpcReply = failure === "tool" ? { result: { isError: true, content: [{ type: "text", text: "远端业务失败" }], structuredContent: { reason: "拒绝" } } } : { error: { code: -32007, message: "远端 RPC 失败", data: { detail: ["必须保留", { count: 19 }] } } };
   const server = await remote(t, () => reply), f = await fixture(t, server), p = await f.open(); await mode(p, "full_access");
-  await p.answer(invocation(), "failure"); const operation = await first(p), detail = await details(p, operation);
+  await mcpAnswer(p, invocation(), "failure"); const operation = await first(p), detail = await details(p, operation);
   assert.equal(detail.code, failure === "tool" ? "tool_error" : "remote_error"); assert.equal(detail.remoteEnded, true);
   const response = detail.remoteError ? { error: detail.remoteError } : { result: detail.result };
   assert.deepEqual(failure === "tool" ? response.result : response.error, failure === "tool" && "result" in reply ? reply.result : "error" in reply ? reply.error : undefined);
@@ -225,12 +243,12 @@ for (const failure of ["tool", "rpc"] as const) test(`durable MCP：完整保存
 
 for (const permission of ["confirm", "auto-review"] as const) test(`durable MCP：${permission} 不信只读标注，每次批准仅消费一次`, { timeout: 20000 }, async t => {
   const server = await remote(t), f = await fixture(t, server), p = await f.open(); await mode(p, permission);
-  const answer = p.answer(invocation(), "approved");
+  const answer = mcpAnswer(p, invocation(), "approved");
   const operation = await first(p); assert.equal((await record(p, operation)).decision, "pending"); assert.equal(server.requests.length, 0);
   await p.mcp!.decide(operation, "approved"); await answer;
   assert.equal(server.calls.length, 1); assert.equal((await record(p, operation)).decision, "approved");
   await assert.rejects(p.mcp!.decide(operation, "approved"), code("mcp_decision_invalid"));
-  const rejected = p.answer(invocation("第二次"), "rejected");
+  const rejected = mcpAnswer(p, invocation("第二次"), "rejected");
   await until(async () => (await p.mcp!.list()).items.length === 2);
   const second = (await p.mcp!.list()).items[0].operation;
   assert.equal((await record(p, second)).decision, "pending"); assert.equal(server.calls.length, 1);
@@ -243,7 +261,7 @@ for (const changed of ["credential", "definition"] as const) test(`durable MCP�
   if (changed === "credential") { const filename = path.join(f.root, "token"); fs.writeFileSync(filename, "test-token", { mode: 0o600 }); f.mcp.services[0].credential = personalMcpCredential(filename); fs.unlinkSync(filename); }
   else server.tools[0].inputSchema = { type: "object", properties: { value: { type: "number" } }, required: ["value"] };
   const p = await f.open(); await mode(p, "full_access");
-  await p.answer(invocation(), "invalidated"); const operation = await first(p), saved = await record(p, operation);
+  await mcpAnswer(p, invocation(), "invalidated"); const operation = await first(p), saved = await record(p, operation);
   assert.equal(saved.started, false); assert.equal(saved.effect, "not_executed"); assert.equal(saved.code, changed === "credential" ? "auth_failed" : "mcp_definition_changed");
   assert.equal(server.calls.length, 0); if (changed === "credential") assert.equal(server.requests.length, 0);
 });
@@ -318,9 +336,11 @@ test("durable MCP：响应已到达但未提交时 SIGKILL，恢复保留同原�
 test("durable MCP：未知HTTP调用不阻止更新，原版本和待核实效果保留且不重发", { timeout: 20000 }, async t => {
   const server = await remote(t, () => undefined), f = await fixture(t, server);
   let p = await f.open({ mcpTimeouts: { callTimeoutMs: 50 } }); await mode(p, "full_access");
-  await p.answer(invocation(), "terminal-main"); const operation = await first(p);
+  await mcpAnswer(p, invocation(), "terminal-main"); const operation = await first(p);
+  const originalWorkId = (await record(p, operation)).origin.work!.ref.taskId;
   const inspected = await p.harness.inspect(context);
-  assert.equal(inspected.tasks.length, 0); assert.equal(inspected.submissions.length, 0);
+  assert.equal((await p.harness.commit(tx => tx.task(operation), context))!.state.status, "terminal");
+  assert.ok(inspected.tasks.some(item => item.record.id === (originalWorkId)), "unknown MCP retains its assignment");
   assert.equal((await record(p, operation)).effect, "effect_unknown");
   const original = await record(p, operation);
   const next = parsePersonalMcp({ ...f.mcp, generation: "second-generation", services: f.mcp.services.map(service => ({ ...service, tools: service.tools.map(tool => ({ ...tool, description: "候选定义" })) })) });
@@ -404,7 +424,8 @@ test("durable MCP：实际主子模型请求可重建工具定义与结果，并
   const afterChild = f.model.calls.findLast(request => request.system?.includes("你是个人助手的子 Agent"))!;
   const toolNames = (request: typeof beforeMain) => (request.tools ?? []).map(tool => { const definition = tool.function; assert.ok(definition && typeof definition === "object" && "name" in definition); return definition.name; });
   for (const request of [afterMain, afterChild]) {
-    for (const name of ["mcp_tools", "mcp_call", "read_mcp_result"]) assert.ok(toolNames(request).includes(name));
+    for (const name of ["mcp_tools", "read_mcp_result"]) assert.ok(toolNames(request).includes(name));
+    if (request === afterChild) assert.ok(toolNames(request).includes("mcp_call"));
     assert.match(JSON.stringify(request.messages), /远端原定义/); assert.match(JSON.stringify(request.messages), /readOnlyHint/);
   }
   for (const request of [beforeMain, beforeChild]) assert.ok(toolNames(request).every(name => !["mcp_tools", "mcp_call", "read_mcp_result"].includes(String(name))));
@@ -436,10 +457,10 @@ test("durable MCP：read 免批准，读取中断无写效果；描述变化兼�
   const mcp = parsePersonalMcp({ ...f.mcp, services: f.mcp.services.map(service => ({ ...service, toolEffects: { act: "read" } })) });
   server.tools[0].description = "更新说明，不改变参数";
   const p = await f.open({ mcp, mcpTimeouts: { callTimeoutMs: 40 } }); await mode(p, "confirm");
-  await p.answer(invocation(), "read-confirm");
+  await mcpAnswer(p, invocation(), "read-confirm");
   let saved = await record(p, await first(p));
   assert.equal(saved.localEffect, "read"); assert.equal(saved.decisionEntry, undefined); assert.equal(saved.effect, "returned");
-  await mode(p, "auto-review"); await p.answer(invocation("interrupt"), "read-auto");
+  await mode(p, "auto-review"); await mcpAnswer(p, invocation("interrupt"), "read-auto");
   saved = await record(p, await first(p));
   assert.equal(saved.localEffect, "read"); assert.equal(saved.code, "read_failed"); assert.equal(saved.effect, "no_write");
   assert.equal(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "read-auto"), context), undefined);
@@ -458,7 +479,7 @@ test("durable MCP：异步开始持久化超过调用期限，提交后不首次
     return storage;
   } });
   await mode(p, "full_access");
-  const answer = p.answer(invocation(), "slow-start");
+  const answer = mcpAnswer(p, invocation(), "slow-start");
   await inside; await delay(40); release(); await answer;
   assert.equal(server.calls.length, 0);
   const saved = await record(p, await first(p));
@@ -477,7 +498,7 @@ test("durable MCP：开始持久化期间凭据文件替换，最终解析拒绝
     storage.commit = async (writes, context) => { if (writes.some(write => write.type === "entry" && write.value.kind === "ruukoto.mcp-start")) { entered(); await gate; } return commit(writes, context); };
     return storage;
   } });
-  await mode(p, "full_access"); const answer = p.answer(invocation(), "credential-commit-gap");
+  await mode(p, "full_access"); const answer = mcpAnswer(p, invocation(), "credential-commit-gap");
   await inside; fs.writeFileSync(filename, "replacement-token\n"); release(); await answer;
   const saved = await record(p, await first(p));
   assert.equal(server.calls.length, 0); assert.equal(saved.started, true); assert.equal(saved.effect, "not_executed"); assert.equal(saved.code, "auth_failed");
@@ -492,11 +513,11 @@ test("durable MCP：待批准调用兼容说明变更，连续执行配置 A→B
     const snapshot = await readPersonalSettings(profile);
     return dispatchPersonalSettings({ profile, instance: p }, { v: 2, id: (await import("node:crypto")).randomUUID(), profile: snapshot.profile, expectedRevision: snapshot.revisions.mcp, op: { kind: "mcp.save-service", service: { id: "test", ...service } } }) as Promise<{ status: string }>;
   };
-  let answer = p.answer(invocation(), "metadata-compatible"), operation = await first(p);
+  let answer = mcpAnswer(p, invocation(), "metadata-compatible"), operation = await first(p);
   assert.equal((await save({ label: "改后的显示名", tools: server.tools.map(tool => ({ ...tool, description: "新说明" })) })).status, "active");
   assert.equal(p.isSettingsSuspended("mcp", "test"), false); assert.equal((await record(p, operation)).observation, undefined);
   await p.mcp!.decide(operation, "approved"); await answer; assert.equal(server.calls.length, 1);
-  answer = p.answer(invocation(), "aba-original"); await until(async () => (await first(p)) !== operation); operation = await first(p);
+  answer = mcpAnswer(p, invocation(), "aba-original"); await until(async () => (await first(p)) !== operation); operation = await first(p);
   assert.equal((await save({ toolEffects: { act: "write" } })).status, "active"); await answer;
   assert.equal((await save({ toolEffects: { act: "unknown" } })).status, "active");
   const stale = await record(p, operation); assert.equal(stale.started, false); assert.equal(stale.effect, "not_executed"); assert.equal(stale.code, "mcp_config_changed");
@@ -508,8 +529,8 @@ test("durable MCP：混合旧图片和未知记录可打开、人工收尾和显
   const { DatabaseSync } = await import("node:sqlite");
   const server = await remote(t, call => call.params?.arguments?.value === "legacy-image" ? { result: { isError: true, content: [{ type: "image", data: MCP_PNG, mimeType: "image/png" }] } } : undefined), f = await fixture(t, server);
   let p = await f.open({ provider: personalProvider({ ...f.modelConfig, imageInput: true }), mcpTimeouts: { callTimeoutMs: 40 } }); await mode(p, "full_access");
-  await p.answer(invocation("legacy-image"), "legacy-image"); const image = await record(p, await first(p));
-  await p.answer(invocation("legacy-unknown"), "legacy-unknown"); const unknown = await record(p, await first(p));
+  await mcpAnswer(p, invocation("legacy-image"), "legacy-image"); const image = await record(p, await first(p));
+  await mcpAnswer(p, invocation("legacy-unknown"), "legacy-unknown"); const unknown = await record(p, await first(p));
   await p.close();
   const legacy = await legacyMcpFixture(f.directory, [image, unknown], server.calls);
   p = await f.open({ mcp: legacy.config, provider: personalProvider({ ...f.modelConfig, imageInput: true }) });
@@ -532,7 +553,7 @@ test("durable MCP：同路径显式轮换结算原待批准调用为未执行，
   fs.writeFileSync(filename, "first-token\n", { mode: 0o600 }); f.mcp.services[0].credential = personalMcpCredential(filename);
   await savePersonalMcp(f.directory, f.mcp);
   const profile = lockPersonalProfile(f.directory), p = await f.open({}, profile); await mode(p, "confirm");
-  const answer = p.answer(invocation(), "waiting-rotation"), operation = await first(p);
+  const answer = mcpAnswer(p, invocation(), "waiting-rotation"), operation = await first(p);
   assert.equal((await record(p, operation)).decision, "pending"); assert.equal(server.calls.length, 0);
   fs.writeFileSync(filename, "second-token\n");
   const { dispatchPersonalSettings, readPersonalSettings } = await import("../apps/ruukoto/src/personal-settings.ts");
@@ -542,7 +563,7 @@ test("durable MCP：同路径显式轮换结算原待批准调用为未执行，
   const stale = await record(p, operation);
   assert.equal(stale.started, false); assert.equal(stale.effect, "not_executed"); assert.equal(stale.code, "mcp_config_changed");
   await assert.rejects(p.mcp!.decide(operation, "approved"), code("mcp_decision_invalid")); assert.equal(server.calls.length, 0);
-  const freshAnswer = p.answer(invocation(), "after-rotation");
+  const freshAnswer = mcpAnswer(p, invocation(), "after-rotation");
   await until(async () => (await p.mcp!.list()).items[0].operation !== operation);
   const fresh = (await p.mcp!.list()).items[0].operation;
   await p.mcp!.decide(fresh, "approved"); await freshAnswer;
@@ -556,7 +577,7 @@ for (const decision of ["pending", "approved"] as const) test(`durable MCP：旧
   const gate = new Promise<void>(resolve => { release = resolve; }), inside = new Promise<void>(resolve => { entered = resolve; });
   const server = await remote(t, undefined, async () => { entered(); await gate; }), f = await fixture(t, server);
   let p = await f.open(); await mode(p, "confirm");
-  const answer = p.answer(invocation(), "legacy-pending").catch(() => undefined), operation = await first(p);
+  const answer = mcpAnswer(p, invocation(), "legacy-pending").catch(() => undefined), operation = await first(p);
   if (decision === "approved") { await p.mcp!.decide(operation, "approved"); await inside; }
   const original = await record(p, operation); assert.equal(original.started, false); assert.equal(original.decision, decision);
   await p.close(); release(); await answer;
@@ -578,7 +599,7 @@ for (const decision of ["pending", "approved"] as const) test(`durable MCP：旧
 test("durable MCP：非终结远端结果按原 JSON 保存，保持未知并不重发", { timeout: 20000 }, async t => {
   const result = { task: { taskId: "remote-task" }, resultType: "input_required", content: [{ type: "text", text: "原远端任务句柄" }] };
   const server = await remote(t, () => ({ result })), f = await fixture(t, server);
-  let p = await f.open(); await mode(p, "full_access"); await p.answer(invocation(), "remote-task");
+  let p = await f.open(); await mode(p, "full_access"); await mcpAnswer(p, invocation(), "remote-task");
   const operation = await first(p), saved = await record(p, operation);
   assert.deepEqual(saved.result, result); assert.equal(saved.effect, "effect_unknown"); assert.equal(saved.remoteEnded, false); assert.equal(saved.code, "result_incomplete");
   await p.close(); p = await f.open(); assert.deepEqual((await record(p, operation)).result, result); assert.equal(server.calls.length, 1);
@@ -587,11 +608,94 @@ test("durable MCP：非终结远端结果按原 JSON 保存，保持未知并不
 test("durable MCP：原会话 HTTP404 拒绝记为未执行，已接纳后丢答仍未知且不重发", { timeout: 20000 }, async t => {
   const server = await remote(t, call => call.params?.arguments?.value === "refused" ? { httpStatus: 404 } : undefined, undefined, "original-session"), f = await fixture(t, server);
   let p = await f.open({ mcpTimeouts: { callTimeoutMs: 40 } }); await mode(p, "full_access");
-  await p.answer(invocation("refused"), "session-refused"); const refused = await first(p), firstResult = await record(p, refused);
+  await mcpAnswer(p, invocation("refused"), "session-refused"); const refused = await first(p), firstResult = await record(p, refused);
   assert.equal(firstResult.started, true); assert.equal(firstResult.effect, "not_executed"); assert.equal(firstResult.code, "session_expired"); assert.equal(firstResult.remoteEnded, false);
   assert.equal(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "session-refused"), context), undefined);
-  await p.answer(invocation("accepted"), "accepted-no-answer"); const accepted = await first(p), secondResult = await record(p, accepted);
+  await mcpAnswer(p, invocation("accepted"), "accepted-no-answer"); const accepted = await first(p), secondResult = await record(p, accepted);
   assert.equal(secondResult.started, true); assert.equal(secondResult.effect, "effect_unknown"); assert.equal(secondResult.remoteEnded, false);
   assert.ok(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "accepted-no-answer"), context)); assert.equal(server.calls.length, 2);
   await p.close(); p = await f.open(); assert.equal((await record(p, refused)).effect, "not_executed"); assert.equal((await record(p, accepted)).effect, "effect_unknown"); assert.equal(server.calls.length, 2);
+});
+
+for (const decision of ["pending", "approved"] as const) test(`durable MCP: an amendment preserves the ${decision} decision and prevents the old call`, { timeout: 20000 }, async t => {
+  let listEntered!: () => void, releaseList!: () => void;
+  const entered = new Promise<void>(resolve => { listEntered = resolve; }), gate = new Promise<void>(resolve => { releaseList = resolve; });
+  const server = await remote(t, undefined, decision === "approved" ? async () => { listEntered(); await gate; } : undefined), f = await fixture(t, server);
+  const p = await f.open(); await mode(p, "confirm");
+  await p.answer("原MCP要求", "amend-owner");
+  const work = await p.work.delegate({ requestId: `amend-work:${decision}`, sourceRequestId: "amend-owner", content: invocation("old") });
+  const operation = await first(p), admitted = await record(p, operation);
+  assert.ok(admitted.instructions); assert.equal(admitted.started, false);
+  if (decision !== "pending") {
+    await p.mcp!.decide(operation, decision);
+    await entered;
+  }
+  const original = await record(p, operation);
+  const { supersedePersonalMcpOperations } = await import("../apps/ruukoto/src/personal-mcp.ts");
+  const { appendPersonalWork, personalWorkNoteSource } = await import("../apps/ruukoto/src/personal-work.ts");
+  await p.answer("更新MCP要求", "amend-update");
+  await p.harness.commit(async tx => {
+    const outcome = await appendPersonalWork(tx, work, { requestId: "amend-note", source: await personalWorkNoteSource(tx, "amend-update"), content: invocation("fresh") });
+    assert.equal(outcome.accepted, true);
+    const note = (await tx.doc(PersonalWorkDoc, work.requestId, null)).notes!.at(-1)!.admission!;
+    await supersedePersonalMcpOperations(tx, work.taskId, note);
+  }, context);
+  releaseList();
+  const old = await record(p, operation);
+  assert.equal(old.started, false); assert.equal(old.effect, "not_executed"); assert.equal(old.code, "tool_requirements_changed");
+  assert.equal(old.decision, decision); assert.equal(old.decisionEntry, original.decisionEntry); assert.ok(old.superseded);
+  await assert.rejects(p.mcp!.decide(operation, "approved"), code("mcp_decision_invalid"));
+  await until(async () => (await p.mcp!.list()).items.some(item => item.operation !== operation));
+  const fresh = (await p.mcp!.list()).items[0].operation;
+  assert.equal((await record(p, fresh)).origin.work!.ref.agentId, work.agentId);
+  assert.equal((await record(p, fresh)).args.value, "fresh");
+  await p.mcp!.decide(fresh, "approved");
+  await p.harness.waitForTask(work.taskId, context);
+  assert.equal(server.calls.length, 1); assert.deepEqual(server.calls[0].params!.arguments, { value: "fresh" });
+  const preserved = await record(p, operation);
+  await p.close(); const reopened = await f.open();
+  assert.deepEqual(await record(reopened, operation), preserved); assert.equal(server.calls.length, 1);
+});
+
+test("durable MCP: a delayed old model response cannot admit an operation after an amendment", { timeout: 20000 }, async t => {
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), inside = new Promise<void>(resolve => { entered = resolve; });
+  const server = await remote(t), f = await fixture(t, server, async (request, index) => {
+    const last = request.messages.at(-1);
+    if (request.system?.includes("你是个人助手的子 Agent") && last?.role === "user" && String(last.content) === invocation("old-delayed")) { entered(); await gate; }
+    return defaultResponder(request, index);
+  });
+  const p = await f.open(); await mode(p, "full_access"); await p.answer("原MCP要求", "delayed-owner");
+  const work = await p.work.delegate({ requestId: "delayed-mcp-work", sourceRequestId: "delayed-owner", content: invocation("old-delayed") });
+  await inside;
+  await p.answer("更新迟到调用要求", "delayed-update");
+  assert.deepEqual(await p.work.append(work, { requestId: "fresh-note", sourceRequestId: "delayed-update", content: invocation("fresh-after-delay") }), { accepted: true });
+  release();
+  await p.harness.waitForTask(work.taskId, context);
+  assert.equal(server.calls.length, 1); assert.deepEqual(server.calls[0].params!.arguments, { value: "fresh-after-delay" });
+  assert.equal((await p.harness.snapshot(PersonalMcpConfigDoc, context))!.operations.length, 1);
+  const saved = await record(p, await first(p));
+  assert.equal(saved.instructions!.snapshot.notes.length, 1); assert.equal(saved.args.value, "fresh-after-delay");
+});
+
+test("durable MCP: supersession preserves an earlier refusal while another tool holds the assignment", { timeout: 20000 }, async t => {
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), inside = new Promise<void>(resolve => { entered = resolve; });
+  const server = await remote(t), f = await fixture(t, server, async (request, index) => {
+    if (request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "tool") { entered(); await gate; }
+    return defaultResponder(request, index);
+  });
+  const p = await f.open(); await mode(p, "confirm"); await p.answer("拒绝原操作", "refusal-owner");
+  const work = await p.work.delegate({ requestId: "refusal-work", sourceRequestId: "refusal-owner", content: invocation("refused") });
+  const operation = await first(p); await p.mcp!.decide(operation, "rejected"); await inside;
+  const original = await record(p, operation); await p.answer("后续要求", "refusal-update");
+  const { appendPersonalWork, personalWorkNoteSource } = await import("../apps/ruukoto/src/personal-work.ts");
+  const { supersedePersonalMcpOperations } = await import("../apps/ruukoto/src/personal-mcp.ts");
+  await p.harness.commit(async tx => {
+    assert.deepEqual(await appendPersonalWork(tx, work, { requestId: "refusal-note", source: await personalWorkNoteSource(tx, "refusal-update"), content: "只报告已有拒绝，不执行新操作" }), { accepted: true });
+    await supersedePersonalMcpOperations(tx, work.taskId, (await tx.doc(PersonalWorkDoc, work.requestId, null)).notes!.at(-1)!.admission!);
+  }, context);
+  release(); await p.harness.waitForTask(work.taskId, context);
+  assert.deepEqual(await record(p, operation), original); assert.equal(server.calls.length, 0);
+  await p.close(); const reopened = await f.open(); assert.deepEqual(await record(reopened, operation), original);
 });

@@ -41,12 +41,15 @@ async function manageOperations(io: PersonalCliIO, directory: string) {
     while (true) {
       const detail = await personalControl<Awaited<ReturnType<typeof browserDetail>>>(directory, "GET", `/browser/operation?operation=${operation}&offset=${detailOffset}`);
       io.write(`${personalBrowserDescription(detail.summary)}\n原记录与证据：\n${detail.text}\n`);
-      const actions = ["刷新", ...(detail.nextOffset === undefined ? [] : ["下一页记录"]), ...(detail.summary.canResolve ? ["确认网页效果已生效", "确认网页效果未生效"] : []), ...(detail.summary.canVerifyStop ? ["停止并核实原浏览器执行"] : []), "返回列表"];
+      const actions = ["刷新", ...(detail.nextOffset === undefined ? [] : ["下一页记录"]), ...(detail.summary.canResume ? ["继续原工作并重新观察"] : []), ...(detail.summary.canResolve ? ["确认网页效果已生效", "确认网页效果未生效"] : []), ...(detail.summary.canVerifyStop ? ["停止并核实原浏览器执行"] : []), "返回列表"];
       const action = actions[await choose(io, "原浏览器操作", actions)];
       if (action === "返回列表") break;
       if (action === "下一页记录") { detailOffset = detail.nextOffset!; continue; }
       detailOffset = 0;
-      if (action === "停止并核实原浏览器执行") {
+      if (action === "继续原工作并重新观察") {
+        await personalControl(directory, "POST", `/browser/resume?operation=${operation}`, { requestId: randomUUID() });
+        io.write("原工作继续选择已保存；宿主将重新观察页面，再继续原工作。\n");
+      } else if (action === "停止并核实原浏览器执行") {
         const result = await personalControl<{ stopped: boolean }>(directory, "POST", `/browser/stop?operation=${operation}`);
         io.write(result.stopped ? "原执行停止已核实；网页效果未知仍须独立核实，不自动重发。\n" : "原执行停止仍未核实，占用保留；请保留档案并检查原进程。\n");
       } else if (action === "确认网页效果已生效" || action === "确认网页效果未生效") {
@@ -66,7 +69,7 @@ async function chooseMode(io: PersonalCliIO, directory: string) {
   if (selected === 3) return;
   if (selected === 2 && await choose(io, "完全访问能读取后台账户的文件、网络与凭据，未知操作仍暂停", ["返回", "为新输入启用完全访问"]) === 0) return;
   await personalControl(directory, "POST", "/permissions", { mode: modes[selected] });
-  io.write("新输入默认模式已保存；受限模式与子工作不开放宿主浏览器。\n");
+  io.write("新输入默认模式已保存；浏览器子工作只沿用原完全访问资格。\n");
 }
 
 export async function managePersonalBrowser(io: PersonalCliIO, directory: string) {

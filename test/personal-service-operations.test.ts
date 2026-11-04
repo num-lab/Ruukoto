@@ -12,6 +12,7 @@ import { AgentDoc, SessionFailed, type Storage } from "@earendil-works/pi-durabl
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, resolvePersonalServiceOperation, ServiceOperationEvidence, type PersonalServiceMode, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
+import { PersonalInspectionDoc } from "../apps/ruukoto/src/personal-service-inspection.ts";
 import { listPersonalServices, personalServiceDetail } from "../apps/ruukoto/src/personal-service-controls.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalAgentsDoc, PersonalWorkDoc, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "../apps/ruukoto/src/personal-work.ts";
@@ -85,7 +86,7 @@ test("服务核实控制：效果与停止分开保存，错误证明保留占�
   let offset = 0; let full = "";
   do { const page = await p.harness.commit(tx => personalServiceDetail(tx, ref, offset), context); full += page.evidence; offset = page.nextOffset ?? -1; assert.equal(page.summary.stop, "stop_unverified"); } while (offset >= 0);
   assert.equal(full, evidence);
-  // 原服务恢复和本次重核都提交停止证据后，才切换故障应答，避免原可信 helper 仍在途。
+  // Change the helper after both original and requested stopping evidence commits.
   await until(async () => (await p.main.entries({}, 256, undefined, context)).items.filter(entry => ServiceOperationEvidence.is(entry) && entry.data.requestId === ref.requestId && entry.data.verb === "stop-op").length >= 2);
   const proof = fs.readFileSync(f.service.helperPath, "utf8");
   fs.rmSync(path.join(f.helper, "stop-query-fails"));
@@ -540,7 +541,9 @@ test("服务工作：预排队审批消费前复核后来占用的检查，不�
   const f = await fixture(t, request => request.messages.at(-1)?.content === "检查" ? { kind: "tool_calls", calls: [{ id: "inspect", name: "service_inspect", arguments: { unit: UNIT } }] } : { kind: "text", text: "收到" });
   const p = await f.open(); await p.answer("重启", "owner");
   const ref = await p.service!.request(input("queued", "confirm")); await ready(p, ref);
-  f.touch("inspection-stop-fails"); await p.answer("检查", "independent");
+  f.touch("inspection-stop-fails"); await p.answer("independent source", "independent");
+  await p.work.delegate({ content: "检查", requestId: "queued-inspection", sourceRequestId: "independent" });
+  await until(async () => (await p.inspections!.list()).length === 1 && (await p.harness.getTask((await p.inspections!.list())[0].taskId, context))?.state.status === "terminal");
   assert.equal((await p.inspections!.list()).length, 1);
   await p.service!.decide(ref, "approved"); await finish(p, ref);
   assert.equal((await p.service!.status(ref)).operation.consumed, false);
@@ -594,6 +597,80 @@ const childRestart: Responder = request => {
   if ("next" in JSON.parse(String(last.content))) return { kind: "tool_calls", calls: [{ id: "read", name: "read_service_operation", arguments: { operation: (JSON.parse(String(last.content)) as { operation: number }).operation } }] };
   return { kind: "text", text: "原服务结果：" + String(last.content) };
 };
+
+test("M2 services: pending and approved unconsumed restart are superseded without changing the decision", { timeout: 30_000 }, async t => {
+  for (const decision of ["pending", "approved"] as const) await t.test(decision, async t => {
+    let responding = false, release!: () => void;
+    const pause = new Promise<void>(resolve => { release = resolve; }); t.after(() => release());
+    const f = await fixture(t, async request => {
+      if (!request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "main ready" };
+      const last = request.messages.at(-1), content = request.messages.findLast(message => message.role === "user")?.content;
+      if (last?.role === "user" || content === "new target" && !String(last?.content).includes(`"unit":"${OTHER}"`)) {
+        if (content === "new target") { responding = true; await pause; }
+        return { kind: "tool_calls", calls: [{ id: content === "new target" ? "new-restart" : "restart", name: "service_restart", arguments: { unit: content === "new target" ? OTHER : UNIT } }] };
+      }
+      return { kind: "text", text: "service result" };
+    });
+    let p = await f.open(), held = false, releaseConsumption!: () => void;
+    const consumption = new Promise<void>(resolve => { releaseConsumption = resolve; }); t.after(() => releaseConsumption());
+    if (decision === "approved") {
+      const definition = (await p.main.agent(context)).extensions.find(extension => extension.name === "personal-service-operations")!.tasks![0].definition as ReturnType<typeof personalServiceOperations>["task"]["definition"];
+      const original = definition.phases.prepare!;
+      const prepare: typeof original = async (current, runtime, ctx) => {
+        const heldRuntime = { ...runtime };
+        Object.assign(heldRuntime, { watchDoc: async (...args: Parameters<typeof runtime.watchDoc>) => {
+          const watch = await runtime.watchDoc(...args);
+          if (watch) { held = true; await consumption; }
+          return watch;
+        } });
+        return original(current, heldRuntime, ctx);
+      };
+      Object.assign(definition.phases, { prepare });
+      t.after(() => { Object.assign(definition.phases, { prepare: original }); });
+    }
+    await p.answer("restart target", "owner");
+    const work = await p.work.delegate({ content: "old target", requestId: `m2-${decision}`, sourceRequestId: "owner" });
+    const ref = await childOperation(p); await ready(p, ref);
+    if (decision === "approved") { await until(() => held); await p.service!.decide(ref, "approved"); }
+    await p.work.append(work, { requestId: "changed", sourceRequestId: "owner", content: "new target" });
+    const stale = (await p.service!.status(ref)).operation;
+    assert.equal(stale.decision, decision); assert.equal(stale.consumed, false);
+    assert.equal(stale.result?.code, "tool_requirements_changed"); assert.equal(stale.result?.effect, "not_executed");
+    assert.equal(stale.superseded?.reason, "requirements_changed"); assert.equal(f.starts(), 0);
+    assert.equal((await p.harness.commit(tx => personalServiceDetail(tx, ref), context)).summary.canDecide, false);
+    await assert.rejects(p.service!.decide(ref, "approved"), code("service_approval_invalid"));
+    releaseConsumption(); await until(() => responding);
+    assert.equal(await p.answer("independent chat", "independent"), "main ready");
+    await p.close(); release(); p = await f.open();
+    let next!: PersonalServiceOperationRef;
+    await until(async () => { const item = (await p.service!.list()).items.find(item => item.operation.unit === OTHER); if (!item?.operation.snapshot) return false; next = item.operation.ref; return true; });
+    assert.equal((await p.service!.status(ref)).operation.decision, decision);
+    await p.service!.decide(next, "approved"); await p.harness.waitForTask(work.taskId, context);
+    assert.equal(f.starts(), 0); assert.equal(f.starts(OTHER), 1);
+    assert.equal((await p.service!.status(next)).operation.instructions!.snapshot.notes.length, 1);
+  });
+});
+
+test("M2 services: amendment during initial inspection keeps stopping evidence and never restarts the old target", { timeout: 30_000 }, async t => {
+  const f = await fixture(t, request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user" && request.messages.at(-1)?.content !== "finish"
+    ? { kind: "tool_calls", calls: [{ id: "restart", name: "service_restart", arguments: { unit: UNIT } }] }
+    : { kind: "text", text: "done" });
+  f.touch("inspect-delay-ms", "500"); f.touch("inspection-stop-fails");
+  let p = await f.open(); await p.answer("restart", "owner");
+  const work = await p.work.delegate({ content: "initial", requestId: "m2-inspect", sourceRequestId: "owner" });
+  const ref = await childOperation(p);
+  await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  await p.work.append(work, { requestId: "amend", sourceRequestId: "owner", content: "finish" });
+  await until(async () => (await p.harness.getTask(ref.taskId, context))?.state.status === "terminal");
+  assert.equal((await p.service!.status(ref)).operation.result?.code, "tool_requirements_changed");
+  assert.equal(f.starts(), 0); assert.equal((await p.inspections!.list()).length, 1);
+  assert.equal((await p.work.status(work)).stopVerified, false);
+  await p.close(); p = await f.open();
+  assert.equal((await p.harness.snapshot(PersonalInspectionDoc, String(ref.taskId), context))!.inspection!.stopped, false);
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails"));
+  await p.inspections!.recheckStop(ref.taskId); await p.harness.waitForTask(work.taskId, context);
+  assert.equal(f.starts(), 0); assert.equal((await p.work.status(work)).stopVerified, true);
+});
 async function childOperation(p: PersonalHarness) {
   let ref!: PersonalServiceOperationRef;
   await until(async () => { const item = (await p.service!.list()).items.find(item => item.operation.work); if (!item) return false; ref = item.operation.ref; return true; });
@@ -1090,7 +1167,7 @@ test("服务宿主基线：旧无版本操作先捕获原部署，离线保存�
   const f = await fixture(t), helper = path.join(f.root, "next-helper"); fs.cpSync(f.helper, helper, { recursive: true });
   f.touch("fail-after-launch"); f.touch("stop-query-fails");
   let p = await f.open();
-  // 模拟升级前只有固定指纹的档案；业务接纳和证据仍由下方真实流程产生。
+  // Remove only version fields; keep the original business admission and evidence.
   await p.harness.commit(async tx => {
     const index = await tx.doc(PersonalConfigurationDoc), versions = await personalConfigurationVersions(tx, "services"), baseline = versions[0];
     for (const version of versions.filter(value => value.origin === "host")) { index.versions = index.versions.filter(ref => ref.target !== "services" || ref.version !== version.version); await tx.retireDoc(PersonalConfigurationVersionDoc, `services:${version.version}`); }

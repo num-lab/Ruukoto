@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Personal M2 execution](2026-11-04-personal-m2-execution.md) supersedes main-only browser eligibility and child exclusion with original full-access host qualification, assignment FIFO ownership and fresh bound takeover choices. BrowserManager, media provenance, exact stopping and unknown-effect rules remain.
+
 [Cua](2026-10-23-cua-official-mcp.md) reuses image records/provider checks, with computer-execution ownership separate from BrowserManager. [MCP image results](2026-10-23-mcp-image-results.md) reuses this media chain, verifying Task before registering multiple images from one original tool; providers create no extra runtime state.
 
 ## Problem

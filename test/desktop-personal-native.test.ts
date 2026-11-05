@@ -5,9 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer, type ViteDevServer } from "vite";
 import type { PersonalDesktopApproval, PersonalDesktopFrame, PersonalDesktopState } from "@ruukoto/view/personal-protocol.ts";
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
-import { PersonalState } from "../apps/desktop/src/renderer/personal-state.ts";
+import { PersonalState, personalCardKey } from "../apps/desktop/src/renderer/personal-state.ts";
 import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-connection-state.ts";
 import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
+import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
+import { parsePersonalSettingsRequest } from "../apps/ruukoto/src/personal-settings.ts";
 
 const ok = (value: unknown): DesktopResult<unknown> => ({ ok: true, value });
 const identity = { v: 1, product: "ruukoto", remoteId: "remote", origin: "https://pa.example", profile: { id: "profile", directory: "/private/pa" }, online: true, runId: "run" } as const;
@@ -141,7 +143,7 @@ test("Native cards arrive in the timeline before prose and retain superseded exa
     return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
   }); t.after(() => f.state.dispose()); await settle();
   f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(1, [value]) }] });
-  await f.state.loadCard(value.operation);
+  await f.state.loadCard(value);
   let markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
   assert.match(markup, /EXACT OLD CONTENT/); assert.match(markup, /批准本次/); assert.doesNotMatch(markup, /核实原操作/);
   const terminal = { ...value, approval: "approved" as const, observed: true, canDecide: false, code: "tool_requirements_changed", notice: "要求已更新，这项旧操作没有执行。" };
@@ -189,7 +191,7 @@ test("Cancellation rejection remains visible while another pending card is inspe
     return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
   }); t.after(() => f.state.dispose()); await settle();
   f.state.frame({ ...snapshot(), state: { ...projection(1, [value]), delegations: { items: [group], total: 1 } } });
-  await f.state.cancelDelegation(group); await f.state.loadCard(value.operation);
+  await f.state.cancelDelegation(group); await f.state.loadCard(value);
   assert.equal(f.state.message, "Cancellation was not accepted"); assert.equal(f.state.delegations[0].cancelRequested, false);
   rejected = false; await f.state.cancelDelegation(group); assert.equal(f.state.message, null);
 });
@@ -201,12 +203,12 @@ test("A lost native decision inspects its canonical operation and stays locked t
     if (params.path === "/tools/decide") { posts++; lost = true; inspectionFails = true; return { ok: false, error: { code: "response_lost", outcome: "unknown", message: "Decision response lost" } }; }
     return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
   }); t.after(() => f.state.dispose()); await settle();
-  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); await f.state.loadCard(value.operation);
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); await f.state.loadCard(value);
   await f.state.decideCard(value, "approved"); assert.equal(lost, true); assert.equal(posts, 1);
   assert.equal(f.state.uncertainDecisions.has(value.operation), true); assert.ok(f.state.cards.has(value.occurrence));
   f.state.frame({ ...snapshot(), state: projection(4, [value]) }); await f.state.decideCard(value, "approved"); assert.equal(posts, 1);
   inspectionFails = false; summary = { ...value, approval: "approved", canDecide: false };
-  await f.state.loadCard(value.operation); assert.equal(f.state.uncertainDecisions.has(value.operation), false);
+  await f.state.loadCard(value); assert.equal(f.state.uncertainDecisions.has(value.operation), false);
   assert.equal(f.state.cards.get(value.occurrence)?.approval, "approved"); await f.state.decideCard(value, "approved"); assert.equal(posts, 1);
 });
 
@@ -219,12 +221,12 @@ test("Immutable detail pages survive newer canonical states and an untouched old
     }
     return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
   }); t.after(() => f.state.dispose()); await settle();
-  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); const reading = f.state.loadCard(value.operation);
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); const reading = f.state.loadCard(value);
   f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(2, [{ ...value, approval: "approved", canDecide: false }]) }] });
   release(ok({ v: 1, operation: value.operation, admission: value.admission, revision: 1, summary: value, offset: 0, text })); await reading;
-  assert.equal(f.state.details.get(value.operation)?.complete, true); assert.equal(f.state.cards.get(value.occurrence)?.canDecide, false);
+  assert.equal(f.state.details.get(personalCardKey(value))?.complete, true); assert.equal(f.state.cards.get(value.occurrence)?.canDecide, false);
   hold = false; f.state.frame({ ...snapshot(), state: projection(10, []) }); await settle();
-  assert.equal(f.state.refreshingCards.has(value.operation), false); assert.equal(f.state.uncertainDecisions.has(value.operation), false); assert.equal(f.state.cards.get(value.occurrence)?.canDecide, true);
+  assert.equal(f.state.refreshingCards.has(personalCardKey(value)), false); assert.equal(f.state.uncertainDecisions.has(value.operation), false); assert.equal(f.state.cards.get(value.occurrence)?.canDecide, true);
 });
 
 test("A same-run reconnect replaces a held detail read without letting the old request erase the new load", async t => {
@@ -234,15 +236,15 @@ test("A same-run reconnect replaces a held detail read without letting the old r
     if (String(params.path).startsWith("/desktop/operation")) return new Promise(resolve => { reads.push(resolve); });
     return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
   }); t.after(() => f.state.dispose()); await settle();
-  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); const old = f.state.loadCard(value.operation);
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); const old = f.state.loadCard(value);
   f.state.update({ type: "state", state: "reconnecting" }); f.state.update({ type: "personal_identity", identity }); f.state.update({ type: "state", state: "online" });
-  f.state.frame({ ...snapshot(), state: projection(2, [value]) }); const current = f.state.loadCard(value.operation);
+  f.state.frame({ ...snapshot(), state: projection(2, [value]) }); const current = f.state.loadCard(value);
   assert.equal(reads.length, 2);
   reads[0](ok({ v: 1, operation: value.operation, admission: value.admission, revision: 1, summary: value, offset: 0, text })); await old;
-  const joined = f.state.loadCard(value.operation); assert.equal(reads.length, 2);
+  const joined = f.state.loadCard(value); assert.equal(reads.length, 2);
   reads[1](ok({ v: 1, operation: value.operation, admission: value.admission, revision: 2, summary: value, offset: 0, text })); await current;
   await joined;
-  assert.equal(f.state.details.get(value.operation)?.complete, true);
+  assert.equal(f.state.details.get(personalCardKey(value))?.complete, true);
 });
 
 test("An accepted receipt preserves the complete owner bubble under both RPC and stream ordering", async t => {
@@ -278,7 +280,7 @@ test("Write cards display the full resolved target and clearly identify an empty
   const target = `/outside/${"segment/".repeat(70)}EXACT-TAIL.txt`, value = { ...card(), target: target.slice(0, 512), targetTruncated: true };
   const f = fixture(); t.after(() => f.state.dispose()); await settle();
   f.state.frame({ ...snapshot(), state: projection(1, [value]) });
-  f.state.details.set(value.operation, { admission: value.admission, text: JSON.stringify({ target, params: { path: "/short-alias/result", content: "" } }), complete: true });
+  f.state.details.set(personalCardKey(value), { admission: value.admission, text: JSON.stringify({ target, params: { path: "/short-alias/result", content: "" } }), complete: true });
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
   assert.match(markup, /EXACT-TAIL\.txt/); assert.match(markup, /文件内容将清空/); assert.match(markup, /批准本次/);
 });
@@ -311,4 +313,276 @@ test("Identical queued owner messages keep distinct request keys and full local 
   assert.equal(f.state.timeline.filter(value => value.role === "user").length, 3);
   assert.deepEqual(f.state.timeline.filter(value => value.input).map(value => value.requestKey), ["one", "two"]);
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.ok(markup.includes(text));
+});
+
+function workQuestion(id: string, occurrence = Number(id) + 400): import("@ruukoto/view/personal-protocol.ts").PersonalDesktopQuestion { return { id, admission: occurrence, occurrence, version: 1, status: "pending", question: `Question ${id}`, canAnswer: true, canCancel: true, work: Number(id) + 10 }; }
+
+test("Concurrent native work questions retain separate drafts, submit one single choice directly and keep multi-select pending until Done", async t => {
+  const first = workQuestion("51"), second = workQuestion("52"), posted: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction[] = [];
+  const questions = new Map([[first.id, { ...first, questions: [{ question: "Select one", options: ["First", "Second"] }], origin: {} }], [second.id, { ...second, questions: [{ question: "Select several", options: ["Red", "Green", "Blue"], multiple: true }], origin: {} }]]);
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/question?")) return ok(questions.get(new URL(String(params.path), identity.origin).searchParams.get("question")!));
+    if (params.method === "POST" && params.path === "/desktop/action") { const request = params.body as import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction; posted.push(request); return ok({ v: 1, request, entry: 700 + posted.length, state: "completed" }); }
+    if (params.path === "/desktop/state") return ok({ ...projection(2), questions: { items: [first, second], total: 2 } });
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: { ...projection(1), questions: { items: [first, second], total: 2 } } });
+  await f.state.loadQuestion(first); await f.state.loadQuestion(second);
+  f.state.chooseQuestion(second, [2, 0]); assert.equal(posted.length, 0); assert.deepEqual(f.state.questionDraft(second).answers, [{ text: "Red\nBlue", options: [0, 2] }]);
+  f.state.chooseQuestion(first, 1); await settle(); assert.equal(posted.length, 1); assert.equal(posted[0].operation, 51); assert.equal(posted[0].occurrence, first.occurrence); assert.deepEqual(posted[0].answers, [{ text: "Second", option: 1 }]);
+  assert.deepEqual(f.state.questionDraft(second).answers, [{ text: "Red\nBlue", options: [0, 2] }]);
+  f.state.nextQuestion(second); await settle(); assert.equal(posted.length, 2); assert.equal(posted[1].operation, 52); assert.deepEqual(posted[1].answers, [{ text: "Red\nBlue", options: [0, 2] }]);
+  f.state.edit("Main stays usable"); assert.equal(f.state.canSend, true);
+});
+
+test("Several native questions finish with review and free text stays on its exact question", async t => {
+  const question = workQuestion("61"), posted: unknown[] = [];
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/question?")) return ok({ ...question, questions: [{ question: "One", options: ["A", "B"] }, { question: "Two" }], origin: {} });
+    if (params.method === "POST" && params.path === "/desktop/action") { posted.push(params.body); return ok({ v: 1, request: params.body, entry: 800, state: "completed" }); }
+    if (params.path === "/desktop/state") return ok({ ...projection(3), questions: { items: [question], total: 1 } });
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: { ...projection(1), questions: { items: [question], total: 1 } } }); await f.state.loadQuestion(question);
+  f.state.chooseQuestion(question, 0); assert.equal(f.state.questionDraft(question).index, 1); assert.equal(posted.length, 0);
+  f.state.editQuestion(question, "Exact free answer"); f.state.nextQuestion(question); assert.equal(f.state.questionDraft(question).review, true); assert.equal(posted.length, 0);
+  await f.state.answerCard(question); assert.equal(posted.length, 1); assert.deepEqual((posted[0] as { answers: unknown }).answers, [{ text: "A", option: 0 }, { text: "Exact free answer" }]);
+  question.canAnswer = false; await f.state.answerCard(question); assert.equal(posted.length, 1);
+});
+
+test("Lost native work answers keep their original request through failed inspection and another question's response", async t => {
+  const question = workQuestion("71"), other = workQuestion("72"); let request: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction | undefined, posts = 0, inspected = false;
+  const terminal = { ...question, version: 2, status: "answered" as const, canAnswer: false, canCancel: false };
+  const reads: string[] = [], newest = [other, ...Array.from({ length: 7 }, (_, index) => workQuestion(String(200 + index)))];
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/question?")) { const id = new URL(String(params.path), identity.origin).searchParams.get("question")!; reads.push(id); return ok({ ...(id === question.id ? inspected ? terminal : question : other), questions: [{ question: "Business detail" }], origin: {}, ...(id === question.id && inspected ? { answer: { answers: [{ text: "Original answer" }] } } : {}) }); }
+    if (params.method === "POST" && params.path === "/desktop/action") { posts++; request = params.body as typeof request; return { ok: false, error: { code: "lost", outcome: "unknown", message: "Original answer pending" } }; }
+    if (String(params.path).startsWith("/desktop/action?")) return inspected ? ok({ v: 1, request, entry: 900, state: "completed" }) : { ok: false, error: { code: "read_lost", outcome: "not_sent", message: "Inspection unavailable" } };
+    if (params.path === "/desktop/state") return ok({ ...projection(inspected ? 4 : 3), questions: { items: newest, total: newest.length + 1, nextOffset: 8 } });
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: { ...projection(1), questions: { items: [question, other], total: 2 } } }); await f.state.loadQuestion(question); await f.state.loadQuestion(other);
+  f.state.editQuestion(question, "Original answer"); await f.state.answerCard(question); assert.equal(posts, 1); assert.equal(f.state.actionBlocked("questions", 71), true);
+  await f.state.answerCard(question); assert.equal(posts, 1);
+  f.state.update({ type: "personal_actions", items: [request!] });
+  assert.equal(f.state.questionDraft(question).answers[0].text, "Original answer"); assert.equal(f.state.actionBlocked("questions", 71), true); assert.equal(f.state.actionBlocked("questions", 72), false);
+  f.state.editQuestion(other, "Independent unsent answer"); const readsBefore = reads.length;
+  inspected = true; await f.state.inspectAction(request!); assert.equal(f.state.actionBlocked("questions", 71), false); assert.equal(f.state.questionCards.get(question.occurrence)?.status, "answered"); assert.equal(f.state.questionDetails.get(question.id)?.version, 2); assert.ok(reads.length > readsBefore); assert.ok(reads.slice(readsBefore).every(id => id === question.id));
+  await f.state.answerCard(question); assert.equal(posts, 1); assert.equal(f.state.questionDraft(other).answers[0].text, "Independent unsent answer");
+});
+
+test("Terminal native action receipts refresh their original card without WebSocket events or replay", async t => {
+  for (const mode of ["receipt inspection", "restored host removal"] as const) await t.test(mode, async t => {
+    const value: PersonalDesktopApproval = { ...card(171), family: "mcp", kind: "cua", approval: "unneeded", canDecide: false, started: true, observed: true, effect: "returned", code: "returned", observation: 1400, actions: ["resume"] };
+    const inspection: PersonalDesktopApproval = { ...value, family: "inspections", kind: "service_inspect", admission: 272, occurrence: 272, actions: ["cleanup"] };
+    const reads: string[] = [], posted: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction[] = [];
+    let original: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction | undefined, completed = false, release!: () => void;
+    const f = fixture(async (_target, op, params) => {
+      if (String(params.path).startsWith("/desktop/operation")) {
+        const family = new URL(String(params.path), identity.origin).searchParams.get("family")!; reads.push(family);
+        const summary = family === "mcp" ? completed ? { ...value, actions: [] } : value : inspection;
+        if (completed && family === "mcp") await new Promise<void>(resolve => { release = resolve; });
+        return ok({ v: 1, revision: completed ? 2 : 1, operation: summary.operation, admission: summary.admission, summary, offset: 0, text: JSON.stringify({ target: summary.target, params: { original: family } }) });
+      }
+      if (params.method === "POST" && params.path === "/desktop/action") { original = params.body as typeof original; posted.push(original!); return ok({ v: 1, request: original, entry: 1500, state: "admitted" }); }
+      if (String(params.path).startsWith("/desktop/action?")) {
+        assert.equal(new URL(String(params.path), identity.origin).searchParams.get("requestId"), original?.requestId);
+        return ok({ v: 1, request: original, entry: 1500, state: completed ? "completed" : "admitted" });
+      }
+      return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+    }); t.after(() => f.state.dispose()); await settle();
+    f.state.frame({ ...snapshot(), state: projection(1, [value, inspection]) }); await f.state.loadCard(value); await f.state.loadCard(inspection);
+    if (mode === "receipt inspection") await f.state.cardAction(value, "resume");
+    else { original = { v: 1, requestId: "e555342d-eb18-4094-939f-6e8cfb960ff9", family: "mcp", operation: value.operation, admission: value.admission, occurrence: value.occurrence, action: "resume" }; f.state.update({ type: "personal_actions", items: [original] }); }
+    assert.equal(f.state.actionBlocked("mcp", value.operation), true); assert.deepEqual(f.state.cards.get(value.occurrence)?.actions, ["resume"]);
+    const readsBefore = reads.length, postsBefore = posted.length; completed = true;
+    const refreshing = mode === "receipt inspection" ? f.state.inspectAction(original!) : (f.state.update({ type: "personal_actions", items: [] }), settle());
+    await settle(); assert.deepEqual(reads.slice(readsBefore), ["mcp"]); assert.equal(f.state.actionBlocked("mcp", value.operation), true);
+    await f.state.cardAction(value, "resume"); assert.equal(posted.length, postsBefore);
+    release(); await refreshing; await settle();
+    assert.deepEqual(f.state.cards.get(value.occurrence)?.actions, []); assert.deepEqual(f.state.cards.get(inspection.occurrence)?.actions, ["cleanup"]); assert.equal(f.state.actionBlocked("mcp", value.operation), false);
+    await f.state.cardAction(value, "resume"); assert.equal(posted.length, postsBefore);
+    if (posted.length) assert.deepEqual(posted[0], original);
+  });
+});
+
+test("A terminal native receipt waits for an older detail read and retries a failed canonical refresh", async t => {
+  for (const mode of ["in-flight detail", "failed refresh"] as const) await t.test(mode, async t => {
+    const value: PersonalDesktopApproval = { ...card(172), family: "mcp", kind: "cua", approval: "unneeded", canDecide: false, started: true, observed: true, effect: "returned", code: "returned", observation: 1401, actions: ["resume"] };
+    let original: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction | undefined, completed = false, holdOld = false, failRead = mode === "failed refresh", releaseOld!: () => void, reads = 0, posts = 0;
+    const f = fixture(async (_target, op, params) => {
+      if (String(params.path).startsWith("/desktop/operation")) {
+        assert.equal(new URL(String(params.path), identity.origin).searchParams.get("family"), "mcp"); reads++;
+        const summary = completed ? { ...value, actions: [] } : value, revision = completed ? 2 : 1;
+        if (holdOld && !completed) await new Promise<void>(resolve => { releaseOld = resolve; });
+        if (completed && failRead) return { ok: false, error: { code: "read_lost", outcome: "not_sent", message: "Original detail unavailable" } };
+        return ok({ v: 1, revision, operation: value.operation, admission: value.admission, summary, offset: 0, text: JSON.stringify({ target: value.target, params: { original: "mcp" } }) });
+      }
+      if (params.method === "POST" && params.path === "/desktop/action") { original = params.body as typeof original; posts++; return ok({ v: 1, request: original, entry: 1501, state: "admitted" }); }
+      if (String(params.path).startsWith("/desktop/action?")) { assert.equal(new URL(String(params.path), identity.origin).searchParams.get("requestId"), original?.requestId); return ok({ v: 1, request: original, entry: 1501, state: completed ? "completed" : "admitted" }); }
+      return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+    }); t.after(() => f.state.dispose()); await settle(); f.state.frame({ ...snapshot(), state: projection(1, [value]) }); await f.state.loadCard(value); await f.state.cardAction(value, "resume");
+    assert.equal(posts, 1); assert.equal(f.state.actionBlocked("mcp", value.operation), true);
+    const readsBefore = reads; holdOld = mode === "in-flight detail"; const older = holdOld ? f.state.loadCard(value) : undefined;
+    completed = true; const refreshing = f.state.inspectAction(original!); await settle();
+    if (older) {
+      assert.equal(reads, readsBefore + 1); assert.equal(f.state.actionBlocked("mcp", value.operation), true);
+      releaseOld(); await older; await refreshing;
+      assert.equal(reads, readsBefore + 2);
+    } else {
+      await refreshing; assert.equal(reads, readsBefore + 1); assert.equal(f.state.actionBlocked("mcp", value.operation), true); assert.match(f.state.details.get(personalCardKey(value))?.error ?? "", /unavailable/);
+      await f.state.cardAction(value, "resume"); assert.equal(posts, 1); failRead = false; await f.state.inspectAction(original!); assert.equal(reads, readsBefore + 2);
+    }
+    assert.deepEqual(f.state.cards.get(value.occurrence)?.actions, []); assert.equal(f.state.actionBlocked("mcp", value.operation), false);
+    await f.state.cardAction(value, "resume"); assert.equal(posts, 1);
+  });
+});
+
+test("A terminal action diagnostic cannot cross a profile switch during canonical refresh", async t => {
+  const value: PersonalDesktopApproval = { ...card(173), family: "mcp", kind: "cua", approval: "unneeded", canDecide: false, actions: ["resume"] };
+  let refreshing = false, release!: () => void, posts = 0;
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/desktop/operation")) {
+      if (refreshing) await new Promise<void>(resolve => { release = resolve; });
+      return ok({ v: 1, revision: refreshing ? 2 : 1, operation: value.operation, admission: value.admission, summary: value, offset: 0, text: JSON.stringify({ target: value.target, params: { original: "mcp" } }) });
+    }
+    if (params.method === "POST" && params.path === "/desktop/action") { posts++; refreshing = true; return ok({ v: 1, request: params.body, entry: 1502, state: "failed" }); }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle(); f.state.frame({ ...snapshot(), state: projection(1, [value]) }); await f.state.loadCard(value);
+  const action = f.state.cardAction(value, "resume"); await settle(); assert.equal(posts, 1); assert.equal(typeof release, "function");
+  f.state.update({ type: "personal_identity", identity: { ...identity, remoteId: "new-remote", profile: { ...identity.profile, id: "new-profile" } } });
+  f.state.message = "Current profile diagnostic"; release(); await action;
+  assert.equal(f.state.message, "Current profile diagnostic"); assert.equal(f.state.cards.size, 0); assert.equal(f.state.uncertainActions.size, 0); assert.equal(posts, 1);
+});
+
+test("A restored terminal answer outside the newest question page recreates its original card", async t => {
+  const question = workQuestion("73"), newest = Array.from({ length: 8 }, (_, index) => workQuestion(String(300 + index))), text = "Exact original answer\nSecond line";
+  const request: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction = { v: 1, requestId: "fa0bd78a-bc2a-4dd8-b54c-2571f59c7c91", family: "questions", operation: Number(question.id), admission: question.admission, occurrence: question.occurrence, action: "answer", questionVersion: 1, answers: [{ text }] };
+  const reads: string[] = []; let posts = 0;
+  const f = fixture(async (_target, op, params) => {
+    if (op === "desktop_personal_request") {
+      if (params.method === "POST") { posts++; return ok(null); }
+      const path = String(params.path);
+      if (path.startsWith("/desktop/action?")) { assert.equal(new URL(path, identity.origin).searchParams.get("requestId"), request.requestId); return ok({ v: 1, request, entry: 1503, state: "completed" }); }
+      if (path.startsWith("/question?")) { reads.push(path); assert.equal(path, `/question?question=${question.id}`); return ok({ id: question.id, admission: question.admission, version: 2, status: "answered", questions: [{ question: "Original work question" }], origin: {}, answer: { answers: [{ text }] } }); }
+      if (path.startsWith("/desktop/operation")) throw new Error("Restored question must not read an operation family");
+      if (path === "/desktop/state") return ok({ ...projection(1), questions: { items: newest, total: newest.length + 1, nextOffset: 8 } });
+      return path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] });
+    }
+    return ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: { ...projection(1), questions: { items: newest, total: newest.length + 1, nextOffset: 8 } } });
+  f.state.update({ type: "personal_actions", items: [request] }); assert.equal(f.state.questionCards.has(question.occurrence), false); assert.equal(f.state.actionBlocked("questions", Number(question.id)), true);
+  await f.state.inspectAction(request);
+  const restored = f.state.questionCards.get(question.occurrence); assert.ok(restored); assert.equal(restored.id, question.id); assert.equal(restored.admission, question.admission); assert.equal(restored.status, "answered"); assert.equal(restored.version, 2); assert.equal(restored.canAnswer, false); assert.equal(restored.canCancel, false);
+  assert.deepEqual(f.state.questionDetails.get(question.id)?.answer?.answers, [{ text }]); assert.deepEqual(reads, [`/question?question=${question.id}`]); assert.equal(f.state.actionBlocked("questions", Number(question.id)), false);
+  await f.state.answerCard(question); assert.equal(posts, 0);
+});
+
+test("All-family recovery cards retain claims, current observations and explicit sandbox choice before completed prose", async t => {
+  const value = { ...card(81), family: "mcp" as const, kind: "cua" as const, canDecide: false, started: true, stopped: false, approval: "approved" as const, effect: "effect_unknown" as const, code: "interrupted", actions: ["cleanup", "observe", "claim_applied", "claim_not_applied", "stop_sandbox"] as import("@ruukoto/view/personal-protocol.ts").PersonalDesktopActionName[], check: { entry: 1100, kind: "observation" as const, code: "observed", text: "Current target is healthy" }, claim: { entry: 1101, effect: "applied" as const, at: 1000 } };
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(1, [value]) }); f.state.details.set(personalCardKey(value), { admission: value.admission, family: "mcp", complete: true, text: JSON.stringify({ target: value.target, params: { action: "Original click" } }) });
+  f.state.entries.set(400, { entry: 400, conversation: 0, kind: "pi.assistant", role: "assistant", text: "Later prose", partial: false, truncated: false, timestamp: 1000 });
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  assert.ok(markup.indexOf("Original click") < markup.indexOf("Later prose")); assert.match(markup, /当前观察：Current target is healthy/); assert.match(markup, /你的记录：已生效/); assert.match(markup, /停止原执行|查看新现场|停止整个原沙箱/); assert.doesNotMatch(markup, /确认停止整个原沙箱/);
+});
+
+test("A native canceled question and a stale recovery card cannot send their former actions", async t => {
+  const question = workQuestion("91"), recovery = { ...card(92), family: "browser" as const, kind: "browser" as const, actions: ["resume"] as import("@ruukoto/view/personal-protocol.ts").PersonalDesktopActionName[] }; let posts = 0;
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/question?")) return ok({ ...question, questions: [{ question: "Original question" }], origin: {} });
+    if (params.method === "POST") { posts++; return ok({}); }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: { ...projection(1, [recovery]), questions: { items: [question], total: 1 } } }); await f.state.loadQuestion(question); f.state.editQuestion(question, "Late answer");
+  f.state.details.set(personalCardKey(recovery), { admission: recovery.admission, family: "browser", complete: true, text: JSON.stringify({ target: recovery.target, params: { action: "pause" } }) });
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: { ...projection(2, [{ ...recovery, actions: [] }]), questions: { items: [{ ...question, version: 2, status: "canceled", canAnswer: false, canCancel: false }], total: 1 } } }] });
+  await f.state.answerCard(question); await f.state.cardAction(recovery, "resume"); assert.equal(posts, 0);
+});
+
+test("A native recovery screenshot must match observation, completeness, hash and actual display before acceptance", async t => {
+  const profile = { ...identity.profile, id: `sha256:${"a".repeat(64)}` }, revision = `sha256:${"b".repeat(64)}`, image = "1d046568-a6ce-4339-a95d-e8d7b4df5974";
+  const responseProfile = { directory: profile.directory, id: profile.id };
+  const bytes = Uint8Array.from(Buffer.from("exact test image")), hash = Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex"), value = { ...card(101), family: "mcp" as const, kind: "cua" as const, actions: ["accept"] as import("@ruukoto/view/personal-protocol.ts").PersonalDesktopActionName[], observation: 1200, images: [{ id: image, mime: "image/png", bytes: bytes.length, sha256: hash, partial: false }] }; let corrupt = false, settingsReads = 0;
+  const pages: { revision: string; offset: number }[] = [], parserFailures: string[] = [];
+  const f = fixture(async (_target, op, params) => {
+    if (op === "desktop_personal_settings_request") {
+      let request: ReturnType<typeof parsePersonalSettingsRequest>;
+      try { request = parsePersonalSettingsRequest(params.request); }
+      catch (error) { if (!(error instanceof PersonalError)) throw error; parserFailures.push(error.code); return { ok: false, error: { code: error.code, outcome: "rejected", message: error.message } }; }
+      if (request.op === "settings.read") { settingsReads++; assert.deepEqual(request, { v: 1, op: "settings.read", limit: 1 }); return ok({ profile: responseProfile, revisions: { mcp: revision } }); }
+      assert.equal(request.op, "mcp.cua-image"); if (request.op !== "mcp.cua-image") throw new Error("Unexpected native image request");
+      assert.deepEqual(request.profile, profile); assert.equal(request.expectedRevision, revision); assert.equal(request.operation, value.operation); assert.equal(request.observation, value.observation); assert.equal(request.image, image);
+      const offset = request.offset ?? 0, content = Uint8Array.from(bytes); if (corrupt) content[0] ^= 1;
+      const chunk = content.slice(offset, offset + 8), nextOffset = offset + chunk.length;
+      pages.push({ revision: request.expectedRevision, offset });
+      return ok({ profile: responseProfile, observation: value.observation, id: image, mime: "image/png", bytes: bytes.length, sha256: hash, offset, base64: Buffer.from(chunk).toString("base64"), ...(nextOffset < bytes.length ? { nextOffset } : {}) });
+    }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle(); f.state.update({ type: "personal_identity", identity: { ...identity, profile } }); f.state.frame({ ...snapshot(), state: projection(1, [value]) });
+  await f.state.loadCuaImages(value); assert.deepEqual(parserFailures, []); assert.equal(settingsReads, 1); assert.ok(f.state.cuaImages.has(value.operation), f.state.message ?? "Native screenshot did not load"); assert.deepEqual(pages, [{ revision, offset: 0 }, { revision, offset: 8 }]);
+  assert.equal(f.state.canAcceptCua(value), false); f.state.cuaImageLoaded(value, image, true); assert.equal(f.state.canAcceptCua(value), true);
+  f.state.cuaImageLoaded({ ...value, observation: 1199 }, image, false); assert.equal(f.state.canAcceptCua(value), true);
+  corrupt = true; await f.state.loadCuaImages(value); assert.equal(settingsReads, 2); assert.equal(f.state.canAcceptCua(value), false); assert.match(f.state.message ?? "", /完整性/);
+  await f.state.loadCuaImages({ ...value, images: [{ ...value.images[0], partial: true }] }); assert.equal(f.state.canAcceptCua(value), false); assert.match(f.state.message ?? "", /不完整/); assert.equal(pages.length, 4);
+});
+
+test("A native screenshot cannot use a foreign or stale settings read", async t => {
+  const profile = { ...identity.profile, id: `sha256:${"a".repeat(64)}` }, revision = `sha256:${"b".repeat(64)}`;
+  const value: PersonalDesktopApproval = { ...card(102), family: "mcp", kind: "cua", actions: ["accept"], observation: 1201, images: [{ id: "0de17fd5-951a-49f0-8bc7-38f16ec16f4f", mime: "image/png", bytes: 1, sha256: "c".repeat(64), partial: false }] };
+  for (const mode of ["foreign profile", "foreign directory", "new observation", "new connection"] as const) await t.test(mode, async t => {
+    let release!: (result: DesktopResult<unknown>) => void, settingsReads = 0, imageReads = 0;
+    const f = fixture(async (_target, op, params) => {
+      if (op === "desktop_personal_settings_request") {
+        const request = parsePersonalSettingsRequest(params.request);
+        if (request.op === "settings.read") { settingsReads++; return new Promise(resolve => { release = resolve; }); }
+        imageReads++; throw new Error("Stale settings must not request image bytes");
+      }
+      return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+    }); t.after(() => f.state.dispose()); await settle(); f.state.update({ type: "personal_identity", identity: { ...identity, profile } }); f.state.frame({ ...snapshot(), state: projection(1, [value]) });
+    const loading = f.state.loadCuaImages(value); assert.equal(settingsReads, 1);
+    if (mode === "new observation") f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(2, [{ ...value, observation: 1202 }]) }] });
+    if (mode === "new connection") f.state.update({ type: "state", state: "reconnecting" });
+    const responseProfile = { directory: mode === "foreign directory" ? "/private/other-pa" : profile.directory, id: mode === "foreign profile" ? `sha256:${"d".repeat(64)}` : profile.id };
+    release(ok({ profile: responseProfile, revisions: { mcp: revision } })); await loading;
+    assert.equal(imageReads, 0); assert.equal(f.state.cuaImages.size, 0); assert.equal(f.state.canAcceptCua(value), false); assert.equal(f.state.cuaImageLoading.has(value.operation), false);
+    if (mode === "foreign profile" || mode === "foreign directory") assert.match(f.state.message ?? "", /原档案/);
+  });
+});
+
+test("Service and inspection cards sharing a task keep independent details, revisions, reconnect reads and actions", async t => {
+  const service: PersonalDesktopApproval = { ...card(151), family: "services", kind: "service_restart", target: "original.service", approval: "approved", canDecide: false, started: true, stopped: false, effect: "effect_unknown", code: "service_interrupted", actions: ["check", "cleanup"] };
+  const inspection: PersonalDesktopApproval = { ...service, family: "inspections", kind: "service_inspect", admission: 252, occurrence: 252, approval: "unneeded", effect: "no_write", code: "inspection_stop_unverified", actions: ["check", "cleanup"] };
+  const summaries = new Map([["services", service], ["inspections", inspection]]), reads: string[] = [], posted: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction[] = [];
+  let releaseInspection: (() => void) | undefined, holdInspection = true;
+  const f = fixture(async (_target, op, params) => {
+    if (String(params.path).startsWith("/desktop/operation")) {
+      const url = new URL(String(params.path), identity.origin), family = url.searchParams.get("family")!, summary = summaries.get(family)!; reads.push(family);
+      if (holdInspection && family === "inspections") await new Promise<void>(resolve => { releaseInspection = resolve; });
+      return ok({ v: 1, operation: summary.operation, admission: summary.admission, revision: 3, summary, offset: 0, text: JSON.stringify({ target: summary.target, params: { original: family } }) });
+    }
+    if (params.method === "POST" && params.path === "/desktop/action") { posted.push(params.body as import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction); return ok({ v: 1, request: params.body, entry: 600, state: "completed" }); }
+    return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
+  }); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(1, [service, inspection]) });
+  const loading = Promise.all([f.state.loadCard(service), f.state.loadCard(inspection)]);
+  assert.deepEqual(reads.sort(), ["inspections", "services"]);
+  const serviceCurrent = { ...service, code: "service_current" };
+  summaries.set("services", serviceCurrent);
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(4, [serviceCurrent]) }] });
+  assert.equal(f.state.cards.get(service.occurrence)?.code, "service_current");
+  holdInspection = false; releaseInspection!(); await loading;
+  assert.equal(f.state.cards.get(inspection.occurrence)?.code, inspection.code);
+  assert.match(f.state.details.get(personalCardKey(service))?.text ?? "", /services/);
+  assert.match(f.state.details.get(personalCardKey(inspection))?.text ?? "", /inspections/);
+  await f.state.cardAction(service, "check"); await f.state.cardAction(inspection, "cleanup");
+  assert.deepEqual(posted.map(({ family, admission, occurrence, action }) => ({ family, admission, occurrence, action })), [{ family: "services", admission: service.admission, occurrence: service.occurrence, action: "check" }, { family: "inspections", admission: inspection.admission, occurrence: inspection.occurrence, action: "cleanup" }]);
+  reads.length = 0;
+  f.state.frame({ ...snapshot(), state: projection(4, [serviceCurrent]) }); await settle();
+  assert.deepEqual(reads, ["inspections"]);
+  f.state.uncertainDecisions.add(service.operation);
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(5, [{ ...inspection, stopped: true, code: "inspection_stopped", actions: [] }]) }] });
+  assert.equal(f.state.uncertainDecisions.has(service.operation), true);
+  assert.equal(f.state.cards.get(service.occurrence)?.code, "service_current");
 });

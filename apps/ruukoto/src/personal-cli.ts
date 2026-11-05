@@ -38,6 +38,7 @@ import { readPersonalCommands, savePersonalCommands } from "./personal-command-c
 import { tmpdir } from "node:os";
 import { configurePersonalMcp, managePersonalMcp, managePersonalCua } from "./personal-mcp-cli.ts";
 import { managePersonalSchedules } from "./personal-scheduler-cli.ts";
+import { personalRecoveryEvidenceText } from "./personal-recovery-claims.ts";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
 
@@ -336,7 +337,7 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
     let stream: "stdout" | "stderr" = "stdout", outputOffset = 0;
     while (true) {
       const detail = await personalControl<Awaited<ReturnType<NonNullable<PersonalHarness["commands"]>["detail"]>>>(directory, "GET", `/command?command=${id}&stream=${stream}&offset=${outputOffset}`);
-      io.write(`\n原命令：${detail.command}\n结果：${detail.result?.effect ?? "尚未返回"}；退出码：${detail.result?.exitCode ?? "未知"}；停止：${detail.stopped ? "已核实" : "未核实"}。运行返回不代表业务成功。\n${detail.resolution ? `效果核实：${detail.resolution.effect}；${detail.resolution.evidence}\n` : ""}${detail.outputError ? `原输出无法核实（${detail.outputError}），保留现场。\n` : ""}`);
+      io.write(`\n原命令：${detail.command}\n结果：${detail.result?.effect ?? "尚未返回"}；退出码：${detail.result?.exitCode ?? "未知"}；停止：${detail.stopped ? "已核实" : "未核实"}。运行返回不代表业务成功。\n${detail.resolution ? `效果核实：${detail.resolution.effect}；${personalRecoveryEvidenceText(detail.resolution)}\n` : ""}${detail.outputError ? `原输出无法核实（${detail.outputError}），保留现场。\n` : ""}`);
       if (detail.output) io.write(`${stream}${detail.output.complete ? "" : "（只捕获片段）"}，${detail.output.bytes} 字节。UTF-8 预览（跨页字符可能不完整）：\n${Buffer.from(detail.output.data, "base64").toString("utf8")}\n原字节 base64：\n${detail.output.data}\n`);
       const actions = ["刷新状态", "切换输出流", ...(detail.output?.nextOffset === undefined ? [] : ["下一页输出"]), ...(detail.canResolve ? ["确认已生效", "确认未生效"] : []), ...(detail.canRecheck ? ["登记原命令停止重核"] : []), "返回命令列表"];
       const action = actions[await choose(io, "原命令", actions)];

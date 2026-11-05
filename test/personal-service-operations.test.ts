@@ -1199,3 +1199,26 @@ test("服务宿主基线：旧无版本操作先捕获原部署，离线保存�
   const oldCalls = f.calls().length, nextCalls = fs.existsSync(path.join(helper, "calls.log")) ? fs.readFileSync(path.join(helper, "calls.log"), "utf8") : null;
   await p.service!.recheckStop(ref); assert.equal(f.calls().length, oldCalls); assert.equal(fs.existsSync(path.join(helper, "calls.log")) ? fs.readFileSync(path.join(helper, "calls.log"), "utf8") : null, nextCalls);
 });
+
+test("Native inspection cleanup stops only the original canceled inspection and never restarts", { timeout: 30_000 }, async t => {
+  const f = await fixture(t, request => request.system?.includes("你是个人助手的子 Agent") && request.messages.at(-1)?.role === "user" && request.messages.at(-1)?.content !== "finish"
+    ? { kind: "tool_calls", calls: [{ id: "restart", name: "service_restart", arguments: { unit: UNIT } }] }
+    : { kind: "text", text: "done" });
+  f.touch("inspect-delay-ms", "500"); f.touch("inspection-stop-fails");
+  const p = await f.open(); await p.answer("restart", "owner");
+  const work = await p.work.delegate({ content: "initial", requestId: "native-inspect", sourceRequestId: "owner" }), ref = await childOperation(p);
+  await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  await p.work.append(work, { requestId: "native-inspect-amend", sourceRequestId: "owner", content: "finish" });
+  await until(async () => (await p.harness.getTask(ref.taskId, context))?.state.status === "terminal");
+  const { personalDesktopTarget } = await import("../apps/ruukoto/src/personal-desktop-actions.ts");
+  const target = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await personalDesktopTarget(tx, "inspections", ref.taskId))), context);
+  assert.equal(target.summary.stopped, false); assert.ok(target.summary.actions.includes("cleanup"));
+  fs.rmSync(path.join(f.helper, "inspection-stop-fails"));
+  const request = { v: 1 as const, requestId: randomUUID(), family: "inspections" as const, operation: ref.taskId, admission: target.summary.admission, occurrence: target.summary.occurrence, action: "cleanup" as const };
+  await p.harness.commit(tx => p.desktopActions.admit(tx, request), context); p.harness.resume();
+  await until(async () => (await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))?.state !== "admitted");
+  assert.equal((await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))?.state, "completed");
+  assert.equal((await p.harness.snapshot(PersonalInspectionDoc, String(ref.taskId), context))!.inspection!.stopped, true);
+  assert.equal(f.starts(), 0); await p.harness.waitForTask(work.taskId, context);
+  await p.harness.commit(tx => p.desktopActions.verify(tx, true), context);
+});

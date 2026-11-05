@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { syncBuiltinESMExports } from "node:module";
 import { PersonalController } from "../apps/desktop/src/main/personal-controller.ts";
 import { DesktopHost } from "../apps/desktop/src/main/host.ts";
-import { savePersonalConfig, loadPersonalConfig, personalPendingFile } from "../apps/desktop/src/main/personal-config.ts";
+import { savePersonalConfig, loadPersonalConfig, personalPendingFile, writePersonalRecord } from "../apps/desktop/src/main/personal-config.ts";
 import { PersonalRemoteAuth } from "../apps/ruukoto/src/personal-remote-auth.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { desktopRemoteFixture, waitFor } from "./helpers/personal-remote-desktop.ts";
@@ -185,4 +185,66 @@ test('A3/A10：允许同档案重新授权时，有原未决输入仍不能借�
  assert.equal(current.binding!.profile.id,original.binding!.profile.id,'原请求未决时不得改绑档案并把原请求从当前待核实入口隐藏');
  assert.equal(JSON.parse(fs.readFileSync(pendingPath,'utf8')).input.requestId,input.requestId);
  assert.ok(JSON.parse(f.state.raw!).candidate,'保持候选以便先核实原请求，再恢复已登记配对');
+});
+
+test("Native action intent is durable before send and only its exact receipt unlocks it after restart", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("AAAAAAAAAAAA", "Original");
+  const action: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction = { v: 1, requestId: randomUUID(), family: "questions", operation: 42, admission: 60, occurrence: 60, action: "answer", questionVersion: 1, answers: [{ text: "Exact owner answer" }] };
+  let posts = 0, committed = false, mismatch = false;
+  f.overrides.set("/desktop/action", async (req, res, value) => {
+    if (req.method === "POST") {
+      posts++; const pending = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")); assert.deepEqual(pending.actions, [action]); assert.deepEqual(value, action);
+      req.socket.destroy(); return;
+    }
+    f.respond(res, committed ? { v: 1, request: mismatch ? { ...action, admission: 999 } : action, entry: 80, state: "completed" } : null);
+  });
+  await assert.rejects(controller.business("POST", "/desktop/action", action), expected("personal_connection_lost"));
+  assert.equal(posts, 1); await assert.rejects(controller.business("POST", "/desktop/action", { ...action, requestId: randomUUID() }), expected("personal_action_pending"));
+  await assert.rejects(controller.assertSwitchable(), expected("personal_pending")); await controller.close();
+  const reopened = f.create(); await reopened.reconnect(); assert.equal(posts, 1);
+  assert.deepEqual(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, reopened.config), "utf8")).actions, [action]);
+  assert.ok(f.updates.some(update => update.type === "personal_actions" && update.items[0]?.requestId === action.requestId));
+  committed = true; mismatch = true;
+  await assert.rejects(reopened.business("GET", `/desktop/action?requestId=${action.requestId}`), expected("personal_protocol"));
+  assert.deepEqual(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, reopened.config), "utf8")).actions, [action]);
+  mismatch = false; await reopened.business("GET", `/desktop/action?requestId=${action.requestId}`);
+  assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, reopened.config), "utf8")).actions, undefined); assert.equal(posts, 1);
+});
+
+test("Native recovery rejects client source fields and stale choices clear only their own unsent intent", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("AAAAAAAAAAAA", "Original");
+  const action: import("@ruukoto/view/personal-protocol.ts").PersonalDesktopAction = { v: 1, requestId: randomUUID(), family: "browser", operation: 55, admission: 70, occurrence: 70, action: "resume" };
+  let posts = 0;
+  f.overrides.set("/desktop/action", async (req, res) => { assert.equal(req.method, "POST"); posts++; f.reject(res, "desktop_action_stale", 409); });
+  await assert.rejects(controller.business("POST", "/desktop/action", { ...action, actor: { kind: "native", credential: "fake" } }), expected("personal_action_invalid")); assert.equal(posts, 0);
+  await assert.rejects(controller.business("POST", "/desktop/action", action), (error: unknown) => expected("desktop_action_stale")(error) && error instanceof ControlClientError && error.outcome === "rejected");
+  assert.equal(posts, 1); assert.equal(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).actions, undefined);
+  const release = await controller.assertSwitchable(); release();
+});
+
+test("Native stream parsing accepts bounded all-family cards and questions and rejects unknown card actions", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("AAAAAAAAAAAA", "Original"); await waitFor(() => f.updates.some(update => update.type === "personal_frame"));
+  const snapshot = f.updates.findLast(update => update.type === "personal_frame" && update.frame.type === "snapshot"); assert.ok(snapshot?.type === "personal_frame");
+  const card = { family: "mcp", operation: 42, occurrence: 60, admission: 60, kind: "cua", target: "Original computer", targetTruncated: false, approval: "approved", observed: true, started: true, stopped: false, effect: "effect_unknown", code: "interrupted", canDecide: false, actions: ["cleanup", "stop_sandbox"] };
+  const question = { id: "43", admission: 61, occurrence: 61, version: 1, status: "pending", question: "Which original work?", canAnswer: true, canCancel: true, work: 44 };
+  const state = { v: 1, revision: 1, approvals: { items: [card], total: 1 }, questions: { items: [question], total: 1 }, works: { items: [], total: 0 }, delegations: { items: [], total: 0 } };
+  for (const ws of f.wss.clients) ws.send(JSON.stringify({ v: 1, runId: f.runId, subscription: snapshot.frame.subscription, seq: 1, type: "events", events: [{ type: "personal_state", state }] }));
+  await waitFor(() => f.updates.some(update => update.type === "personal_frame" && update.frame.seq === 1)); assert.equal(controller.status.state, "online");
+  for (const ws of f.wss.clients) ws.send(JSON.stringify({ v: 1, runId: f.runId, subscription: snapshot.frame.subscription, seq: 2, type: "events", events: [{ type: "personal_state", state: { ...state, approvals: { items: [{ ...card, actions: ["arbitrary_write"] }], total: 1 } } }] }));
+  await waitFor(() => controller.status.state === "failed"); assert.equal(controller.status.error?.code, "personal_protocol");
+});
+
+test("Native original-operation reads clear only the matching family's pending legacy decision", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("AAAAAAAAAAAA", "Original");
+  const file = personalPendingFile(f.directory, controller.config), operation = 77;
+  writePersonalRecord(file, { v: 1, input: null, decisions: [{ kind: "services", operation, decision: "approved" }] });
+  f.overrides.set("/desktop/operation", async (req, res) => {
+    const family = new URL(req.url!, f.origin).searchParams.get("family")!, admission = family === "services" ? 100 : 101;
+    const summary = { family, operation, admission, occurrence: admission, kind: family === "services" ? "service_restart" : "service_inspect", target: "original.service", targetTruncated: false, approval: family === "services" ? "approved" : "unneeded", observed: true, started: true, stopped: true, effect: "no_write", code: "completed", canDecide: false, actions: [] };
+    f.respond(res, { v: 1, revision: 1, operation, admission, summary, text: "{}", offset: 0 });
+  });
+  await controller.business("GET", `/desktop/operation?family=inspections&operation=${operation}`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).decisions, [{ kind: "services", operation, decision: "approved" }]);
+  await controller.business("GET", `/desktop/operation?family=services&operation=${operation}`);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).decisions, undefined);
 });

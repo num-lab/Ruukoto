@@ -1,3 +1,4 @@
+import { personalRecoveryEvidence, verifyPersonalOwnerClaim, type PersonalRecoveryEvidence } from "./personal-recovery-claims.ts";
 import { capturePersonalToolInstructions, requirePersonalToolInstructionsFresh, verifyPersonalToolInstructions, requirePersonalChildBusinessTool, personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 /** Native tool tasks own MCP admissions and evidence; recovery never resends tools/call.
  * Note: See .agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md
@@ -33,7 +34,8 @@ export const PERSONAL_MCP_TOOLS = ["mcp_tools", "mcp_call", "read_mcp_result"];
 const context = BACKGROUND_CONTEXT;
 type Evidence = Pick<NonNullable<McpConnection["callEvidence"]>, keyof NonNullable<McpConnection["callEvidence"]>>;
 type Origin = PersonalToolOrigin;
-type Resolution = { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; requestId?: string };
+type Resolution = { effect: "applied" | "not_applied"; entry: EntryId; requestId?: string } & PersonalRecoveryEvidence;
+export type PersonalCuaRecoveryBinding = { accepted?: EntryId; pause?: EntryId; observation?: EntryId; execution?: PersonalCuaExecution; launches?: EntryId[] };
 export type PersonalCuaExecution = { cli: CuaCliExecution; sandbox: CuaLinuxGeneration };
 type CuaRecovery = { stopped?: EntryId; begin?: EntryId; pendingObservation?: { entry: EntryId; execution: PersonalCuaExecution; request: string }; responses?: EntryId[]; observation?: { entry: EntryId; execution: PersonalCuaExecution; images: PersonalArtifact[]; evidence: Evidence }; accepted?: EntryId };
 type CuaTakeover = { version: 1; paused: EntryId; observation?: CuaRecovery["observation"]; pendingObservation?: CuaRecovery["pendingObservation"]; responses?: EntryId[]; accepted?: EntryId };
@@ -49,7 +51,7 @@ const McpEnded = defineEntry<{ operation: TaskId; admission: EntryId; sources: S
 const McpRequest = defineEntry<{ operation: TaskId; admission: EntryId; request: string; execution?: PersonalCuaExecution }>("ruukoto.mcp-request");
 const McpObservation = defineEntry<{ operation: TaskId; admission: EntryId; evidence: Evidence; effect: McpOperation["effect"]; code: string; remoteEnded: boolean }>("ruukoto.mcp-observation");
 const McpDecision = defineEntry<{ operation: TaskId; decision: McpOperation["decision"]; requestId?: string }>("ruukoto.mcp-decision");
-const McpResolution = defineEntry<{ operation: TaskId; effect: Resolution["effect"]; evidence: string; requestId?: string }>("ruukoto.mcp-resolution");
+const McpResolution = defineEntry<{ operation: TaskId; effect: Resolution["effect"]; evidence?: string; claim?: EntryId; requestId?: string }>("ruukoto.mcp-resolution");
 const McpConfiguration = defineEntry<{ config: PersonalMcpConfig }>("ruukoto.mcp-configuration");
 const McpCuaPause = defineEntry<{ paused: boolean; operation?: TaskId; claim?: EntryId }>("ruukoto.mcp-cua-pause");
 const McpCuaLaunch = defineEntry<{ operation: TaskId; scope: string; description: string }>("ruukoto.mcp-cua-launch");
@@ -205,12 +207,18 @@ export async function mcpDecide(tx: Tx, operation: TaskId, decision: "approved" 
   if (actor) value.decidedBy = actor.requestId;
   value.decisionEntry = (await tx.appendEntry(McpDecision, ROOT_CONVERSATION_ID, { data: { operation, decision, ...(actor ? { requestId: actor.requestId } : {}) } })).id;
 }
-export async function mcpResolve(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", evidence: string, actor?: McpActor) {
-  const value = await mcpOperation(tx, operation);
-  if (actor) await mcpOriginal(tx, operation, actor);
-  if (!["applied", "not_applied"].includes(effect) || !evidence.trim() || evidence.length > 8192 || !value.started || value.code === "started" || value.effect !== "effect_unknown" || value.resolution) throw new PersonalError("mcp_resolution_invalid", "请选择待核实原调用的业务效果，并提供最多 8192 字符的非空证据；核实不可覆盖。");
-  const entry = await tx.appendEntry(McpResolution, ROOT_CONVERSATION_ID, { data: { operation, effect, evidence, ...(actor ? { requestId: actor.requestId } : {}) } });
-  value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { requestId: actor.requestId } : {}) };
+export async function prepareMcpResolution(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", actor?: McpActor) {
+  const value = await mcpOperation(tx, operation); if (actor) await mcpOriginal(tx, operation, actor);
+  if (!["applied", "not_applied"].includes(effect) || !value.started || value.code === "started" || value.effect !== "effect_unknown" || value.resolution) throw new PersonalError("mcp_resolution_invalid", "原调用不可保存效果说明，请刷新原记录。");
+  return async (proof: PersonalRecoveryEvidence) => {
+    const entry = await tx.appendEntry(McpResolution, ROOT_CONVERSATION_ID, { data: { operation, effect, ...proof, ...(actor ? { requestId: actor.requestId } : {}) } });
+    value.resolution = { effect, ...proof, entry: entry.id, ...(actor ? { requestId: actor.requestId } : {}) };
+  };
+}
+export async function mcpResolve(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", evidence: string | { claim: EntryId }, actor?: McpActor) {
+  const apply = await prepareMcpResolution(tx, operation, effect, actor), proof = personalRecoveryEvidence(evidence);
+  if (proof.claim !== undefined) await verifyPersonalOwnerClaim(tx, proof.claim, { family: "mcp", operation, admission: (await mcpOperation(tx, operation)).admission, effect });
+  await apply(proof);
 }
 export async function mcpEnd(tx: Tx, operation: TaskId, actor?: McpActor) {
   const value = await mcpOperation(tx, operation);
@@ -595,6 +603,20 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
     } finally { if (closing) busy = false; }
     return cuaStatus();
   }
+  async function resumeCua(operation: TaskId, expected: { pause?: EntryId; observation?: EntryId; accepted?: EntryId }) {
+    if (busy) throw new PersonalError("cua_busy", "原电脑调用仍在执行，请刷新原状态。");
+    busy = true;
+    try {
+      await getHarness().commit(async tx => {
+        const doc = await tx.doc(PersonalMcpConfigDoc), value = await mcpOperation(tx, operation), scene = value.takeover ?? value.cua?.recovery;
+        if (!doc.cuaPause?.paused || doc.cuaPause.operation !== undefined && doc.cuaPause.operation !== operation || expected.pause !== value.takeover?.paused || expected.observation !== scene?.observation?.entry || expected.accepted !== scene?.accepted || !scene?.accepted || !scene.observation || mcpUnresolved(value) || value.origin.telegram) throw new PersonalError("cua_observation_stale", "原暂停或已接受观察已变化，请刷新原卡片。");
+        if (value.origin.work && (await tx.doc(PersonalWorkDoc, value.origin.work.ref.requestId, null)).cancelRequested) throw new PersonalError("work_canceled", "原工作已取消，没有继续电脑。");
+        const entry = await tx.appendEntry(McpCuaPause, ROOT_CONVERSATION_ID, { data: { paused: false } });
+        doc.cuaPause = { paused: false, entry: entry.id };
+      }, context);
+      cuaPaused = false;
+    } finally { busy = false; }
+  }
   async function cuaImage(operation: TaskId, observation: EntryId, imageId: string, offset = 0) {
     if (!Number.isSafeInteger(offset) || offset < 0) throw new PersonalError("artifact_input_invalid", "截图偏移无效，请重新读取当前恢复观察。");
     const value = (await getHarness().snapshot(PersonalMcpDoc, String(operation), context))?.operation;
@@ -667,12 +689,13 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       observed = false;
     }
   }
-  async function recoverCua(operation: TaskId, action: "stop" | "observe" | "accept", expectedObservation?: EntryId) {
+  async function recoverCua(operation: TaskId, action: "stop" | "observe" | "accept", expectedObservation?: EntryId, sandboxChoice?: EntryId, expected?: PersonalCuaRecoveryBinding) {
     if (busy) throw new PersonalError("cua_busy", "电脑仍有在途调用，恢复未开始；请等原调用结束后刷新。");
     const value = (await getHarness().snapshot(PersonalMcpDoc, String(operation), context))?.operation;
     if (!value) throw new PersonalError("mcp_missing", "原 MCP 调用缺失，请刷新操作列表。");
     if (busy) throw new PersonalError("cua_busy", "电脑仍有在途调用，恢复未开始；请等原调用结束后刷新。");
     busy = true;
+    if (expected && (expected.pause !== value.takeover?.paused || expected.execution && !isDeepStrictEqual(expected.execution, value.cua?.execution) || expected.observation !== undefined && expected.observation !== (value.takeover ?? value.cua?.recovery)?.observation?.entry)) { busy = false; throw new PersonalError("cua_observation_stale", "原恢复选择已变化，没有操作后来的现场。"); }
     let recovered!: () => void;
     const recovering: NonNullable<typeof cuaRecovery> = { resource: value.interactive?.resource, done: new Promise<void>(resolve => { recovered = resolve; }) };
     cuaRecovery = recovering;
@@ -704,6 +727,10 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       }
       if (action === "stop") {
         if (recovery.stopped) return;
+        if (sandboxChoice !== undefined) {
+          const choice = await getHarness().commit(tx => tx.entry(sandboxChoice), context), data = choice?.data;
+          if (choice?.kind !== "ruukoto.desktop-action-admission" || !data || typeof data !== "object" || Array.isArray(data) || !data.request || typeof data.request !== "object" || Array.isArray(data.request) || data.request.action !== "stop_sandbox" || data.request.family !== "mcp" || data.request.operation !== operation || data.request.admission !== value.admission) throw new PersonalError("cua_sandbox_choice_invalid", "停止沙箱须使用原操作的独立选择。");
+        }
         await closeCua();
         if (!await linux.stopCli(original.cli) || !await linux.stop(original.sandbox)) throw new PersonalError("cua_stop_unverified", "原 CLI 或沙箱运行代尚未核实停止，保留磁盘和暂停；请刷新原记录。");
         await record("stopped");
@@ -761,6 +788,29 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       }
     } finally { if (cuaRecovery === recovering) cuaRecovery = undefined; busy = false; recovered(); }
   }
+  async function cleanupCua(operation: TaskId, expected?: PersonalCuaRecoveryBinding) {
+    if (busy) throw new PersonalError("cua_busy", "原电脑调用仍在执行，请先取消原工作。");
+    busy = true;
+    let recovered!: () => void;
+    const recovering: NonNullable<typeof cuaRecovery> = { done: new Promise<void>(resolve => { recovered = resolve; }) };
+    cuaRecovery = recovering;
+    try {
+      const value = await getHarness().commit(async tx => JSON.parse(JSON.stringify(await mcpOperation(tx, operation))) as McpOperation, context);
+      if (!value.config.services.find(service => service.id === value.service)?.cua) throw new PersonalError("cua_recovery_unavailable", "此操作没有受管电脑执行。");
+      recovering.resource = value.interactive?.resource;
+      const launches = value.cuaLaunches ?? [];
+      if (expected && (expected.pause !== value.takeover?.paused || expected.execution && !isDeepStrictEqual(expected.execution, value.cua?.execution) || expected.launches && !isDeepStrictEqual(expected.launches, launches.map(launch => launch.entry)))) throw new PersonalError("cua_observation_stale", "原电脑执行已变化，没有清理新的连接。");
+      if (cuaLaunch?.operation === operation) {
+        if (!launches.some(launch => launch.entry === cuaLaunch?.entry)) throw new PersonalError("cua_stop_unverified", "原电脑连接已变化，没有停止新的连接。");
+        await closeCua();
+      }
+      for (const launch of launches) if (!launch.stopped) {
+        if (!await linux.stopPrepared(launch.scope, launch.description)) { await markStopPending(operation); throw new PersonalError("cua_stop_unverified", "原电脑连接停止尚未核实，原工作占用保留。"); }
+        await markLaunchStopped(operation, launch.entry);
+      }
+      return { stopped: true };
+    } finally { if (cuaRecovery === recovering) cuaRecovery = undefined; busy = false; recovered(); }
+  }
   return { get config() { return config; },
     async update(nextValue: PersonalMcpConfig, scope: string, version: string, revision: string) {
       const next = parsePersonalMcp(nextValue);
@@ -795,7 +845,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
           return { effectiveRevision: revision, code: "active", relatedOperations: [] };
         } finally { release(); }
       } finally { for (const service of changed) { const count = updating.get(service)!; if (count === 1) updating.delete(service); else updating.set(service, count - 1); } }
-    }, recover, recoverCua, settleWork, cuaStatus, pauseCua, cuaImage, close: closeCua, extension: defineExtension({ name: PERSONAL_MCP, tools: [list, call, read], tasks: [recheckTask] }),
+    }, recover, recoverCua, cleanupCua, resumeCua, settleWork, cuaStatus, pauseCua, cuaImage, close: closeCua, extension: defineExtension({ name: PERSONAL_MCP, tools: [list, call, read], tasks: [recheckTask] }),
   };
 }
 
@@ -856,7 +906,8 @@ export async function verifyMcp(tx: Tx, keys: string[]) {
     }
     if (value.decisionEntry) { const entry = await tx.entry(McpDecision, value.decisionEntry); if (!entry || !isDeepStrictEqual(entry.data, { operation: value.operation, decision: value.decision, ...(value.decidedBy ? { requestId: value.decidedBy } : {}) })) throw new PersonalError("mcp_record_invalid", "MCP 原审批记录不符，已停止恢复。"); }
     if (value.observation) { const entry = value.recordVersion === 2 ? await tx.entry(McpResult, value.observation) : await tx.entry(McpObservation, value.observation); if (!entry || !isDeepStrictEqual(entry.data, { operation: value.operation, admission: value.admission, ...(value.recordVersion === 2 ? { ...(value.result !== undefined ? { result: value.result } : {}), ...(value.remoteError ? { remoteError: value.remoteError } : {}) } : { evidence: value.evidence }), effect: value.effect, code: value.code, remoteEnded: value.remoteEnded })) throw new PersonalError("mcp_record_invalid", "MCP 原响应记录不符，已停止恢复。"); }
-    if (value.resolution) { const entry = await tx.entry(McpResolution, value.resolution.entry); if (!entry || !isDeepStrictEqual(entry.data, { operation: value.operation, effect: value.resolution.effect, evidence: value.resolution.evidence, ...(value.resolution.requestId ? { requestId: value.resolution.requestId } : {}) })) throw new PersonalError("mcp_record_invalid", "MCP 业务效果核实记录不符，已停止恢复。"); }
+    if (value.resolution) { const entry = await tx.entry(McpResolution, value.resolution.entry); if (!entry || !isDeepStrictEqual(entry.data, { operation: value.operation, effect: value.resolution.effect, ...(value.resolution.claim === undefined ? { evidence: value.resolution.evidence } : { claim: value.resolution.claim }), ...(value.resolution.requestId ? { requestId: value.resolution.requestId } : {}) })) throw new PersonalError("mcp_record_invalid", "MCP 业务效果核实记录不符，已停止恢复。"); }
+    if (value.resolution?.claim !== undefined) await verifyPersonalOwnerClaim(tx, value.resolution.claim, { family: "mcp", operation: value.operation, admission: value.admission, effect: value.resolution.effect });
     if (value.cuaStopPending !== undefined) {
       const entry = await tx.entry(McpCuaStopPending, value.cuaStopPending);
       if (!entry || entry.conversationId !== ROOT_CONVERSATION_ID || entry.data.operation !== value.operation || !entry.data.launches.length || new Set(entry.data.launches).size !== entry.data.launches.length || entry.data.launches.some(id => !(value.cuaLaunches ?? []).some(launch => launch.entry === id && launch.entry < entry.id))) throw invalid();

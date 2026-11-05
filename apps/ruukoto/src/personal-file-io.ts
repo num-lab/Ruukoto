@@ -327,6 +327,12 @@ export function openPersonalFileIo(options: PersonalFileIoOptions = {}): Persona
 }
 export function personalFileIoLiveJobs(directory: string): boolean { const ns = namespaces.get(namespaceKey(directory)); return !!ns && live(ns); }
 export function personalFileIoJobLive(id: PersonalFileJobId): boolean { return [...namespaces.values()].some(ns => ns.jobs.get(id)?.slot); }
+export async function stopPersonalFileIoJob(directory: string, id: PersonalFileJobId): Promise<boolean> {
+  const ns = namespaces.get(namespaceKey(directory)), job = ns?.jobs.get(id);
+  if (!job) return false;
+  await drain([job], ns!.grace);
+  return job.stopped || job.exited;
+}
 export function waitPersonalFileIoDrained(directory: string): Promise<void> { const ns = namespaces.get(namespaceKey(directory)); return !ns || !live(ns) ? Promise.resolve() : new Promise<void>(resolve => ns.waiters.add(resolve)); }
 export async function closePersonalFileIoNamespace(directory: string): Promise<void> { const ns = namespaceFor(directory); await drain([...ns.jobs.values()], ns.grace, ns); }
 export function sealPersonalFileIoSessionClosed(directory: string): void {

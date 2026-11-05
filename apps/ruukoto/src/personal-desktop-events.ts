@@ -9,13 +9,36 @@ import { personalReportInput, personalReportTaskDraft } from "./personal-report.
 import { personalUnparkMode } from "./personal-coordination.ts";
 import { personalDesktopOperation, personalDesktopState } from "./personal-desktop-state.ts";
 import { personalOwnerInputByRequest, personalOwnerSubmissionMessage } from "./personal-owner-input.ts";
-import type { PersonalDesktopBlock, PersonalDesktopChange, PersonalDesktopEvent, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopMessage, PersonalDesktopTool } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopBlock, PersonalDesktopChange, PersonalDesktopEvent, PersonalDesktopFamily, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopMessage, PersonalDesktopTool } from "@ruukoto/view/personal-protocol.ts";
 
 const context = BACKGROUND_CONTEXT;
 export const PERSONAL_DESKTOP_FRAME_LIMIT = 256 * 1024;
 export const PERSONAL_DESKTOP_BUFFER_LIMIT = 1024 * 1024;
 const TEXT_LIMIT = 4096;
-const STATE_KINDS = new Set(["ruukoto.tool-operation", "ruukoto.tools", "ruukoto.work", "ruukoto.analysis-delegation", "ruukoto.subagents"]);
+const STATE_KINDS = new Set(["ruukoto.tool-operation", "ruukoto.tools", "ruukoto.work", "ruukoto.analysis-delegation", "ruukoto.subagents", "ruukoto.questions", "ruukoto.question", "ruukoto.question-receipt", "ruukoto.mcp", "ruukoto.mcp-config", "ruukoto.app-data", "ruukoto.app-data-operation", "ruukoto.browser", "ruukoto.browser-session", "ruukoto.browser-operation", "ruukoto.service-operation", "ruukoto.service-execution", "ruukoto.service-executions", "ruukoto.command", "ruukoto.background-processes", "ruukoto.background-process", "ruukoto.desktop-actions", "ruukoto.desktop-action"]);
+const CARD_FAMILIES: Readonly<Record<string, PersonalDesktopFamily>> = { "ruukoto.tool-operation": "tools", "ruukoto.question": "questions", "ruukoto.mcp": "mcp", "ruukoto.app-data-operation": "app-data", "ruukoto.browser-operation": "browser", "ruukoto.service-operation": "services", "ruukoto.service-execution": "inspections", "ruukoto.command": "commands", "ruukoto.background-process": "background" };
+function changedCard(change: Extract<CommitPublication["changes"][number], { type: "document" }>): string | undefined {
+  const value = change.value;
+  if (!value) return;
+  if (change.record.kind === "ruukoto.desktop-action") {
+    const action = value.action, receipt = action && typeof action === "object" && !Array.isArray(action) ? action.receipt : undefined;
+    const request = receipt && typeof receipt === "object" && !Array.isArray(receipt) ? receipt.request : undefined;
+    if (request && typeof request === "object" && !Array.isArray(request) && typeof request.family === "string" && typeof request.operation === "number") return `${request.family}:${request.operation}`;
+    return;
+  }
+  if (["ruukoto.browser-session", "ruukoto.browser", "ruukoto.mcp-config"].includes(change.record.kind)) {
+    const pause = value.pause ?? value.cuaPause;
+    if (pause && typeof pause === "object" && !Array.isArray(pause) && typeof pause.operation === "number") return `${change.record.kind === "ruukoto.mcp-config" ? "mcp" : "browser"}:${pause.operation}`;
+  }
+  const family = CARD_FAMILIES[change.record.kind];
+  if (!family) return;
+  const record = value.operation ?? value.question ?? value.command ?? value.process ?? value.inspection;
+  if (!record || typeof record !== "object" || Array.isArray(record)) return;
+  const ref = record.ref;
+  const operation = record.operation ?? record.taskId ?? (ref && typeof ref === "object" && !Array.isArray(ref) ? ref.taskId : undefined);
+  if (typeof operation !== "number" || !Number.isSafeInteger(operation) || operation < 1) return;
+  return `${family}:${operation}`;
+}
 
 function block(value: Extract<MessageChange, { block: unknown }>["block"]): PersonalDesktopBlock {
   if (value.type === "toolCall") { const args = JSON.stringify(value.arguments); return { type: value.type, id: value.id, name: value.name, arguments: args.slice(0, 1024), truncated: args.length > 1024 }; }
@@ -161,14 +184,15 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
     let stream: AgentEventStream | undefined;
     let attached = false;
     let changed = false;
-    const operations = new Set<number>(), submissions = new Set<number>();
+    const operations = new Set<string>(), submissions = new Set<number>();
     let wake = () => {};
     const committed = (publication: CommitPublication) => {
       for (const change of publication.changes) {
         if (change.type === "submission") { if (change.value.conversationId === ROOT_CONVERSATION_ID) submissions.add(change.value.id); changed = true; }
         if (change.type === "document" && STATE_KINDS.has(change.record.kind)) {
           changed = true;
-          if (change.record.kind === "ruukoto.tool-operation" && change.record.key) operations.add(Number(change.record.key));
+          const card = changedCard(change);
+          if (card) operations.add(card);
         }
         if (change.type === "task" && change.value.kind === "ruukoto.background-work") changed = true;
         if (change.type === "entry" && change.value.kind === "ruukoto.model-request" && change.value.conversationId !== ROOT_CONVERSATION_ID) changed = true;
@@ -267,7 +291,7 @@ export function personalDesktopEvents(server: Server, harness: Harness, token: s
     pending.add(operation);
     void operation.finally(() => pending.delete(operation));
   });
-  return { state: (offsets: Parameters<typeof personalDesktopState>[2] = {}) => harness.commit(tx => personalDesktopState(tx, revision, offsets), context), operation: (id: TaskId, offset = 0) => harness.commit(tx => personalDesktopOperation(tx, revision, id, offset), context), input: (requestId: string) => harness.commit(async tx => ({ v: 1, revision, entry: await personalOwnerInputByRequest(tx, requestId) }), context), async close() {
+  return { state: (offsets: Parameters<typeof personalDesktopState>[2] = {}) => harness.commit(tx => personalDesktopState(tx, revision, offsets), context), operation: (id: TaskId, offset = 0, family: PersonalDesktopFamily = "tools") => harness.commit(tx => personalDesktopOperation(tx, revision, id, offset, family), context), input: (requestId: string) => harness.commit(async tx => ({ v: 1, revision, entry: await personalOwnerInputByRequest(tx, requestId) }), context), async close() {
     closing = true;
     unsubscribe();
     for (const ws of wss.clients) ws.terminate();

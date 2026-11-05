@@ -1,3 +1,4 @@
+import { personalRecoveryEvidenceText } from "./personal-recovery-claims.ts";
 import { isDeepStrictEqual } from "node:util";
 import { defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type Harness, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
@@ -76,7 +77,7 @@ export async function listPersonalServices(tx: Tx, offset = 0, actor?: Entrance)
 
 export async function personalServiceDetail(tx: Tx, ref: PersonalServiceOperationRef, offset = 0, actor?: Entrance): Promise<PersonalServiceDetail> {
   const op = await originalService(tx, ref, actor);
-  const evidence = op.resolution?.evidence ?? "尚无人工核实说明；请独立检查服务实际效果后保存证据。";
+  const evidence = op.resolution ? personalRecoveryEvidenceText(op.resolution) : "尚无人工核实说明；请独立检查服务实际效果后保存证据。";
   return { summary: await summary(tx, ref), evidence: evidence.slice(offset, offset + PAGE), ...(evidence.length > offset + PAGE ? { nextOffset: offset + PAGE } : {}) };
 }
 

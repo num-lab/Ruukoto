@@ -47,6 +47,8 @@ ruukoto serve                 # Foreground backend; signals request a verified s
 
 See [Personal management](docs/usage.md#25-personal-agent-management).
 
+For configured-model verification of concurrent work questions and cancellation, run `RUN_MODEL_CHECK=1 RUN_PERSONAL_M3_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m3-model-acceptance.test.ts`. See [external acceptance](docs/development.md#external-acceptance) for setup and evidence limits.
+
 ### Develop This Repository
 
 Run `npm run check:static` and targeted tests while editing; choose the smallest sufficient set using [pre-push checks](.agents/skills/pre-push-checks/SKILL.md). CI runs the full check. Application tests use at most two files concurrently; macOS first runs shared-UID fixtures serially. Keep raw evidence outside the repository; use the explicit external-output arguments in the [platform probe guide](verification/foundation/scripts/native-isolation/README.md) rather than overwriting historical reports.

@@ -33,7 +33,7 @@ test("Escaped desktop state preserves durable facts through snapshot fallback an
   for (const extension of [personalBackgroundWork, personalSubAgent, personalAnalysisDelegations]) registry.install(extension);
   const models = recordedModels(personalProvider({ api: "openai-completions", baseUrl: "http://127.0.0.1:1", modelId: "unused", apiKeyEnv: "DESKTOP_UNUSED_KEY", contextWindow: 128000, maxTokens: 1024 }), async () => assert.fail("Observation must not call a model"));
   const harness = await Harness.open(new MemoryStorage(), { registry, models }, context);
-  await harness.root(context);
+  await harness.root(context, { agent: { extensions: [], tools: [] } });
   const directory = fs.mkdtempSync("/tmp/rk-frame-budget-"), server = http.createServer(), runId = randomUUID();
   const events = personalDesktopEvents(server, harness, "test-token", runId), clients: WebSocket[] = [];
   t.after(async () => { for (const client of clients) client.terminate(); await events.close(); await new Promise<void>(resolve => server.close(() => resolve())); await harness.close(context); fs.rmSync(directory, { recursive: true, force: true }); });
@@ -96,7 +96,7 @@ test("Escaped desktop state preserves durable facts through snapshot fallback an
   const snapshot = frames[0]; assert.equal(snapshot.type, "snapshot");
   assert.ok(snapshot.type === "snapshot");
   assert.equal(snapshot.live.generation, undefined); assert.deepEqual(snapshot.live.tools, []);
-  assert.deepEqual(snapshot.timeline, timeline); assert.deepEqual(snapshot.state, state);
+  assert.deepEqual(snapshot.timeline, timeline); assert.ok(snapshot.state!.revision >= state.revision); assert.deepEqual({ ...snapshot.state, revision: state.revision }, state);
   assert.deepEqual(snapshot.live.run, fullLive.run); assert.deepEqual(snapshot.live.inbox, fullLive.inbox);
   await harness.commit(async tx => {
     for (const operation of operations) await toolDecide(tx, operation, "rejected", directory);

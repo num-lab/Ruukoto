@@ -71,6 +71,8 @@ Settings writes use original-key receipts to distinguish saved, applied and unce
 
 Main delegates waiting file, network, app-data, MCP, command, service and browser/computer work. Ask status questions normally; changed requirements go to the original background work and replace its unstarted operations, including unused approvals. Browser/computer work queues under the original full-access permission. After human takeover, choose continuation and use the new observation; old screenshots or references cannot resume it. Processes survive ordinary replies, and canceling their assignment stops only its processes. In scheduled-run management, “只取消本次运行” preserves future triggers; canceling the plan stops future triggers too.
 
+A question from background work keeps that work waiting while main and other work remain available. Answer its question card or original verified owner-entry menu to continue the same work under its original permissions. Ordinary chat and changed requirements do not answer a question; accepted changes reach the work with its next request after the answer. Canceling the assignment invalidates its pending questions.
+
 ## 3. Models and Configuration
 
 Personal's capability/model menu guides provider selection, credential environment-variable references and explicit connection tests. Environment references avoid copying credentials into a new profile, but the selected backend process must actually receive those variables.
@@ -89,6 +91,10 @@ IM defaults to auto-review. Sensitive operations require explicit approval throu
 
 On the server, use `ruukoto remote` to manage pairing, then connect the PA desktop to the verified Tailscale HTTPS origin using the generated one-time code. HTTPS/WSS terminates at Tailscale Serve and reaches the private remote service; the local Unix socket is not a public network endpoint. See [deployment](../deploy/systemd/README.md) for backend/remote-service ownership and [desktop](modules/desktop.md) for credential isolation.
 
+Personal decisions, work questions and recovery choices appear in the conversation timeline. Read the original target and parameters before approving a one-shot operation. IM-origin approvals, answers and continuation choices stay with the original verified entry; native cards offer the inspection and cancellation actions available for that item.
+
+For a single question that allows one selection, choosing an option submits it directly. Multi-select waits for Done, and a batch of several questions ends with review. Enter other answers in the question's own field; each pending question keeps its own draft. If a submitted choice's response is lost, inspect its original receipt. That card stays locked until the result is verified, including after reopening the application, while the composer and other questions remain usable.
+
 ## 5. Extended Capabilities
 
 ### 5.1 MCP Services
@@ -100,10 +106,10 @@ Both products use Pi 1.3.0 for Streamable HTTP services and fixed managed Cua pr
 | Configure service | Coding's instance MCP settings; Personal's desktop or native management |
 | Migrate old Personal configuration | Explicitly migrate to v4, preserving original references/history before new business calls |
 | Change credentials | Explicitly rebind and save; newline-only changes do not change new token identity, while a changed token invalidates old unstarted approval |
-| Inspect/end unknown call | Personal Calls section; explicitly end work while retaining uncertainty; after a lost response, refresh the original call first |
-| Recover computer | Verify original stop → obtain fresh image → view and accept that observation |
+| Inspect/end unknown call | Original Personal timeline card or Calls section; explicitly end work while retaining uncertainty and inspect the original receipt after a lost response |
+| Recover computer | Verify original CLI stop → view fresh image → accept that exact observation → continue the corresponding work |
 
-Authorized reads need no individual approval; writes/unknown effects follow the current approval policy. A lost reply to a sent write stops that source's automatic business execution. Manual finalization retains uncertainty; new independent work can use the same service. Computer recovery still requires real stop evidence and fresh-image acceptance; see [the desktop flow](modules/desktop.md#mcp-call-finalization-and-computer-recovery).
+Authorized reads need no individual approval; writes/unknown effects follow the current approval policy. A lost reply to a sent write stops that source's automatic business execution. Manual finalization retains uncertainty; new independent work can use the same service. Computer recovery requires real stop evidence and full fresh-image display before acceptance. Cleaning the original CLI leaves its Linux sandbox running; stopping the whole recorded sandbox is a separate explicit choice that can lose memory and unsaved application state. See [the desktop flow](modules/desktop.md#mcp-call-finalization-and-computer-recovery).
 
 ### 5.2 Skills
 
@@ -129,7 +135,7 @@ Schedules are one-shot, daily or weekly rules in a fixed IANA timezone. Coding's
 
 Coding workflows combine isolated Agent steps, dependencies, owner questions and checked integration. Use `/workflow` to inspect runs, start definitions and operate on the selected item. [Workflow design](modules/workflows.md) describes versioning and controls.
 
-`ask_user` presents one to three structured questions and keeps the original Coding task waiting. Answer or explicitly cancel through `/questions` or a desktop question card; closing the window leaves the question pending. Answers return through the original tool call with its model and permissions. Ordinary messages queue, while explicit guidance cancels the pending question and enters the next request. Answers and reports do not approve tools. Personal background analysis lets main keep chatting, query progress and receive a report when the original work completes.
+`ask_user` presents one to three structured questions and keeps the original Coding task waiting. Answer or explicitly cancel through `/questions` or a desktop question card; closing the window leaves the question pending. Answers return through the original tool call with its model and permissions. Ordinary messages queue, while explicit guidance cancels the pending question and enters the next request. Answers and reports do not approve tools. [Personal work questions](modules/personal-durable.md#work-questions) continue their original background work.
 
 Trusted Coding background reports enter the active task's next model request after the current request and tool batch finish. They wait while a question needs an answer. When the conversation is idle, report summaries run before queued owner messages; they do not appear in the user queue.
 
@@ -162,6 +168,8 @@ Coding startup logs are in `<controlDir>/spawn.log`; Personal foreground output 
 For a `runtime.lock` or `config.lock` conflict, first inspect the actual profile and holder process. `pgrep -fl ruukoto` is a useful hint, not proof of ownership or absence: process identity must be verified. Do not delete a lock merely because its PID/name looks unfamiliar. An unverified live holder requires investigation, not takeover.
 
 For `execution_unavailable`, check the [native prerequisites](../deploy/native/README.md), built supervisor/worker paths and delegated Linux user scope. macOS requires Clang/Seatbelt; computer-control permissions are a separate feature from command sandbox setup.
+
+Personal recovery cards separate original receipts, current observations and your recorded applied/not-applied statement. Check the original record or known target first; current URL or service health alone does not establish an earlier write's effect. When offered, an effect statement records your conclusion without requiring freeform evidence, while stopping and reply delivery remain separate. Stopping original execution targets only the recorded job, launcher, browser, process or computer CLI. [Native recovery](modules/personal-durable.md#native-recovery-choices) explains each family's checks and settlement rules.
 
 ### 7.2 Commands
 
@@ -198,6 +206,6 @@ Retrieving an unstarted message restores its text and attachments to the initiat
 
 An owner pause persists across new messages, retrieval, reports and backend restart. Explicit resume starts queued work; it never reruns an interrupted task. If old execution still holds directory occupancy, verify it stopped before confirming the separate stop-verification prompt. Headless `ruukoto-code resume-queue <session> --stop-confirmed` records that explicit confirmation; ordinary `resume-queue` cannot release it. New messages after interruption are independent tasks in the same conversation; `continue` and `/continue` are removed.
 
-A backend restart makes unanswered questions stale and interrupts the original task; client closure or reconnection alone does neither. Schema 58 and control protocol 49 require a fresh Coding data directory. Preserve old profiles and pending answer/continue records in their original instance; they are not converted or replayed into the new instance.
+A Coding backend restart makes unanswered questions stale and interrupts the original task; client closure or reconnection alone does neither. Schema 58 and control protocol 49 require a fresh Coding data directory. Preserve old profiles and pending answer/continue records in their original instance; they are not converted or replayed into the new instance.
 
 A conversation branch shares its working directory, not ongoing model execution. Source read access does not grant management rights over the original work. For lost write responses, verify the original request/result before retrying; closing an approval UI is not rejection.

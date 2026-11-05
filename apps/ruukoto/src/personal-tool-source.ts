@@ -9,6 +9,7 @@ import type { PersonalWorkSource } from "./personal-delegation.ts";
 import { personalSource } from "./personal-source.ts";
 import { scheduledConversation } from "./personal-scheduler-records.ts";
 import { personalModelRequestEntry } from "./personal-model.ts";
+import { requirePersonalQuestionBoundary } from "./personal-questions.ts";
 
 export type PersonalToolOrigin = { conversationId: ConversationId; generation: TaskId; inputs: SubmissionId[]; sources: SubmissionId[]; source: PersonalWorkSource; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; work?: PersonalWorkInspectionSource };
 
@@ -27,6 +28,8 @@ export async function capturePersonalToolInstructions(tx: Tx, api: Pick<ToolExec
   if (!ref) return undefined;
   const live = await tx.doc(LiveDoc, api.conversationId);
   if (!live.run) throw new PersonalError("work_instruction_invalid", "原工作没有活动模型请求，未执行；请查询原工作。");
+  const tool = await tx.task(api.taskId);
+  if (tool?.owner !== undefined) await requirePersonalQuestionBoundary(tx, api.conversationId, tool.owner, api.taskId);
   await personalWorkInspectionSource(tx, ref, live.run.inputs);
   const request = await personalModelRequestEntry(tx, api.taskId), snapshot = request?.references.instructions;
   if (!request || !snapshot) throw new PersonalError("work_instruction_invalid", "原工作要求的模型请求证据无法核实，未执行；请结束本轮并报告拥有者检查原工作记录。");
@@ -55,6 +58,7 @@ export async function personalToolOrigin(tx: Tx, api: Pick<ToolExecutionApi, "co
   const live = await tx.doc(LiveDoc, api.conversationId), tool = await tx.task(api.taskId), generation = tool?.owner && await tx.task(tool.owner);
   const input = tool?.input;
   if (tool?.kind !== "pi.tool" || tool.conversationId !== api.conversationId || tool.abortRequested || tool.state.status === "terminal" || !input || typeof input !== "object" || Array.isArray(input) || input.kind !== "model" || generation?.kind !== "pi.generation" || generation.conversationId !== api.conversationId || generation.abortRequested || generation.state.status === "terminal" || live.run?.taskId !== generation.id || !live.tools?.some(slot => slot.taskId === api.taskId && slot.status === "running")) throw new PersonalError("tool_inactive", "工具不属于活动模型调用，未执行；请结束本轮并报告拥有者。");
+  await requirePersonalQuestionBoundary(tx, api.conversationId, generation.id, api.taskId);
   const scheduled = await scheduledConversation(tx, api.conversationId);
   if (scheduled) {
     if (scheduled.run.sealed) throw new PersonalError("tool_source_sealed", "本次定时运行已封组收尾，未执行新操作；请只查询已有结果并完成汇总。");

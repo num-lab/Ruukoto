@@ -32,7 +32,7 @@ export const AppDataAdmission = defineEntry<Omit<Operation, "admission" | "decis
 const AppDataSupersession = defineEntry<{ version: 1; operation: TaskId; admission: EntryId; note: EntryId; reason: string }>("ruukoto.app-data-supersession");
 const AppDataDecision = defineEntry<{ operation: TaskId; decision: "approved" | "rejected"; actor?: string }>("ruukoto.app-data-decision");
 const AppDataStart = defineEntry<{ operation: TaskId; admission: EntryId }>("ruukoto.app-data-start");
-const AppDataObservation = defineEntry<{ operation: TaskId; result: Result }>("ruukoto.app-data-observation");
+export const AppDataObservation = defineEntry<{ operation: TaskId; result: Result }>("ruukoto.app-data-observation");
 const context = BACKGROUND_CONTEXT;
 const invalid = () => new PersonalError("app_data_record_invalid", "应用数据原记录无法核实，已停止恢复；请保留档案并检查存储。");
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");

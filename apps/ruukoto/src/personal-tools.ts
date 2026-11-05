@@ -1,3 +1,4 @@
+import { personalRecoveryEvidence, verifyPersonalOwnerClaim, type PersonalRecoveryEvidence } from "./personal-recovery-claims.ts";
 import { mediaArtifacts, type PersonalImageRegistrar } from "./personal-media.ts";
 import { imageMime } from "@ruukoto/agent/artifacts.ts";
 import { browserOperations } from "./personal-browser.ts";
@@ -21,7 +22,7 @@ import { PersonalError } from "./personal-error.ts";
 import { personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 import { personalReadPath, personalSystemPath, parsePersonalTools, parsePersonalWebSearch, verifyPersonalTools, type PersonalToolsConfig, type PersonalWebSearchConfig } from "./personal-tools-config.ts";
 import { preparePersonalHttp, executePersonalHttp, type PersonalFilePrepareInput, type PersonalFileRequest, type PersonalHttpRequest } from "./personal-tool-io.ts";
-import { openPersonalFileIo, createPersonalFileIoRecorder, fileIoJobStopped, fileIoJobNotDispatched, fileIoJobUnresolved, personalFileIoJobs, personalFileIoSourceBlocker, personalFileIoWorkBlocker, personalFileJobStopped, personalFileIoAttemptError, verifyPersonalFileIo, PersonalFileIoError, type PersonalFileIo, type PersonalFileJobContext, type PersonalFileJobId, type PersonalFileJobPhase, type PersonalFileJobRecord, type PersonalFileIoStopLinker, type PersonalFileReservation, PersonalFileIoDoc, PersonalFileJobDoc, PersonalFileIoAdmission, PersonalFileIoLifecycle } from "./personal-file-io.ts";
+import { openPersonalFileIo, stopPersonalFileIoJob, createPersonalFileIoRecorder, fileIoJobStopped, fileIoJobNotDispatched, fileIoJobUnresolved, personalFileIoJobs, personalFileIoSourceBlocker, personalFileIoWorkBlocker, personalFileJobStopped, personalFileIoAttemptError, verifyPersonalFileIo, PersonalFileIoError, type PersonalFileIo, type PersonalFileJobContext, type PersonalFileJobId, type PersonalFileJobPhase, type PersonalFileJobRecord, type PersonalFileIoStopLinker, type PersonalFileReservation, PersonalFileIoDoc, PersonalFileJobDoc, PersonalFileIoAdmission, PersonalFileIoLifecycle } from "./personal-file-io.ts";
 import { savePersonalArtifact, readPersonalArtifact, exportPersonalArtifact, loadPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
 import { telegramSourceActive, permissionSnapshot } from "./personal-permissions.ts";
 import { requestTavily, validateParams, WebSearchError } from "@ruukoto/agent/web-search-transport.ts";
@@ -43,7 +44,7 @@ type Grant = { id: string; path: string; dev: number; ino: number; revoked: bool
 type Prepared = { kind: "file"; request: { [K in keyof FileOpRequest]: FileOpRequest[K] } } | { kind: "http"; request: PersonalHttpRequest } | { kind: "search"; request: Params } | { kind: "file_search"; execution: PreparedPersonalFileSearch };
 type Review = { claim: EntryId; payloadEntry?: EntryId; decision?: ReviewDecision; reason?: string; observation?: EntryId };
 type Effect = "returned" | "not_executed" | "no_write" | "effect_unknown";
-export type PersonalToolOperation = { operation: TaskId; admission: EntryId; origin: PersonalToolOrigin; kind: Kind; params: Params; config?: PersonalToolsConfig; searchConfig?: PersonalWebSearchConfig; searchVersion?: string; grantVersion: number; prepared: Prepared; approval: "pending" | "approved" | "rejected" | "unneeded"; decisionEntry?: EntryId; actor?: string; review?: Review; started: boolean; startEntry?: EntryId; directoryClaim?: EntryId; stopped: boolean; effect: Effect; code: string; artifact?: PersonalArtifact; observation?: EntryId; status?: number; headers?: Record<string, string>; view?: JsonValue; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopEvidence?: { evidence: string; entry: EntryId; actor?: string; fileEvent?: EntryId; fileJob?: PersonalFileJobId }; fileIoVersion?: 1; fileJob?: PersonalFileJobId; fileJobUnverified?: boolean; instructions?: PersonalToolInstructions; superseded?: { version: 1; entry: EntryId; note: EntryId; reason: string }; redisplay?: EntryId; redisplays?: EntryId[] };
+export type PersonalToolOperation = { operation: TaskId; admission: EntryId; origin: PersonalToolOrigin; kind: Kind; params: Params; config?: PersonalToolsConfig; searchConfig?: PersonalWebSearchConfig; searchVersion?: string; grantVersion: number; prepared: Prepared; approval: "pending" | "approved" | "rejected" | "unneeded"; decisionEntry?: EntryId; actor?: string; review?: Review; started: boolean; startEntry?: EntryId; directoryClaim?: EntryId; stopped: boolean; effect: Effect; code: string; artifact?: PersonalArtifact; observation?: EntryId; status?: number; headers?: Record<string, string>; view?: JsonValue; resolution?: { effect: "applied" | "not_applied"; entry: EntryId; actor?: string } & PersonalRecoveryEvidence; stopEvidence?: { evidence: string; entry: EntryId; actor?: string; fileEvent?: EntryId; fileJob?: PersonalFileJobId }; fileIoVersion?: 1; fileJob?: PersonalFileJobId; fileJobUnverified?: boolean; instructions?: PersonalToolInstructions; superseded?: { version: 1; entry: EntryId; note: EntryId; reason: string }; redisplay?: EntryId; redisplays?: EntryId[] };
 export const PersonalWebSearchDoc = defineDoc<{ config?: PersonalWebSearchConfig }>({ kind: "ruukoto.web-search", scope: "session", version: 1, initial: () => ({}) });
 export const PersonalToolsDoc = defineDoc<{ config?: PersonalToolsConfig; operations: TaskId[]; grants: Grant[]; grantVersion: number }>({ kind: "ruukoto.tools", scope: "session", version: 1, initial: () => ({ operations: [], grants: [], grantVersion: 1 }) });
 export const PersonalToolDoc = defineDocFamily<{ operation?: PersonalToolOperation }, null>({ kind: "ruukoto.tool-operation", scope: "session", version: 1, family: true, initial: () => ({}) });
@@ -55,7 +56,7 @@ const ToolObservation = defineEntry<{ operation: TaskId; admission: EntryId; eff
 const ToolDecision = defineEntry<{ operation: TaskId; decision: "approved" | "rejected"; actor?: string }>("ruukoto.tool-decision");
 const ToolReview = defineEntry<{ operation: TaskId; policy: string; input: JsonValue; model?: { provider: string; modelId: string }; payload?: JsonValue; decision?: ReviewDecision; reason?: string }>("ruukoto.tool-review");
 const ToolGrant = defineEntry<{ id: string; path: string; dev: number; ino: number; revoked: boolean; version: number }>("ruukoto.tool-grant");
-const ToolResolution = defineEntry<{ operation: TaskId; effect?: "applied" | "not_applied"; evidence: string; actor?: string; fileJob?: PersonalFileJobId; fileEvent?: EntryId }>("ruukoto.tool-resolution");
+const ToolResolution = defineEntry<{ operation: TaskId; effect?: "applied" | "not_applied"; evidence?: string; claim?: EntryId; actor?: string; fileJob?: PersonalFileJobId; fileEvent?: EntryId }>("ruukoto.tool-resolution");
 const context = BACKGROUND_CONTEXT;
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue;
 const readonlyTool = (value: PersonalToolOperation) => value.kind === "read_file" || value.kind === "web_search" || value.prepared.kind === "file_search" || value.prepared.kind === "http" && ["GET", "HEAD"].includes(value.prepared.request.method) && value.prepared.request.body === undefined;
@@ -209,12 +210,19 @@ export async function toolDecide(tx: Tx, id: TaskId, decision: "approved" | "rej
   value.approval = decision; if (actor) value.actor = actor.requestId;
   value.decisionEntry = (await tx.appendEntry(ToolDecision, ROOT_CONVERSATION_ID, { data: { operation: id, decision, ...(actor ? { actor: actor.requestId } : {}) } })).id;
 }
-export async function toolResolve(tx: Tx, id: TaskId, effect: "applied" | "not_applied", evidence: string, actor?: ToolActor) {
+export async function prepareToolResolution(tx: Tx, id: TaskId, effect: "applied" | "not_applied", actor?: ToolActor) {
   const value = await toolOperation(tx, id); if (actor) await toolOriginal(tx, id, actor);
-  if (!["applied", "not_applied"].includes(effect) || !evidence.trim() || evidence.length > 8192 || !value.started || value.code === "started" || value.effect !== "effect_unknown" || value.resolution) throw new PersonalError("tool_resolution_invalid", "请选择待核实原调用的实际效果并提供非空证据，最多8192字符；核实不可覆盖。");
-  const data = { operation: id, effect, evidence, ...(actor ? { actor: actor.requestId } : {}) }, entry = await tx.appendEntry(ToolResolution, ROOT_CONVERSATION_ID, { data });
-  value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) };
-  if (value.directoryClaim && !toolUnresolved(value)) await releasePersonalDirectory(tx, { kind: "file", operation: value.operation });
+  if (!["applied", "not_applied"].includes(effect) || !value.started || value.code === "started" || value.effect !== "effect_unknown" || value.resolution) throw new PersonalError("tool_resolution_invalid", "原操作不可保存效果说明，请刷新原记录。");
+  return async (proof: PersonalRecoveryEvidence) => {
+    const data = { operation: id, effect, ...proof, ...(actor ? { actor: actor.requestId } : {}) }, entry = await tx.appendEntry(ToolResolution, ROOT_CONVERSATION_ID, { data });
+    value.resolution = { effect, ...proof, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) };
+    if (value.directoryClaim && !toolUnresolved(value)) await releasePersonalDirectory(tx, { kind: "file", operation: value.operation });
+  };
+}
+export async function toolResolve(tx: Tx, id: TaskId, effect: "applied" | "not_applied", evidence: string | { claim: EntryId }, actor?: ToolActor) {
+  const apply = await prepareToolResolution(tx, id, effect, actor), proof = personalRecoveryEvidence(evidence);
+  if (proof.claim !== undefined) await verifyPersonalOwnerClaim(tx, proof.claim, { family: "tools", operation: id, admission: (await toolOperation(tx, id)).admission, effect });
+  await apply(proof);
 }
 export async function toolVerifyStop(tx: Tx, id: TaskId, evidence: string, actor?: ToolActor) {
   const value = await toolOperation(tx, id); if (actor) await toolOriginal(tx, id, actor);
@@ -495,6 +503,28 @@ export function personalTools(profile: string, configValue: PersonalToolsConfig 
         }, context);
       }
     },
+    async cleanup(operation: TaskId, expectedJobs?: PersonalFileJobId[]) {
+      const saved = await getHarness().commit(async tx => copyJson(await toolOperation(tx, operation)) as PersonalToolOperation, context);
+      if (saved.code === "started" || !saved.started && !saved.observation) throw new PersonalError("tool_stop_invalid", "原操作仍在执行或尚未收尾，请先取消原工作。");
+      if (saved.prepared.kind === "file" && saved.fileIoVersion === 1) {
+        const jobs = await getHarness().commit(async tx => (await personalFileIoJobs(tx)).filter(job => job.operation === operation), context);
+        if (expectedJobs && !isDeepStrictEqual(expectedJobs, jobs.map(job => job.id)) || saved.started && !jobs.some(job => job.id === saved.fileJob)) throw new PersonalError("tool_stop_invalid", "原文件执行已变化，没有清理其他操作。");
+        for (const job of jobs) if (fileIoJobUnresolved(job) && !await stopPersonalFileIoJob(profile, job.id)) throw new PersonalError("file_io_stop_unverified", "原文件执行停止尚未核实，原占用保留。");
+      } else if (saved.prepared.kind === "file_search") {
+        if (!saved.started) throw new PersonalError("tool_stop_invalid", "原检索尚未开始，请查询原工作。");
+        if (!await stopPersonalFileSearch(profile, saved.prepared.execution)) throw new PersonalError("tool_stop_unverified", "原文件检索执行停止尚未核实。");
+      } else throw new PersonalError("tool_stop_invalid", "此操作不能通过本机清理确认原外部请求已结束。");
+      await getHarness().commit(async tx => {
+        const current = await toolOperation(tx, operation);
+        if (!isDeepStrictEqual(current.prepared, saved.prepared) || current.fileJob !== saved.fileJob) throw new PersonalError("tool_stop_invalid", "原执行身份已变化，没有清理其他操作。");
+        if (saved.fileIoVersion === 1 && (await personalFileIoJobs(tx)).some(job => job.operation === operation && fileIoJobUnresolved(job))) throw new PersonalError("file_io_stop_unverified", "原文件执行停止尚未核实，原占用保留。");
+        if (!current.stopped) {
+          const evidence = "宿主已核实原执行结束。";
+          const entry = await tx.appendEntry(ToolResolution, ROOT_CONVERSATION_ID, { data: { operation, evidence } });
+          current.stopEvidence = { entry: entry.id, evidence }; current.stopped = true;
+        }
+      }, context);
+    },
     async close() { if (fileIo) await fileIo.close(); },
   };
 }
@@ -638,7 +668,7 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
     for (const proof of [value.resolution, value.stopEvidence]) if (proof) {
       const entry = await tx.entry(ToolResolution, proof.entry);
       const { fileJob: proofJob, fileEvent: proofEvent, ...proofData } = (entry?.data ?? {}) as { fileJob?: PersonalFileJobId; fileEvent?: EntryId } & Record<string, unknown>;
-      if (!entry || proofJob !== undefined && value.started && proofJob !== value.fileJob || entry.id <= (proofJob !== undefined ? value.startEntry ?? value.admission : value.observation ?? value.admission) || !isDeepStrictEqual(proofData, { operation: value.operation, ...(proof === value.resolution ? { effect: value.resolution!.effect } : {}), evidence: proof.evidence, ...(proof.actor ? { actor: proof.actor } : {}) })) throw invalid();
+      if (!entry || proofJob !== undefined && value.started && proofJob !== value.fileJob || entry.id <= (proofJob !== undefined ? value.startEntry ?? value.admission : value.observation ?? value.admission) || !isDeepStrictEqual(proofData, { operation: value.operation, ...(proof === value.resolution ? { effect: value.resolution!.effect } : {}), ...(proof.evidence === undefined ? { claim: "claim" in proof ? proof.claim : undefined } : { evidence: proof.evidence }), ...(proof.actor ? { actor: proof.actor } : {}) })) throw invalid();
       if (proofJob !== undefined || proofEvent !== undefined || "fileEvent" in proof) {
         if (proof !== value.stopEvidence || proofEvent === undefined || value.stopEvidence.fileEvent !== proofEvent || value.stopEvidence.fileJob !== proofJob || value.started && proofJob !== value.fileJob || proofEvent >= entry.id) throw invalid();
         const event = await tx.entry(PersonalFileIoLifecycle, proofEvent), job = (await tx.doc(PersonalFileJobDoc, proofJob!, null)).job;
@@ -646,6 +676,7 @@ export async function verifyTools(tx: Tx, keys: string[], profile: string, tools
       }
     }
     if (value.artifact) await readPersonalArtifact(profile, value.artifact);
+    if (value.resolution?.claim !== undefined) await verifyPersonalOwnerClaim(tx, value.resolution.claim, { family: "tools", operation: value.operation, admission: value.admission, effect: value.resolution.effect });
     if (value.fileIoVersion !== undefined && value.fileIoVersion !== 1 || value.fileIoVersion === 1 && value.prepared.kind !== "file" || (value.fileJob !== undefined && (typeof value.fileJob !== "string" || !value.fileJob || value.fileIoVersion !== 1)) || (value.fileJobUnverified !== undefined && (typeof value.fileJobUnverified !== "boolean" || value.fileJob === undefined)) || value.fileJobUnverified === true && value.stopped) throw invalid();
     if (value.fileJob !== undefined) { const job = (await tx.doc(PersonalFileJobDoc, value.fileJob, null)).job; if (!job || job.phase !== "execute" || job.operation !== value.operation || !isDeepStrictEqual(job.origin, value.origin) || value.prepared.kind !== "file" || !isDeepStrictEqual(job.request, value.prepared.request)) throw new PersonalError("file_io_record_invalid", "文件操作的原身份、阶段或生命周期证据无法核实，已停止恢复；请保留档案并查询原操作。"); }
   }

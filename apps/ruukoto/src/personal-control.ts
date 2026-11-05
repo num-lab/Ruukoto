@@ -5,6 +5,8 @@ import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-me
 import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
 import { readPersonalHistory, searchPersonalHistory, personalTimeline } from "./personal-history.ts";
 import { personalDesktopEvents } from "./personal-desktop-events.ts";
+import { parsePersonalDesktopAction } from "./personal-desktop-actions.ts";
+import type { PersonalDesktopAction, PersonalDesktopFamily } from "@ruukoto/view/personal-protocol.ts";
 import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { parsePersonalQq, readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
@@ -193,9 +195,21 @@ export async function startPersonalServer(directory: string, options: { developm
         } else if (req.method === "GET" && url.pathname === "/timeline") {
           result = await instance.harness.commit(tx => personalTimeline(tx, { ...(url.searchParams.has("through") ? { through: queryNumber(url, "through") } : {}), ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor")! } : {}) }), context);
         } else if (req.method === "GET" && url.pathname === "/desktop/state") {
-          result = await desktopEvents!.state({ approvals: queryNumber(url, "approvals", 0), works: queryNumber(url, "works", 0), delegations: queryNumber(url, "delegations", 0) });
+          result = await desktopEvents!.state({ approvals: queryNumber(url, "approvals", 0), works: queryNumber(url, "works", 0), delegations: queryNumber(url, "delegations", 0), questions: queryNumber(url, "questions", 0) });
         } else if (req.method === "GET" && url.pathname === "/desktop/operation") {
-          result = await desktopEvents!.operation(queryNumber(url, "operation") as TaskId, queryNumber(url, "offset", 0));
+          const family = url.searchParams.get("family") ?? "tools";
+          if (!["tools", "mcp", "app-data", "services", "inspections", "commands", "browser", "background"].includes(family)) throw new PersonalError("desktop_action_invalid", "请选择原操作卡片。");
+          result = await desktopEvents!.operation(queryNumber(url, "operation") as TaskId, queryNumber(url, "offset", 0), family as PersonalDesktopFamily);
+        } else if (req.method === "GET" && url.pathname === "/desktop/action") {
+          const requestId = url.searchParams.get("requestId") ?? "";
+          if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("desktop_action_invalid", "请核实原决定请求。");
+          result = await instance.harness.commit(async tx => await instance.desktopActions.receipt(tx, requestId) ?? null, context);
+        } else if (req.method === "POST" && url.pathname === "/desktop/action") {
+          const input = parsePersonalDesktopAction(await readControlJSON(req));
+          const credential = req.headers["x-ruukoto-native-credential"];
+          if (credential !== undefined && (typeof credential !== "string" || !PERSONAL_REQUEST_ID.test(credential))) throw new PersonalError("desktop_action_invalid", "原桌面身份无法核实。");
+          result = await instance.harness.commit(tx => instance.desktopActions.admit(tx, input, credential ? { kind: "native", credential } : { kind: "local" }), context);
+          instance.harness.resume();
         } else if (req.method === "GET" && url.pathname === "/desktop/input") {
           const requestId = url.searchParams.get("requestId") ?? "";
           if (!PERSONAL_REQUEST_ID.test(requestId)) throw new PersonalError("input_invalid", "请求标识无效，请核实原消息。");
@@ -541,10 +555,10 @@ export async function startPersonalServer(directory: string, options: { developm
   }
 }
 
-export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | Record<string, never> | { requestId: string } | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest, timeoutMs?: number): Promise<T> {
+export async function personalControl<T>(directory: string, method: "GET" | "POST", route: string, value?: ReturnType<typeof parsePersonalMemoryControl> | PersonalInput | PersonalServiceResolution | Record<string, never> | { requestId: string } | { decision: "approved" | "rejected" } | PersonalToolsControlBody | { action: "stop" | "observe" | "accept"; observation?: EntryId } | PersonalScheduleCreateBody | PersonalQuestionWrite | PersonalSettingsRequest | PersonalSettingsWriteRequest | PersonalImPairingRequest | PersonalDesktopAction, timeoutMs?: number, nativeCredential?: string): Promise<T> {
   const token = readPersonalToken(directory);
   return new Promise<T>((resolve, reject) => {
-    const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" } });
+    const req = http.request({ socketPath: path.join(directory, "control.sock"), method, path: route, headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close", ...(nativeCredential ? { "x-ruukoto-native-credential": nativeCredential } : {}) } });
     const fail = (cause?: unknown) => reject(new PersonalError("control_response_lost", method === "POST" ? "未取得后台应答；请核实原消息或后台状态，不要重复提交新消息。" : "无法查询隔离后台；连接失败不表示后台已停止，请检查状态与日志。", { cause }));
     const timeout = setTimeout(() => req.destroy(new Error("timeout")), timeoutMs ?? (route === "/settings" ? PERSONAL_SETTINGS_LIMITS.modelTestMs + 5000 : 5000));
     req.once("close", () => clearTimeout(timeout));

@@ -22,6 +22,9 @@ import { personalMainAdmit } from "../apps/ruukoto/src/personal-coordination.ts"
 import { PersonalOwnerInput, personalOwnerInputByRequest } from "../apps/ruukoto/src/personal-owner-input.ts";
 import { personalDesktopState } from "../apps/ruukoto/src/personal-desktop-state.ts";
 import { PersonalToolDoc, PersonalToolsDoc } from "../apps/ruukoto/src/personal-tools.ts";
+import { PersonalDesktopActionDoc, PersonalDesktopActionsDoc } from "../apps/ruukoto/src/personal-desktop-actions.ts";
+import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, ServiceInspectionAdmission } from "../apps/ruukoto/src/personal-service-inspection.ts";
+import { PersonalBackgroundDoc, PersonalBackgroundProcessDoc } from "../apps/ruukoto/src/personal-background-processes.ts";
 import type { TaskId } from "@earendil-works/pi-durable";
 
 const context = BACKGROUND_CONTEXT;
@@ -148,6 +151,70 @@ test("Desktop canonical state pages large URLs and delivers old-card updates wit
   while (offset !== undefined) { const next = await f.events.operation(1 as TaskId, offset); assert.equal(next.admission, detail.admission); text += next.text; offset = next.nextOffset; }
   assert.deepEqual(JSON.parse(text), { target, params: { url: target } });
   assert.ok(frames.every((frame, index) => frame.seq === index && Buffer.byteLength(JSON.stringify(frame)) <= PERSONAL_DESKTOP_FRAME_LIMIT));
+});
+
+test("Cleanup terminal updates reach off-page cards and survive reconnect from original inspection admissions", async t => {
+  const f = await socketFixture(t), client = f.connect(), frames = messages(client), operation = 100 as TaskId;
+  await once(client, "open"); await until(() => frames.length > 0);
+  const admission = await f.harness.commit(async tx => {
+    const identity = { taskId: operation, conversationId: ROOT_CONVERSATION_ID, taskKind: "pi.tool", unit: "original.service", machineId: "original-machine", inspectionId: "inspect_123456789012345678901234" as const, sources: [] };
+    const admission = (await tx.appendEntry(ServiceInspectionAdmission, ROOT_CONVERSATION_ID, { data: identity })).id;
+    (await tx.doc(PersonalInspectionDoc, String(operation), null)).inspection = { ...identity, admission, stopped: false, result: { evidence: admission, code: "inspection_stop_unverified" } };
+    (await tx.doc(PersonalPendingInspectionsDoc)).tasks.push(operation);
+    const index = await tx.doc(PersonalToolsDoc);
+    for (let id = 101; id <= 112; id++) {
+      const entry = (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "test.tool-card" })).id;
+      index.operations.push(id as TaskId);
+      (await tx.doc(PersonalToolDoc, String(id), null)).operation = { operation: id as TaskId, admission: entry, origin: { conversationId: ROOT_CONVERSATION_ID, generation: 1 as TaskId, inputs: [], sources: [], source: { entryId: entry, requestId: "original", submissionId: 1 as SubmissionId }, permission: { mode: "confirm", version: 1 } }, kind: "http_request", params: { url: "http://127.0.0.1/original" }, prepared: { kind: "http", request: { url: "http://127.0.0.1/original", method: "GET", headers: {}, pinnedAddress: "127.0.0.1", pinnedFamily: 4 } }, grantVersion: 1, approval: "pending", started: false, stopped: true, effect: "not_executed", code: "approval_pending" };
+    }
+    return admission;
+  }, context);
+  assert.ok(!(await f.events.state()).approvals.items.some(value => value.family === "inspections"));
+  await f.harness.commit(async tx => {
+    (await tx.doc(PersonalInspectionDoc, String(operation), null)).inspection!.stopped = true;
+    (await tx.doc(PersonalPendingInspectionsDoc)).tasks = [];
+  }, context);
+  await until(() => frames.some(frame => frame.type === "events" && frame.events.some(event => event.type === "personal_state" && event.state.approvalUpdates?.some(value => value.family === "inspections" && value.operation === operation && value.stopped))));
+  const requestId = randomUUID();
+  await f.harness.commit(async tx => {
+    const request = { v: 1 as const, requestId, family: "inspections" as const, operation, admission, occurrence: admission, action: "cleanup" as const };
+    const entry = (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "test.cleanup-action" })).id;
+    (await tx.doc(PersonalDesktopActionsDoc)).requests.push(requestId);
+    (await tx.doc(PersonalDesktopActionDoc, requestId, null)).action = { receipt: { v: 1, request, entry, state: "completed" }, actor: { kind: "local" }, at: Date.now(), binding: {} };
+  }, context);
+  const all = [await f.events.state(), await f.events.state({ approvals: 8 })].flatMap(value => value.approvals.items);
+  assert.deepEqual(all.find(value => value.family === "inspections"), { family: "inspections", operation, admission, occurrence: admission, kind: "service_inspect", target: "original.service", targetTruncated: false, approval: "unneeded", observed: true, started: true, effect: "no_write", code: "inspection_stopped", stopped: true, canDecide: false, actions: ["check"] });
+  const replay = f.connect(), reopened = messages(replay); await once(replay, "open"); await until(() => reopened.length > 0);
+  assert.equal(reopened[0].type, "snapshot");
+  assert.ok(reopened[0].type === "snapshot" && reopened[0].state?.approvals.nextOffset);
+  const terminal = await f.events.operation(operation, 0, "inspections");
+  assert.equal(terminal.admission, admission); assert.equal(terminal.summary.stopped, true);
+});
+
+test("Healthy background lifetimes stay in work status while original stopping cards retain their final state", async t => {
+  const f = await fixture(t), operation = 100 as TaskId, processId = "original-process";
+  await f.harness.commit(async tx => {
+    const source = (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "pi.user", model: [{ role: "user", content: "Original background", timestamp: 1 }] })).id;
+    const admission = (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "test.background-admission" })).id;
+    (await tx.doc(PersonalBackgroundDoc)).ids.push(processId);
+    (await tx.doc(PersonalBackgroundProcessDoc, processId, null)).process = { id: processId, operation, taskId: 101 as TaskId, command: "sleep 60", origin: { conversationId: ROOT_CONVERSATION_ID, generation: 1 as TaskId, inputs: [], sources: [], source: { entryId: source, requestId: "original", submissionId: 1 as SubmissionId }, permission: { mode: "full_access", version: 1 } }, config: { version: 1, workspace: "/tmp/work", identity: { dev: 1, ino: 1 }, machineId: "a".repeat(32), tmpdir: "/tmp" }, directory: { path: "/tmp/work", dev: 1, ino: 1 }, admission, accepted: source, claim: admission, state: "running", createdAt: 1, launchClaim: admission, execution: { platform: "linux", executionId: "original-execution", machineId: "a".repeat(32) }, stopped: false, partial: false };
+  }, context);
+  const changed = new Set([`background:${operation}`]);
+  let state = await f.harness.commit(tx => personalDesktopState(tx, 1, {}, changed), context);
+  assert.equal(state.approvals.total, 0); assert.equal(state.approvalUpdates, undefined);
+  await f.harness.commit(async tx => { const value = (await tx.doc(PersonalBackgroundProcessDoc, processId, null)).process!; value.state = "stopped"; value.stopped = true; value.exit = { code: 0, signal: null }; }, context);
+  state = await f.harness.commit(tx => personalDesktopState(tx, 2, {}, changed), context);
+  assert.equal(state.approvals.total, 0); assert.equal(state.approvalUpdates, undefined);
+  await f.harness.commit(async tx => {
+    const value = (await tx.doc(PersonalBackgroundProcessDoc, processId, null)).process!, entry = (await tx.appendEntry(ROOT_CONVERSATION_ID, { kind: "test.background-stop" })).id;
+    value.state = "stop_unverified"; value.stopped = false; delete value.exit; value.stopIntents = [{ taskId: 102 as TaskId, entry, reason: "canceled" }];
+  }, context);
+  state = await f.harness.commit(tx => personalDesktopState(tx, 3, {}, changed), context);
+  assert.equal(state.approvals.total, 1); assert.ok(state.approvals.items[0].actions?.includes("cleanup")); assert.equal(state.approvalUpdates?.[0].stopped, false);
+  await f.harness.commit(async tx => { const value = (await tx.doc(PersonalBackgroundProcessDoc, processId, null)).process!; value.state = "stopped"; value.stopped = true; value.exit = { code: null, signal: "SIGTERM" }; }, context);
+  state = await f.harness.commit(tx => personalDesktopState(tx, 4, {}, changed), context);
+  assert.equal(state.approvals.total, 1); assert.equal(state.approvalUpdates?.[0].stopped, true);
+  assert.equal((await f.harness.commit(tx => personalDesktopState(tx, 5), context)).approvals.items[0].stopped, true);
 });
 
 test("A corrupted owner request index cannot transplant another valid owner display", async t => {

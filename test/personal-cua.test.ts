@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { ROOT_CONVERSATION_ID, type EntryId, type TaskId } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, type EntryId, type TaskId, type Task } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
@@ -43,8 +43,14 @@ async function fixture(t: TestContext, images = true, cua = true) {
   });
   process.env.RUUKOTO_CUA_MODEL_TEST_KEY = "test-only";
   const provider = personalProvider({ api: "openai-completions", baseUrl: await model.start(), modelId: "mock-model", apiKeyEnv: "RUUKOTO_CUA_MODEL_TEST_KEY", contextWindow: 128000, maxTokens: 8192, imageInput: images });
-  let current: PersonalHarness | undefined;
-  const open = async () => current = await openPersonalHarness({ directory, provider, modelId: "mock-model", mcp: config, tools, mcpCuaHost: host, mcpTimeouts: { callTimeoutMs: 100 } });
+  let current: PersonalHarness | undefined, holdActions = false, releaseAction: (() => void) | undefined;
+  const open = async () => {
+    current = await openPersonalHarness({ directory, provider, modelId: "mock-model", mcp: config, tools, mcpCuaHost: host, mcpTimeouts: { callTimeoutMs: 100 } });
+    // The registry erases SDK task types. Gate its invocation before the action-start transaction.
+    const task = current.desktopActions.extension.tasks![0] as Task<{ requestId: string }, { phase: "run" }, null, object>, run = task.definition.phases.run;
+    Object.defineProperty(task.definition.phases, "run", { value: async (...args: Parameters<typeof run>) => { if (holdActions) await new Promise<void>(resolve => { releaseAction = resolve; }); return run(...args); } });
+    return current;
+  };
   t.after(async () => { closing = true; releaseChild?.(); await current?.close(); await model.close(); delete process.env.RUUKOTO_CUA_MODEL_TEST_KEY; fs.rmSync(root, { recursive: true, force: true }); });
   const calls = () => fs.readFileSync(sent, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)).filter(item => item.method === "tools/call");
   let work: PersonalWorkRef | undefined;
@@ -78,7 +84,7 @@ async function fixture(t: TestContext, images = true, cua = true) {
     const saved = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
     return JSON.stringify({ operation, effect: saved.effect, code: saved.code, remoteEnded: saved.remoteEnded });
   }
-  return { answer, release() { const release = releaseChild; releaseChild = undefined; release?.(); }, currentWork: () => work, holdCall() { fs.writeFileSync(sent + ".hold", ""); }, releaseCall() { fs.writeFileSync(sent + ".release", ""); }, async finish(p: PersonalHarness) { if (!work) return; closing = true; releaseChild?.(); await p.harness.waitForTask(work.taskId, context); closing = false; work = undefined; }, directory, config, model, host, open, calls, stoppedScopes, setDefinitions(tools: object[]) { fs.writeFileSync(schema, JSON.stringify(tools)); }, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
+  return { holdActions(value: boolean) { holdActions = value; if (!value) { releaseAction?.(); releaseAction = undefined; } }, answer, release() { const release = releaseChild; releaseChild = undefined; release?.(); }, currentWork: () => work, holdCall() { fs.writeFileSync(sent + ".hold", ""); }, releaseCall() { fs.writeFileSync(sent + ".release", ""); }, async finish(p: PersonalHarness) { if (!work) return; closing = true; releaseChild?.(); await p.harness.waitForTask(work.taskId, context); closing = false; work = undefined; }, directory, config, model, host, open, calls, stoppedScopes, setDefinitions(tools: object[]) { fs.writeFileSync(schema, JSON.stringify(tools)); }, failProgram(value = true) { programFailure = value; }, setImageMode(mode: string) { fs.writeFileSync(sent + ".mode", mode); }, async full(p: PersonalHarness) { await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context); } };
 }
 const input = (tool: string, args: Record<string, unknown> = {}) => "调用:" + JSON.stringify({ service: "desktop", tool, arguments: args });
 
@@ -667,4 +673,83 @@ test("Personal Cua: a stopped interrupted read awaits fresh recovery without an 
   assert.ok(stopped.cua!.recovery!.stopped); assert.ok(stopped.cuaLaunches!.every(launch => launch.stopped));
   const facts = await p.harness.commit(tx => personalWorkExecutionFacts(tx, work.taskId, 8), context);
   assert.deepEqual(facts.factCounts!.mcp, { total: 1, pending: 1, unknown: 0 });
+});
+
+test("Native Cua cleanup preserves the sandbox until its separate explicit choice", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  let cliStops = 0, sandboxStops = 0;
+  const stopCli = f.host.stopCli, stopPrepared = f.host.stopPrepared, stopSandbox = f.host.stop;
+  f.host.stopCli = async value => { cliStops++; return stopCli(value); };
+  f.host.stopPrepared = async (scope, description) => { cliStops++; return stopPrepared(scope, description); };
+  f.host.stop = async value => { sandboxStops++; return stopSandbox(value); };
+  const result = JSON.parse(await f.answer(p, input("computer_screenshot", { hang: true }), "native-recovery")), operation = result.operation as TaskId;
+  const { personalDesktopTarget } = await import("../apps/ruukoto/src/personal-desktop-actions.ts"), { randomUUID } = await import("node:crypto");
+  const { summary } = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await personalDesktopTarget(tx, "mcp", operation))), context);
+  assert.equal(summary.code, "timeout"); assert.ok(summary.actions.includes("stop_sandbox"));
+  await p.mcp!.cleanupCua(operation); assert.ok(cliStops > 0); assert.equal(sandboxStops, 0);
+  const value = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
+  assert.equal(value.cua?.recovery?.stopped, undefined); assert.equal(mcpUnresolved(value), true);
+  const request = { v: 1 as const, requestId: randomUUID(), family: "mcp" as const, operation, admission: value.admission, occurrence: value.admission, action: "stop_sandbox" as const };
+  await p.harness.commit(tx => p.desktopActions.admit(tx, request), context); p.harness.resume();
+  await f.host.generation(f.config.services[0].cua!.sandboxId);
+  const end = Date.now() + 5000;
+  while ((await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))?.state === "admitted") { assert.ok(Date.now() < end); await new Promise(resolve => setTimeout(resolve, 5)); }
+  const receipt = (await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))!;
+  assert.equal(receipt.state, "completed"); assert.equal(sandboxStops, 1);
+  await p.harness.commit(tx => p.desktopActions.admit(tx, request), context); assert.equal(sandboxStops, 1);
+  await p.harness.commit(tx => p.desktopActions.verify(tx, true), context);
+});
+
+
+test("Native Cua accepts and resumes the exact new scene while later pauses reject the old action", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const result = JSON.parse(await f.answer(p, input("computer_screenshot"), "native-scene")), operation = result.operation as TaskId;
+  await p.mcp!.pauseCua(true);
+  const { personalDesktopTarget } = await import("../apps/ruukoto/src/personal-desktop-actions.ts"), { randomUUID } = await import("node:crypto");
+  const make = async (action: "observe" | "accept" | "resume") => p.harness.commit(async tx => { const value = await personalDesktopTarget(tx, "mcp", operation); return { v: 1 as const, requestId: randomUUID(), family: "mcp" as const, operation, admission: value.summary.admission, occurrence: value.summary.occurrence, action, ...(action === "accept" ? { observation: value.summary.observation } : {}) }; }, context);
+  const wait = async (requestId: string) => { const end = Date.now() + 5000; for (;;) { const result = await p.harness.commit(tx => p.desktopActions.receipt(tx, requestId), context); if (result?.state !== "admitted") return result!; assert.ok(Date.now() < end); await new Promise(resolve => setTimeout(resolve, 5)); } };
+  const observe = await make("observe"); await p.harness.commit(tx => p.desktopActions.admit(tx, observe), context); p.harness.resume(); assert.equal((await wait(observe.requestId)).state, "completed");
+  const accept = await make("accept"); await p.harness.commit(tx => p.desktopActions.admit(tx, accept), context); p.harness.resume(); assert.equal((await wait(accept.requestId)).state, "completed");
+  const resume = await make("resume"); await p.harness.commit(tx => p.desktopActions.admit(tx, resume), context); p.harness.resume(); assert.equal((await wait(resume.requestId)).state, "completed");
+  assert.equal((await p.mcp!.cuaStatus()).paused, false);
+  await p.harness.commit(tx => p.desktopActions.verify(tx, true), context);
+  await p.mcp!.pauseCua(true);
+  await assert.rejects(p.harness.commit(tx => p.desktopActions.admit(tx, { ...resume, requestId: randomUUID() }), context), { code: "desktop_action_unavailable" });
+  assert.equal((await p.mcp!.cuaStatus()).paused, true);
+});
+
+test("An unexpected native cleanup failure has a terminal receipt and retains original stopping", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const result = JSON.parse(await f.answer(p, input("computer_screenshot", { hang: true }), "native-failure")), operation = result.operation as TaskId;
+  f.host.stop = async () => { throw new Error("injected executor failure"); };
+  const { randomUUID } = await import("node:crypto"), value = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
+  const request = { v: 1 as const, requestId: randomUUID(), family: "mcp" as const, operation, admission: value.admission, occurrence: value.admission, action: "stop_sandbox" as const };
+  await p.harness.commit(tx => p.desktopActions.admit(tx, request), context); p.harness.resume();
+  const end = Date.now() + 5000;
+  while ((await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))?.state === "admitted") { assert.ok(Date.now() < end); await new Promise(resolve => setTimeout(resolve, 5)); }
+  const receipt = (await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))!;
+  assert.equal(receipt.state, "effect_unknown"); assert.equal(receipt.code, "desktop_action_failed");
+  const after = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!;
+  assert.equal(after.cua?.recovery?.stopped, undefined); assert.equal(mcpUnresolved(after), true);
+  await p.harness.commit(tx => p.desktopActions.verify(tx, true), context);
+});
+
+test("A queued native observation from an earlier pause cannot inspect the later pause", async t => {
+  const f = await fixture(t), p = await f.open(); await f.full(p);
+  const result = JSON.parse(await f.answer(p, input("computer_screenshot"), "native-stale-scene")), operation = result.operation as TaskId;
+  await p.mcp!.pauseCua(true);
+  f.holdActions(true); t.after(() => f.holdActions(false));
+  const { randomUUID } = await import("node:crypto"), original = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!, pause = original.takeover!.paused;
+  const request = { v: 1 as const, requestId: randomUUID(), family: "mcp" as const, operation, admission: original.admission, occurrence: original.admission, action: "observe" as const };
+  await p.harness.commit(tx => p.desktopActions.admit(tx, request), context);
+  await p.mcp!.recoverCua(operation, "observe");
+  const observed = (await p.mcp!.detail(operation)).summary.cuaObservation!;
+  await p.mcp!.recoverCua(operation, "accept", observed); await p.mcp!.pauseCua(false); await p.mcp!.pauseCua(true);
+  const latest = (await p.harness.snapshot(PersonalMcpDoc, String(operation), context))!.operation!; assert.notEqual(latest.takeover!.paused, pause); assert.equal(latest.takeover!.observation, undefined);
+  const calls = f.calls().length; f.holdActions(false); p.harness.resume();
+  const end = Date.now() + 5000;
+  while ((await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))?.state === "admitted") { assert.ok(Date.now() < end); await new Promise(resolve => setTimeout(resolve, 5)); }
+  const receipt = (await p.harness.commit(tx => p.desktopActions.receipt(tx, request.requestId), context))!;
+  assert.equal(receipt.state, "failed"); assert.equal(receipt.code, "desktop_action_stale"); assert.equal(f.calls().length, calls);
+  await p.harness.commit(tx => p.desktopActions.verify(tx, true), context);
 });

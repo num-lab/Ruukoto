@@ -1,4 +1,4 @@
-import { configureAppDataChild, requireWorkAppDataStopped, appDataOperations, appDataUnresolved, waitWorkAppData } from "./personal-app-data.ts";
+import { configureAppDataChild, requireWorkAppDataStopped, appDataOperations, appDataUnresolved, waitWorkAppData, PERSONAL_APP_DATA_TOOLS } from "./personal-app-data.ts";
 import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS } from "./personal-memory.ts";
 import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts";
 import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
@@ -30,6 +30,7 @@ import { qualifyPersonalControlledWork, personalInteractiveWorkClaims, type Pers
 import { PERSONAL_BACKGROUND, PERSONAL_BACKGROUND_TOOL_NAMES, personalBackgroundWork as personalWorkProcesses, requirePersonalBackgroundWorkStopped, waitPersonalBackgroundWorkStopped, supersedePersonalBackgroundOperations } from "./personal-background-processes.ts";
 import { PERSONAL_BROWSER, PERSONAL_BROWSER_TOOL_NAMES, browserOperations, browserUnresolved, preparePersonalWorkBrowserRelease, requireWorkBrowserStopped, supersedePersonalBrowserOperations } from "./personal-browser.ts";
 import { supersedePersonalAppDataOperations } from "./personal-app-data.ts";
+import { PERSONAL_QUESTIONS, cancelPersonalWorkQuestions, personalWorkQuestionFacts } from "./personal-questions.ts";
 
 type WorkResult = { submissionId: SubmissionId };
 export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; agentId: ConversationId };
@@ -253,7 +254,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
     },
   },
   async abort(task, runtime, context) {
-    await runtime.commit(async tx => { await occupancy(tx, task.input, task.id); (await facts(tx, { ...task.input, taskId: task.id })).cancelRequested = true; return undefined; }, context);
+    await runtime.commit(async tx => { await occupancy(tx, task.input, task.id); const ref = { ...task.input, taskId: task.id }; (await facts(tx, ref)).cancelRequested = true; await cancelPersonalWorkQuestions(tx, ref); return undefined; }, context);
     const child = await runtime.conversation(task.input.agentId, context);
     if (!child) throw new PersonalError("work_agent_missing", "取消时找不到子会话，占用仍保留；请检查档案。");
     await settleWorkResources(runtime, child, task.id, context, true);
@@ -262,7 +263,7 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
 });
 
 export const personalBackgroundWork = defineExtension({ name: "personal-background-work", tasks: [PersonalWorkTask] });
-export const personalSubAgent = defineExtension({ name: "personal-subagent", sections: [section("subagent", () => "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。仅使用本轮提供的工具，无法再委派或联系拥有者；需要不可用的外部操作时在结果中说明。外部操作效果或停止未核实时，宿主暂停整项委托的后续操作并保留占用；由拥有者核实后收尾，不要换方式重试。", { tag: false })] });
+export const personalSubAgent = defineExtension({ name: "personal-subagent", sections: [section("subagent", () => "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。仅使用本轮提供的工具，无法再委派。业务信息不足时用 ask_user 登记原工作问题，等待本调用返回实际答案，再按答案与已保存的新要求继续；答案不批准操作、不扩大原权限，提问和回答都不表示工作完成。需要不可用的外部操作时在结果中说明。外部操作效果或停止未核实时，宿主暂停整项委托的后续操作并保留占用；由拥有者核实后收尾，不要换方式重试。", { tag: false })] });
 
 type DelegateInput = { content: string; requestId: string; sourceRequestId: string; agentId?: ConversationId; label?: string; appData?: boolean };
 
@@ -342,6 +343,11 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   await qualifyPersonalControlledWork(tx, ref, origin);
   const child = await tx.doc(AgentDoc, ref.agentId), main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
   if (!Array.isArray(child.extensions) || !Array.isArray(child.tools) || !Array.isArray(main.extensions)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
+  if (main.extensions.includes(PERSONAL_QUESTIONS) && !child.extensions.includes(PERSONAL_QUESTIONS)) {
+    child.extensions.push(PERSONAL_QUESTIONS);
+    const index = child.tools.findIndex(name => name === "browser" || PERSONAL_BACKGROUND_TOOL_NAMES.some(tool => tool === name) || PERSONAL_APP_DATA_TOOLS.some(tool => tool === name));
+    child.tools.splice(index < 0 ? child.tools.length : index, 0, "ask_user");
+  }
   for (const [extension, names] of [[PERSONAL_BROWSER, PERSONAL_BROWSER_TOOL_NAMES], [PERSONAL_BACKGROUND, PERSONAL_BACKGROUND_TOOL_NAMES]] as const) if (main.extensions.includes(extension) && !child.extensions.includes(extension)) { child.extensions.push(extension); child.tools.push(...names); }
   return ref;
 }
@@ -580,6 +586,7 @@ export async function personalWorkExecutionFacts(tx: Tx, taskId: TaskId, factsOf
   const appDataValues = (await appDataOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId);
   const browserValues = (await browserOperations(tx)).filter(value => value.origin.work?.ref.taskId === taskId);
   const processValues = await personalWorkProcesses(tx, taskId), resources = await personalInteractiveWorkClaims(tx, taskId);
+  const questionValues = await personalWorkQuestionFacts(tx, taskId, identity?.telegram);
   const count = <T>(values: T[], pending: (value: T) => boolean, unknown: (value: T) => boolean) => ({ total: values.length, pending: values.filter(pending).length, unknown: values.filter(unknown).length });
   const factCounts = {
     commands: count(commands, value => value.effect === undefined || value.code === "started" || value.requiresVerification, value => value.code !== "started" && value.requiresVerification),
@@ -590,6 +597,7 @@ export async function personalWorkExecutionFacts(tx: Tx, taskId: TaskId, factsOf
     browser: count(browserValues, value => !value.observation || browserUnresolved(value), value => value.code !== "started" && browserUnresolved(value)),
     processes: count(processValues, value => value.state === "starting" || value.state === "stop_requested" || value.state === "stop_unverified", value => value.state === "stop_unverified"),
     resources: count(resources, value => !value.acquired && !value.released, () => false),
+    questions: count(questionValues, value => value.status === "pending" || value.answer === "waiting", () => false),
   };
   const total = Math.max(...Object.values(factCounts).map(value => value.total)), end = factsOffset + 8;
   const commandPage = commands.slice(factsOffset, end), servicePage = services.slice(factsOffset, end);
@@ -609,6 +617,7 @@ export async function personalWorkExecutionFacts(tx: Tx, taskId: TaskId, factsOf
     ...(browserValues.length ? { browser: browserValues.slice(factsOffset, end).map(value => ({ operation: value.operation, action: value.params.action, started: value.started, effect: value.effect, code: value.code, stopped: value.stopped, waiting: browserUnresolved(value), ...(value.superseded ? { superseded: true } : {}) })) } : {}),
     ...(processValues.length ? { processes: processValues.slice(factsOffset, end).map(value => ({ process_id: value.id, state: value.state, stopVerified: value.stopped, reason: value.reason ?? null, createdAt: value.createdAt })) } : {}),
     ...(resources.length ? { resources: resources.slice(factsOffset, end).map(value => ({ resource: value.resource, state: value.released ? "released" : value.acquired ? "owned" : "queued" })) } : {}),
+    ...(questionValues.length ? { questions: questionValues.slice(factsOffset, end) } : {}),
     ...(notice ? { notice } : {}),
     ...(total > 8 || factsOffset > 0 ? { factsOffset, factCounts, ...(end < total ? { nextFactsOffset: end } : {}) } : {}),
   };

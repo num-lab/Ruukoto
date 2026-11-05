@@ -44,7 +44,7 @@ export function personalWorkTools(getHarness: () => Harness) {
       label: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "仅新建身份时使用的名称；复用 agent 时省略。" })),
       work: Type.Optional(Type.Integer({ minimum: 1, description: "delegate 或 list 返回的工作编号，用于 result/append/cancel；不使用子 Agent 编号代替。" })),
       offset: Type.Optional(Type.Integer({ minimum: 0, description: "result/report_result/operation 是从 0 开始的文本位置；list/delegations/progress/operations 是从 0 开始的条目位置。后页只用 nextOffset，缺失表示已到保存内容末尾；partial=true 是模型生成截断，与分页无关。身份每页16个、委托/成员/普通操作每页8项、文本每页4096字符。" })),
-      factsOffset: Type.Optional(Type.Integer({ minimum: 0, description: "仅 result：独立于回答正文 offset 的宿主事实位置，默认0；commands/services/tools/mcp/appData/browser/processes/resources 每类最多8项，用 nextFactsOffset 继续，缺失表示事实末页。progress 只给各类首8项。分页时 factCounts 的 total/pending/unknown 统计全部事实；pending 是未完成操作、资源排队或待人工继续，unknown 是待核实的效果或停止（普通 MCP 人工结束后仍保留未核实效果）。本页未列出不表示整项无待办。processes 只给简要状态，原命令详情用 process_status；commands/services 精确事实由拥有者从原管理菜单查询。" })),
+      factsOffset: Type.Optional(Type.Integer({ minimum: 0, description: "仅 result：独立于回答正文 offset 的宿主事实位置，默认0；commands/services/tools/mcp/appData/browser/processes/resources/questions 每类最多8项，用 nextFactsOffset 继续，缺失表示事实末页。progress 只给各类首8项。questions 列原工作问题和答案状态，pending 须由拥有者从原问题卡或原私聊菜单回答；不要把普通聊天或 append 当作答案。分页时 factCounts 的 total/pending/unknown 统计全部事实；pending 是未完成操作、资源排队或待人工继续，unknown 是待核实的效果或停止（普通 MCP 人工结束后仍保留未核实效果）。本页未列出不表示整项无待办。processes 只给简要状态，原命令详情用 process_status；commands/services 精确事实由拥有者从原管理菜单查询。" })),
     }, { additionalProperties: false }),
     replay: "safe",
     executionMode: "sequential",

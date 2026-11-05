@@ -14,7 +14,7 @@
 | `ViewState.applyEvent` | Apply a persistent state/output event |
 | `EventFlow` | Align text, thinking and tools into one conversation timeline |
 | `HistoryRecovery` | Coordinate history pages and long-body reads using UTF-8 byte offsets |
-| `personal-protocol.ts` | Browser-safe PA timeline and protocol types |
+| `personal-protocol.ts` | Browser-safe PA timeline, canonical family/question cards, typed action requests and original receipts |
 | `cuaBatchSummary` | Ordered one-line summaries of `run_steps` batch steps for approval surfaces |
 
 All interfaces work in browsers and Node; transport is supplied by the client.
@@ -30,6 +30,10 @@ ViewState
 ```
 
 Recovery first installs the `ConnectResult` snapshot, then applies subsequent events in sequence order. Older events must not roll the view back.
+
+Personal independently pages operation cards, owner questions, works and delegations in groups of at most eight. Family, operation and admission fix the canonical record; displayed occurrences place it in the timeline and retain redisplay identity. Committed updates refresh current state across those occurrences, while reconnect reads cached originals outside the first page. Optional family, question and recovery fields preserve the existing version-1 ordinary-tool protocol.
+
+Personal action receipts echo the exact original request and report admission or action outcome. The family's operation card separately reports effects and stopping. Original-receipt checks, current observations, immutable owner claims and recovery-image descriptors remain distinct typed facts; backend records determine action eligibility.
 
 ## Main Flows
 
@@ -50,7 +54,7 @@ sequenceDiagram
   end
 ```
 
-Question cards use question identity, original host operation and the actual tool history entry, so repeated batches in one task preserve the original requirement and other cards. Pending questions display waiting for an answer. Individual report inputs retain internal classification without hiding the receiving task's ordinary input. Queued-retrieval completion does not apply historical omission or clear the running stream.
+Coding question cards use question identity, original host operation and the actual tool history entry, so repeated batches in one task preserve the original requirement and other cards. Pending questions display waiting for an answer. Individual report inputs retain internal classification without hiding the receiving task's ordinary input. Queued-retrieval completion does not apply historical omission or clear the running stream.
 
 Initial projection establishes indexes before rendering. Streamed text and thinking join using their offsets rather than arrival timing alone. When older or oversized content is needed, `HistoryRecovery` requests bounded slices and stitches them into the same view.
 
@@ -70,3 +74,5 @@ Initial projection establishes indexes before rendering. Streamed text and think
 - [Coding user queue](../../.agents/notes/implemented/feature/2026-10-30-coding-user-queue.md)
 - [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)
 - [Next-request report delivery](../../.agents/notes/implemented/feature/2026-10-30-coding-report-delivery-boundary.md)
+- [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
+- [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)

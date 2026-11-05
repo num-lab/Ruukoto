@@ -1139,3 +1139,56 @@ test("文件工作线程：会话故障保留内存回执，重开时按原宿�
   await until(async () => (await p2.harness.commit(tx => personalFileIoJobs(tx), context)).every(job => job.exit !== undefined));
   await p2.close(); await fileIo2.close();
 });
+
+test("Exact file cleanup terminates only its original job and leaves the namespace available", async t => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-exact-file-stop-"))), target = path.join(root, "data"); fs.writeFileSync(target, "original");
+  const jobs: PersonalFileJobMeta[] = [];
+  const io = openPersonalFileIo({ profile: root, stallMs: 350, workerProbe(_worker, job) { jobs.push(job); } });
+  t.after(async () => { await io.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const first = io.prepare({ path: target, access: "read", protectedRoots: [] }); const rejected = assert.rejects(first, error => error instanceof PersonalFileIoError && error.code === "file_io_canceled");
+  const second = io.prepare({ path: target, access: "read", protectedRoots: [] });
+  await until(() => jobs.length === 2);
+  const { stopPersonalFileIoJob } = await import("../apps/ruukoto/src/personal-file-io.ts");
+  assert.equal(await stopPersonalFileIoJob(root, jobs[0].id), true); await rejected;
+  const result = await second; assert.equal(result.originalSha256, createHash("sha256").update("original").digest("hex"));
+  const third = await io.prepare({ path: target, access: "read", protectedRoots: [] }); assert.equal(third.originalSha256, result.originalSha256);
+  assert.equal(await stopPersonalFileIoJob(root, "missing-original"), false);
+});
+
+test("Native cleanup stops an admitted revalidation job before the file write starts", { timeout: 30_000 }, async t => {
+  const f = fifoFixture(t, "rk-native-revalidate-stop-"), root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-native-revalidate-profile-"))), directory = path.join(root, "profile"), workspace = path.join(root, "workspace"), target = f.held;
+  fs.mkdirSync(directory); fs.mkdirSync(workspace);
+  process.env.RK_FILE_IO_PHASE = "revalidate";
+  const server = new MockModelServer(request => {
+    const last = request.messages.at(-1), content = String(last?.content);
+    if (last?.role === "user" && content === "write") return { kind: "tool_calls", calls: [{ id: "write", name: "write_file", arguments: { path: target, content: "must not write" } }] };
+    return { kind: "text", text: last?.role === "tool" ? content : "ready" };
+  });
+  const key = "RUUKOTO_NATIVE_REVALIDATE_KEY", previous = process.env[key]; process.env[key] = "test-only";
+  const stat = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "native-revalidation", workspace, identity: { dev: stat.dev, ino: stat.ino }, credentials: [] });
+  const fileIo = openPersonalFileIo({ profile: directory, script: FIFO_WRAPPER, deadlineMs: 1000, terminationGraceMs: 100 });
+  let p: PersonalHarness | undefined;
+  t.after(async () => { f.release(64); const results = await Promise.allSettled([p?.close(), fileIo.close(), server.close()]); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; fs.rmSync(root, { recursive: true, force: true }); const failure = results.find(result => result.status === "rejected"); if (failure?.status === "rejected") throw failure.reason; });
+  p = await openPersonalHarness({ directory, tools, fileIo, modelId: "mock-model", provider: personalProvider({ api: "openai-completions", baseUrl: await server.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 8192 }) });
+  await p.answer("source", "native-revalidate-source");
+  const work = await p.work.delegate({ requestId: "native-revalidate-work", sourceRequestId: "native-revalidate-source", content: "write" });
+  const operations = () => p!.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))) as PersonalToolOperation[], context);
+  await until(async () => (await operations()).some(value => value.approval === "pending"));
+  const original = (await operations()).at(-1)!, { personalDesktopTarget, PersonalDesktopActionDoc } = await import("../apps/ruukoto/src/personal-desktop-actions.ts");
+  assert.equal((await p.harness.commit(tx => personalDesktopTarget(tx, "tools", original.operation), context)).summary.actions?.includes("cleanup"), false);
+  await p.harness.commit(tx => toolDecide(tx, original.operation, "approved", directory), context);
+  await until(async () => (await operations()).at(-1)?.code === "file_io_timeout");
+  const interrupted = (await operations()).at(-1)!;
+  assert.equal(interrupted.started, false); assert.equal(interrupted.effect, "not_executed"); assert.equal(interrupted.stopped, false);
+  assert.ok((await p.harness.commit(tx => personalDesktopTarget(tx, "tools", original.operation), context)).summary.actions?.includes("cleanup"));
+  const request = { v: 1 as const, requestId: randomUUID(), family: "tools" as const, operation: original.operation, admission: original.admission, occurrence: original.admission, action: "cleanup" as const };
+  await p.harness.commit(tx => p!.desktopActions.admit(tx, request), context); p.harness.resume();
+  await until(async () => (await p!.harness.snapshot(PersonalDesktopActionDoc, request.requestId, context))?.action?.started !== undefined);
+  f.release(1);
+  await until(async () => (await p!.harness.commit(tx => p!.desktopActions.receipt(tx, request.requestId), context))?.state !== "admitted");
+  assert.equal((await p.harness.commit(tx => p!.desktopActions.receipt(tx, request.requestId), context))?.state, "completed");
+  const stopped = (await operations()).at(-1)!;
+  assert.equal(stopped.started, false); assert.equal(stopped.stopped, true); assert.equal(stopped.effect, "not_executed"); assert.equal(fs.readFileSync(target, "utf8"), "x");
+  const retained = await p.harness.commit(tx => personalDesktopTarget(tx, "tools", original.operation), context); assert.equal(retained.retained, true); assert.equal(retained.summary.actions?.includes("cleanup"), false);
+  await p.harness.commit(tx => p!.desktopActions.verify(tx, true), context); await p.harness.waitForTask(work.taskId, context);
+});

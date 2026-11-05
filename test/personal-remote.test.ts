@@ -34,9 +34,10 @@ async function fixture(t: test.TestContext) {
   const profile = personalSettingsDirectoryIdentity(directory), runId = randomUUID();
   const config = { v: 1 as const, origin: "https://probe.example", owner: "owner@example", profile };
   await initializePersonalRemote(config, () => home);
-  const calls: string[] = [];
-  const remote = await startPersonalRemote({ home: () => home, backend: async <T>(method: string, route: string) => {
+  const calls: string[] = [], nativeCalls: { body: unknown; credential?: string }[] = [];
+  const remote = await startPersonalRemote({ home: () => home, backend: async <T>(method: string, route: string, body?: unknown, credential?: string) => {
     calls.push(`${method} ${route}`);
+    if (route === "/desktop/action") nativeCalls.push({ body, credential });
     return (route === "/desktop/identity" ? { v: 1, product: "ruukoto", profile, runId } : { accepted: true }) as T;
   } });
   t.after(async () => { await remote.stop(); fs.rmSync(home, { recursive: true, force: true }); });
@@ -50,8 +51,22 @@ async function fixture(t: test.TestContext) {
     assert.equal(handshake.value.ok, true);
     return { ...headers, "x-ruukoto-remote-id": String(handshake.value.result.remoteId), "x-ruukoto-profile-id": profile.id };
   };
-  return { ...remote, home, directory, config, calls, headers, authorization, pair };
+  return { ...remote, home, directory, config, calls, nativeCalls, headers, authorization, pair };
 }
+
+test("Native action forwarding binds the authenticated paired credential and excludes arbitrary recovery routes", async t => {
+  const f = await fixture(t), bound = await f.pair(), requestId = randomUUID();
+  const action = { v: 1, requestId, family: "browser", operation: 8, admission: 12, occurrence: 12, action: "cleanup" };
+  const result = await request(f.socketPath, "/desktop/action", { ...bound, "x-ruukoto-native-credential": randomUUID() }, action);
+  assert.equal(result.value.ok, true);
+  assert.deepEqual(f.nativeCalls, [{ body: action, credential: f.authorization.slice(7).split(".")[0] }]);
+  assert.equal((await request(f.socketPath, `/desktop/action?requestId=${requestId}`, bound)).value.ok, true);
+  for (const route of ["/browser/stop", "/command/stop", "/service/stop", "/mcp/cua-recover", "/background/stop", "/tools/resolve"]) assert.equal((await request(f.socketPath, route, bound, {})).status, 404);
+  const id = f.authorization.slice(7).split(".")[0];
+  await request(f.adminPath, "/credentials/revoke", {}, { id });
+  assert.equal((await request(f.socketPath, "/desktop/action", bound, action)).value.code, "remote_credential_revoked");
+  assert.equal(f.nativeCalls.length, 1);
+});
 
 test("remote HTTP：双重身份、Origin拒绝、私有admin与显式路由名单", async t => {
   const f = await fixture(t);

@@ -688,16 +688,16 @@ export async function personalReportTaskDraft(tx: Tx, taskId: TaskId): Promise<b
     const task = await tx.task(current);
     if (!task) return false;
     if (task.kind === PersonalReportTask.definition.name) return task.version === 2;
-    if (task.kind === "pi.generation") {
+    if (task.kind === "pi.generation" && task.conversationId === ROOT_CONVERSATION_ID) {
       let cursor: Cursor | undefined;
       do {
         const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256, cursor);
         for (const entry of page.items) {
           if (entry.kind === AssistantEntry.kind && entry.byTaskId === task.id && await reportResponseReference(tx, entry)) return true;
           if (entry.kind !== "ruukoto.model-request") continue;
-          const report = await reportRequestReference(tx, entry);
           const references = entry.data && typeof entry.data === "object" && !Array.isArray(entry.data) ? entry.data.references : undefined;
           if (!references || typeof references !== "object" || Array.isArray(references) || references.generation !== task.id) continue;
+          const report = await reportRequestReference(tx, entry);
           if (report) return true;
         }
         cursor = page.next;

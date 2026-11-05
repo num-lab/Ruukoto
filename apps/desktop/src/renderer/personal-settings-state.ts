@@ -1,3 +1,4 @@
+import { loadPersonalCuaImage, type CuaImagePage } from "./personal-cua-image.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { DesktopBridge, DesktopResult } from "../shared/bridge.ts";
 import type { PersonalManagementView, PersonalCuaStatus, PersonalConfigurationReceipt, PersonalMcpOperationSummary } from "../shared/personal-settings.ts";
@@ -13,7 +14,6 @@ export type PersonalPageView = Omit<PersonalManagementView, "settings"> & { sett
   skills: { config: null; directory: string; revision: string; skills: Skill[]; diagnostics: string[]; diagnosticsTruncated: boolean; hasMore: boolean; offset: number };
   mcp: { version: 1 | 2 | 3 | 4; services: (Omit<PersonalService, "tools"> & { tools: Pick<PersonalTool, "name" | "description">[] })[]; hasMore: boolean; offset: number } | null;
 } };
-type CuaImagePage = { observation: number; id: string; mime: string; sha256: string; bytes: number; offset: number; base64: string; nextOffset?: number };
 type ServiceDraft = { cua?: PersonalService["cua"]; id: string; label: string; endpoint: string; authentication: "" | "anonymous" | "credential"; credentialPath: string; credentialRebind: boolean; enabled: boolean; tools: PersonalTool[]; toolEffects: Record<string, PersonalToolEffect> };
 const emptyModel = () => ({ api: "openai-responses" as PersonalModel["api"], baseUrl: "", modelId: "", apiKeyEnv: "", contextWindow: "", maxTokens: "", imageInput: false });
 const emptyService = (): ServiceDraft => ({ id: crypto.randomUUID(), label: "", endpoint: "", authentication: "", credentialPath: "", credentialRebind: false, enabled: false, tools: [], toolEffects: {} });
@@ -235,23 +235,11 @@ export class PersonalSettingsPageState implements SettingsForm {
     const current = this.cua?.operations.find(item => item.operation === operation), observation = current?.cuaObservation, generation = this.generation;
     if (!current || !observation || this.invalidatedCuaObservations.get(operation) === observation || current.cuaRecovery !== "observed") return;
     for (const image of current.images) {
-      const chunks: Uint8Array[] = []; let offset = 0, complete = false;
-      while (!complete) {
-        const page: CuaImagePage | null = await this.queryRemote<CuaImagePage>("mcp.cua-image", { operation, observation, image: image.id, offset });
-        if (!page || !this.accepts(generation)) return;
-        if (page.observation !== observation || page.id !== image.id || page.mime !== image.mime || page.sha256 !== image.sha256 || page.bytes !== image.bytes || page.bytes > 8 * 1024 * 1024 || page.offset !== offset || !["image/png", "image/jpeg", "image/webp"].includes(page.mime)) { this.message = "新截图身份或长度不符，请重新观察。"; this.cuaImages = []; this.changed(); return; }
-        let bytes: Uint8Array;
-        try { bytes = Uint8Array.from(atob(page.base64), char => char.charCodeAt(0)); }
-        catch { this.message = "新截图传输内容无效，请重新观察。"; this.cuaImages = []; this.changed(); return; }
-        if (!bytes.length || bytes.length > 128 * 1024 || offset + bytes.length > image.bytes || page.nextOffset !== undefined && page.nextOffset !== offset + bytes.length) { this.message = "新截图分页不完整，请重新观察。"; this.cuaImages = []; this.changed(); return; }
-        chunks.push(bytes); offset += bytes.length; complete = page.nextOffset === undefined;
-      }
-      const bytes = new Uint8Array(offset); let position = 0;
-      for (const chunk of chunks) { bytes.set(chunk, position); position += chunk.length; }
-      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
-      if (!this.accepts(generation)) return;
-      if (offset !== image.bytes || hash !== image.sha256) { this.message = "新截图完整性核实失败，请重新观察。"; this.cuaImages = []; this.changed(); return; }
-      this.cuaImages.push({ operation, observation, id: image.id, src: `data:${image.mime};base64,${btoa(Array.from(bytes, value => String.fromCharCode(value)).join(""))}`, loaded: false });
+      let src: string | undefined;
+      try { src = await loadPersonalCuaImage(image, observation, offset => this.queryRemote<CuaImagePage>("mcp.cua-image", { operation, observation, image: image.id, offset }), () => this.accepts(generation)); }
+      catch (error) { this.message = (error as Error).message; this.cuaImages = []; this.changed(); return; }
+      if (!src || !this.accepts(generation)) return;
+      this.cuaImages.push({ operation, observation, id: image.id, src, loaded: false });
     }
     this.changed();
   }

@@ -1,15 +1,20 @@
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../shared/bridge.ts";
-import type { PersonalDesktopApproval, PersonalDesktopDelegation, PersonalDesktopEvent, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopOperation, PersonalDesktopState, PersonalDesktopWork, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
-import type { OwnerAnswer, OwnerQuestionItem } from "@ruukoto/core/owner-question-input.ts";
+import type { PersonalSettingsSnapshot } from "../shared/personal-settings.ts";
+import type { PersonalDesktopAction, PersonalDesktopActionName, PersonalDesktopActionReceipt, PersonalDesktopApproval, PersonalDesktopDelegation, PersonalDesktopEvent, PersonalDesktopFamily, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopOperation, PersonalDesktopQuestion, PersonalDesktopState, PersonalDesktopWork, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
+import { parseOwnerAnswers, parseOwnerQuestions, type OwnerAnswer, type OwnerQuestionItem } from "@ruukoto/core/owner-question-input.ts";
+import { loadPersonalCuaImage, type CuaImagePage } from "./personal-cua-image.ts";
 
 type Identity = Extract<DesktopUpdate, { type: "personal_identity" }>["identity"];
 type Receipt = { kind: "accepted" | "pending" | "missing"; requestId: string; status?: string; answer?: string };
 type Question = { id: string; version: number; status: string; question: string; canAnswer: boolean; canCancel: boolean };
-type QuestionDetail = { id: string; version: number; status: string; questions: OwnerQuestionItem[]; origin: { telegram?: unknown } };
+export type QuestionDetail = { id: string; version: number; status: string; admission?: number; questions: OwnerQuestionItem[]; origin: { telegram?: unknown }; answer?: { answers: OwnerAnswer[] } };
+export type PersonalQuestionDraft = { index: number; review: boolean; answers: OwnerAnswer[] };
 type ApprovalKind = "tools" | "mcp" | "app-data" | "services";
 export type PersonalApproval = { kind: ApprovalKind; key: string; operation?: number; ref?: { taskId: number }; canDecide: boolean; approval?: string; decision?: string; target?: string; tool?: string; name?: string; service?: string; unit?: string; status?: string };
 type Work = Omit<PersonalDesktopWork, "progress"> & { progress?: PersonalDesktopWork["progress"] };
-export type PersonalApprovalDetail = { text: string; nextOffset?: number; complete: boolean; admission: number; error?: string };
+export type PersonalApprovalDetail = { text: string; nextOffset?: number; complete: boolean; admission: number; family?: PersonalDesktopFamily; error?: string };
+type PersonalCardRef = Pick<PersonalDesktopApproval, "family" | "operation"> & { admission?: number };
+export function personalCardKey(value: PersonalCardRef) { return `${value.family ?? "tools"}:${value.operation}`; }
 export type PersonalPresentedMessage = PersonalTimelineEntry & { requestKey?: string; pendingStatus?: string };
 type List<T> = { items: T[]; nextOffset?: number };
 type QueryKind = ApprovalKind | "questions" | "works";
@@ -17,9 +22,11 @@ type PermissionMode = "confirm" | "auto-review" | "full_access";
 type HistoryBody = { entry: number; offset: number; text: string; nextOffset?: number };
 const pathFor = { tools: "/tools/operations", mcp: "/mcp/operations", "app-data": "/app-data/operations", services: "/services", questions: "/questions", works: "/works" };
 const emptyLive = (): PersonalDesktopLive => ({ tools: [], toolCount: 0, inbox: [], inboxCount: 0 });
+const sameAction = (left: PersonalDesktopAction, right: PersonalDesktopAction) => (["v", "requestId", "family", "operation", "admission", "occurrence", "action", "questionVersion", "observation", "check"] as const).every(key => left[key] === right[key]) && JSON.stringify(left.answers?.map(answer => [answer.text, answer.option, answer.options])) === JSON.stringify(right.answers?.map(answer => [answer.text, answer.option, answer.options]));
 
 // Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 // Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
+// Note: See .agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md
 export class PersonalState {
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "connecting" };
   identity: Identity | null = null;
@@ -41,16 +48,28 @@ export class PersonalState {
   approvals: PersonalApproval[] = [];
   works: Work[] = [];
   cards = new Map<number, PersonalDesktopApproval>();
-  readonly details = new Map<number, PersonalApprovalDetail>();
+  questionCards = new Map<number, PersonalDesktopQuestion>();
+  readonly questionDetails = new Map<string, QuestionDetail>();
+  private readonly questionDrafts = new Map<string, PersonalQuestionDraft>();
+  private readonly questionLoading = new Map<string, Promise<boolean>>();
+  private readonly questionRevisions = new Map<string, number>();
+  readonly acting = new Set<string>();
+  readonly uncertainActions = new Map<string, PersonalDesktopAction>();
+  private readonly actionRefreshing = new Map<string, Promise<void>>();
+  private hostActions = new Set<string>();
+  readonly cuaImages = new Map<number, { observation: number; images: { id: string; src: string; loaded: boolean }[] }>();
+  readonly cuaImageLoading = new Set<number>();
+  private invalidatedObservations = new Map<number, number>();
+  readonly details = new Map<string, PersonalApprovalDetail>();
   readonly deciding = new Set<number>();
   readonly uncertainDecisions = new Set<number>();
   delegations: PersonalDesktopDelegation[] = [];
-  projectionNext: Partial<Record<"approvals" | "works" | "delegations", number>> = {};
+  projectionNext: Partial<Record<"approvals" | "works" | "delegations" | "questions", number>> = {};
   projection = false;
   private revision = -1;
-  private cardRevisions = new Map<number, number>();
-  private detailLoading = new Map<number, Promise<void>>();
-  readonly refreshingCards = new Set<number>();
+  private cardRevisions = new Map<string, number>();
+  private detailLoading = new Map<string, Promise<boolean>>();
+  readonly refreshingCards = new Set<string>();
   private projectionLoading = new Set<string>();
   private sent = new Map<string, { text: string; timestamp: number; anchor: number; status?: string }>();
   private pendingDecisions = new Set<string>();
@@ -88,6 +107,7 @@ export class PersonalState {
   get presence() {
     if (this.live.inboxCount) return "消息已接纳，等待处理";
     if (this.live.run) return "正在处理";
+    if ([...this.questionCards.values()].some(value => value.status === "pending")) return "等待你的回答";
     if ([...this.cards.values()].some(value => value.canDecide)) return "等待你的决定";
     if (this.works.some(value => value.cancelRequested && !value.stopVerified) || this.delegations.some(value => value.cancelRequested && (value.active > 0 || value.unverified > 0))) return "已请求取消，正在核实停止";
     if (this.works.some(value => !["completed", "failed", "aborted", "faulted", "orphaned"].includes(value.state)) || this.delegations.some(value => value.active > 0)) return "工作进行中";
@@ -101,12 +121,12 @@ export class PersonalState {
   visible() { if (this.online) { void this.refreshQueries(); void this.reconcile(); } }
   private timers() {
     clearInterval(this.polling); this.polling = undefined;
-    if (this.online && !this.disposed) this.polling = setInterval(() => { if (this.pending) void this.reconcile(); if (!this.projection && (this.busy || this.questions.some(value => value.status === "pending") || this.approvals.some(value => value.canDecide) || this.works.some(value => !["completed", "failed", "aborted", "faulted", "orphaned"].includes(value.state)))) void this.refreshQueries(); }, 5000);
+    if (this.online && !this.disposed) this.polling = setInterval(() => { if (this.pending) void this.reconcile(); for (const action of this.uncertainActions.values()) void this.inspectAction(action); if (!this.projection && (this.busy || this.questions.some(value => value.status === "pending") || this.approvals.some(value => value.canDecide) || this.works.some(value => !["completed", "failed", "aborted", "faulted", "orphaned"].includes(value.state)))) void this.refreshQueries(); }, 5000);
   }
   update(update: DesktopUpdate) {
     if (update.type === "state") {
       this.status = update;
-      if (update.state !== "online") { ++this.generation; this.detailLoading.clear(); this.projectionLoading.clear(); this.ready = false; this.reading = false; this.querying.clear(); this.loadingHistory = false; this.loadingBody.clear(); }
+      if (update.state !== "online") { ++this.generation; this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); this.ready = false; this.reading = false; this.querying.clear(); this.loadingHistory = false; this.loadingBody.clear(); }
       this.timers();
     } else if (update.type === "personal_identity") {
       const key = JSON.stringify([update.identity.remoteId, update.identity.origin, update.identity.profile.id, update.identity.profile.directory]);
@@ -114,9 +134,10 @@ export class PersonalState {
         if (this.view.instanceId && this.draft) this.draftMismatch = true;
         ++this.generation; this.entries.clear(); this.bodies.clear(); this.live = emptyLive(); this.questions = []; this.approvals = []; this.works = []; this.pages = {}; this.next = {}; this.question = null; this.approval = null; this.work = null;
         this.cards.clear(); this.details.clear(); this.detailLoading.clear(); this.deciding.clear(); this.uncertainDecisions.clear(); this.pendingDecisions.clear(); this.uncertainApprovals.clear(); this.refreshingCards.clear(); this.sent.clear(); this.cardRevisions.clear(); this.projection = false; this.revision = -1; this.delegations = []; this.projectionNext = {};
+        this.questionCards.clear(); this.questionDetails.clear(); this.questionDrafts.clear(); this.questionLoading.clear(); this.questionRevisions.clear(); this.acting.clear(); this.uncertainActions.clear(); this.actionRefreshing.clear(); this.hostActions.clear(); this.cuaImages.clear(); this.cuaImageLoading.clear(); this.invalidatedObservations.clear();
         this.view.instanceId = key; this.ready = false;
       }
-      if (!update.identity.online || this.identity?.runId !== update.identity.runId) { ++this.generation; this.ready = false; this.reading = false; this.querying.clear(); this.revision = -1; this.cardRevisions.clear(); this.detailLoading.clear(); this.projectionLoading.clear(); }
+      if (!update.identity.online || this.identity?.runId !== update.identity.runId) { ++this.generation; this.ready = false; this.reading = false; this.querying.clear(); this.revision = -1; this.cardRevisions.clear(); this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); }
       this.identity = update.identity;
       if (update.identity.runId) this.runId = update.identity.runId;
       this.timers();
@@ -133,13 +154,22 @@ export class PersonalState {
       this.pendingDecisions = next;
       for (const value of update.items) { this.uncertainApprovals.add(`${value.kind}:${value.operation}`); if (value.kind === "tools") this.uncertainDecisions.add(value.operation); }
     }
+    else if (update.type === "personal_actions") {
+      const next = new Set(update.items.map(personalCardKey));
+      for (const key of this.hostActions) if (!next.has(key)) { const request = this.uncertainActions.get(key); if (request) void this.refreshAction(request); }
+      this.hostActions = next;
+      for (const value of update.items) {
+        this.uncertainActions.set(personalCardKey(value), value);
+        if (value.family === "questions" && value.answers && value.questionVersion) this.questionDrafts.set(`${value.operation}:${value.questionVersion}`, { index: 0, review: true, answers: structuredClone(value.answers) });
+      }
+    }
     else return;
     this.changed();
   }
   frame(frame: PersonalDesktopFrame) {
     if (this.status.state !== "online" || !this.identity || frame.runId !== this.identity.runId) return;
     if (frame.type === "snapshot") {
-      ++this.generation; this.detailLoading.clear(); this.projectionLoading.clear(); this.runId = frame.runId; this.subscription = frame.subscription; this.seq = frame.seq; this.through = frame.timeline.through; this.cursor = frame.timeline.nextCursor;
+      ++this.generation; this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); this.runId = frame.runId; this.subscription = frame.subscription; this.seq = frame.seq; this.through = frame.timeline.through; this.cursor = frame.timeline.nextCursor;
       for (const entry of frame.timeline.items) this.installEntry(entry);
       this.live = structuredClone(frame.live); this.ready = true; this.reading = false; this.querying.clear(); this.loadingHistory = false; this.loadingBody.clear();
       if (frame.state) this.installProjection(frame.state);
@@ -249,7 +279,7 @@ export class PersonalState {
   async refreshQueries() {
     if (!this.online || this.reading) return;
     const generation = this.generation; this.reading = true;
-    await Promise.all((Object.keys(pathFor) as QueryKind[]).filter(kind => !this.projection || kind !== "tools" && kind !== "works").map(kind => this.page(kind, 0, generation)));
+    await Promise.all((Object.keys(pathFor) as QueryKind[]).filter(kind => !this.projection || kind === "questions" && !this.questionCards.size).map(kind => this.page(kind, 0, generation)));
     const result = await this.remote<{ default: { mode: PermissionMode } }>("GET", "/permissions");
     if (generation === this.generation) { if (result.ok) this.mode = result.value.default.mode; this.reading = false; this.changed(); }
   }
@@ -310,12 +340,16 @@ export class PersonalState {
     this.actionBusy = false; await this.selectApproval(value); await this.refreshQueries(); this.changed();
   }
   private installCard(value: PersonalDesktopApproval, revision: number) {
-    if (revision < (this.cardRevisions.get(value.operation) ?? -1)) return;
-    this.cardRevisions.set(value.operation, revision);
-    for (const [id, card] of this.cards) if (card.operation === value.operation) this.cards.set(id, { ...value, occurrence: card.occurrence });
+    const key = personalCardKey(value), family = value.family ?? "tools";
+    if (revision < (this.cardRevisions.get(key) ?? -1)) return;
+    this.cardRevisions.set(key, revision);
+    const detail = this.details.get(key);
+    if (detail && detail.admission !== value.admission) { this.details.delete(key); this.detailLoading.delete(key); }
+    for (const [id, card] of this.cards) if (personalCardKey(card) === key && card.admission === value.admission) this.cards.set(id, { ...value, occurrence: card.occurrence });
     this.cards.set(value.occurrence, value);
-    this.refreshingCards.delete(value.operation);
-    if (!value.canDecide) this.uncertainDecisions.delete(value.operation);
+    if (family === "mcp" && this.cuaImages.get(value.operation)?.observation !== value.observation) this.cuaImages.delete(value.operation);
+    this.refreshingCards.delete(key);
+    if (!value.canDecide) { this.uncertainApprovals.delete(key); if (family === "tools") this.uncertainDecisions.delete(value.operation); }
   }
   private installEntry(entry: PersonalTimelineEntry) {
     const old = this.entries.get(entry.entry), status = (value: string) => value === "queued" ? 0 : value === "placed" ? 1 : 2;
@@ -325,10 +359,13 @@ export class PersonalState {
   }
   private async inspectSnapshot(frame: Extract<PersonalDesktopFrame, { type: "snapshot" }>) {
     const generation = this.generation;
-    const operations = [...new Set([...this.cards.values()].map(value => value.operation).concat([...this.uncertainDecisions]))].filter(operation => !this.details.has(operation) || !frame.state?.approvals.items.some(value => value.operation === operation));
+    const originals = new Map<string, PersonalCardRef>([...this.cards.values()].map(value => [personalCardKey(value), value]));
+    for (const operation of this.uncertainDecisions) { const value = { family: "tools" as const, operation }; if (!originals.has(personalCardKey(value))) originals.set(personalCardKey(value), value); }
+    const operations = [...originals.values()].filter(value => !this.details.has(personalCardKey(value)) || !frame.state?.approvals.items.some(card => personalCardKey(card) === personalCardKey(value) && (value.admission === undefined || card.admission === value.admission)));
     const inputs = [...this.entries.values()].filter(entry => entry.input && (entry.input.status === "queued" || entry.input.status === "placed") && !frame.timeline.items.some(value => value.entry === entry.entry));
-    for (const operation of operations) this.refreshingCards.add(operation);
-    const reads = [...operations.map(operation => () => this.loadCard(operation)), ...inputs.map(entry => async () => {
+    for (const value of operations) this.refreshingCards.add(personalCardKey(value));
+    const questions = [...new Map([...this.questionCards.values()].map(question => [question.id, question])).values()].filter(question => !frame.state?.questions?.items.some(value => value.id === question.id));
+    const reads = [...operations.map(value => () => this.loadCard(value)), ...questions.map(question => () => this.loadQuestion(question)), ...inputs.map(entry => async () => {
       const result = await this.remote<{ v: 1; revision: number; entry: PersonalTimelineEntry | null }>("GET", `/desktop/input?requestId=${encodeURIComponent(entry.input!.requestId)}`);
       if (generation !== this.generation) return;
       if (result.ok && result.value.entry?.input?.requestId === entry.input!.requestId) this.installEntry(result.value.entry);
@@ -338,15 +375,16 @@ export class PersonalState {
     for (let index = 0; index < reads.length && generation === this.generation; index += 4) await Promise.all(reads.slice(index, index + 4).map(read => read()));
     if (generation === this.generation) this.changed();
   }
-  private installProjection(value: PersonalDesktopState, kind?: "approvals" | "works" | "delegations") {
+  private installProjection(value: PersonalDesktopState, kind?: "approvals" | "works" | "delegations" | "questions") {
     if (value.revision < this.revision) return;
     this.projection = true; this.revision = value.revision;
     for (const card of [...value.approvals.items, ...(value.approvalUpdates ?? [])]) this.installCard(card, value.revision);
+    for (const question of [...value.questions?.items ?? [], ...value.questionUpdates ?? []]) this.installQuestion(question, value.revision);
     if (!kind || kind === "works") this.works = kind === "works" ? [...this.works.filter(work => !value.works.items.some(item => item.ref.taskId === work.ref.taskId)), ...value.works.items] : value.works.items;
     if (!kind || kind === "delegations") this.delegations = kind === "delegations" ? [...this.delegations.filter(group => !value.delegations.items.some(item => item.ref.entryId === group.ref.entryId)), ...value.delegations.items] : value.delegations.items;
-    for (const key of ["approvals", "works", "delegations"] as const) if (!kind || kind === key) this.projectionNext[key] = value[key].nextOffset;
+    for (const key of ["approvals", "works", "delegations", "questions"] as const) if (!kind || kind === key) this.projectionNext[key] = value[key]?.nextOffset;
   }
-  async moreProjection(kind: "approvals" | "works" | "delegations") {
+  async moreProjection(kind: "approvals" | "works" | "delegations" | "questions") {
     const offset = this.projectionNext[kind]; if (!this.online || offset === undefined || this.projectionLoading.has(kind)) return;
     this.projectionLoading.add(kind); const generation = this.generation;
     const result = await this.remote<PersonalDesktopState>("GET", `/desktop/state?${kind}=${offset}`);
@@ -355,27 +393,201 @@ export class PersonalState {
     if (result.ok) this.installProjection(result.value, kind); else this.message = result.error.message;
     this.changed();
   }
-  async loadCard(operation: number, more = false) {
-    if (!this.online) return;
-    const loading = this.detailLoading.get(operation); if (loading) return loading;
-    const previous = this.details.get(operation), offset = more ? previous?.nextOffset ?? 0 : 0, generation = this.generation;
-    const pending = this.remote<PersonalDesktopOperation>("GET", `/desktop/operation?operation=${operation}&offset=${offset}`).then(result => {
-      if (generation !== this.generation) return;
-      this.detailLoading.delete(operation);
-      if (!result.ok) this.details.set(operation, { text: previous?.text ?? "", complete: false, admission: previous?.admission ?? 0, error: result.error.message });
-      else if (result.value.operation !== operation || result.value.offset !== offset || result.value.nextOffset !== undefined && result.value.nextOffset <= offset) this.message = "操作记录不属于原读取，请重新核实。";
-      else if (offset && previous?.admission !== result.value.admission) this.details.set(operation, { text: "", complete: false, admission: result.value.admission, error: "操作内容的原记录不一致，请重新读取。" });
+  async loadCard(value: PersonalCardRef, more = false) {
+    if (!this.online) return false;
+    const key = personalCardKey(value), { operation, family = "tools" } = value;
+    const loading = this.detailLoading.get(key); if (loading) return loading;
+    const previous = this.details.get(key), offset = more ? previous?.nextOffset ?? 0 : 0, generation = this.generation;
+    const pending: Promise<boolean> = this.remote<PersonalDesktopOperation>("GET", `/desktop/operation?family=${family}&operation=${operation}&offset=${offset}`).then(result => {
+      if (generation !== this.generation || this.detailLoading.get(key) !== pending) return false;
+      let verified = false;
+      this.detailLoading.delete(key);
+      if (!result.ok) this.details.set(key, { text: previous?.text ?? "", complete: false, admission: value.admission ?? previous?.admission ?? 0, family, error: result.error.message });
+      else if (result.value.operation !== operation || result.value.summary.operation !== operation || personalCardKey(result.value.summary) !== key || result.value.summary.admission !== result.value.admission || value.admission !== undefined && result.value.admission !== value.admission || result.value.offset !== offset || result.value.nextOffset !== undefined && result.value.nextOffset <= offset) this.message = "操作记录不属于原读取，请重新核实。";
+      else if (offset && previous?.admission !== result.value.admission) this.details.set(key, { text: "", complete: false, admission: result.value.admission, family, error: "操作内容的原记录不一致，请重新读取。" });
       else {
-        if (result.value.revision >= (this.cardRevisions.get(operation) ?? -1)) { this.installCard(result.value.summary, result.value.revision); this.refreshingCards.delete(operation); }
-        this.details.set(operation, { text: (offset ? previous?.text ?? "" : "") + result.value.text, complete: result.value.nextOffset === undefined, admission: result.value.admission, nextOffset: result.value.nextOffset });
+        if (result.value.revision >= (this.cardRevisions.get(key) ?? -1)) { this.installCard(result.value.summary, result.value.revision); this.refreshingCards.delete(key); }
+        this.details.set(key, { text: (offset ? previous?.text ?? "" : "") + result.value.text, complete: result.value.nextOffset === undefined, admission: result.value.admission, family, nextOffset: result.value.nextOffset });
+        verified = true;
       }
       this.changed();
+      return verified;
     });
-    this.detailLoading.set(operation, pending); return pending;
+    this.detailLoading.set(key, pending); return pending;
+  }
+  actionBlocked(family: PersonalDesktopFamily, operation: number) { const key = personalCardKey({ family, operation }); return !this.online || this.acting.has(key) || this.uncertainActions.has(key) || this.uncertainApprovals.has(key); }
+  private installQuestion(value: PersonalDesktopQuestion, revision: number) {
+    if (revision < (this.questionRevisions.get(value.id) ?? -1)) return;
+    this.questionRevisions.set(value.id, revision);
+    for (const [id, question] of this.questionCards) if (question.id === value.id) this.questionCards.set(id, { ...value, occurrence: question.occurrence });
+    this.questionCards.set(value.occurrence, value);
+  }
+  questionDraft(value: PersonalDesktopQuestion): PersonalQuestionDraft {
+    const key = `${value.id}:${value.version}`;
+    let draft = this.questionDrafts.get(key);
+    if (!draft) { draft = { index: 0, review: false, answers: this.questionDetails.get(value.id)?.questions.map(() => ({ text: "" })) ?? [] }; this.questionDrafts.set(key, draft); }
+    return draft;
+  }
+  async loadQuestion(value: Pick<PersonalDesktopQuestion, "id" | "admission" | "version">) {
+    if (!this.online) return false;
+    const key = `${value.id}:${value.version}`, pending = this.questionLoading.get(key); if (pending) return pending;
+    const generation = this.generation;
+    const reading = this.remote<QuestionDetail>("GET", `/question?question=${value.id}`).then(result => {
+      if (generation !== this.generation) return false;
+      this.questionLoading.delete(key);
+      if (!result.ok) { this.message = result.error.message; this.changed(); return false; }
+      const detail = result.value;
+      const canonical = [...this.questionCards.values()].find(question => question.id === value.id), status = detail.status;
+      if (detail.id !== value.id || detail.admission !== value.admission || !Number.isSafeInteger(detail.version) || detail.version < Math.max(value.version, canonical?.version ?? 0) || !["pending", "answered", "canceled", "stale"].includes(status)) { this.message = "问题状态已变化，请刷新原卡片。"; this.changed(); return false; }
+      try { detail.questions = parseOwnerQuestions(detail.questions); if (detail.answer) detail.answer.answers = parseOwnerAnswers(detail.answer.answers, detail.questions); }
+      catch { this.message = "原问题内容无法核实，请保留卡片并重新读取。"; this.changed(); return false; }
+      this.installQuestion({ ...(canonical ?? { id: detail.id, admission: value.admission, occurrence: value.admission, question: Array.from(detail.questions[0].question).slice(0, 140).join("") }), version: detail.version, status: status as PersonalDesktopQuestion["status"], canAnswer: status === "pending" && !detail.origin.telegram, canCancel: status === "pending" }, this.questionRevisions.get(value.id) ?? this.revision);
+      this.questionDetails.set(value.id, detail);
+      const draft = this.questionDrafts.get(`${value.id}:${detail.version}`);
+      if (draft && draft.answers.length !== detail.questions.length) draft.answers = detail.questions.map(() => ({ text: "" }));
+      this.changed();
+      return true;
+    });
+    this.questionLoading.set(key, reading); return reading;
+  }
+  chooseQuestion(value: PersonalDesktopQuestion, selected: number | number[]) {
+    if (!value.canAnswer || this.actionBlocked("questions", Number(value.id))) return;
+    const detail = this.questionDetails.get(value.id), draft = this.questionDraft(value), item = detail?.questions[draft.index];
+    if (!item?.options) return;
+    const indexes = (typeof selected === "number" ? [selected] : selected).toSorted((a, b) => a - b);
+    if (indexes.some(index => index < 0 || index >= item.options!.length)) return;
+    const labels = indexes.map(index => typeof item.options![index] === "string" ? item.options![index] : item.options![index].label);
+    draft.answers[draft.index] = { text: labels.join("\n"), ...(indexes.length ? item.multiple ? { options: indexes } : { option: indexes[0] } : {}) };
+    this.changed();
+    if (!item.multiple && indexes.length) {
+      if (detail!.questions.length === 1) void this.answerCard(value);
+      else this.nextQuestion(value);
+    }
+  }
+  editQuestion(value: PersonalDesktopQuestion, text: string) { const draft = this.questionDraft(value); draft.answers[draft.index] = { text }; this.changed(); }
+  nextQuestion(value: PersonalDesktopQuestion, skip = false) {
+    const draft = this.questionDraft(value), detail = this.questionDetails.get(value.id); if (!detail) return;
+    if (skip) draft.answers[draft.index] = { text: "" };
+    else if (!draft.answers[draft.index]?.text.trim()) return;
+    if (detail.questions.length === 1) { void this.answerCard(value); return; }
+    if (draft.index + 1 === detail.questions.length) draft.review = true; else draft.index++;
+    this.changed();
+  }
+  backQuestion(value: PersonalDesktopQuestion) { const draft = this.questionDraft(value); if (draft.review) draft.review = false; else if (draft.index > 0) draft.index--; this.changed(); }
+  async answerCard(value: PersonalDesktopQuestion, cancel = false) {
+    const canonical = this.questionCards.get(value.occurrence);
+    if (!canonical || canonical.id !== value.id || canonical.version !== value.version || canonical.admission !== value.admission) return;
+    value = canonical;
+    if (cancel ? !value.canCancel : !value.canAnswer) return;
+    const detail = this.questionDetails.get(value.id);
+    if (!cancel && (!detail || detail.version !== value.version || detail.admission !== value.admission)) return;
+    let answers: OwnerAnswer[] | undefined;
+    if (!cancel) { try { answers = parseOwnerAnswers(this.questionDraft(value).answers, detail!.questions); } catch { this.message = "请核对原问题的回答。"; this.changed(); return; } }
+    await this.performAction({ v: 1, requestId: crypto.randomUUID(), family: "questions", operation: Number(value.id), admission: value.admission, occurrence: value.occurrence, action: cancel ? "cancel_question" : "answer", questionVersion: value.version, ...(answers ? { answers } : {}) });
+    await this.refreshQuestionState();
+  }
+  private async refreshQuestionState() {
+    const generation = this.generation, state = await this.remote<PersonalDesktopState>("GET", "/desktop/state");
+    if (generation === this.generation && state.ok) this.installProjection(state.value);
+    this.changed();
+  }
+  private async performAction(request: PersonalDesktopAction) {
+    if (this.actionBlocked(request.family, request.operation)) return;
+    const key = personalCardKey(request), generation = this.generation;
+    this.acting.add(key); this.uncertainActions.set(key, request); this.changed();
+    const result = await this.remote<PersonalDesktopActionReceipt>("POST", "/desktop/action", request);
+    this.acting.delete(key);
+    if (generation !== this.generation) return;
+    if (!result.ok) { this.message = result.error.message; if (["not_sent", "rejected"].includes(result.error.outcome)) this.uncertainActions.delete(key); }
+    else if (!sameAction(result.value.request, request)) this.message = "选择回执不属于原卡片，请核实原请求。";
+    else if (result.value.state !== "admitted") { await this.refreshAction(request); if (generation !== this.generation) return; this.message = result.value.state === "failed" ? "本次选择未完成，请核实原记录。" : result.value.state === "effect_unknown" ? "本次选择结果待核实，请查看原记录。" : this.message; }
+    if (this.uncertainActions.has(key)) await this.inspectAction(request);
+    this.changed();
+  }
+  async inspectAction(request: PersonalDesktopAction) {
+    if (!this.online) return;
+    const generation = this.generation, result = await this.remote<PersonalDesktopActionReceipt | null>("GET", `/desktop/action?requestId=${request.requestId}`);
+    if (generation !== this.generation) return;
+    if (result.ok && result.value && sameAction(result.value.request, request) && result.value.state !== "admitted") await this.refreshAction(request);
+    else if (!result.ok) this.message = result.error.message;
+    this.changed();
+  }
+  private refreshAction(request: PersonalDesktopAction): Promise<void> {
+    const key = personalCardKey(request), loading = this.actionRefreshing.get(key); if (loading) return loading;
+    const generation = this.generation, current = () => generation === this.generation && this.uncertainActions.get(key)?.requestId === request.requestId;
+    const pending = (async () => {
+      if (!current()) return;
+      let verified: boolean;
+      if (request.family === "questions") {
+        const question = { id: String(request.operation), admission: request.admission, version: request.questionVersion ?? 0 };
+        await this.questionLoading.get(`${question.id}:${question.version}`);
+        if (!current()) return;
+        verified = await this.loadQuestion(question);
+      } else {
+        await this.detailLoading.get(key);
+        if (!current()) return;
+        verified = await this.loadCard(request);
+      }
+      if (current() && verified) this.uncertainActions.delete(key);
+    })().finally(() => { if (this.actionRefreshing.get(key) === pending) this.actionRefreshing.delete(key); this.changed(); });
+    this.actionRefreshing.set(key, pending); return pending;
+  }
+  async cardAction(value: PersonalDesktopApproval, action: PersonalDesktopActionName) {
+    const canonical = this.cards.get(value.occurrence);
+    if (!canonical || canonical.admission !== value.admission || canonical.operation !== value.operation || (canonical.family ?? "tools") !== (value.family ?? "tools") || !canonical.actions?.includes(action) || this.actionBlocked(value.family ?? "tools", value.operation)) return;
+    value = canonical;
+    const detail = this.details.get(personalCardKey(value));
+    if (!detail?.complete || detail.admission !== value.admission || (detail.family ?? "tools") !== (value.family ?? "tools") || this.refreshingCards.has(personalCardKey(value))) return;
+    try {
+      const original: unknown = JSON.parse(detail.text);
+      if (!original || typeof original !== "object" || !("target" in original) || typeof original.target !== "string" || !("params" in original) || !original.params || typeof original.params !== "object" || value.target !== original.target.slice(0, 512) || value.targetTruncated !== (original.target.length > 512)) return;
+    } catch { return; }
+    if (action === "accept" && !this.canAcceptCua(value)) return;
+    if (action === "observe" && value.observation !== undefined) { this.invalidatedObservations.set(value.operation, value.observation); this.cuaImages.delete(value.operation); }
+    await this.performAction({ v: 1, requestId: crypto.randomUUID(), family: value.family ?? "tools", operation: value.operation, admission: value.admission, occurrence: value.occurrence, action, ...(action === "accept" ? { observation: value.observation } : {}), ...(["claim_applied", "claim_not_applied"].includes(action) && value.check ? { check: value.check.entry } : {}) });
+    await this.loadCard(value);
+    if (action === "observe") { const canonical = this.cards.get(value.occurrence); if (canonical?.observation) await this.loadCuaImages(canonical); }
+  }
+  canAcceptCua(value: PersonalDesktopApproval) {
+    const images = this.cuaImages.get(value.operation);
+    return value.observation !== undefined && this.invalidatedObservations.get(value.operation) !== value.observation && images?.observation === value.observation && !!value.images?.length && value.images.every(image => !image.partial && images.images.some(loaded => loaded.id === image.id && loaded.loaded));
+  }
+  cuaImageLoaded(value: PersonalDesktopApproval, id: string, loaded: boolean) {
+    const images = this.cuaImages.get(value.operation); if (!images || images.observation !== value.observation) return;
+    const image = images.images.find(image => image.id === id); if (!image) return;
+    image.loaded = loaded; if (!loaded) this.message = "新截图无法显示，请重新观察。";
+    this.changed();
+  }
+  async loadCuaImages(value: PersonalDesktopApproval) {
+    if (!this.online || !value.observation || this.cuaImageLoading.has(value.operation) || this.invalidatedObservations.get(value.operation) === value.observation) return;
+    const observation = value.observation, generation = this.generation, profile = this.identity!.profile;
+    this.cuaImageLoading.add(value.operation); this.cuaImages.delete(value.operation); this.changed();
+    const current = () => generation === this.generation && this.cards.get(value.occurrence)?.observation === observation;
+    const images: { id: string; src: string; loaded: boolean }[] = [];
+    try {
+      const settings = await this.request<Pick<PersonalSettingsSnapshot, "profile" | "revisions">>("desktop_personal_settings_request", { request: { v: 1, op: "settings.read", limit: 1 } });
+      if (!current()) return;
+      if (!settings.ok) { this.message = settings.error.message; return; }
+      if (settings.value.profile.id !== profile.id || settings.value.profile.directory !== profile.directory) throw new Error("新截图不属于原档案，请重新连接。");
+      const expectedRevision = settings.value.revisions.mcp;
+      for (const image of value.images ?? []) {
+        const src = await loadPersonalCuaImage(image, observation, async offset => {
+          const result = await this.request<CuaImagePage & { profile: Identity["profile"] }>("desktop_personal_settings_request", { request: { v: 1, op: "mcp.cua-image", profile, expectedRevision, operation: value.operation, observation, image: image.id, offset } });
+          if (!result.ok) { this.message = result.error.message; return null; }
+          if (result.value.profile.id !== profile.id || result.value.profile.directory !== profile.directory) throw new Error("新截图不属于原档案，请重新连接。");
+          return result.value;
+        }, current);
+        if (!src || !current()) return;
+        images.push({ id: image.id, src, loaded: false });
+      }
+      if (current()) this.cuaImages.set(value.operation, { observation, images });
+    } catch (error) { if (current()) this.message = (error as Error).message; }
+    finally { this.cuaImageLoading.delete(value.operation); this.changed(); }
   }
   async decideCard(value: PersonalDesktopApproval, decision: "approved" | "rejected") {
-    const canonical = this.cards.get(value.occurrence), detail = this.details.get(value.operation);
-    if (!this.online || !canonical?.canDecide || !detail?.complete || detail.admission !== canonical.admission || this.refreshingCards.has(value.operation) || this.deciding.has(value.operation) || this.uncertainDecisions.has(value.operation)) return;
+    if (value.actions) { await this.cardAction(value, decision === "approved" ? "approve" : "reject"); return; }
+    const canonical = this.cards.get(value.occurrence), key = personalCardKey(value), detail = this.details.get(key);
+    if (!this.online || !canonical?.canDecide || (canonical.family ?? "tools") !== "tools" || personalCardKey(canonical) !== key || canonical.admission !== value.admission || !detail?.complete || detail.admission !== canonical.admission || this.refreshingCards.has(key) || this.deciding.has(value.operation) || this.uncertainDecisions.has(value.operation)) return;
     try {
       const original: unknown = JSON.parse(detail.text);
       if (!original || typeof original !== "object" || !("target" in original) || typeof original.target !== "string" || !("params" in original) || !original.params || typeof original.params !== "object" || Array.isArray(original.params) || canonical.target !== original.target.slice(0, 512) || canonical.targetTruncated !== (original.target.length > 512)) return;
@@ -385,7 +597,7 @@ export class PersonalState {
     this.deciding.delete(value.operation);
     if (generation !== this.generation) return;
     if (!result.ok) { this.message = result.error.message; if (result.error.outcome === "not_sent") this.uncertainDecisions.delete(value.operation); }
-    await this.loadCard(value.operation);
+    await this.loadCard(value);
     this.changed();
   }
   async cancelDelegation(value: PersonalDesktopDelegation) {

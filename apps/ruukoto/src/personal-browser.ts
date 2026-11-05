@@ -1,3 +1,4 @@
+import { personalRecoveryEvidence, verifyPersonalOwnerClaim, type PersonalRecoveryEvidence } from "./personal-recovery-claims.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -25,7 +26,7 @@ export const PERSONAL_BROWSER = "personal-browser";
 export const PERSONAL_BROWSER_TOOL_NAMES = ["browser"];
 type Effect = "returned" | "not_executed" | "no_write" | "effect_unknown";
 type ImageRef = { type: "image"; data: string; mimeType: string };
-export type PersonalBrowserOperation = { operation: TaskId; admission: EntryId; origin: PersonalToolOrigin; instructions?: PersonalToolInstructions; controlled?: { identity: string; entry: EntryId }; claim?: EntryId; superseded?: { entry: EntryId; note: EntryId }; params: BrowserParams; config: PersonalBrowserConfig; started: boolean; startEntry?: EntryId; stopped: boolean; effect: Effect; code: string; artifact?: PersonalArtifact; image?: ImageRef; result?: JsonValue; observation?: EntryId; resolution?: { effect: "applied" | "not_applied"; evidence: string; entry: EntryId; actor?: string }; stopEvidence?: EntryId; stopTask?: TaskId };
+export type PersonalBrowserOperation = { operation: TaskId; admission: EntryId; origin: PersonalToolOrigin; instructions?: PersonalToolInstructions; controlled?: { identity: string; entry: EntryId }; claim?: EntryId; superseded?: { entry: EntryId; note: EntryId }; params: BrowserParams; config: PersonalBrowserConfig; started: boolean; startEntry?: EntryId; stopped: boolean; effect: Effect; code: string; artifact?: PersonalArtifact; image?: ImageRef; result?: JsonValue; observation?: EntryId; resolution?: { effect: "applied" | "not_applied"; entry: EntryId; actor?: string } & PersonalRecoveryEvidence; stopEvidence?: EntryId; stopTask?: TaskId };
 type ResumeChoice = { entry: EntryId; operation: TaskId; pause: EntryId; generation: string; requestId: string; actor?: PersonalEntryIdentity; consumed?: EntryId; observation?: EntryId };
 type BrowserSessionState = { stateJson?: string; bindingEntry?: EntryId; pause?: { operation: TaskId; entry: EntryId; submission: SubmissionId }; choices?: ResumeChoice[] };
 export const PersonalBrowserSessionDoc = defineDocFamily<BrowserSessionState, null>({ kind: "ruukoto.browser-session", scope: "session", version: 1, family: true, initial: () => ({}) });
@@ -37,7 +38,7 @@ export const BrowserAdmission = defineEntry<Pick<PersonalBrowserOperation, "oper
 const BrowserStart = defineEntry<{ operation: TaskId; admission: EntryId }>("ruukoto.browser-start");
 const BrowserObservation = defineEntry<{ operation: TaskId; admission: EntryId; effect: Effect; code: string; stopped: boolean; artifact?: PersonalArtifact; image?: ImageRef; result?: JsonValue }>("ruukoto.browser-observation");
 const BrowserPause = defineEntry<{ operation: TaskId; submission: SubmissionId }>("ruukoto.browser-pause");
-const BrowserResolution = defineEntry<{ operation: TaskId; effect?: "applied" | "not_applied"; evidence: string; actor?: string }>("ruukoto.browser-resolution");
+const BrowserResolution = defineEntry<{ operation: TaskId; effect?: "applied" | "not_applied"; evidence?: string; claim?: EntryId; actor?: string }>("ruukoto.browser-resolution");
 const BrowserSupersession = defineEntry<{ operation: TaskId; admission: EntryId; note: EntryId }>("ruukoto.browser-supersession");
 const BrowserResumeChoice = defineEntry<Omit<ResumeChoice, "entry" | "consumed" | "observation">>("ruukoto.browser-resume-choice");
 const BrowserResumeConsumption = defineEntry<{ choice: EntryId; operation: TaskId; pause: EntryId }>("ruukoto.browser-resume-consumption");
@@ -81,6 +82,7 @@ async function prepareBrowserRelease(tx: Tx, values: PersonalBrowserOperation[])
     for (const value of owned) {
       if (!value.observation || browserUnresolved(value)) throw new PersonalError("work_stop_unverified", "原浏览器事实仍待核实，保留占用。");
       stoppedEntries.push(value.observation);
+      if (value.resolution?.claim !== undefined) await verifyPersonalOwnerClaim(tx, value.resolution.claim, { family: "browser", operation: value.operation, admission: value.admission, effect: value.resolution.effect });
       if (value.stopEvidence) stoppedEntries.push(value.stopEvidence);
       if (value.resolution) stoppedEntries.push(value.resolution.entry);
     }
@@ -136,11 +138,18 @@ async function original(tx: Tx, value: PersonalBrowserOperation, actor?: Browser
   const source = value.origin.telegram;
   if (!source || !samePersonalEntry(source, actor) || !await telegramSourceActive(tx, source)) throw new PersonalError("browser_original_entry", "原操作不属于当前拥有者入口，请从原入口查询。");
 }
-export async function browserResolve(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", evidence: string, actor?: BrowserActor) {
+export async function prepareBrowserResolution(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", actor?: BrowserActor) {
   const value = await browserOperation(tx, operation); await original(tx, value, actor);
-  if (!["applied", "not_applied"].includes(effect) || !evidence.trim() || evidence.length > 8192 || value.effect !== "effect_unknown" || value.code === "started" || value.resolution) throw new PersonalError("browser_resolution_invalid", "请选择待核实原网页动作的实际效果并提供最多8192字符的证据；已保存核实不能覆盖。");
-  const data = { operation, effect, evidence, ...(actor ? { actor: actor.requestId } : {}) }, entry = await tx.appendEntry(BrowserResolution, value.origin.conversationId, { data });
-  value.resolution = { effect, evidence, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) };
+  if (!["applied", "not_applied"].includes(effect) || value.effect !== "effect_unknown" || value.code === "started" || value.resolution) throw new PersonalError("browser_resolution_invalid", "原网页动作不可保存效果说明，请刷新原记录。");
+  return async (proof: PersonalRecoveryEvidence) => {
+    const data = { operation, effect, ...proof, ...(actor ? { actor: actor.requestId } : {}) }, entry = await tx.appendEntry(BrowserResolution, value.origin.conversationId, { data });
+    value.resolution = { effect, ...proof, entry: entry.id, ...(actor ? { actor: actor.requestId } : {}) };
+  };
+}
+export async function browserResolve(tx: Tx, operation: TaskId, effect: "applied" | "not_applied", evidence: string | { claim: EntryId }, actor?: BrowserActor) {
+  const apply = await prepareBrowserResolution(tx, operation, effect, actor), proof = personalRecoveryEvidence(evidence);
+  if (proof.claim !== undefined) await verifyPersonalOwnerClaim(tx, proof.claim, { family: "browser", operation, admission: (await browserOperation(tx, operation)).admission, effect });
+  await apply(proof);
 }
 function summary(value: Readonly<PersonalBrowserOperation>, sessionStopPending = false, canResume = false) { return { operation: value.operation, action: value.params.action, effect: value.effect, code: value.code, stopped: value.stopped, canResume, canResolve: value.effect === "effect_unknown" && value.code !== "started" && !value.resolution, canVerifyStop: value.started && value.code !== "started" && (!value.stopped || sessionStopPending), ...(value.artifact ? { artifact: value.artifact.id, bytes: value.artifact.bytes } : {}) }; }
 async function browserStopPending(tx: Tx, value: Readonly<PersonalBrowserOperation>) { return value.claim ? (await tx.doc(PersonalInteractiveResourceDoc, "browser", null)).claims.some(claim => claim.claim === value.claim && !claim.released && claim.acquired) && !await browserSessionStopped(tx, value.origin.conversationId) : value.origin.conversationId !== ROOT_CONVERSATION_ID && !await browserSessionStopped(tx, value.origin.conversationId); }
@@ -420,7 +429,8 @@ export async function verifyBrowser(tx: Tx, keys: string[], profile?: string, to
     if (value.startEntry) { const start = await tx.entry(BrowserStart, value.startEntry); if (!start || start.conversationId !== conversationId || start.id <= value.admission || !isDeepStrictEqual(start.data, { operation: value.operation, admission: value.admission })) throw invalid(); }
     if (value.observation) { const observation = await tx.entry(BrowserObservation, value.observation); if (!observation || observation.conversationId !== conversationId || observation.id <= (value.startEntry ?? value.admission) || !isDeepStrictEqual(observation.data, { operation: value.operation, admission: value.admission, effect: value.effect, code: value.code, stopped: observation.data.stopped, ...(value.artifact ? { artifact: value.artifact } : {}), ...(value.image ? { image: value.image } : {}), ...(value.result === undefined ? {} : { result: value.result }) }) || value.stopped !== (observation.data.stopped || !!value.stopEvidence)) throw invalid(); }
     else if (value.artifact || value.image || value.effect === "returned") throw invalid();
-    if (value.resolution) { const resolution = await tx.entry(BrowserResolution, value.resolution.entry); if (!resolution || resolution.conversationId !== conversationId || resolution.id <= (value.observation ?? value.admission) || !isDeepStrictEqual(resolution.data, { operation: value.operation, effect: value.resolution.effect, evidence: value.resolution.evidence, ...(value.resolution.actor ? { actor: value.resolution.actor } : {}) })) throw invalid(); }
+    if (value.resolution) { const resolution = await tx.entry(BrowserResolution, value.resolution.entry); if (!resolution || resolution.conversationId !== conversationId || resolution.id <= (value.observation ?? value.admission) || !isDeepStrictEqual(resolution.data, { operation: value.operation, effect: value.resolution.effect, ...(value.resolution.claim === undefined ? { evidence: value.resolution.evidence } : { claim: value.resolution.claim }), ...(value.resolution.actor ? { actor: value.resolution.actor } : {}) })) throw invalid(); }
+    if (value.resolution?.claim !== undefined) await verifyPersonalOwnerClaim(tx, value.resolution.claim, { family: "browser", operation: value.operation, admission: value.admission, effect: value.resolution.effect });
     if (value.stopEvidence) { const stop = await tx.entry(BrowserResolution, value.stopEvidence); if (!stop || stop.conversationId !== conversationId || stop.data.operation !== value.operation || stop.data.effect !== undefined || !value.stopped) throw invalid(); }
     if (value.artifact && profile) loadPersonalArtifact(profile, value.artifact);
   }

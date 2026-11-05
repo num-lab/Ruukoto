@@ -21,7 +21,7 @@ Main delegates waiting business calls to SubAgents: its requests omit ordinary t
 | Tool family | Tools and responsibility |
 | --- | --- |
 | Analysis/delegation | `background_work`: persistent children, amendments, bounded operation/decision queries, redisplay and published reports |
-| Questions | `ask_user`: one to three structured questions and continuation after answers |
+| Questions | `ask_user`: one to three structured questions; main admits a continuation after answers, while a child waits in its original work and tool call |
 | Scheduling | `schedule_create`, `schedule_query`, `schedule_cancel`: independent timed work, with separate occurrence and future-plan cancellation |
 | Memory/history | `memory`, `history_search`, `history_read`: versioned facts and history lookup |
 | Files/network | `read_file`, `write_file`, `web_search`, `http_request`, `list_files`, `search_files`, `read_artifact`: child-side access within granted scope, with approvals where required |
@@ -37,9 +37,11 @@ stateDiagram-v2
   [*] --> MainReady
   MainReady --> AcceptedInput: Local, IM or desktop
   AcceptedInput --> Model
-  Model --> WaitingForAnswer: ask_user
-  WaitingForAnswer --> Model: Owner answer
+  Model --> WaitingForAnswer: Main ask_user
+  WaitingForAnswer --> Model: Admit main continuation
   Model --> BackgroundAnalysis: background_work
+  BackgroundAnalysis --> WaitingWorkQuestion: Child ask_user
+  WaitingWorkQuestion --> BackgroundAnalysis: Return original answer
   BackgroundAnalysis --> ReportDraft: Covered inputs and work settled
   ReportDraft --> PublishedReport: Current coverage verified
   ReportDraft --> BackgroundAnalysis: Accepted requirements changed
@@ -51,7 +53,7 @@ stateDiagram-v2
 | Data | Authority |
 | --- | --- |
 | Conversations, children and analysis reports | Durable SQLite under the profile, default `~/.ruukoto-durable/` |
-| Questions/answers/receipts | `ruukoto.questions` |
+| Questions/answers/receipts | `ruukoto.questions`: original call/work binding, immutable answers and single-use receipts |
 | Memory and skills | `ruukoto.memories`, `ruukoto.skills` and entries: revisions, revocation, source/body snapshots and invocation evidence |
 | Schedules | `ruukoto.schedules`: rules, runs, execution snapshots and delivery credentials |
 | Business data | `agent-data/main.db` |
@@ -61,6 +63,7 @@ stateDiagram-v2
 | Interactive resources | Host work qualification, FIFO claims, acquisition and release entries with original stop evidence |
 | Published reports | Immutable publication references to original answers; drafts remain inspectable in conversation history |
 | Native owner display | Data-only admission entry and reciprocal request/submission/history association; native model history remains unchanged |
+| Native choices and recovery | Original family records, `ruukoto.desktop-action` intent/outcome receipts, immutable owner claims and fixed checks |
 
 MCP v4 separates locally configured tool effects from remote definitions. The owner explicitly migrates configuration through management before new ordinary-service work is admitted. Save/apply receipts make migration recoverable. Existing credential references and their byte-digest semantics remain; explicit credential rebinding switches to the actual-token digest. Migration invalidates old unstarted approvals, preserves old unknown calls and keeps original computer stopping/recovery manageable.
 
@@ -88,6 +91,14 @@ sequenceDiagram
 
 Platform message identity deduplicates admission. Auto-review handles eligible read-only operations; sensitive actions follow the original platform's approval flow. Replies retain the original platform, account, owner and generation.
 
+### Work Questions
+
+An eligible child's `ask_user` holds the original ToolTask while its WorkTask and acquired resources remain owned. Each independent work can have one pending batch of up to three questions, so several works can wait while main keeps responding. Answers return through the asking tool under the original work's model, permissions and source. Main's own questions retain their separate pending-return and continuation path.
+
+Controls bind each answer to the exact question batch. Ordinary messages coordinate main; accepted amendments stay saved until the child's next model request with the answer. The asking model generation cannot execute sibling business calls, including after answer acceptance or cancellation. A later request prepares effects against the current instructions.
+
+Answer acceptance, original tool return and WorkTask completion are separate persisted facts. A fixed receipt recovers a lost answer response without answering twice. Canceling work invalidates pending questions or records a canceled continuation for an accepted answer that has not returned. Reopen verifies the original question, work, source, answer and tool-result references before resuming a safe wait; current defaults or a replaced IM generation cannot acquire the old answer authority.
+
 ### Amendments and Final Reports
 
 Main handles a progress question through canonical work and operation queries. Work results include current MCP, app-data, browser, process and resource state alongside command, service and ordinary-tool facts. A requested redisplay identifies the same original decision and grants no approval. An append records changed or additional requirements for the same work and SubAgent. Every accepted append makes its older unstarted operations known not executed across enabled families, including approved but unconsumed actions, while preserving their requests and decisions. The child reads the saved update at a model boundary and prepares a new exact action. Admission and consumption check what that actual request received and the current live input membership, including delayed old responses and note-only runs. Misclassifying a progress question as append has the same conservative invalidation cost; a started effect cannot be undone by an amendment.
@@ -106,9 +117,24 @@ Only the validated publication appears as a normal desktop final answer. Interna
 
 ### Desktop Observation
 
-The authenticated snapshot/event stream projects ordinary-operation card occurrences, canonical work and delegation state, actual model-read evidence and explicit publication. Public commit notifications wake bounded updates independently of main's model events. Original admission and redisplay anchors determine card placement; each operation's current decision updates every occurrence. List pages contain at most eight items, and exact parameter/target bodies use immutable pages. Subscription sequence detects transport gaps, while commit revisions discard older canonical state within the same backend run.
+The authenticated snapshot/event stream projects decision and recovery cards for ordinary tools, application data, MCP/Cua, service restarts and inspections, commands, browsers and managed processes, together with owner questions, work/delegation state, actual model-read evidence and explicit publication. Public commit notifications wake bounded updates independently of main's model events. Original admission and redisplay anchors determine card placement; each operation's current state updates every occurrence. List pages contain at most eight items, and exact parameter/target bodies use immutable pages. Subscription sequence detects transport gaps, while commit revisions discard older canonical state within the same backend run.
 
 Native owner text receives a data-only display entry in its admission transaction, including when queued. Reciprocal indices associate the original request and native submission with eventual user history. Projection validates body and identity, hides the associated raw row once covered by the display cut, and preserves entryless withdrawal as unanswered. Custom report/question/IM inputs retain their existing projection. Contradictory referenced records fail explicitly instead of moving or omitting another owner's message.
+
+### Native Recovery Choices
+
+`/desktop/action` binds a choice to its original family, operation, admission, displayed occurrence and stable request ID. Admission checks the source and current allowed action; one unresolved action occupies that card. `/desktop/action?requestId=...` returns the exact canonical request and outcome for response-loss inspection. The action ledger owns intent and receipts, while each family still owns its approval, question, effect and stopping records.
+
+| Fact | Meaning |
+| --- | --- |
+| Original receipt | Outcome of the recorded execution; an application-data audit receipt can establish commit, while a command receipt establishes that execution returned |
+| Current observation | State of the original known target now; a URL or service observation does not establish the earlier write's effect |
+| Owner effect claim | Immutable applied/not-applied statement with authenticated source, time, card and optional fixed-check reference; the original unknown result remains inspectable |
+| Stopping evidence | Proof about the exact original execution, independent of effect settlement and reply delivery |
+
+Checks run as bounded host tasks against original receipts or the known target under its recorded machine, configuration, URL and credential identity. They do not repeat the write or adopt current default permissions. Eligible native effect claims need no freeform evidence; legacy evidence stays readable. Application data retains audit-receipt recovery, ordinary MCP retains end-with-unknown, and Cua retains its verified-stop and fresh-observation sequence.
+
+Cleanup drains the recorded file job, inspection, command or service launcher, browser session, managed process or captured Cua CLI launch. It leaves unrelated work available and does not seal the file profile's admission namespace. Unknown stopping retains the original resource and directory occupancy.
 
 ### File Operation Lifecycle
 
@@ -132,7 +158,9 @@ Manual finalization adds facts; it never removes the original source's automatic
 
 Original full-access work receives a host-recorded controlled identity for configured browser, computer and process capabilities. One assignment holds a managed browser or Cua sandbox resource; later assignments persist in FIFO order with their original permissions. Normal completion and cancellation close the original browser or CLI and wait for exact stopping and required effect evidence. Resource release and WorkTask completion commit together after checking notes accepted during cleanup, so an active amended work keeps its original claim. Unknown stopping keeps the work and resource owned while main answers other inputs.
 
-Browser takeover requires an original-entry continuation choice and a new snapshot before later actions. Browser connection management targets the current child owner and binds stopping and its evidence to the captured original execution; a historical operation cannot stop or mark a reused child's later browser stopped. Cua requires a new screenshot and acceptance of that exact observation, including when a paused in-flight call later succeeds. Old choices and observations cannot resume a later pause. A later connection-stop failure can be rechecked while preserving the accepted takeover. Automatic CLI cleanup preserves the Linux sandbox; stopping the whole sandbox remains an explicit owner action because unsaved state may be lost. The existing Cua connection handles one configured target at a time and refuses another while occupied or stopping. A successor for the same resource waits for cleanup or recovery to finish and rechecks its original instructions before connecting. Reopen verifies all resource participants and release evidence against immutable history.
+Browser takeover requires an original-entry continuation choice and a new snapshot before later actions. Browser connection management targets the current child owner and binds stopping and its evidence to the captured original execution; a historical operation cannot stop or mark a reused child's later browser stopped.
+
+Cua requires a new screenshot and acceptance of that exact observation before the owner resumes the corresponding pause, including when a paused in-flight call later succeeds. Old choices and observations cannot resume a later pause. A later connection-stop failure can be rechecked while preserving the accepted takeover. CLI cleanup reserves recovery ownership and preserves the Linux sandbox; stopping the recorded whole sandbox requires a separate explicit owner choice because memory and unsaved application state may be lost. The existing Cua connection handles one configured target at a time and refuses another while occupied or stopping. A successor for the same resource waits for cleanup or recovery to finish and rechecks its original instructions before connecting. Reopen verifies all resource participants and release evidence against immutable history.
 
 Processes survive ordinary child replies under their original assignment and directory claims. Canceling that assignment stops only its owned managed executions, even after the WorkTask has completed. Reused SubAgents cannot manage another work's processes. Historical processes retain their original provenance; directory conflicts and unknown stopping still prevent unsafe writes.
 
@@ -145,7 +173,7 @@ Canceling one scheduled occurrence records its original owner authority, cancels
 ## Invariants and Failure Handling
 
 - One instance owns one exclusive durable Harness; local, IM and desktop entries share its conversation facts.
-- IM approvals/questions require the bound owner in the original platform/private chat. An answer is not a tool approval.
+- IM approvals/questions require the bound owner in the original platform/private chat. Native may inspect or cancel an IM question but cannot answer it; an answer grants no tool approval or permission increase.
 - Restart recovery reconciles pending work without repeating completed facts or replaying unknown external effects.
 - Accepted follow-up instructions keep the original work's SubAgent and stable native keys: the same task steers each accepted note into that conversation in admission order, supervises every submission through completion, cancellation or failure, and reports each note's real state instead of replaying it under a new key.
 - A local empty model answer without persisted handoff facts reports an error while retaining the original native history.
@@ -172,3 +200,6 @@ Canceling one scheduled occurrence records its original owner authority, cancels
 - [Personal validated report publication](../../.agents/notes/implemented/architecture/2026-11-04-personal-report-publication.md)
 - [Personal desktop file loop](../../.agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md)
 - [Personal execution across waiting capabilities](../../.agents/notes/implemented/architecture/2026-11-04-personal-m2-execution.md)
+- [Personal work questions](../../.agents/notes/implemented/feature/2026-11-05-personal-work-questions.md)
+- [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
+- [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)

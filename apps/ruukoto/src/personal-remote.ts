@@ -15,12 +15,12 @@ import { personalProfileFormatSupported } from "./personal-profile.ts";
 import { parsePersonalImPairingRequest } from "./personal-im-pairing.ts";
 
 const MAX_REQUEST = 128 * 1024, MAX_RESPONSE = 256 * 1024;
-const READ_ROUTES = new Set(["/status", "/timeline", "/history/entry", "/desktop/state", "/desktop/operation", "/desktop/input", "/delegations", "/delegation", "/delegation/report", "/questions", "/question", "/question/receipt", "/works", "/work", "/input", "/permissions", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/services", "/service", "/app-data/operations", "/app-data/operation"]);
-const WRITE_ROUTES = new Set(["/inputs", "/question/answer", "/question/cancel", "/permissions", "/tools/decide", "/mcp/decide", "/mcp/end", "/service/decide", "/app-data/decide", "/work/cancel", "/delegation/cancel"]);
+const READ_ROUTES = new Set(["/status", "/timeline", "/history/entry", "/desktop/state", "/desktop/operation", "/desktop/input", "/desktop/action", "/delegations", "/delegation", "/delegation/report", "/questions", "/question", "/question/receipt", "/works", "/work", "/input", "/permissions", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/services", "/service", "/app-data/operations", "/app-data/operation"]);
+const WRITE_ROUTES = new Set(["/inputs", "/question/answer", "/question/cancel", "/desktop/action", "/permissions", "/tools/decide", "/mcp/decide", "/mcp/end", "/service/decide", "/app-data/decide", "/work/cancel", "/delegation/cancel"]);
 const OFFLINE_SETTINGS = new Set(["settings.read", "lifecycle.status", "skills.list", "skills.get", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end"]);
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 export type PersonalRemoteConfig = { v: 1; origin: string; owner: string; profile: PersonalRemoteBinding["profile"] };
-type Backend = <T = unknown>(method: "GET" | "POST", route: string, body?: unknown) => Promise<T>;
+type Backend = <T = unknown>(method: "GET" | "POST", route: string, body?: unknown, nativeCredential?: string) => Promise<T>;
 const invalid = () => new PersonalError("remote_config_invalid", "远程配置无法核实，请在服务器检查固定拥有者、HTTPS地址与原档案；入口保持关闭。");
 function existingProfile(directory: string): void {
   const filename = path.join(directory, "profile.json"), stat = fs.lstatSync(filename, { throwIfNoEntry: false });
@@ -92,7 +92,7 @@ export async function startPersonalRemote(options: { home?: () => string; backen
   const auth = new PersonalRemoteAuth(binding(), { home: options.home });
   const socketPath = path.join(auth.directory, "remote.sock"), adminPath = path.join(auth.directory, "admin.sock");
   if (Buffer.byteLength(socketPath) > 100) { auth.close(); throw new PersonalError("remote_path_long", "远程入口私有socket路径过长，请使用较短的服务器账户目录。"); }
-  const backend: Backend = options.backend ?? ((method, target, body) => personalControl(config.profile.directory, method, target, body as Parameters<typeof personalControl>[3]));
+  const backend: Backend = options.backend ?? ((method, target, body, nativeCredential) => personalControl(config.profile.directory, method, target, body as Parameters<typeof personalControl>[3], undefined, nativeCredential));
   const server = http.createServer(), admin = http.createServer();
   const sockets = new Map<Socket, string>();
   const active = new Set<Promise<void>>();
@@ -181,8 +181,8 @@ export async function startPersonalRemote(options: { home?: () => string; backen
         const result = OFFLINE_SETTINGS.has(settings.op) ? await executePersonalSettings(config.profile.directory, settings) : await backend("POST", "/settings", settings);
         authorize(request); respond(response, result);
       } else if (request.method === "GET" && READ_ROUTES.has(url.pathname) || request.method === "POST" && WRITE_ROUTES.has(url.pathname)) {
-        authorize(request);
-        const result = await backend(request.method as "GET" | "POST", url.pathname + url.search, body);
+        const actor = authorize(request);
+        const result = await backend(request.method as "GET" | "POST", url.pathname + url.search, body, request.method === "POST" && url.pathname === "/desktop/action" ? actor.id : undefined);
         authorize(request); respond(response, result);
       } else throw new PersonalError("remote_route_unavailable", "此远程操作不受支持，请更新桌面；未调用其他本机入口。");
     } catch (error) { reject(response, error); }

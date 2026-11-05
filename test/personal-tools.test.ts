@@ -431,7 +431,9 @@ test("durable HTTP：未知写入禁止原来源改用 MCP，独立来源可用�
   await p.work.delegate({ requestId: "source", sourceRequestId: "tools-src", content: invoke("http_request", { url: endpoint + "/write", method: "POST", body: "write" }) });
   await until(async () => !!(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "tools-src"), context)) && writes === 1);
   assert.equal(writes, 1); assert.equal(mcpRequests, 0);
-  assert.match(await p.answer(invoke("mcp_call", mcpArgs), "independent-same-endpoint"), /connect_failed/);
+  await p.answer("Use the configured MCP from independent work", "independent-same-endpoint");
+  const independent = await invoked(p, invoke("mcp_call", mcpArgs), "independent-mcp", "independent-same-endpoint");
+  assert.match(independent.text, /connect_failed/);
   assert.ok(mcpRequests > 0); assert.equal((await first(p)).effect, "effect_unknown");
 });
 

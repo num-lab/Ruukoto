@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { LiveDoc, ROOT_CONVERSATION_ID, type EntryId, type Storage } from "@earendil-works/pi-durable";
+import { LiveDoc, ROOT_CONVERSATION_ID, type EntryId, type EntryQuery, type Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { WebSocket } from "ws";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
@@ -15,8 +15,9 @@ import { personalProvider } from "../apps/ruukoto/src/personal-model.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { personalDesktopEvents } from "../apps/ruukoto/src/personal-desktop-events.ts";
-import { personalTimeline, readPersonalHistory } from "../apps/ruukoto/src/personal-history.ts";
+import { personalDesktopTimelineEntry, personalTimeline, readPersonalHistory } from "../apps/ruukoto/src/personal-history.ts";
 import { PersonalDelegationDoc, listPersonalDelegations } from "../apps/ruukoto/src/personal-delegation.ts";
+import { personalReportTaskDraft } from "../apps/ruukoto/src/personal-report.ts";
 import type { PersonalDesktopFrame, PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
 import { PersonalMockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
 import { isolateSkillHome } from "./helpers/skill-home.ts";
@@ -321,4 +322,56 @@ test("Report projection: an owner message identical to old report content remain
   const current = await f.p.harness.commit(tx => personalTimeline(tx, {}), context);
   assert.equal(current.items.find(entry => entry.entry === original.answer)?.text, "IDENTICAL_CONTENT_RESPONSE");
   assert.equal(current.items.find(entry => entry.input?.requestId === "owner-identical-report-content")?.role, "user");
+});
+
+test("Report projection: ordinary generations check only their own provenance and child tools avoid root history", { timeout: 30_000 }, async t => {
+  const f = await fixture(t, request => {
+    if (!child(request)) return { kind: "text", text: "Published child summary" };
+    return request.messages.at(-1)?.role === "tool" ? { kind: "text", text: "Ordinary child result" } : { kind: "tool_calls", calls: [{ id: "child-history", name: "history_search", arguments: { query: "ordinary provenance" } }] };
+  });
+  for (let index = 0; index < 3; index++) assert.equal(await f.p.answer(`ordinary provenance ${index}`, `ordinary-${index}`), `Ordinary: ordinary provenance ${index}`);
+  await f.p.harness.commit(async tx => {
+    const submission = await tx.submissionByRequest(ROOT_CONVERSATION_ID, "ordinary-2");
+    assert.ok(submission?.status === "done" && submission.type === "input");
+    const answer = await tx.entry(submission.answer);
+    assert.ok(answer?.byTaskId);
+    const requests = (await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID, order: "ascending" }, 256)).items.filter(entry => entry.kind === "ruukoto.model-request").map(entry => {
+      const data = entry.data;
+      assert.ok(data && typeof data === "object" && !Array.isArray(data));
+      const references = data.references;
+      assert.ok(references && typeof references === "object" && !Array.isArray(references) && typeof references.generation === "number");
+      return { entry, generation: references.generation };
+    });
+    assert.equal(new Set(requests.map(request => request.generation)).size, 3);
+    const unrelated = new Set(requests.filter(request => request.generation !== answer.byTaskId).map(request => request.entry.id - 1)), reads: EntryQuery[] = [];
+    const current = requests.find(request => request.generation === answer.byTaskId)!;
+    const scan = tx.scanEntries.bind(tx);
+    tx.scanEntries = (query, limit, cursor) => { reads.push(query); return scan(query, limit, cursor); };
+    try {
+      assert.equal(await personalReportTaskDraft(tx, answer.byTaskId), false);
+      assert.equal((await personalDesktopTimelineEntry(tx, answer))?.text, "Ordinary: ordinary provenance 2");
+      assert.ok(reads.some(query => query.maxEntryId === current.entry.id - 1), "The current request still validates its report source");
+      assert.equal(reads.filter(query => query.maxEntryId !== undefined && unrelated.has(query.maxEntryId)).length, 0, "Ordinary projection must not revalidate another generation's request");
+    } finally { tx.scanEntries = scan; }
+  }, context);
+  await f.p.answer(args("delegate", { content: "Ordinary child query" }), "ordinary-delegate");
+  const saved = await f.saved(), member = saved.members[0];
+  assert.ok(member);
+  await f.p.harness.waitForTask(member.taskId, context);
+  await f.p.harness.waitForTask(saved.report!.taskId, context);
+  await f.p.harness.commit(async tx => {
+    const history = await tx.scanEntries({ conversationId: member.agentId, order: "ascending" }, 256);
+    const answer = history.items.find(entry => entry.kind === "pi.assistant" && entry.model?.some(message => message.role === "assistant" && message.content.some(part => part.type === "text" && part.text === "Ordinary child result")));
+    const tool = history.items.find(entry => entry.kind === "pi.tool-result" && entry.model?.some(message => message.role === "toolResult" && message.toolName === "history_search"));
+    assert.ok(answer?.byTaskId && tool?.byTaskId);
+    const reads: EntryQuery[] = [], scan = tx.scanEntries.bind(tx);
+    tx.scanEntries = (query, limit, cursor) => { reads.push(query); return scan(query, limit, cursor); };
+    try {
+      for (const entry of [answer, tool]) {
+        assert.equal(await personalReportTaskDraft(tx, entry.byTaskId!), false);
+        assert.equal((await personalDesktopTimelineEntry(tx, entry))?.entry, entry.id);
+      }
+      assert.equal(reads.filter(query => query.conversationId === ROOT_CONVERSATION_ID).length, 0, "Child generation and tool ancestry must not scan main's report history");
+    } finally { tx.scanEntries = scan; }
+  }, context);
 });

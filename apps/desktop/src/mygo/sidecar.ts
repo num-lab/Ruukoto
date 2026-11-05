@@ -14,24 +14,29 @@ const userData = process.argv[2];
 if (!userData) throw new DesktopError("user_data_missing", "MyGo 应用数据目录不可用；请重新构建应用。");
 let focused = false;
 let closing: Promise<void> | null = null;
+let transportAvailable = true;
 const send = (message: object): Promise<void> => new Promise((resolve, reject) => { process.stdout.write(`${JSON.stringify(message)}\n`, error => error ? reject(error) : resolve()); });
 
 /**
- * Node→Go 窄请求（mygo-agent-browser）：控制面 browser_command 经此转到 Go
- * 侧 browser.Manager。pending 绑定请求 id；超时按效果未知（命令可能已执行），
- * 关闭按 not_sent/disconnected——与 Go 侧同一失败分类，不静默重发。
+ * Private Node-to-Go requests bind replies to their original IDs.
+ * A timed-out command may have executed; disconnects preserve their failure classification.
+ * Native destination selection waits for the owner after delivery without automatic replay.
  */
 const goPending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>();
 let goSeq = 0;
 function goRequest(method: string, ...args: unknown[]): Promise<unknown> {
-  if (closing) return Promise.reject(new DesktopError("bridge_closed", "MyGo 正在退出；请重新打开应用后核实原操作。"));
+  if (closing && method !== "output_close_preview" || !transportAvailable) return Promise.reject(new DesktopError("bridge_closed", "MyGo 正在退出；请重新打开应用后核实原操作。"));
   const id = ++goSeq;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       if (goPending.delete(id)) reject(new ControlClientError("bridge_timeout", "MyGo 请求未能取得应答，效果未知；请核实页面状态。", "unknown"));
-    }, 60_000);
+    }, method === "output_close_preview" ? 5000 : 60_000);
     goPending.set(id, { resolve, reject, timer });
-    void send({ kind: "request", id, method, args }).catch(error => {
+    void send({ kind: "request", id, method, args }).then(() => {
+      // Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
+      // Human destination selection has no response deadline after the pipe write completes.
+      if (method === "output_choose") clearTimeout(timer);
+    }).catch(error => {
       clearTimeout(timer);
       if (goPending.delete(id)) reject(new ControlClientError("bridge_disconnected", "MyGo 连接不可用，请重新打开应用后核实原操作。", "not_sent"));
     });
@@ -48,7 +53,26 @@ const browserTransport: MyGoBrowserTransport = {
   command: (op, input) => goRequest("browser_command", { op, ...input }),
 };
 const credentials = new PersonalCredentialPipe(send);
+async function outputNative(method: string, ...args: unknown[]): Promise<unknown> {
+  const result = await goRequest(method, ...args);
+  if (!result || typeof result !== "object" || !("ok" in result) || typeof result.ok !== "boolean") throw new DesktopError("personal_output_bridge", "文件窗口应答无法核实，请重新打开应用。");
+  if (!result.ok) {
+    const error = "error" in result && result.error && typeof result.error === "object" ? result.error : null;
+    throw new DesktopError(error && "code" in error && typeof error.code === "string" ? error.code : "personal_output_bridge", error && "message" in error && typeof error.message === "string" ? error.message : "文件窗口未能完成操作，请重新打开应用。");
+  }
+  return "value" in result ? result.value : undefined;
+}
 const platform = {
+  pickOutput: async (name: string) => {
+    const destination = await outputNative("output_choose", name);
+    if (destination !== null && (typeof destination !== "string" || !destination)) throw new DesktopError("personal_output_bridge", "保存位置应答无法核实，请重新选择。");
+    return destination;
+  },
+  previewOutput: async (filename: string, name: string) => {
+    const preview = await outputNative("output_preview", filename, name);
+    if (typeof preview !== "number" || !Number.isSafeInteger(preview) || preview < 1) throw new DesktopError("personal_output_bridge", "文件预览身份无法核实，请重新打开应用。");
+    return async () => { if (transportAvailable) await outputNative("output_close_preview", preview); /* Go closes the original preview when its private pipe ends. */ };
+  },
   credentials,
   publish: (target: DesktopTarget, update: DesktopUpdate) => send({ kind: "update", target, update }),
   focused: () => focused,
@@ -64,7 +88,9 @@ function close(): Promise<void> {
     clearTimeout(pending.timer);
     pending.reject(new ControlClientError("bridge_disconnected", "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。", "disconnected"));
   }
-  closing ??= host.close().catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 子进程清理失败；请检查 Personal 连接和应用数据目录权限。\n"); process.exitCode = 1; });
+  // EOF must settle preview cleanup admitted after graceful shutdown began.
+  if (closing) return closing;
+  closing = host.close().catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 子进程清理失败；请检查 Personal 连接和应用数据目录权限。\n"); process.exitCode = 1; });
   return closing;
 }
 async function receive(line: string): Promise<void> {
@@ -110,6 +136,6 @@ input.on("line", line => {
   if (Buffer.byteLength(line) > 16 * 1024 * 1024) { process.stderr.write("[ruukoto:desktop] MyGo 消息超限，正在关闭连接；请重新打开应用并核实原操作。\n"); input.close(); process.stdin.destroy(); return; }
   void receive(line).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 消息不可解析，正在关闭连接；请重新打开应用并核实原操作。\n"); input.close(); process.stdin.destroy(); });
 });
-input.on("close", () => { void close(); });
+input.on("close", () => { transportAvailable = false; void close(); });
 for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => { input.close(); process.stdin.destroy(); void close(); });
 process.stdout.on("error", () => { input.close(); process.stdin.destroy(); void close(); });

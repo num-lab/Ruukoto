@@ -39,6 +39,7 @@ import { tmpdir } from "node:os";
 import { configurePersonalMcp, managePersonalMcp, managePersonalCua } from "./personal-mcp-cli.ts";
 import { managePersonalSchedules } from "./personal-scheduler-cli.ts";
 import { personalRecoveryEvidenceText } from "./personal-recovery-claims.ts";
+import { personalModelPresets } from "./personal-model-presets.ts";
 
 export type PersonalCliIO = { question(prompt: string): Promise<string>; write(text: string): void };
 
@@ -121,21 +122,37 @@ export async function choose(io: PersonalCliIO, title: string, options: string[]
 
 async function configure(io: PersonalCliIO, directory: string) {
   const snapshot = await readPersonalSettings(directory);
-    io.write("配置只用于此个人实例；凭据使用环境变量，不粘贴密钥。输入 /back 返回。\n");
-    const selected = await choose(io, "模型接口", ["OpenAI Completions", "OpenAI Responses", "Anthropic Messages", "返回"]);
-    if (selected === 3) return;
-    const apis = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
-    const values: string[] = [];
-    for (const prompt of ["服务地址（完整 HTTPS URL）：", "模型名称：", "凭据环境变量名：", "上下文窗口（默认 128000）：", "最大输出（默认 4096）："]) {
-      const value = (await io.question(prompt)).trim();
-      if (value === "/back") return;
-      values.push(value);
-    }
-    const imageInput = await choose(io, "此模型支持图片输入吗？", ["仅文字", "支持图片", "返回"]);
-    if (imageInput === 2) return;
-    const config = { imageInput: imageInput === 1, api: apis[selected], baseUrl: values[0], modelId: values[1], apiKeyEnv: values[2], contextWindow: Number(values[3] || "128000"), maxTokens: Number(values[4] || "4096") };
-    const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.model, { kind: "config.save", target: "model", value: config });
+  io.write("配置只用于此个人实例；凭据使用环境变量，不粘贴密钥。输入 /back 返回。\n");
+  const source = await choose(io, "模型配置", ["选择已安装模型预设", "自定义接口", "返回"]);
+  if (source === 2) return;
+  if (source === 0) {
+    const presets = personalModelPresets(), providers = [...new Set(presets.map(preset => preset.provider))];
+    const provider = await choose(io, "模型服务", [...providers, "返回"]);
+    if (provider === providers.length) return;
+    const models = presets.filter(preset => preset.provider === providers[provider]);
+    const model = await choose(io, providers[provider], [...models.map(preset => preset.name), "返回"]);
+    if (model === models.length) return;
+    const config = models[model].config;
+    const credential = (await io.question(`凭据环境变量名（默认 ${config.apiKeyEnv}）：`)).trim();
+    if (credential === "/back") return;
+    const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.model, { kind: "config.save", target: "model", value: { ...config, apiKeyEnv: credential || config.apiKeyEnv } });
     io.write(personalSettingsMessage(receipt) + "\n");
+    return;
+  }
+  const selected = await choose(io, "模型接口", ["OpenAI Completions", "OpenAI Responses", "Anthropic Messages", "返回"]);
+  if (selected === 3) return;
+  const apis = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
+  const values: string[] = [];
+  for (const prompt of ["服务地址（完整 HTTPS URL）：", "模型名称：", "凭据环境变量名：", "上下文窗口（默认 128000）：", "最大输出（默认 4096）："]) {
+    const value = (await io.question(prompt)).trim();
+    if (value === "/back") return;
+    values.push(value);
+  }
+  const imageInput = await choose(io, "此模型支持图片输入吗？", ["仅文字", "支持图片", "返回"]);
+  if (imageInput === 2) return;
+  const config = { imageInput: imageInput === 1, api: apis[selected], baseUrl: values[0], modelId: values[1], apiKeyEnv: values[2], contextWindow: Number(values[3] || "128000"), maxTokens: Number(values[4] || "4096") };
+  const receipt = await savePersonalSettings(directory, snapshot, snapshot.revisions.model, { kind: "config.save", target: "model", value: config });
+  io.write(personalSettingsMessage(receipt) + "\n");
 }
 
 export async function configurePersonalTelegram(io: PersonalCliIO, directory: string) {
@@ -358,20 +375,29 @@ export async function managePersonalCommands(io: PersonalCliIO, directory: strin
 }
 
 export async function personalMenu(directory: string, io: PersonalCliIO, launch?: () => Promise<void>): Promise<void> {
-  io.write(`个人 Agent${launch ? " 开发实例" : ""}\n档案：${directory}\n通过聊天、后台工作、审批核实、权限和配置菜单管理此实例；IM 可直接发送 /帮助。\n`);
+  io.write(`个人 Agent${launch ? " 开发实例" : ""}\n档案：${directory}\n通过配置、状态与启停、高级管理维护此实例；IM 可直接发送 /帮助。\n`);
   while (true) {
     const actions = ["配置模型", "启动个人后台", "查看状态", "发送消息", "查看最近消息", "核实上次提交", "停止个人后台", "配置 Telegram", "查看 Telegram 收发", "退出向导（后台继续运行）", "配置或查看服务", "管理后台分析", "管理分析委托", "管理检查停止重核", "管理服务审批与核实", "配置或查看命令目录", "管理命令效果与停止核实", "配置或查看 MCP", "管理 MCP 审批、原响应与效果", "配置资料与网络工具（后台须停止）", "管理工具审批、资料授权与产物", "配置浏览器（后台须停止）", "管理浏览器、截图与网页效果", "配置 QQ", "查看 QQ 收发", "管理定时计划与运行", "查看技能", "管理长期记忆", "检索历史原文", "管理应用数据审批与回执", "管理默认模式与长期授权", "问题与回答", "管理会话后台与日志", "管理电脑暂停与继续", "配置 Web Search"];
-    const groups = [
+    const advanced = [
       { title: "聊天与消息", actions: [3, 4, 5, 31] },
       { title: "后台工作与定时计划", actions: [11, 12, 25, 32] },
       { title: "审批、效果与停止核实", actions: [13, 14, 16, 18, 20, 22, 29] },
-      { title: "权限、授权与个人资料", actions: [30, 20, 27, 28] },
-      { title: "配置能力", actions: [0, 7, 23, 10, 15, 17, 19, 21, 26, 34] },
-      { title: "实例状态与启停", actions: [2, 1, 6, 8, 24, 33] },
+      { title: "授权与个人资料", actions: [20, 27, 28] },
+      { title: "入口与电脑管理", actions: [8, 24, 33] },
+    ];
+    const groups = [
+      { title: "配置", actions: [0, 7, 23, 10, 15, 17, 19, 21, 26, 34, 30] },
+      { title: "状态、启动与停止", actions: [2, 1, 6] },
+      { title: "高级管理", actions: [] as number[] },
     ];
     const group = await choose(io, "个人实例", [...groups.map(group => group.title), launch ? "退出向导（停止本次开发后台）" : actions[9]]);
     if (group === groups.length) return;
-    const current = groups[group];
+    let current = groups[group];
+    if (group === 2) {
+      const section = await choose(io, current.title, [...advanced.map(item => item.title), "返回"]);
+      if (section === advanced.length) continue;
+      current = advanced[section];
+    }
     const action = await choose(io, current.title, [...current.actions.map(index => actions[index]), "返回"]);
     if (action === current.actions.length) continue;
     const selected = current.actions[action];

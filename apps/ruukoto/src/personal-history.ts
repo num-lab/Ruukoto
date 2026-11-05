@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalAgentsDoc } from "./personal-work.ts";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc } from "./personal-scheduler-records.ts";
-import { personalReportDraft, personalReportPublicationMessage } from "./personal-report.ts";
+import { personalReportDraft, personalReportPublicationMessage, personalReportOutputs } from "./personal-report.ts";
 import { PersonalOwnerInput, personalOwnerHistoryAssociated, personalOwnerInputMessage } from "./personal-owner-input.ts";
 import type { PersonalDesktopMessage, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
 
@@ -67,7 +67,8 @@ export async function personalDesktopTimelineEntry(tx: Tx, entry: EntryRecord, t
   const publication = await personalReportPublicationMessage(tx, entry);
   if (publication) {
     const message = personalDesktopMessage(publication)!;
-    return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind };
+    const outputs = await personalReportOutputs(tx, entry);
+    return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind, ...(outputs.length ? { outputs } : {}) };
   }
   if (entry.model && await personalReportDraft(tx, entry)) return;
   return personalTimelineEntry(entry);

@@ -25,13 +25,14 @@ var updates = mygo.NewEvent[json.RawMessage]("desktop:update")
 const documentURL = "mygo://localhost/"
 
 type Desktop struct {
-	window       *mygo.Window
-	frontend     *mygo.WebView
-	browser      *browser.Manager
-	child        *sidecar
-	error        json.RawMessage
-	instanceLock *os.File
-	failed       bool
+	window         *mygo.Window
+	frontend       *mygo.WebView
+	browser        *browser.Manager
+	child          *sidecar
+	error          json.RawMessage
+	instanceLock   *os.File
+	failed         bool
+	outputPreviews outputPreviews
 }
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
@@ -145,6 +146,48 @@ func (d *Desktop) OpenExternal(ctx context.Context, value string) json.RawMessag
 // browserRequest 处理子进程→Go 的窄请求；参数形为 [{op, session, generation, ...}]。
 // 命令在独立协程执行（读循环不阻塞），页面串行与代次校验由 browser.Manager 保证。
 func (d *Desktop) browserRequest(method string, args json.RawMessage) json.RawMessage {
+	if strings.HasPrefix(method, "output_") {
+		var raw []json.RawMessage
+		if json.Unmarshal(args, &raw) != nil {
+			return failure("invalid_params", "not_sent", "文件窗口参数无效。")
+		}
+		switch method {
+		case "output_choose":
+			var name string
+			if len(raw) != 1 || json.Unmarshal(raw[0], &name) != nil || !outputName(name) {
+				return failure("invalid_params", "not_sent", "最终文件名无效。")
+			}
+			destination, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: d.window, Title: "保存最终文件", DefaultPath: name, CreateDirectories: true})
+			if err != nil {
+				return failure("personal_output_dialog", "not_sent", "保存窗口未能打开，请重新选择。")
+			}
+			if destination == "" {
+				return outputValue(nil)
+			}
+			return outputValue(destination)
+		case "output_preview":
+			var filename, name string
+			if len(raw) != 2 || json.Unmarshal(raw[0], &filename) != nil || json.Unmarshal(raw[1], &name) != nil {
+				return failure("invalid_params", "not_sent", "文件预览参数无效。")
+			}
+			id, err := d.outputPreviews.open(filename, name)
+			if err != nil {
+				return failure("personal_output_preview", "not_sent", "文件预览未能打开，请重新下载原文件。")
+			}
+			return outputValue(id)
+		case "output_close_preview":
+			var id uint64
+			if len(raw) != 1 || json.Unmarshal(raw[0], &id) != nil || id == 0 {
+				return failure("invalid_params", "not_sent", "原预览身份无效。")
+			}
+			if err := d.outputPreviews.stop(id); err != nil {
+				return failure("personal_output_stop", "unknown", "原文件预览停止未能核实，请关闭预览窗口。")
+			}
+			return outputValue(nil)
+		default:
+			return failure("unknown_method", "not_sent", "未知的文件窗口操作。")
+		}
+	}
 	if method != "browser_command" || d.browser == nil {
 		return failure("unknown_method", "not_sent", "未知的子进程请求。")
 	}
@@ -268,7 +311,12 @@ func (d *Desktop) ready() {
 					d.child, err = startSidecar(command, d.event, d.browserRequest, credentials)
 					if err == nil {
 						d.child.mu.Lock()
-						d.child.onFail = func() { d.browser.ReleaseAll() }
+						d.child.onFail = func() {
+							d.browser.ReleaseAll()
+							if err := d.outputPreviews.stop(0); err != nil {
+								os.Stderr.WriteString("[ruukoto:desktop] Failed to stop the original file preview; close its window.\n")
+							}
+						}
 						d.child.mu.Unlock()
 					}
 				}
@@ -316,6 +364,9 @@ func runDesktop() int {
 		Alive: func() bool { return desktop.window != nil && !desktop.window.IsDestroyed() },
 	})
 	defer func() {
+		if err := desktop.outputPreviews.stop(0); err != nil {
+			os.Stderr.WriteString("[ruukoto:desktop] Failed to stop the original file preview; close its window.\n")
+		}
 		if desktop.child != nil {
 			desktop.child.close()
 		}

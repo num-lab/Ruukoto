@@ -15,6 +15,10 @@ type credentialRequest struct {
 }
 
 func (s *sidecar) writePrivate(value any) {
+	s.writeFrame(value, false)
+}
+
+func (s *sidecar) writeFrame(value any, shutdownResponse bool) {
 	data, err := json.Marshal(value)
 	if err != nil {
 		s.fail()
@@ -24,7 +28,7 @@ func (s *sidecar) writePrivate(value any) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	s.mu.Lock()
-	closed := s.closed || s.stopping
+	closed := s.closed || s.stopping && !shutdownResponse
 	s.mu.Unlock()
 	if closed {
 		return

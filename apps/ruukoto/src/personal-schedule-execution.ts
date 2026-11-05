@@ -23,7 +23,7 @@ export async function configurePersonalScheduledConversation(tx: Tx, conversatio
   if (!main.model) throw new PersonalError("model_unavailable", "当前定时模型无法核实，请查询配置。");
   const business = ["personal-app-data", "personal-media", "personal-browser", "personal-tools", "personal-file-search", "personal-mcp", "personal-service-inspect", "personal-service-executions", "personal-memory", "personal-history", "personal-skills"];
   const extensions = [PERSONAL_SCHEDULED_WORK, ...plan.scope.extensions.filter(name => business.includes(name))];
-  const tools = ["background_work", ...plan.scope.tools.filter(name => !["ask_user", ...PERSONAL_BACKGROUND_TOOL_NAMES, "background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["app_data_query", "read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
+  const tools = ["background_work", ...plan.scope.tools.filter(name => !["publish_output", "ask_user", ...PERSONAL_BACKGROUND_TOOL_NAMES, "background_work", "schedule_create", "schedule_query", "schedule_cancel"].includes(name) && (!options.summary || ["app_data_query", "read_artifact", "read_mcp_result", "read_service_inspection", "memory", "history_search", "history_read", "skill"].includes(name)))];
   await configure(tx, conversationId, { model: main.model, thinkingLevel: "off", extensions: [], tools: [] });
   const agent = await tx.doc(AgentDoc, conversationId);
   agent.extensions = extensions; agent.tools = tools;

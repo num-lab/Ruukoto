@@ -42,6 +42,29 @@ test("PA原生状态：块替换不重复文字，原entry去重，旧订阅和�
   state.frame({ ...completed, seq: 4 }); assert.equal(state.ready, false); assert.ok(calls.some(value => value.op === "reconnect"));
 });
 
+test("Published files stay with completed timeline entries and use only native identity-bound output actions", async t => {
+  const value = { v: 1 as const, publication: 200, output: 100, name: "final.txt", mime: "text/plain", bytes: 12, sha256: "a".repeat(64), partial: false };
+  const f = fixture(async (_target, op, params) => op === "desktop_personal_output_save" || op === "desktop_personal_output_preview" ? ok({ state: op.endsWith("save") ? "saved" : "previewed" }) : op === "desktop_personal_request" && params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] })); t.after(() => f.state.dispose()); await settle();
+  f.state.entries.set(value.publication, { entry: value.publication, conversation: 0, kind: "ruukoto.report-publication", role: "assistant", text: "", partial: false, truncated: false, timestamp: 1, outputs: [value] });
+  let markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /final.txt/); assert.match(markup, /预览/); assert.match(markup, /下载/); assert.doesNotMatch(markup, /download=|data:application|blob:/);
+  await f.state.output(value, "preview"); await f.state.output(value, "save");
+  assert.deepEqual(f.calls.filter(call => call.op.startsWith("desktop_personal_output_")), ["preview", "save"].map(action => ({ op: `desktop_personal_output_${action}`, params: { origin: identity.origin, remoteId: identity.remoteId, profileId: identity.profile.id, publication: value.publication, output: value.output } })));
+  assert.equal(f.state.outputStatus.get("200:100"), "文件已保存");
+  f.state.entries.get(value.publication)!.outputs = [{ ...value, partial: true }];
+  markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /不完整或超过 8 MiB/); assert.doesNotMatch(markup, />预览<|>下载</);
+  await f.state.output({ ...value, partial: true }, "save"); await f.state.output({ ...value, bytes: 8 * 1024 * 1024 + 1 }, "save"); assert.equal(f.calls.filter(call => call.op.startsWith("desktop_personal_output_")).length, 2);
+});
+
+test("Late native file results do not appear under another profile and never trigger business retries", async t => {
+  let release!: (value: DesktopResult<unknown>) => void;
+  const value = { v: 1 as const, publication: 201, output: 101, name: "final.txt", mime: "text/plain", bytes: 12, sha256: "a".repeat(64), partial: false };
+  const f = fixture(async (_target, op, params) => op === "desktop_personal_output_save" ? new Promise(resolve => { release = resolve; }) : op === "desktop_personal_request" && params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] })); t.after(() => f.state.dispose()); await settle();
+  f.state.entries.set(value.publication, { entry: value.publication, conversation: 0, kind: "ruukoto.report-publication", role: "assistant", text: "Saved business result", partial: false, truncated: false, timestamp: 1, outputs: [value] });
+  const saving = f.state.output(value, "save"); f.state.update({ type: "personal_identity", identity: { ...identity, remoteId: "other", profile: { ...identity.profile, id: "other" } } });
+  release(ok({ state: "saved" })); await saving;
+  assert.equal(f.state.outputStatus.size, 0); assert.equal(f.state.outputBusy, false); assert.equal(f.calls.filter(call => call.op === "desktop_personal_output_save").length, 1); assert.equal(f.calls.filter(call => call.params.method === "POST").length, 0);
+});
+
 test("PA原生历史：原切点分页与长正文完整保留，档案变化后不采用迟到页或发原草稿", async t => {
   let resolve!: (value: DesktopResult<unknown>) => void;
   const f = fixture(async (_target, op, params) => {

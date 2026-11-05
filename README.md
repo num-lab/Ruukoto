@@ -40,7 +40,7 @@ Coding keeps ordinary messages in the user queue. Retrieve any unstarted message
 Follow the [deployment guide](deploy/systemd/README.md) for the account, native execution, persistent user manager, systemd unit and optional service helper. Configure models and credential environment variables in a new profile, then pair dedicated IM entries.
 
 ```bash
-ruukoto                       # Models, IM, permissions, work and instance management
+ruukoto                       # Configuration, Status/Start/Stop, Advanced Management
 ruukoto serve                 # Foreground backend; signals request a verified stop
 # Choose a separate profile: RUUKOTO_PERSONAL_DIR=/absolute/new-profile ruukoto
 ```

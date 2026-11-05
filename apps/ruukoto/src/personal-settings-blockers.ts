@@ -20,7 +20,7 @@ function references(value: unknown): number[] {
   return value;
 }
 const invalid = () => new PersonalError("settings_external_state_invalid", "原外部操作或停止记录无法核实，未更改设置；请保留档案并恢复原记录。");
-const resolved = (value: unknown) => value === undefined || object(value) && (value.effect === "applied" || value.effect === "not_applied") && typeof value.evidence === "string" && !!value.evidence.trim();
+const resolved = (value: unknown) => value === undefined || object(value) && (value.effect === "applied" || value.effect === "not_applied") && (typeof value.evidence === "string" && !!value.evidence.trim() && value.claim === undefined || value.evidence === undefined && id(value.claim));
 function result(value: unknown, effects: readonly string[]): boolean { return value === undefined || object(value) && typeof value.effect === "string" && effects.includes(value.effect) && typeof value.code === "string"; }
 
 function operationBlocker(family: Family, value: unknown, key: string): PersonalExternalSettingsBlocker | undefined {

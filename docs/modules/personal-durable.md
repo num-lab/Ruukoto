@@ -29,6 +29,7 @@ Main delegates waiting business calls to SubAgents: its requests omit ordinary t
 | Application data | `app_data_*`: explicitly delegated business database access; fixed SQLite worker jobs |
 | Persistent processes | `process_start`, `process_status`, `process_output`, `process_stop`: work-owned startup and independent lifetime across replies |
 | MCP | `mcp_tools`, `mcp_call`, `read_mcp_result`: eligible discovery, calls and original results; Pi handles transport/paging |
+| Final files | `publish_output`: child-only registration of owner-requested final artifacts or successful write content; validated report publication fixes delivery membership |
 
 ## Data and State
 
@@ -62,6 +63,7 @@ stateDiagram-v2
 | Work and report selections | Actual model-request evidence: received instructions, native inputs and report source/coverage |
 | Interactive resources | Host work qualification, FIFO claims, acquisition and release entries with original stop evidence |
 | Published reports | Immutable publication references to original answers; drafts remain inspectable in conversation history |
+| Final outputs | Immutable instruction/source-bound intents and artifact bytes; report coverage/publication fixes at most eight file references |
 | Native owner display | Data-only admission entry and reciprocal request/submission/history association; native model history remains unchanged |
 | Native choices and recovery | Original family records, `ruukoto.desktop-action` intent/outcome receipts, immutable owner claims and fixed checks |
 
@@ -90,6 +92,16 @@ sequenceDiagram
 ```
 
 Platform message identity deduplicates admission. Auto-review handles eligible read-only operations; sensitive actions follow the original platform's approval flow. Replies retain the original platform, account, owner and generation.
+
+### Final Files and Setup
+
+A child registers an owner-requested final file through `publish_output`, using an artifact returned by its current work or the original content of that work's successful stopped write. No extra read or business write is needed. An amendment excludes older unpublished selections; validated report coverage and publication freeze the current file IDs. Published history remains unchanged after later requirements or failed delivery.
+
+Authenticated `/desktop/output` reads only members of that original publication in at most 128 KiB chunks. Every response rechecks the paired identity and profile. Complete output remains limited to 8 MiB; partial capture stays visible but cannot be downloaded as complete. Native clients verify metadata, full size and SHA-256. File publication, business success and delivery outcome remain distinct.
+
+Before output capability is added to an old profile, pending work/questions, unresolved effects and retained resources must settle under the original program. The check precedes Harness activation. Existing schedules keep their captured ceiling and direct scheduled execution excludes publication. Recovery verifies original source, permission, work/request provenance and artifact bytes without rewriting historical entries.
+
+Settings reads provide compatible installed per-model presets for the model wizard and desktop editor. Custom model fields and existing API/authentication choices remain available. The administrator entry groups Configuration, Status/Start/Stop and Advanced Management. Desktop/local/Telegram share a future-input permission default; QQ retains its own. Desktop saves bind the original connection and inspect actual values after a lost response.
 
 ### Work Questions
 
@@ -203,3 +215,5 @@ Canceling one scheduled occurrence records its original owner authority, cancels
 - [Personal work questions](../../.agents/notes/implemented/feature/2026-11-05-personal-work-questions.md)
 - [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
 - [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
+- [Personal final-file publication](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)
+- [Personal setup presets and administration](../../.agents/notes/implemented/feature/2026-11-05-personal-setup-presets.md)

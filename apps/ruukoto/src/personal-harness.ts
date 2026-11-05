@@ -1,5 +1,7 @@
 import { personalMainToolNames } from "./personal-tool-policy.ts";
 import { personalDesktopActions } from "./personal-desktop-actions.ts";
+import { personalSettingsExternalBlockers } from "./personal-settings-blockers.ts";
+import { PERSONAL_OUTPUTS, PersonalOutputsDoc, personalOutputs, verifyPersonalOutputs } from "./personal-outputs.ts";
 import { personalQuestions, PERSONAL_QUESTIONS, PERSONAL_QUESTION_INPUT, PersonalQuestionDoc, PersonalQuestionReceiptDoc, verifyPersonalQuestions, verifyPersonalQuestionRequest, refreshPersonalQuestions } from "./personal-questions.ts";
 import { personalQuestionControl, verifyPersonalQuestionControls } from "./personal-question-controls.ts";
 import { personalBackgroundControl, verifyPersonalBackgroundControls } from "./personal-background-controls.ts";
@@ -190,10 +192,11 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const telegram = personalTelegram(telegramConfig, telegramApi, async (tx, value) => await personalQuestionControl(tx, value) || await personalBackgroundControl(tx, value, background) || await personalOwnerControl(tx, value, commands) || await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop, browser?.chooseResume) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, !!mcp) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler), platform => isSettingsSuspended(platform), admitInput);
     const scheduler = personalScheduler(() => harness!, { admitInput, authorize: authorizePersonalSchedule, validateActor: validatePersonalScheduleActor, verifyCreator: (tx, plan) => verifyPersonalScheduleCreator(tx, plan, scheduleTools.tools?.find(tool => tool.name === "schedule_create")), captureScope: tx => capturePersonalScheduleScope(tx, service?.config.policyPath), verifyScope: verifyPersonalScheduleScope, configure: configurePersonalScheduledConversation, settle: (run, runtime, taskContext, cancel) => settlePersonalScheduledRun(run, runtime, taskContext, cancel, browser?.stop, browser ? (conversationId, taskContext) => browser!.releaseConversation(conversationId, undefined, taskContext) : undefined), im: telegram, prepareSend: (plan, text, signal) => preparePersonalScheduledReport(harness!, plan, text, signal, telegram), send: (plan, text, signal) => sendPersonalScheduledReport(harness!, plan, text, signal, telegram), now: options.now });
     const scheduleTools = personalScheduleTools(() => harness!, scheduler), scheduledWork = personalScheduledWork(() => harness!);
-    const reports = personalReports(telegram, admitInput, () => harness!), questions = personalQuestions(() => harness!, telegram, admitInput);
+    const reports = personalReports(telegram, admitInput, () => harness!), questions = personalQuestions(() => harness!, telegram, admitInput), outputs = personalOutputs(lock.directory);
     const registry = createRegistry();
     registry.install(questions);
     registry.install(desktopActions.extension);
+    registry.install(outputs);
     const qqExtension = defineExtension({ name: "personal-qq" });
     registry.install(qqExtension);
     registry.install(scheduler.extension); registry.install(scheduleTools); registry.install(scheduledWork); registry.install(personalSchedulerControls);
@@ -352,6 +355,24 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       mcpCursor = page.next;
     } while (mcpCursor);
     await verifyPersonalFileIoStorage(storage);
+    const originalRootRecord = await storage.findDocument({ kind: AgentDoc.definition.kind, scope: { kind: "conversation", conversationId: ROOT_CONVERSATION_ID } }, "current", context);
+    const originalRoot = originalRootRecord && await storage.document(originalRootRecord.id, "current", context);
+    if (originalRoot && Array.isArray(originalRoot.value.extensions) && !originalRoot.value.extensions.includes(PERSONAL_OUTPUTS)) {
+      let pending = await hasPendingPersonalWork(storage) || (await personalSettingsExternalBlockers({ storage })).length > 0;
+      for (const [kind, property] of [[PersonalInteractiveResourceDoc.definition.kind, "claims"], [PersonalMcpDoc.definition.kind, "operation"]] as const) {
+        let cursor: Cursor | undefined;
+        do {
+          const page = await storage.scanDocuments({ kind, scope: { kind: "session" }, at: "current" }, 256, cursor, context);
+          for (const record of page.items) {
+            const saved = await storage.document(record.id, "current", context), value = saved?.value[property];
+            if (property === "claims" && Array.isArray(value) && value.some(claim => claim && typeof claim === "object" && !Array.isArray(claim) && claim.released === undefined)) pending = true;
+            if (property === "operation" && value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.cuaLaunches) && value.cuaLaunches.some(launch => launch && typeof launch === "object" && !Array.isArray(launch) && launch.stopped === undefined)) pending = true;
+          }
+          cursor = page.next;
+        } while (cursor);
+      }
+      if (pending) throw new PersonalError("outputs_cutover_pending", "原档案仍有未完成工作、问题、未决效果或资源；请先用原版本完成、取消并核实恢复，再启用最终文件交付。");
+    }
     const toolsRecord = await storage.findDocument({ kind: PersonalToolsDoc.definition.kind, scope: { kind: "session" } }, "current", context);
     const loadedTools = toolsRecord && await storage.document(toolsRecord.id, "current", context);
     if (loadedTools && (loadedTools.version !== 1 || !Array.isArray(loadedTools.value.operations) || !Array.isArray(loadedTools.value.grants))) throw new PersonalError("tool_record_invalid", "工具索引版本或记录不符，已停止恢复。");
@@ -633,6 +654,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
     }, context);
     const savedMain = await harness.snapshot(AgentDoc, ROOT_CONVERSATION_ID, context);
+    const outputsEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_OUTPUTS);
     const appDataEnabled = Array.isArray(savedMain?.extensions) && savedMain.extensions.includes(PERSONAL_APP_DATA);
     if (savedAppData?.value.instanceId && !appDataEnabled || appDataEnabled && !savedAppData?.value.instanceId) throw new PersonalError("app_data_record_invalid", "应用数据原绑定或扩展缺失，已停止恢复；请保留档案。");
     if (savedMain && !appDataEnabled && pendingWork) throw new PersonalError("app_data_config_pending", "仍有未完成输入或工作，请先用原程序完成处理再启用应用数据。");
@@ -746,10 +768,12 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         const childAppData = agent.work && (await tx.doc(PersonalWorkDoc, agent.work.requestId, null)).appData === true;
         const hasBrowser = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_BROWSER), hasBackground = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_BACKGROUND);
         const hasQuestions = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_QUESTIONS);
+        const hasOutputs = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_OUTPUTS);
+        if (hasOutputs && !outputsEnabled) throw new PersonalError("output_record_invalid", "原最终文件能力缺失，已停止恢复；请保留档案。");
         if (hasQuestions && !questionsEnabled) throw new PersonalError("work_config_changed", "原工作问题能力缺失，已停止恢复；请保留档案。");
         if (hasBrowser && !browser || hasBackground && !background) throw new PersonalError("work_config_changed", "子工作原浏览器或后台配置缺失，已停止恢复；请保留档案。");
-        const expectedTools = [...(referencesEnabled ? [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS] : []), ...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : []), ...(toolsEnabled ? (general?.extension.tools?.map(tool => tool.name) ?? PERSONAL_TOOL_NAMES).filter(name => fileSearchEnabled || !["list_files", "search_files"].includes(name)) : []), ...(hasQuestions ? ["ask_user"] : []), ...(hasBrowser ? ["browser"] : []), ...(hasBackground ? PERSONAL_BACKGROUND_TOOL_NAMES : []), ...(childAppData ? PERSONAL_APP_DATA_TOOLS : [])];
-        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(referencesEnabled ? [PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS] : []), ...(mediaEnabled ? [PERSONAL_MEDIA] : []), ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : []), ...(toolsEnabled ? [PERSONAL_TOOLS, ...(fileSearchEnabled ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(hasBrowser ? [PERSONAL_BROWSER] : []), ...(hasBackground ? [PERSONAL_BACKGROUND] : []), ...(childAppData ? [PERSONAL_APP_DATA] : [])];
+        const expectedTools = [...(referencesEnabled ? [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS] : []), ...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : []), ...(toolsEnabled ? (general?.extension.tools?.map(tool => tool.name) ?? PERSONAL_TOOL_NAMES).filter(name => fileSearchEnabled || !["list_files", "search_files"].includes(name)) : []), ...(hasOutputs ? ["publish_output"] : []), ...(hasQuestions ? ["ask_user"] : []), ...(hasBrowser ? ["browser"] : []), ...(hasBackground ? PERSONAL_BACKGROUND_TOOL_NAMES : []), ...(childAppData ? PERSONAL_APP_DATA_TOOLS : [])];
+        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(referencesEnabled ? [PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS] : []), ...(mediaEnabled ? [PERSONAL_MEDIA] : []), ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : []), ...(toolsEnabled ? [PERSONAL_TOOLS, ...(fileSearchEnabled ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasOutputs ? [PERSONAL_OUTPUTS] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(hasBrowser ? [PERSONAL_BROWSER] : []), ...(hasBackground ? [PERSONAL_BACKGROUND] : []), ...(childAppData ? [PERSONAL_APP_DATA] : [])];
         if (!isDeepStrictEqual(config.tools, expectedTools) || !Array.isArray(config.extensions) || !isDeepStrictEqual([...config.extensions].sort(), expectedExtensions.sort())) throw new PersonalError("work_config_changed", "子 Agent 的固定工具配置无法核实，已停止恢复；请检查档案。");
         if (!agent.work) continue;
         const work = await tx.doc(PersonalWorkDoc, agent.work.requestId, null);
@@ -762,13 +786,14 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalInteractive(tx, interactiveKeys), context);
     await harness.commit(tx => verifyBrowserControls(tx, telegramKeys, browserEnabled), context);
     await harness.commit(tx => verifyTools(tx, toolKeys, lock.directory, general?.extension.tools), context);
+    await harness.commit(tx => verifyPersonalOutputs(tx, lock.directory, outputsEnabled), context);
     await harness.commit(tx => verifyToolControls(tx, telegramKeys, toolsEnabled), context);
     await harness.commit(tx => verifyPersonalDelegations(tx, delegationKeys, workKeys, delegationsEnabled), context);
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [questions, desktopActions.extension, appData.extension, memory, history, skills.extension, qqExtension, personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(background ? [background.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension, ...(general.config ? [personalFileSearch] : [])] : [])];
-    const tools = [...questions.tools!, ...appData.extension.tools!, ...memory.tools!, ...history.tools!, ...skills.extension.tools!, ...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(background?.extension.tools ?? []), ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
+    const extensions = [questions, desktopActions.extension, outputs, appData.extension, memory, history, skills.extension, qqExtension, personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(background ? [background.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension, ...(general.config ? [personalFileSearch] : [])] : [])];
+    const tools = [...questions.tools!, ...outputs.tools!, ...appData.extension.tools!, ...memory.tools!, ...history.tools!, ...skills.extension.tools!, ...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(background?.extension.tools ?? []), ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service!.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: currentModel.provider.id, modelId: currentModel.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { (await tx.doc(PersonalConfigurationDoc)).initializedWithoutRoot = false; await initializeAppData(tx); await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
     await harness.commit(tx => desktopActions.verify(tx, true), context);
@@ -784,6 +809,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       await initializeAppData(tx);
       await tx.doc(PersonalAgentsDoc);
       await tx.doc(PersonalPermissionsDoc);
+      await tx.doc(PersonalOutputsDoc);
       if (operations) await tx.doc(PersonalServiceOperationsDoc);
       if (extensions.some(expected => !agent.extensions.some(extension => extension.name === expected.name))) await configure(tx, main.id, { extensions, tools });
       if (services && (!childServicesEnabled || (serviceWork && !childWritesEnabled))) for (const child of (await tx.doc(PersonalAgentsDoc)).agents) await configure(tx, child.id, { extensions: [personalSubAgent, personalBackgroundWork, services, personalSubAgentServices, ...(serviceWork ? [serviceWork] : []), ...(commands && childCommandsEnabled ? [commands.extension] : []), ...(mcp && mcpEnabled ? [mcp.extension] : []), ...(general && toolsEnabled ? [general.extension] : [])], tools: [...services.tools!, ...(serviceWork?.tools ?? []), ...(commands && childCommandsEnabled ? commands.extension.tools! : []), ...(mcp && mcpEnabled ? mcp.extension.tools! : []), ...(general && toolsEnabled ? general.extension.tools! : [])] });
@@ -809,8 +835,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
         const config = await tx.doc(AgentDoc, child.id);
         const hasQuestions = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_QUESTIONS);
-        config.extensions = [personalSubAgent.name, personalBackgroundWork.name, PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS, PERSONAL_MEDIA, ...(services ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(serviceWork ? [PERSONAL_SERVICE_WORK] : []), ...(commands ? [PERSONAL_COMMAND_WORK] : []), ...(mcp ? [PERSONAL_MCP] : []), ...(general ? [PERSONAL_TOOLS, ...(general.config ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(browser ? [PERSONAL_BROWSER] : []), ...(background ? [PERSONAL_BACKGROUND] : [])];
-        config.tools = [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS, ...(services ? ["service_inspect", "read_service_inspection"] : []), ...(serviceWork ? ["service_restart", "read_service_operation"] : []), ...(commands ? ["run_command", "read_command_output"] : []), ...(mcp ? PERSONAL_MCP_TOOLS : []), ...(general ? general.extension.tools!.map(tool => tool.name) : []), ...(hasQuestions ? ["ask_user"] : []), ...(browser ? ["browser"] : []), ...(background ? PERSONAL_BACKGROUND_TOOL_NAMES : [])];
+        config.extensions = [personalSubAgent.name, personalBackgroundWork.name, PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS, PERSONAL_MEDIA, PERSONAL_OUTPUTS, ...(services ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(serviceWork ? [PERSONAL_SERVICE_WORK] : []), ...(commands ? [PERSONAL_COMMAND_WORK] : []), ...(mcp ? [PERSONAL_MCP] : []), ...(general ? [PERSONAL_TOOLS, ...(general.config ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(browser ? [PERSONAL_BROWSER] : []), ...(background ? [PERSONAL_BACKGROUND] : [])];
+        config.tools = [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS, ...(services ? ["service_inspect", "read_service_inspection"] : []), ...(serviceWork ? ["service_restart", "read_service_operation"] : []), ...(commands ? ["run_command", "read_command_output"] : []), ...(mcp ? PERSONAL_MCP_TOOLS : []), ...(general ? general.extension.tools!.map(tool => tool.name) : []), "publish_output", ...(hasQuestions ? ["ask_user"] : []), ...(browser ? ["browser"] : []), ...(background ? PERSONAL_BACKGROUND_TOOL_NAMES : [])];
         await configureAppDataChild(tx, child.id, !!child.work && (await tx.doc(PersonalWorkDoc, child.work.requestId, null)).appData === true);
       }
     }, context);

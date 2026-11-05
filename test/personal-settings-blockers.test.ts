@@ -224,3 +224,14 @@ test("设置占用扫描：已核实效果与停止保持原历史，全部原�
   const snapshot = await executePersonalSettings(f.directory, { v: 1, op: "settings.read" }) as { profile: PersonalSettingsIdentity; revisions: { model: string } };
   assert.equal((await executePersonalSettings(f.directory, { v: 2, id: randomUUID(), profile: snapshot.profile, expectedRevision: snapshot.revisions.model, op: { kind: "config.save", target: "model", value: { ...f.config, maxTokens: 129 } } }) as PersonalSettingsReceipt).status, "saved");
 });
+
+test("Settings blockers accept native effect claims while preserving malformed-resolution rejection", async t => {
+  const f = await fixture(t), p = await openPersonalHarness({ directory: f.directory, provider: personalProvider(f.config), modelId: f.config.modelId });
+  const doc = defineDocFamily<JsonObject, null>({ kind: "ruukoto.tool-operation", scope: "session", version: 1, family: true, initial: () => ({}) });
+  const index = defineDoc<JsonObject>({ kind: "ruukoto.tools", scope: "session", version: 1, initial: () => ({ operations: [], grants: [] }) });
+  await p.harness.commit(async tx => { (await tx.doc(doc, "7", null)).operation = { operation: 7, started: true, stopped: true, effect: "effect_unknown", resolution: { effect: "applied", claim: 90, entry: 91 } }; (await tx.doc(index)).operations = [7]; }, context);
+  assert.deepEqual(await personalSettingsExternalBlockers({ harness: p.harness }), []);
+  await p.close();
+  const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
+  try { assert.deepEqual(await personalSettingsExternalBlockers({ storage }), []); } finally { await storage.close(context); }
+});

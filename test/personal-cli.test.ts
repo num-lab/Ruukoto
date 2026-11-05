@@ -17,7 +17,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { ROOT_CONVERSATION_ID, type TaskId } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openPersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
@@ -313,7 +313,7 @@ test("personal CLI：socket 已断开仍被后台持锁时，配置和第二实�
 
 test("personal CLI：向导逐步配置、返回与退出，不要求用户提供内部键", async t => {
   const dir = directory(t);
-  const answers = ["0", "5", "1", "1", "https://model.example/v1", "chosen-model", "MODEL_TEST_KEY", "", "", "1", "7"];
+  const answers = ["0", "1", "1", "2", "1", "https://model.example/v1", "chosen-model", "MODEL_TEST_KEY", "", "", "1", "4"];
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.match(output, /请输入列出的选项/);
@@ -325,6 +325,23 @@ test("personal CLI：向导逐步配置、返回与退出，不要求用户提�
   assert.equal(config.apiKeyEnv, "MODEL_TEST_KEY");
   assert.equal(config.contextWindow, 128000);
   assert.doesNotMatch(output, /requestId|submission|UUID/);
+});
+
+test("Personal administrator menu keeps chat under Advanced Management and configures installed presets", async t => {
+  const dir = directory(t), answers = ["1", "1", "1", "3", "1", "", "3", "1", "5", "4"];
+  let output = "";
+  await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: text => { output += text; } });
+  const firstMenu = output.slice(output.indexOf("\n个人实例\n"), output.indexOf("\n配置\n"));
+  assert.match(firstMenu, /1\. 配置\n2\. 状态、启动与停止\n3\. 高级管理\n4\. 退出向导/);
+  assert.doesNotMatch(firstMenu, /聊天与消息|发送消息/);
+  assert.match(output, /聊天与消息/); assert.match(output, /发送消息/);
+  const lock = lockPersonalProfile(dir);
+  try {
+    const config = readPersonalConfig(lock);
+    assert.equal(config.modelId, "deepseek-flash"); assert.equal(config.baseUrl, "https://api.deepseek.com");
+    assert.equal(config.apiKeyEnv, "DEEPSEEK_API_KEY"); assert.equal(config.maxTokens, 384000); assert.equal(config.imageInput, true);
+  } finally { lock.release(); }
+  assert.equal(answers.length, 0);
 });
 
 test("personal CLI：关闭清理完成才释放锁，初始化失败接管并释放已有锁", async t => {
@@ -402,7 +419,7 @@ test("personal 服务配置：坏文件、未知版本和链接拒绝，启动�
 
 test("personal 服务配置：分组向导返回不写，非 Linux 保存前拒绝", async t => {
   const dir = directory(t);
-  const answers = process.platform === "linux" ? ["5", "4", "2", "/back", "7"] : ["5", "4", "2", "7"];
+  const answers = process.platform === "linux" ? ["1", "4", "2", "/back", "4"] : ["1", "4", "2", "4"];
   let output = "";
   await personalMenu(dir, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.equal(fs.existsSync(path.join(dir, "service.json")), false);
@@ -463,13 +480,18 @@ test("personal 服务配置：只读档案有未决输入时不能半启用操�
   await assert.rejects(openPersonalHarness({ ...options, serviceOperations: true }), code("service_config_pending"));
   const original = await openPersonalHarness(options);
   assert.equal(original.service, undefined);
-  assert.deepEqual((await original.main.agent(context)).tools.map(tool => tool.name), ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
+  assert.deepEqual((await original.main.agent(context)).tools.map(tool => tool.name), ["ask_user", "publish_output", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"]);
   await original.close();
 });
 
 test("personal 服务配置：生产 sudo 参数接线与恢复（Linux），部署失败只封闭服务", async t => {
   const unit = "ruukoto-service-test.service";
-  const f = await fixture(t, (_request, index) => index % 2 === 0 ? { kind: "tool_calls", calls: [{ id: `inspect-${index}`, name: "service_inspect", arguments: { unit } }] } : { kind: "text", text: "服务检查完成" });
+  const f = await fixture(t, (request, index) => {
+    const last = request.messages.at(-1);
+    if (request.system?.includes("你是个人助手的子 Agent")) return last?.role === "user" ? { kind: "tool_calls", calls: [{ id: `inspect-${index}`, name: "service_inspect", arguments: { unit } }] } : { kind: "text", text: "服务检查完成" };
+    if (String(request.messages.findLast(message => message.role === "user")?.content).startsWith("宿主委托汇总参考")) return { kind: "text", text: "服务检查完成" };
+    return { kind: "tool_calls", calls: [{ id: `delegate-${index}`, name: "background_work", arguments: { action: "delegate", content: `检查服务 ${unit}` } }] };
+  });
   if (process.platform !== "linux") {
     await savePersonalServices(f.dir, serviceConfig);
     const running = await f.start();
@@ -480,10 +502,10 @@ test("personal 服务配置：生产 sudo 参数接线与恢复（Linux），部
   const helper = directory(t);
   const configured = { version: 1, helperPath: path.join(helper, "helper.mjs"), policyPath: path.join(helper, "services.json"), sudoPath: path.join(helper, "sudo.mjs") };
   fs.copyFileSync(new URL("./helpers/fake-service-helper.mjs", import.meta.url), configured.helperPath);
-  // 固定 sudo 命令桩，仍走生产 useSudo:true 的 argv/清空环境与真实子进程。
+  // Keep the production sudo argv and clean environment while invoking a task-local helper.
   fs.writeFileSync(configured.sudoPath, `#!${process.execPath}\nimport { spawnSync } from 'node:child_process';\nif (process.argv[2] !== '-n') process.exit(3);\nconst result = spawnSync(process.execPath, process.argv.slice(3), { stdio: 'inherit' });\nprocess.exit(result.status ?? 4);\n`, { mode: 0o700 });
   const machineId = fs.readFileSync("/etc/machine-id", "utf8").trim();
-  // 仅验证固定 sudo 参数与恢复；夹具模拟 root 文件归属，真实部署另验。
+  // Ownership is simulated; actual deployment acceptance separately verifies root-owned files.
   const lstat = nodeFs.lstatSync;
   t.mock.method(nodeFs, "lstatSync", (target: fs.PathLike, options?: fs.StatOptions) => {
     const stat = lstat(target, options);
@@ -506,24 +528,34 @@ test("personal 服务配置：生产 sudo 参数接线与恢复（Linux），部
     const input = preparePersonalInput(f.dir, "检查测试服务");
     await personalControl(f.dir, "POST", "/inputs", input);
     await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
-    assert.equal((await checkPersonalInput(f.dir, input)).answer, "服务检查完成");
+    await until(async () => (await personalControl<PersonalStatus>(f.dir, "GET", "/status")).tasks === 0);
+    const timeline = await personalControl<{ items: { kind: string; text: string }[] }>(f.dir, "GET", "/timeline");
+    assert.ok(timeline.items.some(entry => entry.kind === "ruukoto.report-publication" && entry.text === "服务检查完成"));
     await stop();
   }
   const calls = fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(calls.map(call => call[0]), ["inspect-op", "stop-inspect", "inspect-op", "stop-inspect"]);
   for (const index of [0, 2]) { assert.deepEqual(calls[index].slice(2), [machineId, unit]); assert.deepEqual(calls[index + 1].slice(1), [calls[index][1], machineId]); }
-  assert.deepEqual(f.model.calls[0].tools?.map(tool => (tool.function as { name: string }).name).sort(), ["ask_user", "app_data_define_table", "app_data_migrate", "app_data_query", "app_data_insert", "app_data_update", "app_data_delete", "memory", "history_search", "history_read", "skill", "read_artifact", "service_inspect", "read_service_inspection", "background_work", "schedule_create", "schedule_query", "schedule_cancel"].sort());
+  const mainCalls = f.model.calls.filter(request => !request.system?.includes("你是个人助手的子 Agent"));
+  assert.ok(mainCalls.every(request => !request.tools?.some(tool => (tool.function as { name: string }).name === "service_inspect")));
+  assert.ok(f.model.calls.some(request => request.system?.includes("你是个人助手的子 Agent") && request.tools?.some(tool => (tool.function as { name: string }).name === "service_inspect")));
   const storage = await openNodeSqliteStorage(path.join(f.dir, "personal.sqlite"));
   for (const token of [PersonalServiceDoc, PersonalServiceGrantsDoc, PersonalServiceOperationsDoc]) assert.ok(await storage.findDocument({ kind: token.definition.kind, scope: { kind: "session" } }, "current", context));
   const entries = (await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items;
-  assert.equal(entries.filter(entry => entry.kind === "ruukoto.service-inspection").length, 2);
-  assert.ok(entries.some(entry => entry.kind === "ruukoto.model-request" && JSON.stringify(entry.data).includes("service_inspect")));
+  const children = entries.filter(entry => entry.kind === "ruukoto.analysis-admission").map(entry => entry.data as { work: { agentId: number } });
+  assert.equal(children.length, 2);
+  for (const child of children) {
+    const inspected = (await storage.scanEntries({ conversationId: child.work.agentId as typeof ROOT_CONVERSATION_ID }, 256, undefined, context)).items;
+    assert.equal(inspected.filter(entry => entry.kind === "ruukoto.service-inspection").length, 1);
+    assert.ok(inspected.some(entry => entry.kind === "ruukoto.model-request" && JSON.stringify(entry.data).includes("service_inspect")));
+  }
   await storage.close(context);
   fs.writeFileSync(path.join(helper, "inspection-stop-fails"), "");
   await f.start();
   const input = preparePersonalInput(f.dir, "待重核的检查"); await personalControl(f.dir, "POST", "/inputs", input);
   await until(async () => (await checkPersonalInput(f.dir, input)).status === "done");
   type Page = { items: { ref: { taskId: number; admission: number }; canRecheck: boolean }[] };
+  await until(async () => (await personalControl<Page>(f.dir, "GET", "/inspections")).items.some(value => value.canRecheck));
   const page = await personalControl<Page>(f.dir, "GET", "/inspections"); assert.equal(page.items.length, 1); assert.ok(page.items[0].canRecheck);
   for (const route of ["/inspections?offset=-1", "/inspection/stop?inspection=1&admission=-1"]) await assert.rejects(personalControl(f.dir, route.startsWith("/inspection/stop") ? "POST" : "GET", route), code("work_input_invalid"));
   const ref = page.items[0].ref;
@@ -537,6 +569,9 @@ test("personal 服务配置：生产 sudo 参数接线与恢复（Linux），部
     assert.equal((await personalControl<Page>(f.dir, "GET", "/inspections")).items.length, 1);
     fs.rmSync(path.join(helper, "inspection-stop-fails")); fs.writeFileSync(release, "");
     await until(async () => (await personalControl<Page>(f.dir, "GET", "/inspections")).items.length === 0);
+    const works = await personalControl<{ items: { ref: { taskId: TaskId } }[] }>(f.dir, "GET", "/works");
+    for (const work of works.items) await personalControl(f.dir, "POST", `/work/cancel?work=${work.ref.taskId}`, {});
+    await until(async () => (await personalControl<PersonalStatus>(f.dir, "GET", "/status")).tasks === 0);
     assert.equal(fs.readFileSync(path.join(helper, "calls.log"), "utf8").trim().split("\n").filter(line => JSON.parse(line)[0] === "inspect-op").length, 3);
   } finally { fs.writeFileSync(release, ""); await stop(); }
   const callsBeforeRefusal = fs.readFileSync(path.join(helper, "calls.log"), "utf8");
@@ -737,6 +772,7 @@ test("本机权限：认证API和引导菜单切模式，QQ独立且已接纳输
   const answers = ["1", "1", "3", "2", "3"], output: string[] = [];
   await managePersonalPermissions({ question: async () => answers.shift()!, write: text => output.push(text) }, f.dir);
   assert.equal(answers.length, 0); assert.match(output.join(""), /同账户凭据/);
+  assert.match(output.join(""), /桌面、本机与 Telegram/); assert.match(output.join(""), /QQ（独立默认）/); assert.match(output.join(""), /已授予范围内直接执行/);
   assert.deepEqual(await personalControl<Permissions>(f.dir, "GET", "/permissions"), { default: { mode: "full_access" }, qq: { mode: "auto-review" } });
   await personalControl(f.dir, "POST", "/permissions", { mode: "confirm", scope: "qq" });
   assert.deepEqual(await personalControl<Permissions>(f.dir, "GET", "/permissions"), { default: { mode: "full_access" }, qq: { mode: "confirm" } });

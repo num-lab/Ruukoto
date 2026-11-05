@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ToggleGroup } from "radix-ui";
 import { ArrowUp, Loader2, Paperclip, Sparkles } from "lucide-react";
-import type { PersonalDesktopActionName, PersonalDesktopApproval, PersonalDesktopQuestion } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopActionName, PersonalDesktopApproval, PersonalDesktopOutput, PersonalDesktopQuestion } from "@ruukoto/view/personal-protocol.ts";
 import { personalCardKey, type PersonalPresentedMessage, type PersonalState } from "./personal-state.ts";
 import { MarkdownText } from "./markdown.tsx";
 import { resizeComposerInput, submitOnEnter } from "./composer.tsx";
@@ -15,10 +15,14 @@ import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageSc
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 
 function Text({ children }: { children: string }) { return <div className="markdown"><MarkdownText>{children}</MarkdownText></div>; }
+function OutputFile({ model, value }: { model: PersonalState; value: PersonalDesktopOutput }) {
+  const incomplete = value.partial || value.bytes > 8 * 1024 * 1024, status = model.outputStatus.get(`${value.publication}:${value.output}`);
+  return <Item variant="outline" size="sm"><ItemContent><ItemTitle className="break-all">{value.name}</ItemTitle><ItemDescription>{incomplete ? "文件不完整或超过 8 MiB，无法预览或下载" : `${value.bytes < 1024 ? `${value.bytes} B` : value.bytes < 1024 * 1024 ? `${(value.bytes / 1024).toFixed(1)} KiB` : `${(value.bytes / (1024 * 1024)).toFixed(1)} MiB`}`}</ItemDescription>{status && <p role="status">{status}</p>}</ItemContent>{!incomplete && <ItemActions><Button variant="ghost" size="sm" disabled={!model.online || model.outputBusy} onClick={() => void model.output(value, "preview")}>预览</Button><Button variant="ghost" size="sm" disabled={!model.online || model.outputBusy} onClick={() => void model.output(value, "save")}>下载</Button></ItemActions>}</Item>;
+}
 function PersonalMessage({ model, message }: { model: PersonalState; message: PersonalPresentedMessage }) {
   const body = model.bodies.get(message.entry);
   const content = <><Text>{body ?? message.text}</Text>{message.pendingStatus && <p role="status">{message.pendingStatus === "queued" ? "等待处理" : "正在核实接纳"}</p>}{message.input?.status === "queued" && <p role="status">等待处理</p>}{message.input?.status === "unanswered" && <p role="status">未完成处理</p>}{message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(message.entry)} onClick={() => void model.body(message.entry)}>读取完整内容</Button>}</>;
-  return <Message className="personal-message" align={message.role === "user" ? "end" : "start"}><MessageContent><Bubble variant="muted" align={message.role === "user" ? "end" : "start"}><BubbleContent>{content}</BubbleContent></Bubble></MessageContent></Message>;
+  return <Message className="personal-message" align={message.role === "user" ? "end" : "start"}><MessageContent><Bubble variant="muted" align={message.role === "user" ? "end" : "start"}><BubbleContent>{content}{message.outputs?.map(value => <OutputFile key={value.output} model={model} value={value} />)}</BubbleContent></Bubble></MessageContent></Message>;
 }
 
 type PersonalMessageGroup = { type: "messages"; role: "user" | "assistant"; messages: PersonalPresentedMessage[] };
@@ -31,7 +35,7 @@ function personalMessageGroups(timeline: PersonalPresentedMessage[], cards: Pers
     if (row.type === "approval") { groups.push({ type: "approval", value: row.value }); continue; }
     if (row.type === "question") { groups.push({ type: "question", value: row.value }); continue; }
     const entry = row.entry;
-    if (entry.partial || entry.role !== "user" && entry.role !== "assistant" || !entry.text.trim() && !entry.truncated) continue;
+    if (entry.partial || entry.role !== "user" && entry.role !== "assistant" || !entry.text.trim() && !entry.truncated && !entry.outputs?.length) continue;
     const previous = groups.at(-1);
     if (previous?.type === "messages" && previous.role === entry.role) previous.messages.push(entry);
     else groups.push({ type: "messages", role: entry.role, messages: [entry] });

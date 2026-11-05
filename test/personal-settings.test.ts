@@ -21,8 +21,9 @@ import type { PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts"
 import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
+import { personalModelPresets, type PersonalModelPreset } from "../apps/ruukoto/src/personal-model-presets.ts";
 
-type Snapshot = { profile: { directory: string; id: string }; revisions: { model: string; skills: string; mcp: string }; online: boolean; model: { config: PersonalModelConfig; credential: { state: string } }; blockers: { kind: string }[]; skills: { sourceHost: string; revision: string; config: null; directory: string; diagnostics: string[]; skills: { id: string; name: string; source: string; readOnly: boolean; state: string }[] } };
+type Snapshot = { profile: { directory: string; id: string }; revisions: { model: string; skills: string; mcp: string }; online: boolean; model: { config: PersonalModelConfig; credential: { state: string } }; modelPresets: PersonalModelPreset[]; blockers: { kind: string }[]; skills: { sourceHost: string; revision: string; config: null; directory: string; diagnostics: string[]; skills: { id: string; name: string; source: string; readOnly: boolean; state: string }[] } };
 const code = (expected: string) => (error: unknown) => error instanceof PersonalError && error.code === expected;
 
 async function fixture(t: TestContext) {
@@ -64,6 +65,7 @@ test("设置机器入口：未知操作、错误版本、额外参数及请求�
 test("设置查询：离线持锁与修订保存，错档案、旧修订及非法配置保留原文件", async t => {
   const f = await fixture(t), initial = await f.read(), before = fs.readFileSync(path.join(f.directory, "model.json"), "utf8");
   assert.equal(initial.online, false); assert.equal(initial.model.credential.state, "unverified"); assert.ok(!JSON.stringify(initial).includes("test-secret-value"));
+  assert.deepEqual(initial.modelPresets, personalModelPresets());
   const lock = lockPersonalProfile(f.directory);
   try { await assert.rejects(f.read(), code("profile_busy")); } finally { lock.release(); }
   await assert.rejects(executePersonalSettings(f.directory, { ...save(initial, { ...f.config, modelId: "wrong" }), profile: { ...initial.profile, id: `sha256:${"0".repeat(64)}` } }), code("settings_profile_changed"));

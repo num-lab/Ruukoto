@@ -12,7 +12,7 @@ export async function personalMainToolNames(tx: Tx, conversationId: Conversation
   const names = await personalQuestionToolNames(tx, conversationId, availableNames);
   const allowed = await personalBackgroundToolNames(tx, conversationId, names, requestId);
   if (conversationId !== ROOT_CONVERSATION_ID) return allowed;
-  const migrated = allowed.filter(name => ![...PERSONAL_TOOL_NAMES, ...PERSONAL_APP_DATA_TOOLS, "mcp_call", "service_inspect", "service_restart", "run_command", "browser", "process_start"].includes(name));
+  const migrated = allowed.filter(name => ![...PERSONAL_TOOL_NAMES, ...PERSONAL_APP_DATA_TOOLS, "publish_output", "mcp_call", "service_inspect", "service_restart", "run_command", "browser", "process_start"].includes(name));
   const rounds = await personalCoordinationTailRounds(tx, conversationId);
   if (rounds > PERSONAL_MAIN_TOOL_ROUNDS) throw new PersonalError("coordination_rounds", "本轮协调批次预算已耗尽，停止模型请求；请查询原输入状态。");
   return rounds === PERSONAL_MAIN_TOOL_ROUNDS ? [] : migrated;

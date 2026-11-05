@@ -58,7 +58,7 @@ These use profiles separate from daily data. Their launchers own and stop the de
 
 ### 2.5 Personal Agent Management
 
-`ruukoto` or `npm start` opens guided model configuration, backend controls, pairing, work and questions. `--directory` or `RUUKOTO_PERSONAL_DIR` selects a separate profile. Choose a new directory for production durable operation; old profiles stay archived.
+`ruukoto` or `npm start` opens three administrator groups: Configuration, Status/Start/Stop and Advanced Management. Configuration contains models, capabilities, entry pairing and default permissions; Advanced Management retains terminal chat, work, decisions and recovery. `--directory` or `RUUKOTO_PERSONAL_DIR` selects a separate profile. Choose a new directory for production durable operation; old profiles stay archived.
 
 | Command | Purpose |
 | --- | --- |
@@ -75,7 +75,9 @@ A question from background work keeps that work waiting while main and other wor
 
 ## 3. Models and Configuration
 
-Personal's capability/model menu guides provider selection, credential environment-variable references and explicit connection tests. Environment references avoid copying credentials into a new profile, but the selected backend process must actually receive those variables.
+Personal's model wizard and desktop model settings offer compatible installed OpenAI, Anthropic and DeepSeek presets with per-model API, endpoint, context/output limits and image support. Presets describe the installed configuration; custom configuration retains editable addresses, model names, capacities, supported APIs and credential references. Selecting a preset edits the draft; save and explicit connection testing remain separate. Environment references avoid copying credentials into a new profile, but the selected backend process must actually receive those variables.
+
+Personal connection settings show the desktop/local/Telegram shared permission default and QQ's independent default. Confirmation permits operations within already granted scope and asks when an operation exceeds it. Automatic review evaluates eligible reads; full access uses the backend account's existing rights. Default changes affect future inputs and plans, while existing work retains its original authority. After a lost save response, reread the current value before another change.
 
 Coding's `ruukoto-code config` manages providers, models, defaults and summary-model choices. Saved provider/catalog/key changes apply only when no affected running or queued tasks prevent them; distinguish a saved revision from an applied one. A conversation model choice applies to later submissions, not an already running task.
 
@@ -92,6 +94,8 @@ IM defaults to auto-review. Sensitive operations require explicit approval throu
 On the server, use `ruukoto remote` to manage pairing, then connect the PA desktop to the verified Tailscale HTTPS origin using the generated one-time code. HTTPS/WSS terminates at Tailscale Serve and reaches the private remote service; the local Unix socket is not a public network endpoint. See [deployment](../deploy/systemd/README.md) for backend/remote-service ownership and [desktop](modules/desktop.md) for credential isolation.
 
 Personal decisions, work questions and recovery choices appear in the conversation timeline. Read the original target and parameters before approving a one-shot operation. IM-origin approvals, answers and continuation choices stay with the original verified entry; native cards offer the inspection and cancellation actions available for that item.
+
+Ask for a final file or screenshot to receive its published file card. Complete files up to 8 MiB support native preview and download after byte/hash verification; a partial or oversized capture is shown as unavailable for complete delivery. Each delegation supports eight final files across its members. Failed transfer, canceled save or a lost connection leaves the business result unchanged; download the original published file again without repeating its write. Old profiles must finish, cancel or recover pending work and retained resources with their original program before output delivery is enabled; history remains intact.
 
 For a single question that allows one selection, choosing an option submits it directly. Multi-select waits for Done, and a batch of several questions ends with review. Enter other answers in the question's own field; each pending question keeps its own draft. If a submitted choice's response is lost, inspect its original receipt. That card stays locked until the result is verified, including after reopening the application, while the composer and other questions remain usable.
 

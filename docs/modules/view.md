@@ -35,6 +35,8 @@ Personal independently pages operation cards, owner questions, works and delegat
 
 Personal action receipts echo the exact original request and report admission or action outcome. The family's operation card separately reports effects and stopping. Original-receipt checks, current observations, immutable owner claims and recovery-image descriptors remain distinct typed facts; backend records determine action eligibility.
 
+Published Personal messages may carry up to eight final-file descriptors bound to that publication. Descriptors retain name, MIME, bytes, SHA-256 and partial status without exposing artifact storage or server paths. The chunk type repeats the same metadata with bounded base64 and offsets; the native host owns authenticated transfer, integrity verification and local save/preview.
+
 ## Main Flows
 
 ```mermaid
@@ -76,3 +78,4 @@ Initial projection establishes indexes before rendering. Streamed text and think
 - [Next-request report delivery](../../.agents/notes/implemented/feature/2026-10-30-coding-report-delivery-boundary.md)
 - [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
 - [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
+- [Personal final files](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)

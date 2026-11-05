@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, SquarePen } from "lucide-react";
 import type { SettingsState } from "./settings-state.ts";
-import { PersonalConnectionState } from "./personal-connection-state.ts";
-import { SettingsButton, SettingsInput, SettingsNotice, SettingsTag } from "./components/controls.tsx";
+import { PersonalConnectionState, type PersonalPermissionMode } from "./personal-connection-state.ts";
+import { SettingsButton, SettingsInput, SettingsNotice, SettingsSelect, SettingsTag } from "./components/controls.tsx";
 import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow } from "./components/settings.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
@@ -29,6 +29,7 @@ export function PersonalConnectionSettings({ settings }: { settings: SettingsSta
           </> : <SettingsRow title="服务器配对" description={paired ? "此桌面已与服务器配对。" : "尚未配对，配置仍需服务器确认。"}><SettingsTag>{paired ? "已配对" : "未配对"}</SettingsTag><SettingsButton variant="icon" aria-label="编辑配对" title="编辑配对" disabled={state.disabled} onClick={() => setEditingPairing(true)}><SquarePen /></SettingsButton></SettingsRow>)}
         </SettingsCard>
       </SettingsGroup>
+      {paired && <PersonalPermissionSettings state={state} />}
       {state.legacy.length > 0 && <SettingsGroup title="旧维护尚待核实" description="先在原服务器核实，再确认；原记录保持原位。">
         <SettingsCard>
           <SettingsRow title="待核实文件" description={state.legacy.join("、")}><SettingsButton disabled={state.disabled} onClick={() => void state.acknowledgeLegacy()}>已在原服务器核实</SettingsButton></SettingsRow>
@@ -37,4 +38,18 @@ export function PersonalConnectionSettings({ settings }: { settings: SettingsSta
       {(state.reading || state.message) && <SettingsNotice>{state.reading ? "正在核实此桌面的连接…" : state.message}</SettingsNotice>}
     </SettingsPage>
   );
+}
+
+export function PersonalPermissionSettings({ state }: { state: PersonalConnectionState }) {
+  const modes = [{ value: "confirm", label: "按已授权范围" }, { value: "auto-review", label: "自动审查" }, { value: "full_access", label: "完全访问" }];
+  return <>
+    <SettingsGroup title="默认权限" description="只影响以后新接纳的输入与新计划，已有工作保留原权限。" action={<SettingsButton variant="icon" aria-label="重新读取默认权限" disabled={state.reading || state.permissionsReading || state.phase === "saving" || state.dirty} onClick={() => void state.readPermissions()}><RefreshCw /></SettingsButton>}>
+      <SettingsCard>
+        {([["default", "桌面、本机与 Telegram"], ["qq", "QQ（独立默认）"]] as const).map(([scope, title]) => <SettingsRow key={scope} title={title} htmlFor={`pa-permission-${scope}`}><SettingsSelect id={`pa-permission-${scope}`} value={state.permissions?.[scope].mode ?? ""} disabled={state.permissionsDisabled} options={state.permissions ? modes : [{ value: "", label: "尚未核实" }]} onChange={event => void state.selectPermission(scope, event.target.value as PersonalPermissionMode)} /></SettingsRow>)}
+        <SettingsRow title="权限范围" description="按已授权范围直接执行，超出范围时请求批准。自动审查可独立审查范围外的无凭据读取；其余超出范围操作仍请求批准。" />
+      </SettingsCard>
+      {(state.permissionsReading || state.permissionsMessage) && <SettingsNotice>{state.permissionsReading ? "正在核实默认权限…" : state.permissionsMessage}</SettingsNotice>}
+    </SettingsGroup>
+    <Dialog open={!!state.permissionConfirmation} onOpenChange={open => { if (!open) state.cancelPermission(); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>启用完全访问？</DialogTitle><DialogDescription>后续输入将使用后台账户的目录、网络及同账户凭据，免逐次审批；未知效果仍会暂停。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelPermission()}>取消</Button><Button type="button" disabled={state.permissionsDisabled} onClick={() => void state.confirmPermission()}>启用完全访问</Button></DialogFooter></DialogContent></Dialog>
+  </>;
 }

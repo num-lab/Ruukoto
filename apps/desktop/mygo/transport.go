@@ -40,6 +40,7 @@ type sidecar struct {
 	credentialLast    uint64
 	credentialPending int
 	credentialWG      sync.WaitGroup
+	requestTimeout    time.Duration
 }
 
 type pendingCall struct {
@@ -128,16 +129,17 @@ func (s *sidecar) read(output io.Reader) {
 				break
 			}
 			s.mu.Lock()
-			handler, closed := s.onRequest, s.closed
+			handler, closed, stopping := s.onRequest, s.closed, s.stopping
 			s.mu.Unlock()
-			if handler == nil || closed {
-				s.writePrivate(map[string]any{"kind": "response", "id": message.ID, "result": failure("bridge_closed", "not_sent", "MyGo 连接不可用，请重新打开应用后核实原操作。")})
+			if handler == nil || closed || stopping && request.Method != "output_close_preview" {
+				s.writeFrame(map[string]any{"kind": "response", "id": message.ID, "result": failure("bridge_closed", "not_sent", "MyGo 连接不可用，请重新打开应用后核实原操作。")}, true)
 				continue
 			}
 			id := message.ID
 			go func() {
 				result := handler(request.Method, request.Args)
-				s.writePrivate(map[string]any{"kind": "response", "id": id, "result": result})
+				// Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
+				s.writeFrame(map[string]any{"kind": "response", "id": id, "result": result}, request.Method == "output_close_preview")
 			}()
 			continue
 		}
@@ -228,8 +230,15 @@ func (s *sidecar) call(ctx context.Context, method string, args ...any) json.Raw
 	}
 	waiting := &pendingCall{result: make(chan json.RawMessage, 1)}
 	s.pending[id] = waiting
+	timeout := s.requestTimeout
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
 	s.mu.Unlock()
-	// 写管道不能持有状态锁；Node 停止读取时，退出仍能关闭管道并回收进程。
+	// Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
+	humanWait := method == "request" && len(args) == 3 && args[0] == "personal" && args[1] == "desktop_personal_output_save"
+	written := make(chan struct{})
+	// Do not hold the state lock while writing; shutdown must still close a blocked pipe.
 	go func() {
 		s.writeMu.Lock()
 		defer s.writeMu.Unlock()
@@ -247,17 +256,39 @@ func (s *sidecar) call(ctx context.Context, method string, args ...any) json.Raw
 		if writeErr != nil {
 			s.fail()
 			s.stdin.Close()
+		} else {
+			close(written)
 		}
 	}()
-	deadline := time.NewTimer(60 * time.Second)
+	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
+	deadlineC := deadline.C
 	timedOut := false
-	select {
-	case result := <-waiting.result:
-		return result
-	case <-ctx.Done():
-	case <-deadline.C:
-		timedOut = true
+wait:
+	for {
+		select {
+		case result := <-waiting.result:
+			return result
+		case <-written:
+			written = nil
+			if humanWait {
+				// Pipe writes stay bounded; cancellation remains available while the owner chooses.
+				deadline.Stop()
+				deadlineC = nil
+			}
+		case <-ctx.Done():
+			break wait
+		case <-deadlineC:
+			s.mu.Lock()
+			delivered := humanWait && waiting.sent
+			s.mu.Unlock()
+			if delivered {
+				deadlineC = nil
+				continue
+			}
+			timedOut = true
+			break wait
+		}
 	}
 	s.mu.Lock()
 	delete(s.pending, id)

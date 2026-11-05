@@ -184,11 +184,11 @@ test("个人命令配置：离线保存不依赖无关未决输入，也不调�
 });
 
 test("个人命令配置向导：分组入口返回不写，选择目录后固定保存", async t => {
-  const f = fixture(t); let output = ""; const answers = ["5", "5", "2", "/back", "7"];
+  const f = fixture(t); let output = ""; const answers = ["1", "5", "2", "/back", "4"];
   await personalMenu(f.directory, { question: async () => { assert.ok(answers.length); return answers.shift()!; }, write: value => { output += value; } });
   assert.equal(fs.existsSync(path.join(f.directory, "command.json")), false);
   assert.match(output, /5\. 配置或查看命令目录/);
-  assert.match(output, /7\. 退出向导/);
+  assert.match(output, /4\. 退出向导/);
   const selected = ["2", f.workspace, "2"];
   await configurePersonalCommands({ question: async () => selected.shift()!, write: value => { output += value; } }, f.directory);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.directory, "command.json"), "utf8")), f.config);

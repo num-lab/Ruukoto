@@ -387,10 +387,11 @@ test("配置冷恢复：仅有已生效历史时缺失文件仍封闭该目标�
   const operations = (await f.instance.harness.snapshot(PersonalConfigurationDoc, BACKGROUND_CONTEXT))!.operations;
   await f.instance.close(); fs.unlinkSync(filename);
   const profile = lockPersonalProfile(f.directory), instance = await openPersonalHarness({ profile, provider: personalProvider(parsePersonalModel(model)), modelId: model.modelId });
-  t.after(() => instance.close());
-  assert.equal(instance.isSettingsSuspended("model"), true); assert.equal(instance.isSettingsSuspended("mcp"), false);
-  assert.deepEqual((await instance.harness.snapshot(PersonalConfigurationDoc, BACKGROUND_CONTEXT))?.operations, operations);
-  assert.deepEqual((await instance.harness.snapshot(PersonalSettingsOperationDoc, request.id, BACKGROUND_CONTEXT))?.operation?.receipt, receipt);
-  fs.writeFileSync(filename, content, { mode: 0o600 }); await recoverPersonalSettings({ profile, instance });
-  assert.equal(instance.isSettingsSuspended("model"), false);
+  try {
+    assert.equal(instance.isSettingsSuspended("model"), true); assert.equal(instance.isSettingsSuspended("mcp"), false);
+    assert.deepEqual((await instance.harness.snapshot(PersonalConfigurationDoc, BACKGROUND_CONTEXT))?.operations, operations);
+    assert.deepEqual((await instance.harness.snapshot(PersonalSettingsOperationDoc, request.id, BACKGROUND_CONTEXT))?.operation?.receipt, receipt);
+    fs.writeFileSync(filename, content, { mode: 0o600 }); await recoverPersonalSettings({ profile, instance });
+    assert.equal(instance.isSettingsSuspended("model"), false);
+  } finally { await instance.close(); }
 });

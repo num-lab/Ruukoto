@@ -83,6 +83,22 @@ test("模型字段校验定位错误，输出上限必须小于上下文容量",
   await h.state.save(); assert.ok(h.state.fieldErrors.maxTokens); assert.equal(h.writes().length, 0);
 });
 
+test("Personal model presets edit a draft while custom addresses, models and credential references remain available", async () => {
+  const h = harness("models");
+  const config = { api: "anthropic-messages" as const, baseUrl: "https://api.anthropic.com", modelId: "claude-haiku-4-5", apiKeyEnv: "ANTHROPIC_API_KEY", contextWindow: 200000, maxTokens: 64000, imageInput: true };
+  const view = h.view as typeof h.view & { settings: { modelPresets?: { id: string; provider: string; name: string; config: typeof config }[] } };
+  view.settings.modelPresets = [{ id: "anthropic/claude-haiku-4-5", provider: "Anthropic", name: "Claude Haiku 4.5", config }];
+  await h.state.read(); assert.equal(h.state.modelPreset, ""); assert.equal(h.state.model.modelId, modelConfig.modelId);
+  h.state.selectModelPreset("anthropic/claude-haiku-4-5");
+  assert.equal(h.state.modelPreset, "anthropic/claude-haiku-4-5"); assert.equal(h.state.dirty, true); assert.equal(h.writes().length, 0);
+  assert.deepEqual(h.state.model, { ...config, contextWindow: "200000", maxTokens: "64000" });
+  h.state.selectModelPreset(""); assert.equal(h.state.modelPreset, ""); assert.equal(h.state.model.modelId, config.modelId);
+  h.state.editModel("api", "openai-completions"); h.state.editModel("baseUrl", "https://custom.example/v1"); h.state.editModel("modelId", "owner-model"); h.state.editModel("apiKeyEnv", "OWNER_MODEL_KEY");
+  await h.state.save();
+  assert.deepEqual(h.writes()[0].request.value, { ...config, api: "openai-completions", baseUrl: "https://custom.example/v1", modelId: "owner-model", apiKeyEnv: "OWNER_MODEL_KEY" });
+  delete view.settings.modelPresets; await h.state.read(); assert.deepEqual(h.state.modelPresets, []);
+});
+
 test("显式模型测试发送草稿，测试不保存配置", async () => {
   const h = harness("models"); await h.state.read(); h.state.editModel("modelId", "test-draft");
   await h.state.testModel();
@@ -358,7 +374,9 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
   t.after(() => server.close());
   const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
   for (const category of ["models", "skills", "mcp"] as const) {
-    const h = harness(category); await h.state.read();
+    const h = harness(category);
+    if (category === "models") Object.assign(h.view.settings, { modelPresets: [{ id: "openai/preset", provider: "OpenAI", name: "Installed preset", config: modelConfig }] });
+    await h.state.read();
     if (category === "mcp") {
       await h.state.selectService(service.id);
       const summary = { operation: 12, service: "远端服务", tool: "lookup", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
@@ -367,7 +385,7 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
     const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
     assert.doesNotMatch(html, /remote\/profile|档案状态|维护原因|查看保存影响|保存更改？/);
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
-    if (category === "models") { assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
+    if (category === "models") { assert.match(html, /模型预设/); assert.match(html, /Installed preset/); assert.match(html, /自定义/); assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
     if (category === "skills") {
       assert.match(html, /home\/ruukoto\/\.agents\/skills/); assert.match(html, /远端技能/);
       assert.doesNotMatch(html, /选择技能库|导入|托管副本|未保存的更改|查看保存影响|保存更改/);

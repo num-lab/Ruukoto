@@ -19,6 +19,7 @@ import { PERSONAL_CONFIGURATION_FILES, PersonalConfigurationDoc, PersonalSetting
 import { personalSettingsExternalBlockers, type PersonalExternalSettingsBlocker } from "./personal-settings-blockers.ts";
 import { mcpEnd, mcpList, mcpDetail } from "./personal-mcp.ts";
 import { parsePersonalModel, personalProvider, type PersonalModelConfig } from "./personal-model.ts";
+import { personalModelPresets, type PersonalModelPreset } from "./personal-model-presets.ts";
 import { PERSONAL_FORMAT, PERSONAL_PENDING_FILE, PERSONAL_QUESTION_PENDING_FILE, PERSONAL_SCHEDULE_PENDING_FILE, lockPersonalProfile, type PersonalProfileLock } from "./personal-profile.ts";
 import type { PersonalCommandConfig } from "./personal-command-config.ts";
 import type { PersonalServiceConfig } from "./personal-service-config.ts";
@@ -52,7 +53,7 @@ export type PersonalSettingsRequest = { v: 1; op: "settings.read" | "lifecycle.s
   | PersonalSkillSettingsRequest;
 export type PersonalSettingsContext = { profile: PersonalProfileLock; instance?: PersonalHarness; development?: boolean; checkpoint?: (stage: "intent" | "file" | "saved" | "published") => void | Promise<void> };
 type PersonalMcpSummary = Omit<PersonalMcpConfig, "services"> & { services: (Omit<PersonalMcpService, "tools"> & { tools: { name: string; description?: string }[] })[]; offset: number; hasMore: boolean };
-export type PersonalSettingsSnapshot = { profile: PersonalSettingsIdentity; online: boolean; settingsProtocol: 2; revisions: Record<Exclude<PersonalConfigurationTarget, "managed-skills">, string>; revisionsUnknown: PersonalConfigurationTarget[]; fileIssues: PersonalSettingsFileIssue[]; operations: PersonalSettingsReceipt[]; operationsNextOffset?: number; effective: { target: PersonalConfigurationTarget; scope: string; version: string; revision: string | null }[]; effectiveNextOffset?: number; commands: PersonalCommandConfig | null; "web-search": PersonalWebSearchConfig | null; services: PersonalServiceConfig | null; model: { config: PersonalModelConfig } | null; skills: ReturnType<typeof settingsSkillLibrary>; mcp: PersonalMcpSummary | null };
+export type PersonalSettingsSnapshot = { profile: PersonalSettingsIdentity; online: boolean; settingsProtocol: 2; revisions: Record<Exclude<PersonalConfigurationTarget, "managed-skills">, string>; revisionsUnknown: PersonalConfigurationTarget[]; fileIssues: PersonalSettingsFileIssue[]; operations: PersonalSettingsReceipt[]; operationsNextOffset?: number; effective: { target: PersonalConfigurationTarget; scope: string; version: string; revision: string | null }[]; effectiveNextOffset?: number; commands: PersonalCommandConfig | null; "web-search": PersonalWebSearchConfig | null; services: PersonalServiceConfig | null; model: { config: PersonalModelConfig } | null; modelPresets?: PersonalModelPreset[]; skills: ReturnType<typeof settingsSkillLibrary>; mcp: PersonalMcpSummary | null };
 
 export async function readPersonalSettings(target: string | PersonalProfileLock): Promise<PersonalSettingsSnapshot> {
   return await executePersonalSettings(target, { v: 1, op: "settings.read" }) as PersonalSettingsSnapshot;
@@ -284,13 +285,13 @@ export async function testPersonalModel(config: PersonalModelConfig, options: { 
     const reply = await Promise.race([models.completeSimple(model, evidence.input, { maxTokens: 1, signal: controller.signal, onPayload: async payload => { await record({ ...evidence, payload: JSON.parse(JSON.stringify(payload)) as JsonValue }); } }), timedOut]);
     if (reply && reply.stopReason !== "error" && reply.stopReason !== "aborted" && !controller.signal.aborted) return { status: "passed" as const, code: "model_connection_ok", message: "模型连接测试成功。" };
   } catch {
-    // SDK 失败可能包含请求、响应或凭据，只返回固定诊断。
+    // SDK failures can contain requests, responses or credentials; return only the fixed diagnostic.
   } finally { clearTimeout(timer); }
   if (evidenceFailed) return { status: "failed" as const, code: "model_test_evidence_failed", message: "模型测试证据未保存，未发送请求；请保留档案并检查存储。" };
   return { status: "failed" as const, code: controller.signal.aborted ? "model_test_timeout" : "model_connection_failed", message: controller.signal.aborted ? "模型连接测试超时，请检查服务后显式重试。" : "模型连接测试失败，请检查地址、API 类型与后台凭据。" };
 }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-settings.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-personal-settings.md
 export async function dispatchPersonalSettings(current: PersonalSettingsContext, value: unknown): Promise<unknown> {
   if (object(value) && typeof value.op === "string" && value.op.startsWith("im.pair-")) {
     const { parsePersonalImPairingRequest, dispatchPersonalImPairing } = await import("./personal-im-pairing.ts");
@@ -314,7 +315,7 @@ export async function dispatchPersonalSettings(current: PersonalSettingsContext,
     const revisionsUnknown = fileIssues.filter(issue => issue.actualRevision === null).map(issue => issue.target);
     const model = affected.has("model") || revisions.model === "missing" ? undefined : readPersonalConfig(profile), mcp = affected.has("mcp") ? undefined : readPersonalMcp(profile), offset = request.offset ?? 0, limit = request.limit ?? 20;
     const config = (target: PersonalConfigurationTarget) => affected.has(target) ? null : readPersonalConfigurationFile(profile, target).config;
-    return { ...base, settingsProtocol: 2, ...await settingsFacts(current, request), revisions, revisionsUnknown, fileIssues, commands: config("commands"), services: config("services"), "web-search": affected.has("web-search") ? null : readPersonalWebSearch(profile) ?? null, telegram: config("telegram"), qq: config("qq"), model: model ? { config: model, credential: await credentialState(model, online) } : null, skills,
+    return { ...base, settingsProtocol: 2, ...await settingsFacts(current, request), revisions, revisionsUnknown, fileIssues, commands: config("commands"), services: config("services"), "web-search": affected.has("web-search") ? null : readPersonalWebSearch(profile) ?? null, telegram: config("telegram"), qq: config("qq"), model: model ? { config: model, credential: await credentialState(model, online) } : null, modelPresets: personalModelPresets(), skills,
       mcp: mcp ? { version: mcp.version, generation: mcp.generation, services: await Promise.all(mcp.services.slice(offset, offset + limit).map(async service => ({ ...await safeService(service), tools: service.tools.map(tool => ({ name: tool.name, description: tool.description?.slice(0, 1024) })) }))), offset, hasMore: offset + limit < mcp.services.length } : null,
       blockers: [], lifecycle: { managedDevelopment: !!current.development, automaticRestart: false, originalEnvironment: "unverified" } };
   }

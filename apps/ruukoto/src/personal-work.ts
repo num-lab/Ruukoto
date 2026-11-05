@@ -2,6 +2,7 @@ import { configureAppDataChild, requireWorkAppDataStopped, appDataOperations, ap
 import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS } from "./personal-memory.ts";
 import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts";
 import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
+import { PERSONAL_OUTPUTS } from "./personal-outputs.ts";
 import { PERSONAL_MEDIA } from "./personal-media.ts";
 import { PERSONAL_FILE_SEARCH } from "./personal-file-search.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, supersedePersonalToolOperations, personalToolSummary, toolOperations, toolUnresolved, waitWorkTools, type ToolQueryIdentity } from "./personal-tools.ts";
@@ -316,6 +317,11 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
       const config = await tx.doc(AgentDoc, child.id);
       if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
       config.extensions.push(PERSONAL_TOOLS, ...(main.extensions.includes(PERSONAL_FILE_SEARCH) ? [PERSONAL_FILE_SEARCH] : [])); config.tools.push(...PERSONAL_TOOL_NAMES.filter(name => Array.isArray(main.tools) && main.tools.includes(name)));
+    }
+    if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_OUTPUTS)) {
+      const config = await tx.doc(AgentDoc, child.id);
+      if (!Array.isArray(config.extensions) || !Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
+      config.extensions.push(PERSONAL_OUTPUTS); config.tools.push("publish_output");
     }
     if (Array.isArray(main.extensions) && main.extensions.includes(PERSONAL_MEDIA)) {
       const config = await tx.doc(AgentDoc, child.id);

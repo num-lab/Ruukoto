@@ -4,8 +4,12 @@ import type { SettingsForm, SettingsPhase } from "./settings-state.ts";
 
 const emptyConfig = (): PersonalTargetConfig => ({ v: 1, origin: "" });
 const equal = (a: PersonalTargetConfig, b: PersonalTargetConfig) => a.origin === b.origin;
+export type PersonalPermissionMode = "confirm" | "auto-review" | "full_access";
+type PermissionScope = "default" | "qq";
+type Permissions = Record<PermissionScope, { mode: PersonalPermissionMode }>;
+const permissionMode = (value: unknown): value is PersonalPermissionMode => value === "confirm" || value === "auto-review" || value === "full_access";
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+// Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 export class PersonalConnectionState implements SettingsForm {
   draft = emptyConfig();
   current: PersonalTargetConfig | null = null;
@@ -18,21 +22,29 @@ export class PersonalConnectionState implements SettingsForm {
   legacy: string[] = [];
   fieldErrors: { origin?: string } = {};
   pending: PersonalTargetConfig | null = null;
+  permissions: Permissions | null = null;
+  permissionsReading = false;
+  permissionsMessage = "";
+  permissionConfirmation: PermissionScope | null = null;
+  private permissionsConnection: PersonalTargetConfig | null = null;
   private baseline = emptyConfig();
   private generation = 0;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void) {}
   get dirty() { return this.loaded && !equal(this.draft, this.baseline); }
-  get disabled() { return !this.loaded || this.reading || this.phase === "saving" || this.phase === "unknown"; }
+  get disabled() { return !this.loaded || this.reading || this.permissionsReading || this.phase === "saving" || this.phase === "unknown"; }
+  get permissionsDisabled() { return this.disabled || this.dirty || !this.permissions || !this.current?.binding; }
+  get confirming() { return this.permissionConfirmation !== null; }
   edit(_key: "origin", value: string) { if (this.disabled) return; this.draft = { v: 1, origin: value }; this.code = ""; this.message = ""; this.fieldErrors = {}; this.changed(); }
   discard() { this.draft = { ...this.baseline }; this.fieldErrors = {}; this.changed(); }
-  invalidate() { ++this.generation; this.reading = false; this.code = ""; if (this.phase === "saving") { this.phase = "unknown"; this.message = "原操作结果待核实，请读取连接或核实原配对。"; } }
+  invalidate() { ++this.generation; this.reading = false; this.permissionsReading = false; this.permissions = null; this.permissionsConnection = null; this.permissionConfirmation = null; this.code = ""; if (this.phase === "saving") { this.phase = "unknown"; this.message = "原操作结果待核实，请读取连接或核实原配对。"; } }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("personal", op, params) as DesktopResult<T>; }
     catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "宿主应答丢失，请核实原操作；不会自动重发。" } }; }
   }
   async read() {
-    if (this.reading || this.phase === "saving") return;
+    if (this.reading || this.permissionsReading || this.phase === "saving") return;
     const generation = ++this.generation; this.reading = true; this.changed();
+    this.permissions = null; this.permissionsConnection = null; this.permissionConfirmation = null;
     const result = await this.request<PersonalTargetConfig | null>("desktop_personal_config_read", {});
     if (generation !== this.generation) return;
     this.reading = false;
@@ -46,6 +58,36 @@ export class PersonalConnectionState implements SettingsForm {
     if (generation !== this.generation) return;
     if (legacy.ok) this.legacy = legacy.value.paths; else this.message = legacy.error.message;
     this.changed();
+    if (this.current?.binding && !this.dirty) await this.readPermissions();
+  }
+  // Note: See .agents/notes/implemented/feature/2026-11-05-personal-setup-presets.md
+  async readPermissions(): Promise<void> {
+    if (!this.current?.binding || this.dirty || this.reading || this.permissionsReading || this.phase === "saving") return;
+    const generation = this.generation, connection = structuredClone(this.current);
+    this.permissions = null; this.permissionConfirmation = null; this.permissionsReading = true; this.changed();
+    const result = await this.request<Permissions>("desktop_personal_request", { method: "GET", path: "/permissions", connection });
+    if (generation !== this.generation) return;
+    this.permissionsReading = false;
+    if (!result.ok) { this.permissionsMessage = result.error.message; this.changed(); return; }
+    if (!permissionMode(result.value?.default?.mode) || !permissionMode(result.value?.qq?.mode)) { this.permissionsMessage = "默认权限无法核实，请重新读取。"; this.changed(); return; }
+    this.permissions = result.value; this.permissionsConnection = connection; this.permissionsMessage = ""; this.changed();
+  }
+  async selectPermission(scope: PermissionScope, mode: PersonalPermissionMode): Promise<void> {
+    if (this.permissionsDisabled || !permissionMode(mode) || this.permissions![scope].mode === mode) return;
+    if (mode === "full_access") { this.permissionConfirmation = scope; this.changed(); return; }
+    await this.savePermission(scope, mode);
+  }
+  cancelPermission(): void { this.permissionConfirmation = null; this.changed(); }
+  async confirmPermission(): Promise<void> { const scope = this.permissionConfirmation; this.permissionConfirmation = null; if (scope) await this.savePermission(scope, "full_access"); }
+  private async savePermission(scope: PermissionScope, mode: PersonalPermissionMode): Promise<void> {
+    if (this.permissionsDisabled || !this.permissionsConnection) return;
+    const generation = this.generation, connection = structuredClone(this.permissionsConnection);
+    this.permissionsReading = true; this.permissionsMessage = "正在核实默认权限…"; this.changed();
+    const result = await this.request("desktop_personal_request", { method: "POST", path: "/permissions", body: { mode, ...(scope === "qq" ? { scope } : {}) }, connection });
+    if (generation !== this.generation) return;
+    this.permissionsReading = false; this.permissions = null;
+    this.permissionsMessage = result.ok ? "" : result.error.message;
+    await this.readPermissions();
   }
   async save() {
     if (this.disabled || !this.dirty) return false;

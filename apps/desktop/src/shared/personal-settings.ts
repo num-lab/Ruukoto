@@ -12,6 +12,7 @@ export interface PersonalSettingsSnapshot extends Record<string, unknown> {
   revisions: { model: string; skills: string; mcp: string };
   blockers: unknown[];
   model: { config: Record<string, unknown>; credential: { state: "available" | "missing" | "unverified"; reference: string } } | null;
+  modelPresets?: { id: string; provider: string; name: string; config: { api: "openai-completions" | "openai-responses" | "anthropic-messages"; baseUrl: string; modelId: string; apiKeyEnv: string; contextWindow: number; maxTokens: number; imageInput?: boolean } }[];
   lifecycle: { managedDevelopment: boolean };
 }
 export interface PersonalMaintenanceStatus {

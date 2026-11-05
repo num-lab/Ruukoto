@@ -19,10 +19,10 @@ const emptyModel = () => ({ api: "openai-responses" as PersonalModel["api"], bas
 const emptyService = (): ServiceDraft => ({ id: crypto.randomUUID(), label: "", endpoint: "", authentication: "", credentialPath: "", credentialRebind: false, enabled: false, tools: [], toolEffects: {} });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-// Note: 见 .agents/notes/implemented/simplification/2026-10-28-desktop-personal-direct-save.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
-// Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
-// Note: 见 .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
+// Note: See .agents/notes/implemented/simplification/2026-10-28-desktop-personal-direct-save.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-desktop-personal-pages.md
+// Note: See .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+// Note: See .agents/notes/implemented/simplification/2026-10-28-home-skills-discovery.md
 export class PersonalSettingsPageState implements SettingsForm {
   phase: SettingsPhase = "loading";
   reading = false;
@@ -30,6 +30,7 @@ export class PersonalSettingsPageState implements SettingsForm {
   message = "";
   view: PersonalPageView | null = null;
   model = emptyModel();
+  private customModel = false;
   service = emptyService();
   editingService = false;
   query = "";
@@ -55,7 +56,7 @@ export class PersonalSettingsPageState implements SettingsForm {
   private pendingSave: string | null = null;
   private readonly invalidatedCuaObservations = new Map<number, number>();
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly category: ManagedSettingsCategory) {}
-  /** 电脑页与 MCP 页共用 mcp 配置与修订，只是各自过滤服务。 */
+  /** Computer and MCP pages filter the same configuration and revision. */
   private get mcpLike(): boolean { return this.category === "mcp" || this.category === "computer"; }
   get mcpNeedsMigration(): boolean { return !!this.view?.settings.mcp && this.view.settings.mcp.version !== 4; }
   private draft(): unknown { return this.category === "models" ? this.model : this.category === "skills" ? null : this.editingService ? this.service : null; }
@@ -77,6 +78,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.view) return;
     const config = this.view.settings.model?.config;
     this.model = config ? { ...config, contextWindow: String(config.contextWindow), maxTokens: String(config.maxTokens), imageInput: config.imageInput ?? false } : emptyModel();
+    this.customModel = false;
     this.cuaChoosing = false; this.cuaTargets = []; this.cuaIssues = []; this.cuaImages = []; this.cuaConfirmation = null; this.service = emptyService(); this.editingService = false; this.toolsChanged = false;
     this.revision = this.view.settings.revisions[this.category === "models" ? "model" : this.category === "computer" ? "mcp" : this.category];
     this.baseline = JSON.stringify(this.draft()); this.fieldErrors = {}; this.test = null; this.discovered = null;
@@ -128,7 +130,18 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!same(result.value.profile, this.view!.settings.profile)) { this.phase = "conflict"; this.message = "查询应答不属于原档案，请核实管理连接。"; this.changed(); return null; }
     this.changed(); return result.value;
   }
-  editModel<K extends keyof typeof this.model>(key: K, value: (typeof this.model)[K]): void { if (this.disabled) return; this.model = { ...this.model, [key]: value }; this.test = null; delete this.fieldErrors[key]; this.changed(); }
+  editModel<K extends keyof typeof this.model>(key: K, value: (typeof this.model)[K]): void { if (this.disabled) return; this.model = { ...this.model, [key]: value }; this.customModel = true; this.test = null; delete this.fieldErrors[key]; this.changed(); }
+  get modelPresets() { return this.view?.settings.modelPresets ?? []; }
+  get modelPreset(): string { return this.customModel ? "" : this.modelPresets.find(preset => same({ ...preset.config, contextWindow: String(preset.config.contextWindow), maxTokens: String(preset.config.maxTokens), imageInput: preset.config.imageInput ?? false }, this.model))?.id ?? ""; }
+  selectModelPreset(id: string): void {
+    if (this.disabled) return;
+    if (!id) { this.customModel = true; this.changed(); return; }
+    const preset = this.modelPresets.find(item => item.id === id);
+    if (!preset) return;
+    this.model = { ...preset.config, contextWindow: String(preset.config.contextWindow), maxTokens: String(preset.config.maxTokens), imageInput: preset.config.imageInput ?? false };
+    this.customModel = false;
+    this.test = null; this.fieldErrors = {}; this.changed();
+  }
   private modelValue(): PersonalModel | null {
     const value = { ...this.model, contextWindow: Number(this.model.contextWindow), maxTokens: Number(this.model.maxTokens) };
     this.fieldErrors = {};

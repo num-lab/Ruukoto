@@ -10,9 +10,10 @@ export async function managePersonalPermissions(io: PersonalCliIO, directory: st
     if (action === 2) return;
     if (action === 0) {
       const current = await personalControl<{ default: { mode: PersonalServiceMode }; qq: { mode: PersonalServiceMode } }>(directory, "GET", "/permissions");
-      const scope = await choose(io, "选择新输入来源", [`本机与 Telegram：${MODES[current.default.mode]}`, `QQ：${MODES[current.qq.mode]}`, "返回"]);
+      const scope = await choose(io, "选择新输入来源", [`桌面、本机与 Telegram：${MODES[current.default.mode]}`, `QQ（独立默认）：${MODES[current.qq.mode]}`, "返回"]);
       if (scope === 2) continue;
       const modes = ["auto-review", "confirm", "full_access"] as const;
+      io.write("请求确认：已授予范围内直接执行，超出范围时请求批准。自动审查：可独立审查范围外的无凭据读取，其余超出范围操作仍请求批准。\n");
       const selected = await choose(io, "默认模式只影响以后新接纳的输入与新计划，已有工作保持原权限", [...modes.map(mode => MODES[mode]), "返回"]);
       if (selected === 3) continue;
       if (modes[selected] === "full_access" && await choose(io, "完全访问使用后台账户权限，可访问目录外资料、网络和同账户凭据，免逐次审批；未知效果仍暂停", ["返回", "将新输入设为完全访问"]) === 0) continue;

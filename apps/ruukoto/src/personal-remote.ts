@@ -15,7 +15,7 @@ import { personalProfileFormatSupported } from "./personal-profile.ts";
 import { parsePersonalImPairingRequest } from "./personal-im-pairing.ts";
 
 const MAX_REQUEST = 128 * 1024, MAX_RESPONSE = 256 * 1024;
-const READ_ROUTES = new Set(["/status", "/timeline", "/history/entry", "/desktop/state", "/desktop/operation", "/desktop/input", "/desktop/action", "/delegations", "/delegation", "/delegation/report", "/questions", "/question", "/question/receipt", "/works", "/work", "/input", "/permissions", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/services", "/service", "/app-data/operations", "/app-data/operation"]);
+const READ_ROUTES = new Set(["/status", "/timeline", "/history/entry", "/desktop/state", "/desktop/operation", "/desktop/input", "/desktop/action", "/desktop/output", "/delegations", "/delegation", "/delegation/report", "/questions", "/question", "/question/receipt", "/works", "/work", "/input", "/permissions", "/tools/operations", "/tools/operation", "/mcp/operations", "/mcp/operation", "/services", "/service", "/app-data/operations", "/app-data/operation"]);
 const WRITE_ROUTES = new Set(["/inputs", "/question/answer", "/question/cancel", "/desktop/action", "/permissions", "/tools/decide", "/mcp/decide", "/mcp/end", "/service/decide", "/app-data/decide", "/work/cancel", "/delegation/cancel"]);
 const OFFLINE_SETTINGS = new Set(["settings.read", "lifecycle.status", "skills.list", "skills.get", "mcp.get", "mcp.operations", "mcp.operation", "mcp.end"]);
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);

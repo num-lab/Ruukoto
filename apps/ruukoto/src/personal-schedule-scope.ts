@@ -38,6 +38,7 @@ export async function verifyPersonalScheduleScope(tx: Tx, scope: PersonalSchedul
   const snapshot = scope.snapshot, policy = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.servicePolicy : undefined;
   const policyPath = policy && typeof policy === "object" && !Array.isArray(policy) && typeof policy.path === "string" ? policy.path : undefined;
   const current = await capturePersonalScheduleScope(tx, policyPath), original = scope.snapshot, selected = current.snapshot;
+  if (!scope.extensions.includes("personal-outputs")) { current.extensions = current.extensions.filter(name => name !== "personal-outputs"); current.tools = current.tools.filter(name => name !== "publish_output"); }
   if (original && typeof original === "object" && !Array.isArray(original) && selected && typeof selected === "object" && !Array.isArray(selected)) for (const target of ["commands", "services"] as const) {
     const key = `${target}Version`;
     if (!(key in original) && key in selected && selected[key] === (target === "commands" ? personalCommandLegacyVersion(await personalConfigurationVersions(tx, target)) : personalServiceLegacyVersion(await personalConfigurationVersions(tx, target)))?.version) delete selected[key];

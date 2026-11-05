@@ -14,15 +14,15 @@ import { PersonalMockModelServer } from "./helpers/mock-provider.ts";
 test("CLI配置查看：持锁后台同PID读四类配置，模型更新后status反映实际选择且零模型调用", async t => {
   const directory = fs.realpathSync(fs.mkdtempSync("/tmp/rk-online-cli-settings-"));
   const model = new PersonalMockModelServer(() => assert.fail("查看和声明式保存不能请求模型"));
-  t.after(async () => { await model.close(); fs.rmSync(directory, { recursive: true, force: true }); });
+  let backend: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
+  t.after(async () => { await backend?.stop(); await model.close(); fs.rmSync(directory, { recursive: true, force: true }); });
   isolateSkillHome(t);
   const profile = lockPersonalProfile(directory);
   const config = { api: "openai-completions", baseUrl: await model.start(), modelId: "before-update", apiKeyEnv: "RUUKOTO_ONLINE_READ_UNUSED_KEY", contextWindow: 4096, maxTokens: 128 };
   fs.writeFileSync(path.join(directory, "model.json"), JSON.stringify(config) + "\n", { mode: 0o600 });
   fs.writeFileSync(path.join(directory, "mcp.json"), JSON.stringify({ version: 2, generation: "read-fixture", services: [{ id: "read", label: "只读配置", endpoint: "http://127.0.0.1:1/mcp", enabled: true, tools: [] }] }) + "\n", { mode: 0o600 });
   profile.release();
-  let backend = await startPersonalServer(directory);
-  t.after(() => backend.stop());
+  backend = await startPersonalServer(directory);
   const before = await readPersonalSettings(directory), inode = fs.statSync(path.join(directory, "control.sock")).ino;
   assert.equal(before.online, true);
   for (const [configure, answers] of [[showPersonalSkills, []], [configurePersonalMcp, ["2", "1"]], [configurePersonalServices, ["1"]], [configurePersonalCommands, ["1"]]] as const) {

@@ -82,7 +82,9 @@ Startup discovers the local Coding backend and starts it on demand when absent. 
 
 Main delegates assignments and stays available for queries, amended requirements and whole-assignment cancellation. Decisions or recovery choices for ordinary tools, app-data, MCP/Cua, service restarts and inspections, commands, browsers and managed processes arrive through the authenticated event stream, including before main finishes its prose. Every redisplay retains the same decision. Amendments leave the old card visible with its original approval and a changed-requirements/not-executed reason; the same SubAgent prepares the current exact operation.
 
-Before approval, the desktop reads all immutable parameter pages and the full prepared target. The host journals each native choice's exact card, payload and request ID before dispatch. After a lost response, it inspects the original canonical receipt; a missing, admitted or unverified receipt keeps that card locked through reconnect and application restart. Reopening does not resend the choice. Work progress separates accepted, actually model-read and answered instructions; stopping, publication and delivery retain their own states. The composer stays usable during waits. Final-file preview/download belongs to the later output milestone.
+Before approval, the desktop reads all immutable parameter pages and the full prepared target. The host journals each native choice's exact card, payload and request ID before dispatch. After a lost response, it inspects the original canonical receipt; a missing, admitted or unverified receipt keeps that card locked through reconnect and application restart. Reopening does not resend the choice. Work progress separates accepted, actually model-read and answered instructions; stopping, publication and delivery retain their own states. The composer stays usable during waits.
+
+Published final-file cards offer native preview and save in Electron and MyGo. The host reads authenticated 128 KiB chunks, verifies immutable metadata, exact length and final SHA-256, and holds at most 8 MiB. Partial or oversized output stays visible with complete delivery unavailable. Renderer requests contain the original origin/profile/publication/output identity, never bytes or filesystem paths. Native save selection waits for the owner's choice, then checks authentication again before an atomic local write; Quick Look uses private temporary files with viewer cleanup on replacement, connection change and exit. Transfer failure never starts another business operation.
 
 Work questions appear inline while their original work waits. Each question batch keeps its own selection, navigation and free-text draft. A single-question single choice submits directly; multi-select waits for Done; a multiple-question batch ends with review. Free text belongs to the exact question, and canonical cancellation or version changes prevent old drafts from submitting. An unresolved answer locks only that question. IM-origin questions remain answerable through their original verified entry, with native inspection and cancellation available.
 
@@ -93,6 +95,8 @@ One delegation item groups its visible member labels, progress and inspection ac
 ### PA Configuration Saves
 
 Model, MCP and computer edits save directly. Refresh retains drafts; save uses the current connection and latest revision, so another entry's simultaneous edits to the same object may be overwritten. Leaving settings is allowed while the result is unknown: the desktop retains the original submission and queries save/apply outcomes when reopened. Verification, withdrawal and recovery actions appear for exceptions or unapplied changes rather than every save.
+
+Personal model settings offer compatible installed provider/model presets while preserving the custom editor. Selection edits the draft and retains existing save/application receipts. Connection settings show shared desktop/local/Telegram and independent QQ default permissions, explain granted-scope execution, and confirm full access. Permission reads and writes bind the original connection; a save or lost response is followed by inspection, with controls locked if current values cannot be verified.
 
 ### MCP Call Finalization and Computer Recovery
 
@@ -139,6 +143,8 @@ Acceptance requires every current image to be complete, hash verified and succes
 - [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
 - [Personal work questions](../../.agents/notes/implemented/feature/2026-11-05-personal-work-questions.md)
 - [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
+- [Personal final-file delivery](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)
+- [Personal setup presets and defaults](../../.agents/notes/implemented/feature/2026-11-05-personal-setup-presets.md)
 - [Desktop Scheduled interface](../../.agents/notes/implemented/feature/2026-11-01-desktop-scheduled-interface.md)
 - [Desktop spotlight search](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)
 - [Personal tailscale https](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)

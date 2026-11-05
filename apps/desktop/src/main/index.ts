@@ -31,6 +31,17 @@ function showNotice(notice: DesktopNotice): void {
   notification.show();
 }
 const platform = {
+  pickOutput: async (name: string) => {
+    if (!window || window.isDestroyed()) throw new DesktopError("personal_output_closed", "文件窗口已关闭，请重新打开应用。");
+    const result = await dialog.showSaveDialog(window, { title: "保存最终文件", defaultPath: name, properties: ["createDirectory", "showOverwriteConfirmation"] });
+    return result.canceled ? null : result.filePath ?? null;
+  },
+  previewOutput: async (filename: string, name: string) => {
+    const source = window;
+    if (!source || source.isDestroyed()) throw new DesktopError("personal_output_closed", "文件窗口已关闭，请重新打开应用。");
+    source.previewFile(filename, name);
+    return () => { if (!source.isDestroyed()) source.closeFilePreview(); };
+  },
   credentials: electronPersonalCredentialStorage(app.getPath("userData"), app.isPackaged, safeStorage, () => app.whenReady()),
   publish: (target: DesktopTarget, update: DesktopUpdate) => { if (window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update); },
   focused: () => !!window?.isFocused(),

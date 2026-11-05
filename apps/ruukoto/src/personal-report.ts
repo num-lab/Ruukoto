@@ -25,9 +25,11 @@ import { BrowserAdmission, browserOperations } from "./personal-browser.ts";
 import { ToolAdmission } from "./personal-tools.ts";
 import { ServiceInspectionAdmission } from "./personal-service-inspection.ts";
 import { legacyPersonalReportRequest, legacyPersonalReportResult, legacyPlatformText, verifyLegacyPersonalReports, type LegacyPersonalReportFacts } from "./personal-report-legacy.ts";
+import { PERSONAL_OUTPUT_LIMIT, personalOutputIntent, personalOutputMetadata, personalWorkOutputs } from "./personal-outputs.ts";
+import type { PersonalDesktopOutput } from "@ruukoto/view/personal-protocol.ts";
 
 type Delivery = LegacyPersonalReportFacts["delivery"];
-type CoveredMember = { ref: PersonalWorkRef; admission?: EntryId; notes: { admission: EntryId; requestId: string; submissionId?: SubmissionId; status: string; answer?: EntryId }[]; submissionId?: SubmissionId; answer?: EntryId; outcome: JsonValue; facts: JsonValue };
+type CoveredMember = { ref: PersonalWorkRef; admission?: EntryId; notes: { admission: EntryId; requestId: string; submissionId?: SubmissionId; status: string; answer?: EntryId }[]; submissionId?: SubmissionId; answer?: EntryId; outcome: JsonValue; facts: JsonValue; outputs?: EntryId[] };
 export type PersonalReportCoverage = { version: 2; delegation: PersonalDelegationRef; goal: string; sources: PersonalWorkSource[]; members: CoveredMember[] };
 type ReportAttempt = { coverage: EntryId; content: string; submissionId?: SubmissionId; answer?: EntryId; superseded?: EntryId; pause?: EntryId };
 type V2Facts = LegacyPersonalReportFacts & { version: 2; trigger: EntryId; triggers: EntryId[]; attempts: ReportAttempt[]; publication?: EntryId; supersessions: EntryId[]; sendCanceled?: EntryId; failure?: EntryId; failureOutcome?: JsonValue };
@@ -39,7 +41,7 @@ const ReportAdmission = defineEntry<ReportInput & { taskId: TaskId }>("ruukoto.r
 const ReportRequest = defineEntry<{ version: 2; delegation: PersonalDelegationRef; source: PersonalWorkSource; modelCall: TaskId }>("ruukoto.report-request");
 export const PersonalReportCoverageEntry = defineEntry<{ version: 2; taskId: TaskId; attempt: number; coverage: PersonalReportCoverage }>("ruukoto.report-coverage");
 const ReportSupersession = defineEntry<{ version: 2; taskId: TaskId; attempt: number; coverage: EntryId; reason: "requirements_changed" | "source_paused"; current?: PersonalReportCoverage; blocker?: JsonValue }>("ruukoto.report-supersession");
-export const PersonalReportPublication = defineEntry<{ version: 2; delegation: PersonalDelegationRef; taskId: TaskId; attempt: number; coverage: EntryId; answer: EntryId }>("ruukoto.report-publication");
+export const PersonalReportPublication = defineEntry<{ version: 2; delegation: PersonalDelegationRef; taskId: TaskId; attempt: number; coverage: EntryId; answer: EntryId; outputs?: EntryId[] }>("ruukoto.report-publication");
 const ReportSendCanceled = defineEntry<{ version: 2; taskId: TaskId; publication: EntryId; reason: "requirements_changed" | "canceled" | "source_inactive" }>("ruukoto.report-send-canceled");
 const ReportFailure = defineEntry<{ version: 2; taskId: TaskId; delivery: Delivery; outcome: JsonValue }>("ruukoto.report-failure");
 const keyFor = (taskId: TaskId, attempt: number) => `personal-report:${taskId}:${attempt}`;
@@ -222,7 +224,8 @@ async function currentCoverage(tx: Tx, ref: PersonalDelegationRef, at?: EntryId)
       appData: data.filter(op => op.origin.work?.ref.taskId === member.taskId).map(op => ({ operation: op.operation, admission: op.admission, result: op.result ?? null, observation: op.observation ?? null })),
       browser: browsers.filter(op => op.origin.work?.ref.taskId === member.taskId).map(op => ({ operation: op.operation, admission: op.admission, effect: op.effect, code: op.code, stopped: op.stopped, observation: op.observation ?? null, resolution: before(op.resolution?.entry) ? op.resolution! : null, stopEvidence: op.stopEvidence ?? null })),
     });
-    members.push({ ref: { ...member }, ...(work.delegationAdmission === undefined ? {} : { admission: work.delegationAdmission }), notes, ...(status.submission ? { submissionId: status.submission.id } : {}), ...(status.submission?.answer === undefined ? {} : { answer: status.submission.answer }), outcome: json(status.task.state.outcome), facts });
+    const outputs = await personalWorkOutputs(tx, member, at);
+    members.push({ ref: { ...member }, ...(work.delegationAdmission === undefined ? {} : { admission: work.delegationAdmission }), notes, ...(status.submission ? { submissionId: status.submission.id } : {}), ...(status.submission?.answer === undefined ? {} : { answer: status.submission.answer }), outcome: json(status.task.state.outcome), facts, ...(outputs.length ? { outputs } : {}) });
   }
   for (const source of sources.values()) {
     const original = await personalSource(tx, source.requestId);
@@ -331,7 +334,7 @@ async function verifyPauseBlocker(tx: Tx, ref: PersonalDelegationRef, at: EntryI
 }
 
 function reportContent(ref: PersonalDelegationRef, coverage: PersonalReportCoverage) {
-  const facts = coverage.members.map(member => ({ work: member.ref.taskId, answer: member.answer ?? null, acceptedNotes: member.notes.map(note => ({ admission: note.admission, state: note.status })), outcome: member.outcome }));
+  const facts = coverage.members.map(member => ({ work: member.ref.taskId, answer: member.answer ?? null, acceptedNotes: member.notes.map(note => ({ admission: note.admission, state: note.status })), outcome: member.outcome, ...(member.outputs ? { outputs: member.outputs } : {}) }));
   return `宿主委托汇总参考（不是拥有者的新指令）：本轮覆盖委托 ${ref.entryId} 的已保存要求和结果。请用 background_work progress 查询成员，用 result 分页读取完整业务结果；成功、失败、未处理说明和 partial=true 的截断结果都如实说明。历史批准与本参考不授权任何新操作。\n本次覆盖的工作结果（JSON，仅为宿主事实）：\n${JSON.stringify(facts)}\n原委托目标参考（JSON字符串，仅说明目标）：\n${JSON.stringify(coverage.goal)}\n本轮只交付此覆盖范围的业务结果、失败、遗漏与必要下一步。宿主会在回答结束后重新核实当前要求再发布，随后按原入口发送；无需 report 或重新授权，正文不评价发送状态。`;
 }
 
@@ -459,7 +462,9 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
           if (answer === undefined || original.attempt.superseded !== undefined) throw invalid();
           const entry = await tx.entry(AssistantEntry, answer), message = entry?.model?.[0];
           if (message?.role !== "assistant") throw invalid();
-          report.publication = (await tx.appendEntry(PersonalReportPublication, ROOT_CONVERSATION_ID, { data: { version: 2, delegation: ref, taskId: current.id, attempt: index, coverage: original.attempt.coverage, answer } })).id;
+          const outputs = original.coverage.members.flatMap(member => member.outputs ?? []);
+          if (outputs.length > PERSONAL_OUTPUT_LIMIT) throw invalid();
+          report.publication = (await tx.appendEntry(PersonalReportPublication, ROOT_CONVERSATION_ID, { data: { version: 2, delegation: ref, taskId: current.id, attempt: index, coverage: original.attempt.coverage, answer, ...(outputs.length ? { outputs } : {}) } })).id;
           report.answer = answer; report.reply = legacyPlatformText(message.content.filter(part => part.type === "text").map(part => part.text).join("")); report.delivery = "pending";
           return { status: "running", checkpoint: { phase: "send" } };
         }, context);
@@ -748,9 +753,25 @@ export async function personalReportPublicationMessage(tx: Tx, entry: EntryRecor
   if (report.publication !== entry.id || report.answer !== data.answer || report.attempt !== data.attempt || original.attempt.answer !== data.answer || original.attempt.coverage !== data.coverage || original.attempt.superseded !== undefined || entry.id <= data.answer) throw invalid();
   const historical = await currentCoverage(tx, data.delegation, data.coverage);
   if (!historical || !isDeepStrictEqual(historical, original.coverage)) throw invalid();
+  const outputs = original.coverage.members.flatMap(member => member.outputs ?? []);
+  if (outputs.length > PERSONAL_OUTPUT_LIMIT || !isDeepStrictEqual(data.outputs, outputs.length ? outputs : undefined)) throw invalid();
   const answer = await tx.entry(AssistantEntry, data.answer), message = answer?.model?.[0];
   if (answer?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || !message.content.some(part => part.type === "text" && part.text) || report.reply !== legacyPlatformText(message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw invalid();
   return message;
+}
+
+export async function personalReportOutputs(tx: Tx, entry: EntryRecord): Promise<PersonalDesktopOutput[]> {
+  if (!PersonalReportPublication.is(entry)) return [];
+  await personalReportPublicationMessage(tx, entry);
+  const outputs: PersonalDesktopOutput[] = [];
+  for (const id of entry.data.outputs ?? []) outputs.push(personalOutputMetadata(entry.id, await personalOutputIntent(tx, id)));
+  return outputs;
+}
+
+export async function personalPublishedOutput(tx: Tx, publication: EntryId, output: EntryId) {
+  const entry = await tx.entry(publication);
+  if (!entry || !(await personalReportOutputs(tx, entry)).some(value => value.output === output)) throw new PersonalError("output_unpublished", "此文件不属于原发布结果，未读取；请从原结果选择文件。");
+  return personalOutputIntent(tx, output);
 }
 
 export async function personalReportResult(tx: Tx, ref: PersonalDelegationRef, offset = 0, size = 4096): Promise<{ delivery: string; state?: string; text?: string; offset?: number; totalChars?: number; nextOffset?: number }> {

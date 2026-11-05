@@ -1,4 +1,7 @@
 import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
@@ -7,6 +10,7 @@ import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } f
 import { handleRequest, ipcResult } from "./ipc.ts";
 import { BrowserDocuments } from "./browser-documents.ts";
 import { PersonalController } from "./personal-controller.ts";
+import { savePersonalOutput } from "./personal-outputs.ts";
 import { loadPersonalConfig, savePersonalConfig, personalOrigin, legacyPersonalMaintenance, acknowledgeLegacyPersonalMaintenance } from "./personal-config.ts";
 import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 import { PersonalSettingsController } from "./personal-settings-controller.ts";
@@ -25,6 +29,8 @@ export interface DesktopPlatform {
   notice(notice: DesktopNotice): void;
   badge(count: number): void;
   credentials?: PersonalCredentialStorage;
+  pickOutput?(name: string): Promise<string | null>;
+  previewOutput?(filename: string, name: string): Promise<() => void | Promise<void>>;
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
@@ -38,6 +44,9 @@ export class DesktopHost {
   private personalInitialization: Promise<void> | null = null;
   private personalGeneration = 0;
   private personalSettings: PersonalSettingsController | null = null;
+  private outputBusy = false;
+  private outputOperation: Promise<unknown> | null = null;
+  private outputPreview: { directory: string; close: () => void | Promise<void> } | null = null;
   private closing: Promise<void> | null = null;
   private readonly subscribed = new Set<DesktopTarget>();
   private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "尚未配置 Personal 连接" } };
@@ -109,7 +118,7 @@ export class DesktopHost {
     if (this.personalInitialization && !replace) return this.personalInitialization;
     const generation = ++this.personalGeneration;
     const previous = this.personalInitialization;
-    const closing = Promise.all([this.personal?.close(), this.personalSettings?.close()]);
+    const closing = Promise.all([this.personal?.close(), this.personalSettings?.close(), this.closeOutputPreview()]);
     this.personalSettings = null;
     this.personalInitialization = (async () => {
       try {
@@ -229,8 +238,43 @@ export class DesktopHost {
         result = await controller.submitInput(input.text);
       } else if (op === "desktop_personal_input_reconcile") { expect([]); result = await controller.reconcileInput(); }
       else if (op === "desktop_personal_input_restore") { expect([]); result = await controller.restoreInput(); }
+      else if (op === "desktop_personal_output_preview" || op === "desktop_personal_output_save") {
+        expect(["origin", "remoteId", "profileId", "publication", "output"]);
+        if (this.outputBusy) throw new DesktopError("personal_output_busy", "另一个文件正在传输，请稍后再试。");
+        if (op === "desktop_personal_output_save" ? !this.platform.pickOutput : !this.platform.previewOutput) throw new DesktopError("personal_output_unavailable", "此构建不支持文件预览或下载，请更新桌面应用。");
+        this.outputBusy = true;
+        const transferring = (async () => {
+          const file = await controller.output(input);
+          if (op === "desktop_personal_output_save") {
+            const destination = await this.platform.pickOutput!(file.metadata.name);
+            file.check();
+            if (destination === null) return { state: "canceled" };
+            await file.revalidate(); await savePersonalOutput(destination, file.bytes, file.check); return { state: "saved" };
+          } else {
+            await this.closeOutputPreview(); file.check();
+            const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ruukoto-output-"));
+            try {
+              await fs.promises.chmod(directory, 0o700);
+              const filename = path.join(directory, file.metadata.name);
+              await fs.promises.writeFile(filename, file.bytes, { flag: "wx", mode: 0o600 });
+              await file.revalidate(); file.check();
+              const close = await this.platform.previewOutput!(filename, file.metadata.name);
+              this.outputPreview = { directory, close };
+              try { file.check(); } catch (error) { await this.closeOutputPreview(); throw error; }
+              return { state: "previewed" };
+            } catch (error) { await fs.promises.rm(directory, { recursive: true, force: true }); throw error; }
+          }
+        })();
+        this.outputOperation = transferring;
+        try { result = await transferring; }
+        finally { this.outputBusy = false; this.outputOperation = null; }
+      }
       else if (op === "desktop_personal_request") {
-        if (Object.keys(input).some(key => !["method", "path", "body"].includes(key)) || !("method" in input) || !("path" in input)) throw new DesktopError("invalid_params", "个人请求参数无效。");
+        if (Object.keys(input).some(key => !["method", "path", "body", "connection"].includes(key)) || !("method" in input) || !("path" in input)) throw new DesktopError("invalid_params", "个人请求参数无效。");
+        if (input.connection !== undefined) {
+          if (input.path !== "/permissions" || input.method !== "GET" && input.method !== "POST") throw new DesktopError("invalid_params", "此操作不接受权限连接关联。");
+          if (!isDeepStrictEqual(input.connection, controller.config)) throw new ControlClientError("personal_identity_changed", "权限设置不属于当前个人连接，请重新读取原档案。", "not_sent");
+        }
         result = await controller.business(input.method, input.path, input.body);
       } else if (["desktop_personal_settings_read", "desktop_personal_settings_request", "desktop_personal_settings_apply", "desktop_personal_settings_operation", "desktop_personal_settings_restore", "desktop_personal_settings_finish"].includes(op)) {
         expect(op === "desktop_personal_settings_apply" ? ["request", "id"] : op === "desktop_personal_settings_request" ? ["request"] : op === "desktop_personal_settings_operation" ? ["id"] : []);
@@ -241,6 +285,13 @@ export class DesktopHost {
       if (controller !== this.personal || generation !== this.personalGeneration || this.closing) throw new ControlClientError("personal_identity_changed", "个人连接已变化，请核实原请求；未采用迟到结果。", "unknown");
       return result;
     });
+  }
+  private async closeOutputPreview(): Promise<void> {
+    const preview = this.outputPreview;
+    if (!preview) return;
+    await preview.close();
+    await fs.promises.rm(preview.directory, { recursive: true, force: true });
+    if (this.outputPreview === preview) this.outputPreview = null;
   }
   resetTerminals(): void {
     ++this.terminalGeneration;
@@ -319,7 +370,7 @@ export class DesktopHost {
     ++this.personalGeneration;
     this.controller?.close();
     this.environmentAbort.abort();
-    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), this.personalInitialization, this.initialization, this.environment?.catch(() => { /* Aborted reads are unused after exit; connection consumers report earlier failures. */ })]).then(() => {});
+    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), this.personalInitialization, this.initialization, this.outputOperation?.catch(() => { /* The original file action reports its failure to its caller. */ }), this.environment?.catch(() => { /* Aborted reads are unused after exit; connection consumers report earlier failures. */ })]).then(() => this.closeOutputPreview());
     return this.closing;
   }
 }

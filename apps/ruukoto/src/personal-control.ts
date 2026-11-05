@@ -37,7 +37,8 @@ import { parsePersonalCommands, readPersonalCommands } from "./personal-command-
 import { personalBootstrapConfigurations } from "./personal-settings-records.ts";
 import { appendPersonalWork, PersonalWorkDoc, closePersonalWorkAgent, listPersonalWorks, personalWorkRef, personalWorkResult, personalWorkSummary, requestPersonalWorkCancel } from "./personal-work.ts";
 import { cancelPersonalDelegation, listPersonalDelegations, personalDelegationProgress } from "./personal-delegation.ts";
-import { personalReportResult } from "./personal-report.ts";
+import { personalPublishedOutput, personalReportResult } from "./personal-report.ts";
+import { personalOutputChunk } from "./personal-outputs.ts";
 import { listPersonalInspections } from "./personal-inspection-controls.ts";
 import { listPersonalServices, personalServiceDetail, personalServiceRef, parsePersonalServiceResolution, type PersonalServiceResolution } from "./personal-service-controls.ts";
 import { resolvePersonalServiceOperation } from "./personal-service-operations.ts";
@@ -194,6 +195,10 @@ export async function startPersonalServer(directory: string, options: { developm
           result = { v: 1, product: "ruukoto", profile: personalSettingsIdentity(profile), runId };
         } else if (req.method === "GET" && url.pathname === "/timeline") {
           result = await instance.harness.commit(tx => personalTimeline(tx, { ...(url.searchParams.has("through") ? { through: queryNumber(url, "through") } : {}), ...(url.searchParams.has("cursor") ? { cursor: url.searchParams.get("cursor")! } : {}) }), context);
+        } else if (req.method === "GET" && url.pathname === "/desktop/output") {
+          const publication = queryNumber(url, "publication") as EntryId, output = queryNumber(url, "output") as EntryId, offset = queryNumber(url, "offset", 0);
+          const entry = await instance.harness.commit(tx => personalPublishedOutput(tx, publication, output), context);
+          result = personalOutputChunk(directory, publication, entry, offset);
         } else if (req.method === "GET" && url.pathname === "/desktop/state") {
           result = await desktopEvents!.state({ approvals: queryNumber(url, "approvals", 0), works: queryNumber(url, "works", 0), delegations: queryNumber(url, "delegations", 0), questions: queryNumber(url, "questions", 0) });
         } else if (req.method === "GET" && url.pathname === "/desktop/operation") {

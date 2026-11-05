@@ -8,6 +8,7 @@ import { serializeFailure } from "./controller.ts";
 import { DesktopError } from "./environment.ts";
 import { savePersonalConfig, validatePersonalConfig, personalProfile, personalPendingFile, readPersonalRecord, writePersonalRecord, type PersonalTargetConfig } from "./personal-config.ts";
 import type { PersonalCredentialStorage } from "./personal-credentials.ts";
+import { personalOutputMetadata, readPersonalOutput, verifyPersonalOutputAccess } from "./personal-outputs.ts";
 import type { DesktopUpdate } from "../shared/bridge.ts";
 import type { PersonalDesktopApproval } from "@ruukoto/view/personal-protocol.ts";
 import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt, PersonalPendingDecision, PersonalDesktopAction, PersonalDesktopActionReceipt } from "../shared/personal-desktop.ts";
@@ -55,7 +56,7 @@ function desktopBlock(value: unknown): boolean {
 function desktopMessage(value: unknown): boolean {
   return object(value) && ["user", "assistant", "toolResult"].includes(String(value.role)) && typeof value.text === "string" && typeof value.partial === "boolean" && typeof value.truncated === "boolean" && timestamp(value.timestamp) && (value.thinking === undefined || typeof value.thinking === "string") && (value.toolCallId === undefined || typeof value.toolCallId === "string") && (value.toolName === undefined || typeof value.toolName === "string") && (value.isError === undefined || typeof value.isError === "boolean") && (value.blocks === undefined || Array.isArray(value.blocks) && value.blocks.every(block => object(block) && integer(block.index) && desktopBlock(block))) && (value.toolCalls === undefined || Array.isArray(value.toolCalls) && value.toolCalls.every(call => object(call) && typeof call.id === "string" && typeof call.name === "string" && typeof call.arguments === "string" && typeof call.truncated === "boolean"));
 }
-function desktopEntry(value: unknown): boolean { return object(value) && integer(value.entry) && integer(value.conversation) && typeof value.kind === "string" && desktopMessage(value) && (value.input === undefined || object(value.input) && typeof value.input.requestId === "string" && integer(value.input.submission) && ["queued", "placed", "done", "unanswered"].includes(String(value.input.status)) && (value.input.historyEntry === undefined || integer(value.input.historyEntry))); }
+function desktopEntry(value: unknown): boolean { return object(value) && integer(value.entry) && integer(value.conversation) && typeof value.kind === "string" && desktopMessage(value) && (value.outputs === undefined || Array.isArray(value.outputs) && value.outputs.length <= 8 && value.outputs.every(output => personalOutputMetadata(output) && output.publication === value.entry)) && (value.input === undefined || object(value.input) && typeof value.input.requestId === "string" && integer(value.input.submission) && ["queued", "placed", "done", "unanswered"].includes(String(value.input.status)) && (value.input.historyEntry === undefined || integer(value.input.historyEntry))); }
 function desktopApproval(value: unknown): boolean {
   return object(value) && [value.operation, value.occurrence, value.admission].every(integer) && ["read_file", "write_file", "http_request", "web_search", "list_files", "search_files", "service_restart", "service_inspect", "app_data", "run_command", "browser", "cua", "process"].includes(String(value.kind)) && (value.family === undefined || FAMILIES.includes(String(value.family))) && typeof value.target === "string" && value.target.length <= 512 && ["pending", "approved", "rejected", "unneeded"].includes(String(value.approval)) && ["returned", "not_executed", "no_write", "effect_unknown", "committed", "not_committed"].includes(String(value.effect)) && typeof value.code === "string" && [value.observed, value.started, value.stopped, value.canDecide, value.targetTruncated].every(item => typeof item === "boolean") && (value.notice === undefined || typeof value.notice === "string") && (value.work === undefined || integer(value.work)) && (value.decisionEntry === undefined || integer(value.decisionEntry)) && (value.actions === undefined || Array.isArray(value.actions) && value.actions.length <= ACTIONS.length && value.actions.every(action => ACTIONS.includes(String(action)))) && (value.check === undefined || desktopCheck(value.check)) && (value.claim === undefined || object(value.claim) && integer(value.claim.entry) && ["applied", "not_applied"].includes(String(value.claim.effect)) && timestamp(value.claim.at)) && (value.observation === undefined || integer(value.observation)) && (value.images === undefined || Array.isArray(value.images) && value.images.length <= 8 && value.images.every(image => object(image) && typeof image.id === "string" && ["image/png", "image/jpeg", "image/webp"].includes(String(image.mime)) && typeof image.sha256 === "string" && /^[0-9a-f]{64}$/.test(image.sha256) && integer(image.bytes) && Number(image.bytes) <= 8 * 1024 * 1024 && typeof image.partial === "boolean"));
 }
@@ -307,6 +308,20 @@ export class PersonalController {
     }
     if (!this.current(generation) || this.identity !== identity) throw failed("personal_identity_changed", "连接或后台代次已变化，请核实原请求；未采用迟到结果。", method === "POST" ? "unknown" : "not_sent");
     return result;
+  }
+  async output(input: Record<string, unknown>) {
+    if (Object.keys(input).sort().join(",") !== "origin,output,profileId,publication,remoteId" || !integer(input.publication) || Number(input.publication) < 1 || !integer(input.output) || Number(input.output) < 1) throw failed("personal_output_invalid", "请选择原会话中的最终文件。");
+    const generation = this.generation, identity = this.identity;
+    const check = () => { if (!this.current(generation) || this.switching || this.credentialOperation || this.status.state !== "online" || !identity?.online || this.identity !== identity || input.origin !== identity.origin || input.remoteId !== identity.remoteId || input.profileId !== identity.profile.id) throw failed("personal_output_identity_changed", "原文件连接已变化，请回到原会话重新下载；原操作未重做。"); };
+    check();
+    const read = async (offset: number) => {
+      check();
+      const value = await this.request("GET", `/desktop/output?publication=${input.publication}&output=${input.output}&offset=${offset}`);
+      check();
+      return value;
+    };
+    const file = await readPersonalOutput(Number(input.publication), Number(input.output), read);
+    return { ...file, check, revalidate: async () => { verifyPersonalOutputAccess(file, await read(0)); check(); } };
   }
   async business(method: unknown, route: unknown, body?: unknown): Promise<unknown> {
     if ((method !== "GET" && method !== "POST") || typeof route !== "string") throw failed("op_not_allowed", "此个人操作尚未开放。");

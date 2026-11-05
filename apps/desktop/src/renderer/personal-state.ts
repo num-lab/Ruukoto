@@ -1,6 +1,6 @@
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../shared/bridge.ts";
 import type { PersonalSettingsSnapshot } from "../shared/personal-settings.ts";
-import type { PersonalDesktopAction, PersonalDesktopActionName, PersonalDesktopActionReceipt, PersonalDesktopApproval, PersonalDesktopDelegation, PersonalDesktopEvent, PersonalDesktopFamily, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopOperation, PersonalDesktopQuestion, PersonalDesktopState, PersonalDesktopWork, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopAction, PersonalDesktopActionName, PersonalDesktopActionReceipt, PersonalDesktopApproval, PersonalDesktopDelegation, PersonalDesktopEvent, PersonalDesktopFamily, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopOperation, PersonalDesktopOutput, PersonalDesktopQuestion, PersonalDesktopState, PersonalDesktopWork, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
 import { parseOwnerAnswers, parseOwnerQuestions, type OwnerAnswer, type OwnerQuestionItem } from "@ruukoto/core/owner-question-input.ts";
 import { loadPersonalCuaImage, type CuaImagePage } from "./personal-cua-image.ts";
 
@@ -42,6 +42,8 @@ export class PersonalState {
   ready = false;
   loadingHistory = false;
   loadingBody = new Set<number>();
+  outputBusy = false;
+  readonly outputStatus = new Map<string, string>();
   pending: Extract<DesktopUpdate, { type: "personal_pending" }>["record"] = null;
   pendingResult: Receipt | null = null;
   questions: Question[] = [];
@@ -135,6 +137,7 @@ export class PersonalState {
         ++this.generation; this.entries.clear(); this.bodies.clear(); this.live = emptyLive(); this.questions = []; this.approvals = []; this.works = []; this.pages = {}; this.next = {}; this.question = null; this.approval = null; this.work = null;
         this.cards.clear(); this.details.clear(); this.detailLoading.clear(); this.deciding.clear(); this.uncertainDecisions.clear(); this.pendingDecisions.clear(); this.uncertainApprovals.clear(); this.refreshingCards.clear(); this.sent.clear(); this.cardRevisions.clear(); this.projection = false; this.revision = -1; this.delegations = []; this.projectionNext = {};
         this.questionCards.clear(); this.questionDetails.clear(); this.questionDrafts.clear(); this.questionLoading.clear(); this.questionRevisions.clear(); this.acting.clear(); this.uncertainActions.clear(); this.actionRefreshing.clear(); this.hostActions.clear(); this.cuaImages.clear(); this.cuaImageLoading.clear(); this.invalidatedObservations.clear();
+        this.outputStatus.clear();
         this.view.instanceId = key; this.ready = false;
       }
       if (!update.identity.online || this.identity?.runId !== update.identity.runId) { ++this.generation; this.ready = false; this.reading = false; this.querying.clear(); this.revision = -1; this.cardRevisions.clear(); this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); }
@@ -223,6 +226,17 @@ export class PersonalState {
     catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "宿主应答丢失，请核实原请求；不会自动重新提交。" } }; }
   }
   private remote<T>(method: "GET" | "POST", path: string, body?: unknown) { return this.request<T>("desktop_personal_request", { method, path, ...(body === undefined ? {} : { body }) }); }
+  async output(value: PersonalDesktopOutput, action: "preview" | "save") {
+    if (!this.online || this.outputBusy || value.partial || value.bytes > 8 * 1024 * 1024 || !this.entries.get(value.publication)?.outputs?.some(saved => saved.output === value.output)) return;
+    const generation = this.generation, identity = this.identity!, key = `${value.publication}:${value.output}`;
+    this.outputBusy = true; this.outputStatus.delete(key); this.changed();
+    const result = await this.request<{ state: "saved" | "previewed" | "canceled" }>(`desktop_personal_output_${action}`, { origin: identity.origin, remoteId: identity.remoteId, profileId: identity.profile.id, publication: value.publication, output: value.output });
+    this.outputBusy = false;
+    if (generation !== this.generation) { this.changed(); return; }
+    if (!result.ok) this.outputStatus.set(key, result.error.message);
+    else if (result.value.state === "saved") this.outputStatus.set(key, "文件已保存");
+    this.changed();
+  }
   edit(value: string) { this.draft = value; this.changed(); }
   discardDraft() { this.draft = ""; this.draftMismatch = false; this.changed(); }
   async send() {

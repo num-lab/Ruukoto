@@ -50,6 +50,7 @@ Find tests by feature with `rg --files test`. Skill tests isolate HOME.
 | Personal `personal-*.ts` (Pi 1.3.0) | Select configuration and entry cases from [pre-push checks](../.agents/skills/pre-push-checks/SKILL.md); real prerequisites below |
 | Personal work questions and native recovery | `personal-work-questions`, `personal-desktop-actions`, `personal-desktop-events`, `desktop-personal-native`, `desktop-personal-recovery`; add the changed execution families |
 | Personal final outputs and setup | `personal-outputs`, `personal-output-crash`, `personal-output-frames`, `desktop-personal-outputs`, `desktop-mygo-save-wait`, `personal-model-presets`, `desktop-personal-permissions`, `personal-cli`, `desktop-personal-settings-pages`; [external output acceptance](development-acceptance.md#personal-final-outputs) adds actual models, Linux and both signed hosts |
+| Personal Telegram cards and complete results | [Telegram verification](#telegram-verification): exact multipart originals, source-bound callbacks/choices, receipt recovery and independent file outcomes |
 | Personal service helper and `deploy/systemd/ruukoto-service.mjs` | `service-helper-transport`, `service-helper-stop`, `78-linux-service-management`, `79-standing-permissions`, `personal-services`, `personal-service-operations` |
 | Runtime/control task lifecycle | `01-concurrency` through `05-overflow-db`, `66-control-seam`, `94-task-ending` |
 | Side chat | `127-side-chat` |
@@ -93,6 +94,18 @@ The file-I/O regression set exercises actual FIFO stalls, worker exits and SIGKI
 After building workers, the optional-family model command is `RUN_MODEL_CHECK=1 RUN_PERSONAL_M2_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m2-model-acceptance.test.ts`; use `RUN_PERSONAL_M2_MODEL=provider/model` for multiple configured models. [M2 execution acceptance](development-acceptance.md#personal-m2-execution) also requires separate real Linux browser/computer/process and synchronous SQLite evidence.
 
 Work-question model acceptance uses `RUN_MODEL_CHECK=1 RUN_PERSONAL_M3_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m3-model-acceptance.test.ts`; select `RUN_PERSONAL_M3_MODEL=provider/model` for multiple models. It covers concurrent questions, original-work continuation, cancellation and retained permissions. Fixed recovery and both native hosts additionally require isolated Linux and signed-client interaction evidence.
+
+### Telegram Verification
+
+Build workers before these offline Telegram checks:
+
+```bash
+npm run build:worker
+npx tsx --test test/personal-im-delivery.test.ts test/personal-im-delivery-consumers.test.ts test/personal-scheduler-cold-recovery.test.ts
+npx tsx --test test/personal-telegram-interaction.test.ts test/personal-telegram-origins.test.ts test/personal-telegram-cua.test.ts test/personal-telegram-retrieval.test.ts
+```
+
+[Pre-push checks](../.agents/skills/pre-push-checks/SKILL.md) lists transport and caller tests. [Issue #44](https://github.com/num-lab/Ruukoto/issues/44) also requires real-account, isolated Linux and configured-model interaction.
 
 ## Development Instances
 

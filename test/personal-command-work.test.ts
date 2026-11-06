@@ -719,6 +719,9 @@ async function commandIm(t: TestContext, f: Awaited<ReturnType<typeof fixture>>,
   let loseSend = false;
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    if (req.url?.endsWith("/sendChatAction")) { res.end(JSON.stringify({ ok: true, result: true })); return; }
+    if (req.url?.endsWith("/editMessageText")) { const body = JSON.parse(Buffer.concat(chunks).toString()) as { message_id: number; chat_id: string }; res.end(JSON.stringify({ ok: true, result: { message_id: body.message_id, chat: { id: Number(body.chat_id), type: "private" } } })); return; }
+    assert.ok(req.url?.endsWith("/sendMessage"));
     const body = JSON.parse(Buffer.concat(chunks).toString()) as { text: string; chat_id: string }; sends.push(body.text);
     if (loseSend) { loseSend = false; res.destroy(); return; }
     res.end(JSON.stringify({ ok: true, result: { message_id: 1000 + sends.length, chat: { id: Number(body.chat_id), type: "private" } } }));
@@ -763,14 +766,15 @@ for (const platform of ["telegram", "qq"] as const) test(`命令菜单：${platf
   assert.equal((await im.receive("命令确认已生效", Number(list.value.platformMessageId))).value.commandResolution, undefined);
   assert.equal((await im.receive("命令确认已生效", Number(detail.value.platformMessageId), platform === "qq" ? "telegram" : "qq")).value.commandResolution, undefined);
   if (platform === "telegram") assert.equal((await im.receive("命令确认已生效", Number(detail.value.platformMessageId), platform, { forward_origin: { type: "user" } })).value.commandResolution, undefined);
-  const confirm = await im.receive("命令确认已生效", Number(detail.value.platformMessageId));
   if (platform === "telegram") im.lose();
-  const saved = await im.receive("命令核实说明 原计数只有一行", Number(confirm.value.platformMessageId));
+  const confirm = await im.receive("命令确认已生效", Number(detail.value.platformMessageId));
+  const saved = platform === "telegram" ? confirm : await im.receive("命令核实说明 原计数只有一行", Number(confirm.value.platformMessageId));
   if (platform === "telegram") assert.equal(saved.value.delivery, "effect_unknown");
   const sends = im.sends.length; await saved.replay(); assert.equal(im.sends.length, sends);
   assert.equal((await im.receive("命令核实说明 重复证据不能覆盖", Number(confirm.value.platformMessageId))).value.commandResolution, undefined);
   assert.equal((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!.resolution!.actor, saved.key);
-  assert.match((await im.receive("刷新命令", Number(detail.value.platformMessageId))).value.reply!, /原计数只有一行/);
+  assert.match((await im.receive("刷新命令", Number(detail.value.platformMessageId))).value.reply!, platform === "telegram" ? /已生效已核实/ : /原计数只有一行/);
+  if (platform === "telegram") assert.equal((await p.harness.snapshot(PersonalCommandDoc, ref.requestId, context))!.command!.result!.effect, "effect_unknown");
   assert.equal(f.server.calls.length, before);
   await im.close(); p = await im.open();
   f.failStop(false);
@@ -804,12 +808,11 @@ for (const corruption of ["marker", "resolution-actor", "resolution-receipt", "s
   const f = await fixture(t), im = await commandIm(t, f, "telegram"); let p = await im.open(); f.failReceipt();
   const source = await im.receive("安排命令"); await p.work.delegate({ requestId: "corrupt-control", sourceRequestId: source.key, content: "执行命令" }); const ref = await original(p); await unknown(p, ref);
   const list = await im.receive("/命令"), detail = await im.receive("命令1", Number(list.value.platformMessageId)), confirmation = await im.receive("命令确认已生效", Number(detail.value.platformMessageId));
-  const resolution = await im.receive("命令核实说明 原结果已核实", Number(confirmation.value.platformMessageId));
   const stop = await im.receive("核实命令停止", Number(detail.value.platformMessageId)); await p.harness.waitForTask(stop.value.commandStop!.taskId, context);
   await p.harness.commit(async tx => {
     if (corruption === "marker") { const agent = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(agent.extensions)); agent.extensions = agent.extensions.filter(name => name !== "personal-owner-controls"); }
     else if (corruption === "resolution-actor") (await tx.doc(PersonalCommandDoc, ref.requestId, null)).command!.resolution!.actor = "missing-receipt";
-    else if (corruption === "resolution-receipt") delete (await tx.doc(PersonalTelegramReceiptDoc, resolution.key, null)).receipt!.commandResolution;
+    else if (corruption === "resolution-receipt") { const receipt = (await tx.doc(PersonalTelegramReceiptDoc, confirmation.key, null)).receipt!; assert.ok(receipt.commandResolution); delete receipt.commandResolution; }
   }, context);
   await im.close();
   if (corruption === "stop-actor" || corruption === "stop-admission") {
@@ -817,7 +820,7 @@ for (const corruption of ["marker", "resolution-actor", "resolution-receipt", "s
     try { db.prepare("UPDATE tasks SET record = json_set(record, ?, ?) WHERE id = ?").run(corruption === "stop-actor" ? "$.input.controlRequestId" : "$.input.admission", corruption === "stop-actor" ? "missing-receipt" : -1, stop.value.commandStop!.taskId); } finally { db.close(); }
   }
   const before = f.server.calls.length;
-  await assert.rejects(im.open(), error => error instanceof PersonalError && ["command_control_invalid", "command_record_invalid"].includes(error.code));
+  await assert.rejects(im.open(), error => error instanceof PersonalError && ["command_control_invalid", "command_record_invalid", "recovery_claim_invalid"].includes(error.code));
   assert.equal(f.server.calls.length, before); assert.equal(f.launches(), 1);
 });
 

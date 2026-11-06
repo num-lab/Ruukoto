@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Complete Telegram delivery](2026-11-06-personal-telegram-delivery.md) extends the separate final-send task with exact stored result text and one canonical multipart reference. Its three named host transport extensions do not alter the compared business scope; stored scopes remain intact. Plan creation authority, original destination, missed-occurrence handling and delivery-independent cycle timing remain here; historical formatter and unknown-send facts retain their original validation.
+
 [Personal M2 execution](2026-11-04-personal-m2-execution.md) adds original-authority occurrence cancellation while preserving future triggers and earlier immutable run-cancellation records. Scheduled browser work joins the instance FIFO and releases only after original stopping and effects settle; existing schedule scope and report/send authority remain.
 
 [Online IM updates](2026-10-25-personal-im-updates.md) pins handles/configuration versions for admission/report sending. Original plans retain creation-source/scope limits. [Request configuration](2026-10-25-personal-request-configuration.md) narrows request selection and continuous MCP-label compatibility; [execution configuration versions](2026-10-25-personal-execution-configuration-versions.md) owns command/service migration. Other creation-scope, permission and whole-work cleanup rules remain.

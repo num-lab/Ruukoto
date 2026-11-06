@@ -85,6 +85,8 @@ async function fixture(t: TestContext, respond: { analyze?: Responder; summarize
         const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
         const body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
         if (image && request.url?.endsWith("/getFile")) { response.end(JSON.stringify({ ok: true, result: { file_path: "image.png" } })); return; }
+        if (request.url?.endsWith("/sendChatAction") || request.url?.endsWith("/answerCallbackQuery")) { response.end(JSON.stringify({ ok: true, result: true })); return; }
+        if (request.url?.endsWith("/editMessageText")) { response.end(JSON.stringify({ ok: true, result: { message_id: body.message_id, chat: { id: Number(body.chat_id), type: "private" } } })); return; }
         sends.push(body);
         response.end(JSON.stringify({ ok: true, result: { message_id: 1000 + sends.length, chat: { id: Number(body.chat_id), type: "private" } } }));
       });
@@ -481,7 +483,7 @@ test("委托报告：原 Submission 完成后真实强杀，恢复重接原回�
   assert.equal(last.text, "😀".repeat(50)); assert.equal(last.offset, page.nextOffset); assert.equal(last.totalChars, page.totalChars); assert.equal(last.nextOffset, undefined);
 });
 
-test("委托报告：Telegram 已外发但结果未提交时强杀，重开未知不重发且固定原消息", { timeout: 20000 }, async t => {
+test("委托报告：Telegram 已确认外发但调用方未提交时强杀，重开保留送达且不重发", { timeout: 20000 }, async t => {
   const analyzing = gate(t);
   const f = await fixture(t, { analyze: async () => { await analyzing.wait; return { kind: "text", text: "已完成分析" }; } }); const telegram = await f.telegram(); let p = await f.open({ telegram }); await p.close();
   const original = f.update("multi");
@@ -495,12 +497,12 @@ test("委托报告：Telegram 已外发但结果未提交时强杀，重开未�
   const sends = f.sends.filter(send => send.text === REPORT); assert.equal(sends.length, 1); assert.equal(sends[0].chat_id, "456"); assert.deepEqual(sends[0].reply_parameters, { message_id: 11, allow_sending_without_reply: true });
   const storage = await openNodeSqliteStorage(path.join(f.directory, "personal.sqlite"));
   const task = (await storage.scanTasks({ kind: PersonalReportTask.definition.name }, 64, undefined, context)).items[0]; assert.ok(task);
-  assert.equal(task.state.status, "running"); assert.ok(task.state.status === "running"); assert.deepEqual(task.state.checkpoint, { phase: "verify" });
+  assert.equal(task.state.status, "running"); assert.ok(task.state.status === "running"); assert.deepEqual(task.state.checkpoint, { phase: "deliver" });
   assert.equal((await storage.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, undefined, context)).items.filter(entry => entry.kind === "ruukoto.report-publication").length, 1);
   await storage.close(context);
   const calls = f.model.calls.length;
   p = await f.open({ telegram }); const ref = await first(p); await finishReport(p, ref); await f.receive(original);
-  assert.equal((await report(p, ref)).delivery, "effect_unknown"); assert.equal((await report(p, ref)).text, REPORT); assert.equal(f.sends.filter(send => send.text === REPORT).length, 1);
+  assert.equal((await report(p, ref)).delivery, "sent"); assert.equal((await report(p, ref)).text, REPORT); assert.equal(f.sends.filter(send => send.text === REPORT).length, 1);
   assert.equal(f.model.calls.length, calls);
   await p.close(); p = await f.open({ telegram }); await finishReport(p, ref); assert.equal(f.sends.filter(send => send.text === REPORT).length, 1);
 });

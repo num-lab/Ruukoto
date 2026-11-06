@@ -89,6 +89,14 @@ For Telegram, create a BotFather bot, configure its token in Personal's pairing 
 
 IM defaults to auto-review. Sensitive operations require explicit approval through the original bound entry. A platform/account/credential change creates a new generation; old approvals and sends cannot move to the new destination.
 
+Telegram presents one decision per card. Read its complete target and parameters, then choose a button or reply directly with a listed number. One-shot approval also accepts exactly `好`, `好的`, `可以`, `行`, `同意`, `确认`, `ok` or `OK`; rejection accepts exactly `不`, `不要`, `不行`, `先别`, `拒绝`, `算了` or `取消`, after trimming outer whitespace. Punctuation changes the match; `嗯`, `是`, forwarded messages and ordinary nonmatching chat do not decide a card. Replying `取消` to a card rejects that operation; asking to cancel an assignment remains a separate action.
+
+Answer a single-choice question directly, use Done for multi-select, and review a batch of questions before submitting. Free answers belong to that question. Applied/not-applied statements and computer recovery use their own explicit card actions; they do not prove stopping. A failed button acknowledgement or card update does not undo a saved choice. To inspect it again, reply `重新显示` to the original card or use its original operation menu.
+
+Long Telegram answers arrive automatically in ordered messages preserving the saved text. Published final files and screenshots use original bytes and remain limited to 8 MiB each; partial files cannot be transferred as complete. Text can be delivered even if a file fails. If a send cannot be verified, later parts stop and restarting does not resend them. Send `/结果`, select a saved result, then reply `全部原文` or `原文 1` to receive all original text or a selected piece from this same private entry. This retrieves saved content without rerunning the model or work. Typing is advisory and does not promise when an answer will finish.
+
+For paused computer work, choose `观察原电脑现场`, then `查看原电脑现场` to receive that observation's saved screenshots. Open and inspect every image before choosing `接受原电脑现场`, which becomes available after complete delivery. A failed or unknown image send keeps acceptance unavailable; request another view explicitly or take a new observation. This inspection is separate from final-output publication. Stopping the whole computer sandbox requires its own choice and may lose other unsaved content.
+
 ### Desktop Client
 
 On the server, use `ruukoto remote` to manage pairing, then connect the PA desktop to the verified Tailscale HTTPS origin using the generated one-time code. HTTPS/WSS terminates at Tailscale Serve and reaches the private remote service; the local Unix socket is not a public network endpoint. See [deployment](../deploy/systemd/README.md) for backend/remote-service ownership and [desktop](modules/desktop.md) for credential isolation.

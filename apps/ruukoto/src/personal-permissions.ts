@@ -1,7 +1,10 @@
 import { defineDoc, defineExtension, type Cursor, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
-import { samePersonalEntry, personalEntryConfig, type PersonalEntryIdentity, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { isDeepStrictEqual } from "node:util";
+import { samePersonalEntry, personalEntryConfig, type PersonalEntryIdentity, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
 import type { PersonalServiceMode } from "./personal-service-operations.ts";
+import { personalTelegramDisplaySelection, type PersonalTelegramSelection } from "./personal-telegram-selection.ts";
+import { PersonalTelegramDisplayDoc } from "./personal-telegram-display-records.ts";
 
 export type PersonalTelegramSource = PersonalEntryIdentity & { mode: PersonalServiceMode; version: number };
 export const PersonalPermissionsDoc = defineDoc<{ mode: PersonalServiceMode; version: number; qq?: { mode: PersonalServiceMode; version: number } }>({ kind: "ruukoto.permissions", scope: "session", version: 1, initial: () => ({ mode: "auto-review", version: 1 }) });
@@ -25,9 +28,9 @@ export async function personalPermissionFor(tx: Tx, source?: Pick<PersonalEntryI
   return permission.qq;
 }
 
-export async function telegramSelection(tx: Tx, value: TelegramControlInput): Promise<TelegramReceipt | undefined> {
+export async function telegramSelection(tx: Tx, value: TelegramControlInput): Promise<PersonalTelegramSelection | undefined> {
   if (!value.direct || value.replyBotId !== value.botId || value.replyTo === undefined) return;
-  let selected: TelegramReceipt | undefined;
+  let selected = await personalTelegramDisplaySelection(tx, value);
   let cursor: Cursor | undefined;
   do {
     const page = await tx.scanTasks({ kind: "ruukoto.telegram-input" }, 256, cursor);
@@ -37,6 +40,11 @@ export async function telegramSelection(tx: Tx, value: TelegramControlInput): Pr
       const other = (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt;
       if (!other || other.taskId !== task.id) throw new PersonalError("telegram_receipt_invalid", "宿主消息的原收件缺失，请保留档案。");
       if (other.platformMessageId !== String(value.replyTo) || !samePersonalEntry(other, value) || other.delivery !== "sent" || !other.control || !other.selection) continue;
+      if (selected && other.display === selected.requestId) {
+        const display = (await tx.doc(PersonalTelegramDisplayDoc, selected.requestId, null)).display;
+        if (!display || display.origin !== other.accepted || !samePersonalEntry(display.source, other) || display.text !== other.reply || !isDeepStrictEqual(display.selection, other.selection) || !isDeepStrictEqual(display.delivery, other.multipart)) throw new PersonalError("telegram_receipt_invalid", "原宿主消息与卡片不符，请保留档案。");
+        continue;
+      }
       if (selected) throw new PersonalError("telegram_menu_ambiguous", "原宿主消息不唯一，已停止决定；请保留档案。");
       selected = other;
     }
@@ -45,7 +53,7 @@ export async function telegramSelection(tx: Tx, value: TelegramControlInput): Pr
   return selected;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-permissions.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-telegram-permissions.md
 export async function telegramPermissionControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
   const mode = Object.hasOwn(MODES, value.content) ? MODES[value.content as keyof typeof MODES] : undefined;
   if (value.content !== "/权限" && !mode) {

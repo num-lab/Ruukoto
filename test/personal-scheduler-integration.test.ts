@@ -6,16 +6,17 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT, withCancel } from "@earendil-works/chord/context";
 import { AgentDoc, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig, type RequestEvidence } from "../apps/ruukoto/src/personal-model.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
-import { PERSONAL_SCHEDULER, PersonalScheduleRunDoc, PersonalSchedulesDoc, personalScheduledSource } from "../apps/ruukoto/src/personal-scheduler-records.ts";
-import { toolGrant, toolOperations, toolResolve, toolVerifyStop } from "../apps/ruukoto/src/personal-tools.ts";
+import { PERSONAL_SCHEDULER, PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalSchedulesDoc, personalScheduledSource } from "../apps/ruukoto/src/personal-scheduler-records.ts";
+import { PersonalToolDoc, toolGrant, toolOperations, toolResolve, toolVerifyStop } from "../apps/ruukoto/src/personal-tools.ts";
 import { parsePersonalTools } from "../apps/ruukoto/src/personal-tools-config.ts";
 import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
+import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "../apps/ruukoto/src/personal-schedule-scope.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 
 const context = BACKGROUND_CONTEXT;
@@ -39,6 +40,26 @@ async function runFor(p: PersonalHarness, planId: string) {
   await until(async () => { const index = await p.harness.snapshot(PersonalSchedulesDoc, context); for (const id of index?.runs ?? []) { const run = await p.harness.snapshot(PersonalScheduleRunDoc, id, context); if (run?.run?.planId === planId) { selected = id; return true; } } return false; });
   return selected;
 }
+
+test("Scheduled scope keeps its business ceiling across Telegram transport upgrades", async t => {
+  const f = await fixture(t), p = await f.open(), current = await p.harness.commit(tx => capturePersonalScheduleScope(tx), context);
+  const transport = ["personal-im-delivery", "personal-telegram-displays", "personal-telegram-callbacks"];
+  assert.ok(transport.every(name => current.extensions.includes(name)));
+  const legacy = { ...current, extensions: current.extensions.filter(name => !transport.includes(name)) }, original = JSON.stringify(legacy);
+  await p.harness.commit(tx => verifyPersonalScheduleScope(tx, legacy), context);
+  await p.harness.commit(tx => verifyPersonalScheduleScope(tx, current), context);
+  assert.equal(JSON.stringify(legacy), original);
+  assert.ok(legacy.snapshot && typeof legacy.snapshot === "object" && !Array.isArray(legacy.snapshot));
+  const changes = [
+    { ...legacy, extensions: [...legacy.extensions, "personal-other-business"] },
+    { ...legacy, extensions: legacy.extensions.slice(1) },
+    { ...legacy, tools: [...legacy.tools, "unregistered_business_tool"] },
+    { ...legacy, tools: legacy.tools.slice(1) },
+    { ...legacy, snapshot: { ...legacy.snapshot, grantVersion: -1 } },
+  ];
+  for (const scope of changes) await assert.rejects(p.harness.commit(tx => verifyPersonalScheduleScope(tx, scope), context), (error: unknown) => error instanceof PersonalError && error.code === "schedule_scope_changed");
+  assert.equal(f.model.calls.length, 0);
+});
 
 test("定时组合：文件检索沿创建工具快照和资料根执行", { timeout: 60_000 }, async t => {
   const f = await fixture(t, request => request.messages.at(-1)?.role === "user" && request.messages.at(-1)?.content === "执行资料检索" ? { kind: "tool_calls", calls: [{ id: "scheduled-file-search", name: "search_files", arguments: { query: "scheduled-marker" } }] } : { kind: "text", text: "资料检索完成" });
@@ -160,6 +181,41 @@ test("定时组合：未知HTTP写入保留整项占用，取消与重启不重�
   await p.harness.commit(async tx => { await toolResolve(tx, operation, "not_applied", "拥有者已核实业务未写入"); await toolVerifyStop(tx, operation, "拥有者已核实原请求结束"); }, context);
   await until(async () => !!(await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result);
   assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, id, context))?.run?.result?.status, "canceled"); assert.equal(writes, 1);
+});
+
+for (const interruption of ["stopped", "canceled"] as const) test(`Scheduled drain owns a ${interruption} watch before registration and retains unknown-effect occupancy`, { timeout: 15000 }, async t => {
+  let writes = 0;
+  const server = http.createServer((_request, response) => { writes++; response.destroy(); });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }));
+  const address = server.address(); assert.ok(address && typeof address === "object"); const url = `http://127.0.0.1:${address.port}/write`;
+  const f = await fixture(t, request => request.messages.at(-1)?.content === "One unknown write" ? { kind: "tool_calls", calls: [{ id: "once-write", name: "http_request", arguments: { url, method: "POST", body: "one" } }] } : { kind: "text", text: "Waiting for the original effect" });
+  const p = await f.open(), definition = p.scheduler.runTask.definition, original = definition.phases.run;
+  let interrupted = false, registrations = 0, commitsAfterInterruption = 0, stopCalls = 0;
+  const cancellation = new PersonalError("test_schedule_watch_canceled", "Canceled before watch registration");
+  t.mock.method(definition.phases, "run", async (...[task, runtime, taskContext]: Parameters<typeof original>) => {
+    const invocation = withCancel(taskContext);
+    return original(task, { ...runtime, commit: async (...args) => { if (interrupted) { commitsAfterInterruption++; await delay(0); } return runtime.commit(...args); }, watchDoc: new Proxy(runtime.watchDoc, { async apply(target, receiver, args) {
+      const watch = await Reflect.apply(target, receiver, args);
+      if (args[0] === PersonalToolDoc && watch && !interrupted) {
+        const start = watch.start.bind(watch), stop = watch.stop.bind(watch);
+        t.mock.method(watch, "start", (...parameters: Parameters<typeof start>) => { registrations++; return start(...parameters); });
+        t.mock.method(watch, "stop", async () => { stopCalls++; return stop(); });
+        if (interruption === "stopped") await stop(); else invocation.cancel(cancellation);
+        interrupted = true;
+      }
+      return watch;
+    } }) }, invocation.context);
+  });
+  await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).mode = "full_access"; }, context);
+  const plan = await create(p, "One unknown write"), id = await runFor(p, plan.id), run = (await p.harness.snapshot(PersonalScheduleRunDoc, id, context))!.run!;
+  const settled = await p.harness.waitForTask(run.taskId, context);
+  assert.equal(interrupted, true); assert.equal(commitsAfterInterruption, 0); assert.equal(registrations, interruption === "stopped" ? 1 : 0); assert.ok(stopCalls);
+  assert.equal(settled.state.outcome.status, "faulted"); if (settled.state.outcome.status !== "faulted") assert.fail("The drain failure must remain owned by its task");
+  assert.equal(settled.state.outcome.error.message, interruption === "stopped" ? "Watch is stopped" : cancellation.message);
+  assert.equal((await p.harness.snapshot(PersonalScheduleRunDoc, id, context))!.run!.result, undefined);
+  assert.equal((await p.harness.snapshot(PersonalScheduleDoc, plan.id, context))!.plan!.activeRun, id);
+  const effect = await p.harness.commit(async tx => (await toolOperations(tx))[0].effect, context); assert.equal(effect, "effect_unknown"); assert.equal(writes, 1);
 });
 
 

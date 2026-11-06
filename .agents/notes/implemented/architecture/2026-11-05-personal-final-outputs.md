@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Complete Telegram delivery](2026-11-06-personal-telegram-delivery.md) adds original-byte document uploads for committed publication members, with separate text/file outcomes and the same 8 MiB completeness limit. Desktop authentication and preview/save rules remain here; QQ media stays in its later milestone.
+
 ## Problem
 
 Personal retains immutable operation artifacts, but an artifact alone does not mean the owner requested its delivery or that it satisfies current work requirements. Automatically displaying every screenshot would expose intermediate captures. Repeating a write after a failed transfer would repeat a completed business effect. [Issue #43](https://github.com/num-lab/Ruukoto/issues/43) requires explicit final-file publication, bounded authenticated delivery and native preview/download under the existing report and authority rules.
@@ -26,7 +28,7 @@ Before enabling output capability on an old profile, the host checks original pe
 
 The settings blocker scanner accepts both historical evidence text and native immutable effect claims. Full family recovery verification still proves those claims; a successful human claim does not establish stopping.
 
-This extends [original-byte artifacts](2026-10-17-personal-tools-access-artifacts.md) and partially supersedes the file-loop milestone's deferred preview/download. Report generation, validated text publication, source authorization and IM sending retain their owning decisions. Telegram and QQ media delivery remain their respective later milestones.
+This extends [original-byte artifacts](2026-10-17-personal-tools-access-artifacts.md) and partially supersedes the file-loop milestone's deferred preview/download. Report generation, validated text publication and source authorization retain their owning decisions. The linked Telegram delivery decision supersedes its previously deferred media transfer; QQ media remains in its later milestone.
 
 ## Alternatives considered
 

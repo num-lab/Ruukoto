@@ -17,9 +17,11 @@ import { personalEntryConfig, PersonalTelegramDoc, PersonalTelegramReceiptDoc } 
 import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { telegramToken } from "./personal-telegram-config.ts";
 import { personalUnparkMode, type PersonalMainAdmission } from "./personal-coordination.ts";
+import { personalImDeliveryRecord, personalImDeliveryTextReceipt, type PersonalImDeliveryInput, type PersonalImDeliveryRef } from "./personal-im-delivery.ts";
+import { telegramSourceActive } from "./personal-permissions.ts";
 
 type Delivery = "waiting" | "local" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "blocked" | "unanswered";
-export type LegacyPersonalReportFacts = { taskId: TaskId; admission: EntryId; source: PersonalWorkSource; modelCall: TaskId; content: string; attempt: number; pauses: EntryId[]; submissionId?: SubmissionId; answer?: EntryId; reply?: string; delivery: Delivery; platformMessageId?: string; configurationVersion?: string };
+export type LegacyPersonalReportFacts = { taskId: TaskId; admission: EntryId; source: PersonalWorkSource; modelCall: TaskId; content: string; attempt: number; pauses: EntryId[]; submissionId?: SubmissionId; answer?: EntryId; reply?: string; replyFormat?: "complete"; multipart?: PersonalImDeliveryRef; delivery: Delivery; platformMessageId?: string; configurationVersion?: string };
 type ReportInput = { delegation: PersonalDelegationRef; source: PersonalWorkSource; modelCall: TaskId; content: string };
 const ReportAdmission = defineEntry<ReportInput & { taskId: TaskId }>("ruukoto.report-admission");
 const ReportPause = defineEntry<{ taskId: TaskId; attempt: number; submissionId: SubmissionId; blocker: PersonalServiceBlocker }>("ruukoto.report-pause");
@@ -27,6 +29,34 @@ const INPUT_KIND = "ruukoto.delegation-report";
 const submissionKey = (taskId: TaskId, attempt: number) => `personal-report:${taskId}:${attempt}`;
 const inputData = (ref: PersonalDelegationRef, report: LegacyPersonalReportFacts, attempt = report.attempt) => ({ delegation: ref.entryId, taskId: report.taskId, attempt });
 export const legacyPlatformText = (text: string) => Array.from(text).length > 3900 ? Array.from(text).slice(0, 3900).join("") + "…（显示已截断，完整报告可从委托菜单读取）" : text || "本次报告没有文本内容，请查询原委托。";
+export const personalReportReplyText = (report: LegacyPersonalReportFacts, text: string) => report.replyFormat === "complete" ? text : legacyPlatformText(text);
+export async function personalReportMultipart(tx: Tx, report: LegacyPersonalReportFacts, input: PersonalImDeliveryInput) {
+  if (!report.multipart) throw new PersonalError("report_record_invalid", "原报告的分段发送引用缺失，请查询原委托。");
+  const value = await personalImDeliveryRecord(tx, report.multipart);
+  if (value.parent !== report.taskId || value.ref.key !== `report:${report.taskId}` || value.admission <= (report.answer ?? report.admission) || !isDeepStrictEqual(value.input, input)) throw new PersonalError("report_record_invalid", "原报告与分段发送内容不符，请查询原委托。");
+  return value;
+}
+export async function settlePersonalReportDelivery(tx: Tx, report: LegacyPersonalReportFacts) {
+  if (!report.multipart) throw new PersonalError("report_record_invalid", "原报告的分段发送引用缺失，请查询原委托。");
+  const receipt = await personalImDeliveryTextReceipt(tx, report.multipart);
+  if (receipt.state === "none") throw new PersonalError("report_send_invalid", "原报告正文缺失，请查询原结果。");
+  report.delivery = receipt.state;
+  if (receipt.platformMessageId) report.platformMessageId = receipt.platformMessageId;
+  else delete report.platformMessageId;
+}
+export async function authorizeLegacyPersonalReportDelivery(tx: Tx, input: PersonalImDeliveryInput, parent: TaskId) {
+  const task = await tx.task(parent), data = task?.input;
+  if (!data || typeof data !== "object" || Array.isArray(data) || !data.delegation || typeof data.delegation !== "object" || Array.isArray(data.delegation) || typeof data.delegation.entryId !== "number") throw new PersonalError("report_record_invalid", "原报告发送归属缺失，请查询原结果。");
+  const ref = { entryId: data.delegation.entryId as EntryId }, { value, report } = await reportFacts(tx, ref, parent);
+  if (!value.telegram || value.telegram.platform !== undefined) throw new PersonalError("report_record_invalid", "原报告私聊入口不符，请查询原结果。");
+  const entry = report.answer && await tx.entry(AssistantEntry, report.answer), message = entry?.model?.[0], receipt = await personalSourceImReceipt(tx, value.source.requestId);
+  if (message?.role !== "assistant" || !receipt) throw new PersonalError("report_record_invalid", "原报告完整回答缺失，请查询原结果。");
+  await personalReportMultipart(tx, report, { key: `report:${parent}`, source: value.telegram, messageId: receipt.messageId, text: message.content.filter(part => part.type === "text").map(part => part.text).join("") });
+  if (!isDeepStrictEqual(input, (await personalImDeliveryRecord(tx, report.multipart!)).input)) throw new PersonalError("report_record_invalid", "原报告分段发送正文不符，请查询原结果。");
+  if (value.cancelRequested || await personalDelegationBlocker(tx, value, true)) return false;
+  try { await requireReportReady(tx, ref); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; }
+  return true;
+}
 
 async function reportFacts(tx: Tx, ref: PersonalDelegationRef, taskId?: TaskId) {
   const value = await personalDelegation(tx, ref);
@@ -73,7 +103,7 @@ function canceled(reader: DocumentObserver, ref: PersonalDelegationRef, context:
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-personal-delegation-reports.md
-function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineTask<ReportInput, { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" } | { phase: "deliver" }, { delivery: Delivery }>({
   name: "ruukoto.delegation-report", version: 1, initial: () => ({ phase: "wait" }),
   phases: {
     async wait(current, runtime, context) {
@@ -151,7 +181,8 @@ function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmi
           // A textless yielded answer cannot become the report body.
           if (!text) { report.delivery = "unanswered"; return { status: "terminal", outcome: { status: "failed", error: { message: "主会话未产出报告正文，未外发；请查询原委托。" }, result: { delivery: "unanswered" } } }; }
           report.answer = settled.answer;
-          report.reply = legacyPlatformText(text);
+          if (value.telegram?.platform === undefined && value.telegram && im?.delivery) report.replyFormat = "complete";
+          report.reply = personalReportReplyText(report, text);
           report.delivery = "pending";
           return { status: "running", checkpoint: { phase: "send" } };
         }, context);
@@ -161,6 +192,21 @@ function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmi
       if (current.state.checkpoint.retryAt) await runtime.sleep(current.state.checkpoint.retryAt, context);
       const ref = current.input.delegation;
       const source = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))?.delegation?.telegram;
+      if (source && source.platform === undefined && im?.delivery) {
+        await withPersonalImEntry(im, source, () => runtime.commit(async tx => {
+          const { value, report } = await reportFacts(tx, ref, current.id);
+          if (report.multipart) return { status: "running", checkpoint: { phase: "deliver" } };
+          if (value.cancelRequested || !im.isActive(source) || !await telegramSourceActive(tx, source)) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
+          await requireReportReady(tx, ref);
+          const original = report.answer && await tx.entry(AssistantEntry, report.answer), message = original?.model?.[0], receipt = await personalSourceImReceipt(tx, value.source.requestId);
+          if (!receipt || message?.role !== "assistant" || report.delivery !== "pending") throw new PersonalError("report_send_invalid", "报告固定目标或原文缺失，请查询原委托。");
+          const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
+          report.multipart = await im.delivery!.request(tx, { key: `report:${current.id}`, source, messageId: receipt.messageId, text }, current.id);
+          report.delivery = "sending";
+          return { status: "running", checkpoint: { phase: "deliver" } };
+        }, context));
+        return;
+      }
       const state = await runtime.snapshot(PersonalTelegramDoc, context);
       const config = personalEntryConfig(state ?? {}, source ?? {});
       let api: PersonalImSender | undefined = !im && state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
@@ -194,7 +240,17 @@ function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmi
       }, context);
     },
     async verify(current, runtime, context) {
-      await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); report.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "effect_unknown" } } }; }, context);
+      await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); if (report.multipart) return { status: "running", checkpoint: { phase: "deliver" } }; report.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "effect_unknown" } } }; }, context);
+    },
+    async deliver(current, runtime, context) {
+      const saved = (await runtime.snapshot(PersonalDelegationDoc, String(current.input.delegation.entryId), context))?.delegation?.report;
+      if (!saved?.multipart || !im?.delivery) throw new PersonalError("report_record_invalid", "原报告分段发送模块缺失，请恢复对应程序。");
+      await runtime.waitForTask(saved.multipart.taskId, context);
+      await runtime.commit(async tx => {
+        const { report } = await reportFacts(tx, current.input.delegation, current.id);
+        await settlePersonalReportDelivery(tx, report);
+        return { status: "terminal", outcome: { status: "completed", result: { delivery: report.delivery } } };
+      }, context);
     },
   },
   async abort(current, runtime, context) {
@@ -203,7 +259,8 @@ function personalReportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmi
     let admitted = false;
     if (saved) await runtime.commit(async tx => { admitted = !!await verifyInput(tx, current.input.delegation, saved); return undefined; }, context);
     if (saved && main && admitted) { const submission = await (admitInput ?? main.submit.bind(main))({ type: "input", requestId: submissionKey(current.id, saved.attempt), content: saved.content, entry: { kind: INPUT_KIND, data: inputData(current.input.delegation, saved) }, whenBusy: "followUp" }, context); await submission.abort(context); }
-    await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); report.delivery = report.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: report.delivery } } }; }, context);
+    if (saved?.multipart) { if (!im?.delivery) throw new PersonalError("report_record_invalid", "原报告分段发送模块缺失，请恢复对应程序。"); await im.delivery.abort(saved.multipart); }
+    await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); if (report.multipart) await settlePersonalReportDelivery(tx, report); else report.delivery = report.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: report.delivery } } }; }, context);
   },
 });
 
@@ -339,13 +396,18 @@ export async function verifyLegacyPersonalReports(tx: Tx, keys: string[], enable
     if (report.answer !== undefined) {
       const entry = await tx.entry(AssistantEntry, report.answer);
       const message = entry?.model?.[0];
-      if (entry?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || report.reply !== legacyPlatformText(message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw new PersonalError("report_record_invalid", "报告外发正文与完整回答不符，已停止恢复。");
+      if (entry?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || report.replyFormat !== undefined && report.replyFormat !== "complete" || report.reply !== personalReportReplyText(report, message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw new PersonalError("report_record_invalid", "报告外发正文与完整回答不符，已停止恢复。");
+      if (report.multipart) {
+        const receipt = await personalSourceImReceipt(tx, value.source.requestId);
+        if (!value.telegram || !receipt || value.telegram.platform !== undefined) throw new PersonalError("report_record_invalid", "原报告分段发送来源缺失，请保留档案。");
+        await personalReportMultipart(tx, report, { key: `report:${report.taskId}`, source: value.telegram, messageId: receipt.messageId, text: message.content.filter(part => part.type === "text").map(part => part.text).join("") });
+      }
     } else if (report.reply !== undefined || ["local", "pending", "sending", "sent", "failed", "effect_unknown"].includes(report.delivery)) throw new PersonalError("report_record_invalid", "报告发送缺少完整回答，已停止恢复。");
     if (task.state.status !== "terminal") {
       const checkpoint = task.state.status !== "completing" && task.state.checkpoint;
-      if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint) || !["wait", "summarize", "send", "verify"].includes(String(checkpoint.phase)) || (checkpoint.phase === "summarize" && checkpoint.attempt !== report.attempt) || (checkpoint.phase === "send" && report.delivery !== "pending") || (checkpoint.phase === "verify" && report.delivery !== "sending")) throw new PersonalError("report_record_invalid", "报告发送检查点与效果记录不符，已停止恢复。");
+      if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint) || !["wait", "summarize", "send", "verify", "deliver"].includes(String(checkpoint.phase)) || (checkpoint.phase === "summarize" && checkpoint.attempt !== report.attempt) || (checkpoint.phase === "send" && report.delivery !== "pending") || (checkpoint.phase === "verify" && report.delivery !== "sending") || checkpoint.phase === "deliver" && (!report.multipart || report.delivery !== "sending")) throw new PersonalError("report_record_invalid", "报告发送检查点与效果记录不符，已停止恢复。");
     }
-    if (report.delivery === "sending" && task.state.status === "terminal") report.delivery = "effect_unknown";
+    if (report.delivery === "sending" && task.state.status === "terminal") { if (report.multipart) await settlePersonalReportDelivery(tx, report); else report.delivery = "effect_unknown"; }
     }
   }
   let cursor: Cursor | undefined;

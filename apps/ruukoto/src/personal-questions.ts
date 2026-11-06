@@ -1,4 +1,4 @@
-import { personalQuestionLastPage } from "./personal-question-controls.ts";
+import { personalQuestionSubmittedDraft } from "./personal-question-controls.ts";
 import { personalSource } from "./personal-source.ts";
 import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -18,6 +18,7 @@ import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess, type Pe
 import { personalUnparkMode, type PersonalMainAdmission } from "./personal-coordination.ts";
 import { PersonalAgentsDoc, PersonalWorkDoc, type PersonalToolInstructions, type PersonalWorkRef } from "./personal-work.ts";
 import type { Context } from "@earendil-works/chord/context";
+import { personalImDeliveryRecord, personalImDeliveryTextReceipt, settlePersonalImDelivery, type PersonalImDeliveryInput, type PersonalImDeliveryRef } from "./personal-im-delivery.ts";
 
 export type PersonalOwnerAnswer = { [K in keyof OwnerAnswer]: OwnerAnswer[K] };
 export type PersonalQuestionItem = { [K in keyof OwnerQuestionItem]: OwnerQuestionItem[K] };
@@ -28,7 +29,7 @@ const context = BACKGROUND_CONTEXT;
 type Identity = { kind: "local" } | { kind: "im"; requestId: string; menuRequestId: string };
 export type PersonalQuestionActor = { kind: "local" } | { kind: "im"; input: TelegramControlInput; menuRequestId: string };
 type Delivery = "waiting" | "returned" | "local" | "pending" | "sending" | "sent" | "failed" | "effect_unknown" | "canceled" | "unanswered";
-export type PersonalQuestion = { id: string; operation: TaskId; generation: TaskId; admission: EntryId; origin: PersonalToolOrigin; work?: { version: 1; ref: PersonalWorkRef; instructions: PersonalToolInstructions }; questions: PersonalQuestionItem[]; version: number; status: "pending" | "answered" | "canceled" | "stale"; terminal?: EntryId; answer?: { requestId: string; answers: PersonalOwnerAnswer[]; actor: Identity; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; admission: EntryId; taskId: TaskId; content: string; submissionId?: SubmissionId; answerEntry?: EntryId; returned?: EntryId; canceled?: EntryId; delivery: Delivery; reply?: string; platformMessageId?: string; configurationVersion?: string } };
+export type PersonalQuestion = { id: string; operation: TaskId; generation: TaskId; admission: EntryId; origin: PersonalToolOrigin; work?: { version: 1; ref: PersonalWorkRef; instructions: PersonalToolInstructions }; questions: PersonalQuestionItem[]; version: number; status: "pending" | "answered" | "canceled" | "stale"; terminal?: EntryId; answer?: { requestId: string; answers: PersonalOwnerAnswer[]; actor: Identity; permission: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; admission: EntryId; taskId: TaskId; content: string; submissionId?: SubmissionId; answerEntry?: EntryId; returned?: EntryId; canceled?: EntryId; delivery: Delivery; reply?: string; replyFormat?: "complete"; multipart?: PersonalImDeliveryRef; platformMessageId?: string; configurationVersion?: string } };
 export type PersonalQuestionReceipt = { requestId: string; question: string; version: number; operation: "answer" | "cancel"; answers?: PersonalOwnerAnswer[]; actor: Identity; entry: EntryId; taskId?: TaskId };
 export const PersonalQuestionsDoc = defineDoc<{ ids: string[] }>({ kind: "ruukoto.questions", scope: "session", version: 1, initial: () => ({ ids: [] }) });
 export const PersonalQuestionDoc = defineDocFamily<{ question?: PersonalQuestion }, null>({ kind: "ruukoto.question", scope: "session", version: 1, family: true, initial: () => ({}) });
@@ -43,6 +44,31 @@ const keyFor = (task: TaskId) => `personal-question:${task}`;
 const inputData = (value: PersonalQuestion) => ({ question: value.id, admission: value.answer!.admission, taskId: value.answer!.taskId });
 const actorIdentity = (actor: PersonalQuestionActor): Identity => actor.kind === "local" ? { kind: "local" } : { kind: "im", requestId: actor.input.requestId, menuRequestId: actor.menuRequestId };
 const platformText = (text: string) => Array.from(text).length > 3900 ? Array.from(text).slice(0, 3900).join("") + "…（完整回答保留在个人会话）" : text || "本次回答没有文本，请从本机查询会话。";
+function questionReply(answer: NonNullable<PersonalQuestion["answer"]>, text: string) { return answer.replyFormat === "complete" ? text || "本次回答没有文本，请从原会话查询。" : platformText(text); }
+export async function personalQuestionMultipart(tx: Tx, value: PersonalQuestion) {
+  const answer = value.answer, actor = answer?.actor.kind === "im" && (await tx.doc(PersonalTelegramReceiptDoc, answer.actor.requestId, null)).receipt;
+  const entry = answer?.answerEntry && await tx.entry(AssistantEntry, answer.answerEntry), message = entry?.model?.[0];
+  if (!answer?.multipart || !answer.telegram || !actor || message?.role !== "assistant") throw invalid();
+  const text = message.content.filter(part => part.type === "text").map(part => part.text).join("") || "本次回答没有文本，请从原会话查询。";
+  const input = { key: `question:${answer.taskId}`, source: answer.telegram, messageId: actor.messageId, text }, delivery = await personalImDeliveryRecord(tx, answer.multipart);
+  if (delivery.parent !== answer.taskId || delivery.admission <= answer.answerEntry! || !isDeepStrictEqual(delivery.input, input)) throw invalid();
+  return delivery;
+}
+async function settleQuestionDelivery(tx: Tx, answer: NonNullable<PersonalQuestion["answer"]>) {
+  if (!answer.multipart) throw invalid();
+  const receipt = await personalImDeliveryTextReceipt(tx, answer.multipart);
+  if (receipt.state === "none") throw invalid();
+  answer.delivery = receipt.state;
+  if (receipt.platformMessageId) answer.platformMessageId = receipt.platformMessageId;
+  else delete answer.platformMessageId;
+}
+export async function authorizePersonalQuestionDelivery(tx: Tx, input: PersonalImDeliveryInput, parent: TaskId) {
+  const task = await tx.task(parent), data = task?.input;
+  if (task?.kind !== "ruukoto.question-continuation" || !data || typeof data !== "object" || Array.isArray(data) || typeof data.question !== "string") throw invalid();
+  const value = await personalQuestion(tx, data.question), delivery = await personalQuestionMultipart(tx, value);
+  if (!isDeepStrictEqual(delivery.input, input)) throw invalid();
+  return value.status === "answered" && value.answer?.taskId === parent && !value.answer.canceled && !!value.answer.telegram && await telegramSourceActive(tx, value.answer.telegram);
+}
 function parsed<T>(read: () => T): T { try { return read(); } catch (error) { if (!(error instanceof OwnerQuestionError)) throw error; throw new PersonalError("question_input_invalid", error.message, { cause: error }); } }
 
 export async function personalQuestion(tx: Tx, id: string) { const value = (await tx.doc(PersonalQuestionDoc, id, null)).question; if (!value || value.id !== id) throw new PersonalError("question_missing", "找不到原问题，请刷新问题列表。"); return value; }
@@ -77,6 +103,7 @@ export async function refreshPersonalQuestions(tx: Tx) {
   const values = [];
   for (const id of (await tx.doc(PersonalQuestionsDoc)).ids) {
     const value = await personalQuestion(tx, id), task = await tx.task(value.generation), submission = await tx.submissionByRequest(ROOT_CONVERSATION_ID, value.origin.source.requestId);
+    if (value.answer?.multipart && (await tx.task(value.answer.taskId))?.state.status === "terminal") await settleQuestionDelivery(tx, value.answer);
     const inactive = value.origin.telegram && !await telegramSourceActive(tx, value.origin.telegram) || submission?.status === "unanswered" || task?.abortRequested || task?.state.status === "terminal" && task.state.outcome.status === "aborted" || !await workQuestionActive(tx, value);
     const tool = value.work && await tx.task(value.operation);
     values.push({ value, inactive, completed: tool && tool.state.status === "terminal" && tool.state.outcome.status === "completed" });
@@ -108,7 +135,7 @@ async function allowedActor(tx: Tx, value: PersonalQuestion, actor: PersonalQues
     return;
   }
   const menu = await telegramSelection(tx, actor.input);
-  if (!actor.input.direct || !samePersonalEntry(value.origin.telegram, actor.input) || !await telegramSourceActive(tx, actor.input) || menu?.requestId !== actor.menuRequestId || menu.selection?.kind !== "question-draft" || menu.selection.id !== value.id || menu.selection.version !== value.version || operation === "answer" && (menu.selection.step !== value.questions.length || (menu.selection.page ?? 0) !== personalQuestionLastPage(value, menu.selection))) throw new PersonalError("question_original_entry_required", "请回复原平台、账号与当前私聊已送达的问题核对菜单；没有改变原问题。");
+  if (!actor.input.direct || !samePersonalEntry(value.origin.telegram, actor.input) || !await telegramSourceActive(tx, actor.input) || menu?.requestId !== actor.menuRequestId || menu.selection?.kind !== "question-draft" || menu.selection.id !== value.id || menu.selection.version !== value.version || operation === "answer" && !personalQuestionSubmittedDraft(value, menu.selection, actor.input.content, actor.input.platform)) throw new PersonalError("question_original_entry_required", "请回复原平台、账号与当前私聊已送达的问题核对菜单；没有改变原问题。");
 }
 export async function answerPersonalQuestion(tx: Tx, input: { question: string; version: number; requestId: string; answers: PersonalOwnerAnswer[] }, actor: PersonalQuestionActor) {
   const prior = await personalQuestionReceipt(tx, input.requestId), identity = actorIdentity(actor);
@@ -116,7 +143,7 @@ export async function answerPersonalQuestion(tx: Tx, input: { question: string; 
   if (prior) { if (!isDeepStrictEqual({ ...prior, entry: undefined, taskId: undefined }, { requestId: input.requestId, question: input.question, version: input.version, operation: "answer", answers, actor: identity, entry: undefined, taskId: undefined })) throw new PersonalError("question_request_conflict", "原请求与本次答案不同，请查询原回执；未新建续接。"); return copyJson(prior) as PersonalQuestionReceipt; }
   if (value.status !== "pending" || value.version !== input.version) throw new PersonalError("question_not_pending", "问题已回答、取消或失效，请刷新原问题；未新建续接。");
   await allowedActor(tx, value, actor, "answer");
-  if (actor.kind === "im") { const menu = (await telegramSelection(tx, actor.input))?.selection; if (menu?.kind !== "question-draft" || !isDeepStrictEqual(menu.answers, answers)) throw new PersonalError("question_input_invalid", "答案与原核对菜单不同，请回复原菜单重新核对。"); }
+  if (actor.kind === "im") { const menu = (await telegramSelection(tx, actor.input))?.selection, submitted = personalQuestionSubmittedDraft(value, menu, actor.input.content, actor.input.platform); if (!submitted || !isDeepStrictEqual(submitted.answers, answers)) throw new PersonalError("question_input_invalid", "答案与原问题选择不同，请回复原问题重新作答。"); }
   if (value.work) await personalSource(tx, value.origin.source.requestId, { active: true });
   const permission = value.work ? value.origin.permission : await personalPermissionFor(tx, actor.kind === "im" ? actor.input : undefined);
   const telegram = value.work ? value.origin.telegram : actor.kind === "im" ? { ...(actor.input.platform ? { platform: actor.input.platform } : {}), botId: actor.input.botId, ownerId: actor.input.ownerId, generation: actor.input.generation, mode: permission.mode, version: permission.version } : undefined;
@@ -183,12 +210,13 @@ async function verifyQuestionAnswer(tx: Tx, value: PersonalQuestion) {
   const data = { question: value.id, requestId: answer.requestId, version: 1, answers: answer.answers, actor: answer.actor, permission: answer.permission, ...(answer.telegram ? { telegram: answer.telegram } : {}), taskId: answer.taskId, content: answer.content };
   if (!admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, data) || !isDeepStrictEqual(parsed(() => parseOwnerAnswers(answer.answers, value.questions)), answer.answers) || answer.content !== personalQuestionInput(value.questions, answer.answers) || task?.kind !== "ruukoto.question-continuation" || task.version !== 1 || task.owner !== undefined || !task.background || task.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(task.input, { question: value.id, requestId: answer.requestId }) || !receipt || receipt.entry !== answer.admission || receipt.taskId !== answer.taskId || receipt.operation !== "answer" || receipt.question !== value.id || receipt.version !== 1 || !isDeepStrictEqual(receipt.answers, answer.answers) || !isDeepStrictEqual(receipt.actor, answer.actor)) throw invalid();
   if (!["waiting", "local", "pending", "sending", "sent", "failed", "effect_unknown", "canceled", "unanswered"].includes(answer.delivery)) throw invalid();
-  if (answer.answerEntry !== undefined) { const entry = await tx.entry(AssistantEntry, answer.answerEntry), message = entry?.model?.[0]; if (entry?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || answer.reply !== platformText(message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw invalid(); }
+  if (answer.answerEntry !== undefined) { const entry = await tx.entry(AssistantEntry, answer.answerEntry), message = entry?.model?.[0]; if (entry?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || answer.replyFormat !== undefined && answer.replyFormat !== "complete" || answer.reply !== questionReply(answer, message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw invalid(); if (answer.multipart) { const delivery = await personalQuestionMultipart(tx, value); if (task.state.status === "terminal" && ["completed", "aborted"].includes(task.state.outcome.status) && (await settlePersonalImDelivery(tx, answer.multipart)).textState !== answer.delivery) throw invalid(); if (answer.delivery === "sent" && delivery.parts.findLast(part => part.kind === "text" && part.state === "sent")?.platformMessageId !== answer.platformMessageId) throw invalid(); } }
   else if (answer.reply !== undefined || ["local", "pending", "sending", "sent", "failed", "effect_unknown"].includes(answer.delivery)) throw invalid();
   if (answer.actor.kind === "im") {
     const actor = (await tx.doc(PersonalTelegramReceiptDoc, answer.actor.requestId, null)).receipt;
     const menu = actor && await telegramSelection(tx, actor);
-    if (!actor?.control || !actor.direct || !samePersonalEntry(value.origin.telegram, actor) || !samePersonalEntry(answer.telegram, actor) || menu?.requestId !== answer.actor.menuRequestId || menu.selection?.kind !== "question-draft" || menu.selection.id !== value.id || menu.selection.version !== 1 || menu.selection.step !== value.questions.length || (menu.selection.page ?? 0) !== personalQuestionLastPage(value, menu.selection) || !isDeepStrictEqual(menu.selection.answers, answer.answers) || actor.questionAnswer?.requestId !== answer.requestId || actor.questionAnswer.question !== value.id || !isDeepStrictEqual(answer.permission, answer.telegram && { mode: answer.telegram.mode, version: answer.telegram.version })) throw invalid();
+    const submitted = actor && personalQuestionSubmittedDraft(value, menu?.selection, actor.content, actor.platform);
+    if (!actor?.control || !actor.direct || !samePersonalEntry(value.origin.telegram, actor) || !samePersonalEntry(answer.telegram, actor) || menu?.requestId !== answer.actor.menuRequestId || menu.selection?.kind !== "question-draft" || menu.selection.id !== value.id || menu.selection.version !== 1 || !submitted || !isDeepStrictEqual(submitted.answers, answer.answers) || actor.questionAnswer?.requestId !== answer.requestId || actor.questionAnswer.question !== value.id || !isDeepStrictEqual(answer.permission, answer.telegram && { mode: answer.telegram.mode, version: answer.telegram.version })) throw invalid();
   } else if (answer.telegram || value.origin.telegram) throw invalid();
 }
 
@@ -214,7 +242,8 @@ async function verifyWorkQuestionAnswer(tx: Tx, value: PersonalQuestion) {
   if (answer.taskId !== value.operation || !admission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, data) || !isDeepStrictEqual(answer.permission, value.origin.permission) || !isDeepStrictEqual(answer.telegram, value.origin.telegram) || !isDeepStrictEqual(parsed(() => parseOwnerAnswers(answer.answers, value.questions)), answer.answers) || answer.content !== personalQuestionInput(value.questions, answer.answers) || !receipt || receipt.entry !== answer.admission || receipt.taskId !== value.operation || receipt.operation !== "answer" || receipt.question !== value.id || receipt.version !== 1 || !isDeepStrictEqual(receipt.answers, answer.answers) || !isDeepStrictEqual(receipt.actor, answer.actor) || !["waiting", "returned", "canceled", "unanswered"].includes(answer.delivery) || answer.submissionId !== undefined || answer.answerEntry !== undefined || answer.reply !== undefined || answer.platformMessageId !== undefined || answer.configurationVersion !== undefined) throw invalid();
   if (answer.actor.kind === "im") {
     const actor = (await tx.doc(PersonalTelegramReceiptDoc, answer.actor.requestId, null)).receipt, menu = actor && await telegramSelection(tx, actor);
-    if (!actor?.control || !actor.direct || !samePersonalEntry(value.origin.telegram, actor) || menu?.requestId !== answer.actor.menuRequestId || menu.selection?.kind !== "question-draft" || menu.selection.id !== value.id || menu.selection.version !== 1 || menu.selection.step !== value.questions.length || (menu.selection.page ?? 0) !== personalQuestionLastPage(value, menu.selection) || !isDeepStrictEqual(menu.selection.answers, answer.answers) || actor.questionAnswer?.requestId !== answer.requestId || actor.questionAnswer.question !== value.id) throw invalid();
+    const submitted = actor && personalQuestionSubmittedDraft(value, menu?.selection, actor.content, actor.platform);
+    if (!actor?.control || !actor.direct || !samePersonalEntry(value.origin.telegram, actor) || menu?.requestId !== answer.actor.menuRequestId || menu.selection?.kind !== "question-draft" || menu.selection.id !== value.id || menu.selection.version !== 1 || !submitted || !isDeepStrictEqual(submitted.answers, answer.answers) || actor.questionAnswer?.requestId !== answer.requestId || actor.questionAnswer.question !== value.id) throw invalid();
   } else if (value.origin.telegram) throw invalid();
   if (answer.returned !== undefined) {
     const returned = await tx.entry(WorkQuestionReturn, answer.returned);
@@ -269,7 +298,7 @@ export async function requirePersonalQuestionBoundary(tx: Tx, conversationId: Co
   }
 }
 
-function questionTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineTask<{ question: string; requestId: string }, { phase: "admit" } | { phase: "send"; retryAt?: number } | { phase: "verify" }, { delivery: Delivery }>({
+function questionTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission) { return defineTask<{ question: string; requestId: string }, { phase: "admit" } | { phase: "send"; retryAt?: number } | { phase: "verify" } | { phase: "deliver" }, { delivery: Delivery }>({
   name: "ruukoto.question-continuation", version: 1, initial: () => ({ phase: "admit" }),
   phases: {
     async admit(current, runtime, callContext) {
@@ -294,7 +323,8 @@ function questionTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission)
         if (settled.status !== "done" || settled.type !== "input") { answer.delivery = "unanswered"; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }
         const entry = await tx.entry(AssistantEntry, settled.answer), message = entry?.model?.[0];
         if (message?.role !== "assistant") throw invalid();
-        answer.answerEntry = settled.answer; answer.reply = platformText(message.content.filter(part => part.type === "text").map(part => part.text).join(""));
+        if (answer.telegram && answer.telegram.platform === undefined && im?.delivery) answer.replyFormat = "complete";
+        answer.answerEntry = settled.answer; answer.reply = questionReply(answer, message.content.filter(part => part.type === "text").map(part => part.text).join(""));
         answer.delivery = answer.telegram ? "pending" : "local";
         return answer.telegram ? { status: "running", checkpoint: { phase: "send" } } : { status: "terminal", outcome: { status: "completed", result: { delivery: "local" } } };
       }, callContext);
@@ -302,6 +332,19 @@ function questionTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission)
     async send(current, runtime, callContext) {
       if (current.state.checkpoint.retryAt) await runtime.sleep(current.state.checkpoint.retryAt, callContext);
       const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!, answer = saved.answer!, state = await runtime.snapshot(PersonalTelegramDoc, callContext), config = personalEntryConfig(state ?? {}, answer.telegram!);
+      if (answer.telegram && answer.telegram.platform === undefined && im?.delivery) {
+        await withPersonalImEntry(im, answer.telegram, () => runtime.commit(async tx => {
+          const value = await personalQuestion(tx, saved.id), answer = value.answer!;
+          if (answer.multipart) return { status: "running", checkpoint: { phase: "deliver" } };
+          if (!answer.telegram || !im.isActive(answer.telegram) || !await telegramSourceActive(tx, answer.telegram)) { answer.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
+          const actor = answer.actor.kind === "im" && (await tx.doc(PersonalTelegramReceiptDoc, answer.actor.requestId, null)).receipt, entry = answer.answerEntry && await tx.entry(AssistantEntry, answer.answerEntry), message = entry?.model?.[0];
+          if (!actor || message?.role !== "assistant" || answer.delivery !== "pending") throw invalid();
+          const text = message.content.filter(part => part.type === "text").map(part => part.text).join("") || "本次回答没有文本，请从原会话查询。";
+          answer.multipart = await im.delivery!.request(tx, { key: `question:${current.id}`, source: answer.telegram, messageId: actor.messageId, text }, current.id);
+          answer.delivery = "sending";
+          return { status: "running", checkpoint: { phase: "deliver" } };
+        }, callContext)); return;
+      }
       let api: PersonalImSender | undefined = !im && state?.config?.enabled ? personalTelegramApi(state.config.apiBase, telegramToken(state.config)) : undefined;
       let target: { owner: string; message: number; reply: string } | undefined;
       await withPersonalImEntry(im, answer.telegram ?? {}, async () => {
@@ -313,9 +356,15 @@ function questionTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission)
       try { if (!api) throw new PersonalImApiError("im_target_inactive", "原问题回复入口已失效，未发送；请查询原问题。", "not_sent"); message = await api.send(target.owner, target.message, target.reply, runtime.signal); } catch (error) { if (!(error instanceof PersonalImApiError)) throw error; failure = error; }
       await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; if (failure?.retryAfterMs) { answer.delivery = "pending"; return { status: "running", checkpoint: { phase: "send", retryAt: runtime.now() + failure.retryAfterMs } }; } answer.delivery = message ? "sent" : failure?.effect === "not_sent" ? "failed" : "effect_unknown"; if (message) answer.platformMessageId = message; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext);
     },
-    async verify(current, runtime, callContext) { await runtime.commit(async tx => { const answer = (await personalQuestion(tx, current.input.question)).answer!; answer.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext); },
+    async verify(current, runtime, callContext) { await runtime.commit(async tx => { const answer = (await personalQuestion(tx, current.input.question)).answer!; if (answer.multipart) return { status: "running", checkpoint: { phase: "deliver" } }; answer.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext); },
+    async deliver(current, runtime, callContext) {
+      const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!, ref = saved.answer?.multipart;
+      if (!ref || !im?.delivery) throw invalid();
+      await runtime.waitForTask(ref.taskId, callContext);
+      await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; await settleQuestionDelivery(tx, answer); return { status: "terminal", outcome: { status: "completed", result: { delivery: answer.delivery } } }; }, callContext);
+    },
   },
-  async abort(current, runtime, callContext) { const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!; let admitted = false; await runtime.commit(async tx => { admitted = !!await personalQuestionSubmission(tx, await personalQuestion(tx, saved.id)); return undefined; }, callContext); if (admitted && saved.answer) { const submission = await runtime.conversation(ROOT_CONVERSATION_ID, callContext); const original = submission && await (admitInput ?? submission.submit.bind(submission))({ type: "input", requestId: keyFor(current.id), content: saved.answer.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext); await original?.abort(callContext); } await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; answer.delivery = answer.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: answer.delivery } } }; }, callContext); },
+  async abort(current, runtime, callContext) { const saved = (await runtime.snapshot(PersonalQuestionDoc, current.input.question, callContext))!.question!; let admitted = false; await runtime.commit(async tx => { admitted = !!await personalQuestionSubmission(tx, await personalQuestion(tx, saved.id)); return undefined; }, callContext); if (admitted && saved.answer) { const submission = await runtime.conversation(ROOT_CONVERSATION_ID, callContext); const original = submission && await (admitInput ?? submission.submit.bind(submission))({ type: "input", requestId: keyFor(current.id), content: saved.answer.content, entry: { kind: PERSONAL_QUESTION_INPUT, data: inputData(saved) }, whenBusy: "followUp" }, callContext); await original?.abort(callContext); } if (saved.answer?.multipart) { if (!im?.delivery) throw invalid(); await im.delivery.abort(saved.answer.multipart); } await runtime.commit(async tx => { const answer = (await personalQuestion(tx, saved.id)).answer!; if (answer.multipart) await settleQuestionDelivery(tx, answer); else answer.delivery = answer.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: answer.delivery } } }; }, callContext); },
 }); }
 export const PersonalQuestionTask = questionTask();
 
@@ -398,10 +447,12 @@ export async function verifyPersonalQuestions(tx: Tx, keys: string[], receiptKey
     if (value.status === "pending") { const key = value.work ? `work:${value.work.ref.taskId}` : "root"; if (pending.has(key)) throw invalid(); pending.add(key); if (value.answer || value.terminal) throw invalid(); }
     else if (value.status === "answered") {
       if (value.terminal) throw invalid();
-      await verifyQuestionAnswer(tx, value); await personalQuestionSubmission(tx, value);
       const task = await tx.task(value.answer!.taskId);
+      if (task?.state.status === "terminal" && value.answer!.multipart && !["completed", "aborted"].includes(task.state.outcome.status)) await settleQuestionDelivery(tx, value.answer!);
+      await verifyQuestionAnswer(tx, value); await personalQuestionSubmission(tx, value);
       if (task?.state.status === "terminal") {
-        if (value.answer!.delivery === "sending") value.answer!.delivery = "effect_unknown";
+        if (value.answer!.multipart) await settleQuestionDelivery(tx, value.answer!);
+        else if (value.answer!.delivery === "sending") value.answer!.delivery = "effect_unknown";
         else if (value.answer!.delivery === "waiting") value.answer!.delivery = "unanswered";
         else if (value.answer!.delivery === "pending") value.answer!.delivery = "failed";
         else if (value.work && value.answer!.delivery === "returned" && task.state.outcome.status !== "completed") value.answer!.delivery = "unanswered";

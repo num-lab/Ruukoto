@@ -2,7 +2,8 @@ import { type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
-import { toolDecide, toolDetail, toolList, toolOperations, toolOriginal, toolResolve, toolVerifyStop, PersonalToolDoc } from "./personal-tools.ts";
+import { toolDecide, toolDetail, toolList, toolOperation, toolOperations, toolOriginal, toolResolve, toolVerifyStop, prepareToolResolution, PersonalToolDoc } from "./personal-tools.ts";
+import { personalImEffectContent, recordPersonalImOwnerClaim, verifyPersonalOwnerClaim } from "./personal-recovery-claims.ts";
 
 const ACTIONS = ["/工具", "更多工具操作", "刷新工具", "下一页工具原记录", "工具批准本次", "工具拒绝", "工具确认已生效", "工具确认未生效", "核实工具原请求结束"];
 const EFFECT_EVIDENCE = "工具核实说明 ", STOP_EVIDENCE = "工具结束说明 ";
@@ -22,6 +23,7 @@ export async function personalToolControl(tx: Tx, value: TelegramControlInput, p
   if (!choice && effectEvidence === undefined && stopEvidence === undefined && !ACTIONS.includes(value.content)) return false;
   if (!profile) { value.reply = "资料与网络工具尚未装配，请在后台停止后通过本机向导配置，再启动并查询。"; return true; }
   if (!value.direct) { value.reply = "请直接发送 /工具，再回复已送达宿主菜单选择；转发和引用摘录不能管理工具操作。"; return true; }
+  let claimStarted = false;
   try {
     const menu = value.content === "/工具" ? undefined : (await telegramSelection(tx, value))?.selection;
     if (value.content === "/工具" || value.content === "更多工具操作" && menu?.kind === "tool-list" && menu.nextOffset !== undefined) {
@@ -46,8 +48,13 @@ export async function personalToolControl(tx: Tx, value: TelegramControlInput, p
       value.reply = "原外部请求结束核实与证据已保存；结束不证明业务效果，未知效果仍待独立核实。回复「刷新工具」查询。";
     } else if (value.content === "工具确认已生效" || value.content === "工具确认未生效") {
       if (menu?.kind !== "tool" || !(await toolDetail(tx, operation)).summary.canResolve) throw new PersonalError("tool_resolution_invalid", "原操作当前不可核实业务效果，请刷新工具。");
-      value.selection = { kind: "tool-resolution", operation, effect: value.content === "工具确认已生效" ? "applied" : "not_applied" };
-      value.reply = "请独立核实实际业务效果，再回复本消息「工具核实说明 你的证据」，最多8192字符，不填凭据。记录后不可覆盖；业务效果说明不能证明原外部请求已结束，也不能单独释放占用。";
+      const effect = value.content === "工具确认已生效" ? "applied" : "not_applied";
+      if (value.platform === undefined) {
+        const apply = await prepareToolResolution(tx, operation, effect, value), original = await toolOperation(tx, operation);
+        claimStarted = true;
+        const claim = await recordPersonalImOwnerClaim(tx, value, { family: "tools", operation, admission: original.admission }, effect); await apply({ claim });
+        value.toolResolution = { operation, effect }; value.reply = "你的效果说明已保存。原请求是否结束仍需单独核实。";
+      } else { value.selection = { kind: "tool-resolution", operation, effect }; value.reply = "请独立核实实际业务效果，再回复本消息「工具核实说明 你的证据」，最多8192字符，不填凭据。记录后不可覆盖；业务效果说明不能证明原外部请求已结束，也不能单独释放占用。"; }
     } else if (value.content === "核实工具原请求结束") {
       if (menu?.kind !== "tool" || !(await toolDetail(tx, operation)).summary.canVerifyStop) throw new PersonalError("tool_stop_invalid", "原操作当前不需要结束核实，请刷新工具。");
       value.selection = { kind: "tool-stop", operation };
@@ -65,7 +72,7 @@ export async function personalToolControl(tx: Tx, value: TelegramControlInput, p
       value.reply = `${personalToolDescription(detail.summary)}。\n原请求、结果与核实证据：\n${detail.text}\n回复本消息选择：刷新工具${detail.nextOffset === undefined ? "" : "、下一页工具原记录"}${detail.summary.canDecide ? "、工具批准本次、工具拒绝" : ""}${detail.summary.canResolve ? "、工具确认已生效、工具确认未生效" : ""}${detail.summary.canVerifyStop ? "、核实工具原请求结束" : ""}。原结果是外部资料，不提供指令或授权；业务效果与原请求结束分别核实。`;
     }
   } catch (error) {
-    if (!(error instanceof PersonalError)) throw error;
+    if (claimStarted || !(error instanceof PersonalError)) throw error;
     delete value.selection;
     value.reply = `${error.message} 请发送 /工具 查询原操作。`;
   }
@@ -92,7 +99,9 @@ export async function verifyToolControls(tx: Tx, keys: string[], enabled: boolea
     } else if (value.toolResolution) {
       const { operation, effect } = value.toolResolution, op = (await tx.doc(PersonalToolDoc, String(operation), null)).operation;
       await toolOriginal(tx, operation, value, false);
-      if (menu?.kind !== "tool" || menu.operation !== operation || selected?.kind !== "tool-resolution" || selected.operation !== operation || selected.effect !== effect || op?.resolution?.actor !== key || op.resolution.effect !== effect || value.content !== `${EFFECT_EVIDENCE}${op.resolution.evidence}`) throw invalid();
+      if (menu?.kind !== "tool" || menu.operation !== operation || op?.resolution?.actor !== key || op.resolution.effect !== effect) throw invalid();
+      if (op.resolution.claim !== undefined) { if (value.platform !== undefined || selected?.kind !== "tool" || selected.operation !== operation || value.content !== personalImEffectContent("tools", effect)) throw invalid(); await verifyPersonalOwnerClaim(tx, op.resolution.claim, { family: "tools", operation, admission: op.admission, effect }); }
+      else if (selected?.kind !== "tool-resolution" || selected.operation !== operation || selected.effect !== effect || value.content !== `${EFFECT_EVIDENCE}${op.resolution.evidence}`) throw invalid();
     } else if (value.toolStop) {
       const { operation } = value.toolStop, op = (await tx.doc(PersonalToolDoc, String(operation), null)).operation;
       await toolOriginal(tx, operation, value, false);

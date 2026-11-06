@@ -4,7 +4,8 @@ import { isDeepStrictEqual } from "node:util";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { personalReportDelivery } from "./personal-work-controls.ts";
-import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramReceipt } from "./personal-telegram-records.ts";
+import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
+import type { PersonalTelegramSelection } from "./personal-telegram-selection.ts";
 import type { personalScheduler } from "./personal-scheduler.ts";
 import { personalScheduleRun } from "./personal-scheduler-records.ts";
 
@@ -102,10 +103,10 @@ async function originalSchedule(tx: Tx, scheduler: Scheduler, id: string, actor:
   return value;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
 export async function personalScheduleControl(tx: Tx, value: TelegramControlInput, scheduler: Scheduler): Promise<boolean> {
   const choice = /^计划([1-8])$/.exec(value.content), runChoice = /^运行([1-8])$/.exec(value.content);
-  let selected: TelegramReceipt | undefined;
+  let selected: PersonalTelegramSelection | undefined;
   if (value.replyTo !== undefined) selected = await telegramSelection(tx, value);
   const menu = selected?.selection;
   if (!choice && !runChoice && !ACTIONS.includes(value.content) && menu?.kind !== "schedule-draft") return false;

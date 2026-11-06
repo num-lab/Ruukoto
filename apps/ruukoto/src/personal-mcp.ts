@@ -1,4 +1,4 @@
-import { personalRecoveryEvidence, verifyPersonalOwnerClaim, type PersonalRecoveryEvidence } from "./personal-recovery-claims.ts";
+import { personalRecoveryEvidence, verifyPersonalOwnerClaim, personalImControlAccepted, type PersonalRecoveryEvidence } from "./personal-recovery-claims.ts";
 import { capturePersonalToolInstructions, requirePersonalToolInstructionsFresh, verifyPersonalToolInstructions, requirePersonalChildBusinessTool, personalToolOrigin, type PersonalToolOrigin } from "./personal-tool-source.ts";
 /** Native tool tasks own MCP admissions and evidence; recovery never resends tools/call.
  * Note: See .agents/notes/implemented/architecture/2026-10-17-personal-durable-mcp.md
@@ -196,6 +196,14 @@ async function active(tx: Tx, value: McpOperation) {
 export async function mcpOriginal(tx: Tx, operation: TaskId, actor: McpActor, active = true) {
   const value = await mcpOperation(tx, operation), source = value.origin.telegram;
   if (!source || !samePersonalEntry(source, actor) || (active && !await telegramSourceActive(tx, source))) throw new PersonalError("mcp_original_entry", "此 MCP 调用不属于当前原入口，未改变记录；请从发起入口查询。");
+}
+
+export async function personalMcpRecoveryObservation(tx: Tx, operation: TaskId, observation: EntryId) {
+  const value = await mcpOperation(tx, operation), entry = await tx.entry(observation);
+  if (!value.cua || !value.config.services.find(service => service.id === value.service)?.cua || !entry || entry.conversationId !== ROOT_CONVERSATION_ID || entry.id <= value.admission) throw new PersonalError("cua_observation_stale", "原电脑观察无法核实，请重新查询原现场。");
+  if (McpCuaTakeover.is(entry) && entry.data.action === "observe" && entry.data.operation === operation && entry.data.version === 1 && entry.data.execution && entry.data.images?.length) return { entry: entry.id, pause: entry.data.pause, execution: entry.data.execution, images: entry.data.images };
+  if (McpCuaRecovery.is(entry) && entry.data.action === "observe" && entry.data.operation === operation && isDeepStrictEqual(entry.data.execution, value.cua.execution) && entry.data.nextExecution && entry.data.images?.length) return { entry: entry.id, execution: entry.data.nextExecution, images: entry.data.images };
+  throw new PersonalError("cua_observation_stale", "原电脑观察无法核实，请重新查询原现场。");
 }
 export async function mcpDecide(tx: Tx, operation: TaskId, decision: "approved" | "rejected", actor?: McpActor) {
   const value = await mcpOperation(tx, operation);
@@ -586,6 +594,7 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
     await getHarness().commit(async tx => {
       if (!paused && (await mcpOperations(tx)).some(value => value.cua && mcpUnresolved(value))) throw new PersonalError("cua_frozen", "电脑原动作仍待核实，请先完成停止、人工检查与新截图接受。");
       const doc = await tx.doc(PersonalMcpConfigDoc);
+      if (!paused && doc.cuaPause?.operation !== undefined && (await mcpOperation(tx, doc.cuaPause.operation)).origin.telegram) throw new PersonalError("mcp_original_entry", "这项电脑工作须从原私聊的现场卡片继续。");
       if (!paused && doc.cuaPause?.operation !== undefined && !(await mcpOperation(tx, doc.cuaPause.operation)).takeover?.accepted && !(await mcpOperation(tx, doc.cuaPause.operation)).cua?.recovery?.accepted) throw new PersonalError("cua_observation_required", "原工作暂停后须选择新截图并接受现场，不能沿用暂停前的观察。");
       if ((doc.cuaPause?.paused ?? false) !== paused) {
         const latest = paused && cuaOwner !== undefined ? (await mcpOperations(tx)).findLast(value => value.origin.work?.ref.taskId === cuaOwner && value.cua && value.interactive) : undefined;
@@ -603,13 +612,13 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
     } finally { if (closing) busy = false; }
     return cuaStatus();
   }
-  async function resumeCua(operation: TaskId, expected: { pause?: EntryId; observation?: EntryId; accepted?: EntryId }) {
+  async function resumeCua(operation: TaskId, expected: { pause?: EntryId; observation?: EntryId; accepted?: EntryId }, actor?: PersonalEntryIdentity) {
     if (busy) throw new PersonalError("cua_busy", "原电脑调用仍在执行，请刷新原状态。");
     busy = true;
     try {
       await getHarness().commit(async tx => {
         const doc = await tx.doc(PersonalMcpConfigDoc), value = await mcpOperation(tx, operation), scene = value.takeover ?? value.cua?.recovery;
-        if (!doc.cuaPause?.paused || doc.cuaPause.operation !== undefined && doc.cuaPause.operation !== operation || expected.pause !== value.takeover?.paused || expected.observation !== scene?.observation?.entry || expected.accepted !== scene?.accepted || !scene?.accepted || !scene.observation || mcpUnresolved(value) || value.origin.telegram) throw new PersonalError("cua_observation_stale", "原暂停或已接受观察已变化，请刷新原卡片。");
+        if (!doc.cuaPause?.paused || doc.cuaPause.operation !== undefined && doc.cuaPause.operation !== operation || expected.pause !== value.takeover?.paused || expected.observation !== scene?.observation?.entry || expected.accepted !== scene?.accepted || !scene?.accepted || !scene.observation || mcpUnresolved(value) || value.origin.telegram && (!samePersonalEntry(value.origin.telegram, actor) || !await telegramSourceActive(tx, value.origin.telegram))) throw new PersonalError("cua_observation_stale", "原暂停或已接受观察已变化，请刷新原卡片。");
         if (value.origin.work && (await tx.doc(PersonalWorkDoc, value.origin.work.ref.requestId, null)).cancelRequested) throw new PersonalError("work_canceled", "原工作已取消，没有继续电脑。");
         const entry = await tx.appendEntry(McpCuaPause, ROOT_CONVERSATION_ID, { data: { paused: false } });
         doc.cuaPause = { paused: false, entry: entry.id };
@@ -689,10 +698,16 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
       observed = false;
     }
   }
-  async function recoverCua(operation: TaskId, action: "stop" | "observe" | "accept", expectedObservation?: EntryId, sandboxChoice?: EntryId, expected?: PersonalCuaRecoveryBinding) {
+  async function recoverCua(operation: TaskId, action: "stop" | "observe" | "accept", expectedObservation?: EntryId, sandboxChoice?: EntryId, expected?: PersonalCuaRecoveryBinding, acceptedChoice?: EntryId) {
     if (busy) throw new PersonalError("cua_busy", "电脑仍有在途调用，恢复未开始；请等原调用结束后刷新。");
     const value = (await getHarness().snapshot(PersonalMcpDoc, String(operation), context))?.operation;
     if (!value) throw new PersonalError("mcp_missing", "原 MCP 调用缺失，请刷新操作列表。");
+    if (action === "accept" && value.origin.telegram) await getHarness().commit(async tx => {
+      const choice = acceptedChoice === undefined ? undefined : await tx.entry(acceptedChoice), data = choice?.data, request = data && typeof data === "object" && !Array.isArray(data) && data.request, actor = data && typeof data === "object" && !Array.isArray(data) && data.actor;
+      if (!choice || choice.kind !== "ruukoto.desktop-action-admission" || !request || typeof request !== "object" || Array.isArray(request) || request.family !== "mcp" || request.action !== "accept" || request.operation !== operation || request.admission !== value.admission || request.observation !== expectedObservation || !actor || typeof actor !== "object" || Array.isArray(actor) || actor.kind !== "im" || typeof actor.requestId !== "string") throw new PersonalError("mcp_original_entry", "这项电脑现场须从原私聊卡片接受。");
+      const receipt = (await tx.doc(PersonalTelegramReceiptDoc, actor.requestId, null)).receipt;
+      if (!receipt?.cuaAction || receipt.cuaAction.entry !== acceptedChoice || receipt.cuaAction.action !== "accept" || receipt.cuaAction.operation !== operation || receipt.cuaAction.requestId !== request.requestId || !receipt.control || !receipt.direct || receipt.platform || !samePersonalEntry(receipt, value.origin.telegram) || !await personalImControlAccepted(tx, receipt) || !await telegramSourceActive(tx, receipt)) throw new PersonalError("mcp_original_entry", "原现场接受的私聊来源已失效。");
+    }, context);
     if (busy) throw new PersonalError("cua_busy", "电脑仍有在途调用，恢复未开始；请等原调用结束后刷新。");
     busy = true;
     if (expected && (expected.pause !== value.takeover?.paused || expected.execution && !isDeepStrictEqual(expected.execution, value.cua?.execution) || expected.observation !== undefined && expected.observation !== (value.takeover ?? value.cua?.recovery)?.observation?.entry)) { busy = false; throw new PersonalError("cua_observation_stale", "原恢复选择已变化，没有操作后来的现场。"); }
@@ -730,6 +745,13 @@ export function personalMcp(configValue: PersonalMcpConfig, getHarness: () => Ha
         if (sandboxChoice !== undefined) {
           const choice = await getHarness().commit(tx => tx.entry(sandboxChoice), context), data = choice?.data;
           if (choice?.kind !== "ruukoto.desktop-action-admission" || !data || typeof data !== "object" || Array.isArray(data) || !data.request || typeof data.request !== "object" || Array.isArray(data.request) || data.request.action !== "stop_sandbox" || data.request.family !== "mcp" || data.request.operation !== operation || data.request.admission !== value.admission) throw new PersonalError("cua_sandbox_choice_invalid", "停止沙箱须使用原操作的独立选择。");
+          const requestId = data.request.requestId;
+          if (data.actor && typeof data.actor === "object" && !Array.isArray(data.actor) && data.actor.kind === "im") await getHarness().commit(async tx => {
+            const actor = data.actor;
+            if (!actor || typeof actor !== "object" || Array.isArray(actor) || typeof actor.requestId !== "string" || typeof actor.menuRequestId !== "string") throw new PersonalError("cua_sandbox_choice_invalid", "原停止选择来源无法核实。");
+            const receipt = (await tx.doc(PersonalTelegramReceiptDoc, actor.requestId, null)).receipt;
+            if (!receipt?.control || !receipt.direct || receipt.platform || !samePersonalEntry(receipt, value.origin.telegram) || !await telegramSourceActive(tx, receipt) || receipt.cuaAction?.entry !== sandboxChoice || receipt.cuaAction.action !== "stop_sandbox" || receipt.cuaAction.operation !== operation || receipt.cuaAction.requestId !== requestId || receipt.replyTo !== actor.messageId) throw new PersonalError("cua_sandbox_choice_invalid", "原停止选择的私聊来源已失效。");
+          }, context);
         }
         await closeCua();
         if (!await linux.stopCli(original.cli) || !await linux.stop(original.sandbox)) throw new PersonalError("cua_stop_unverified", "原 CLI 或沙箱运行代尚未核实停止，保留磁盘和暂停；请刷新原记录。");

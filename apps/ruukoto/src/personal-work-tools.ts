@@ -187,7 +187,7 @@ export function personalWorkTools(getHarness: () => Harness) {
 // but never trusted as an outcome: committed call facts always follow it. Any end whose calls did not
 // terminate — query batches, ordinary prose — stays on the caller's original path.
 // Note: See .agents/notes/implemented/architecture/2026-11-02-personal-main-handoff.md
-export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: number): Promise<string | undefined> {
+export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: number, natural = false): Promise<string | undefined> {
   const entry = await tx.entry(AssistantEntry, answer);
   const message = entry?.model?.[0];
   if (!entry || message?.role !== "assistant" || !Array.isArray(message.content)) return undefined;
@@ -219,7 +219,14 @@ export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: numbe
     const resultText = resultMessage?.role === "toolResult" ? resultMessage.content.filter(part => part.type === "text").map(part => part.text).join("") : "";
     const args = call.arguments && typeof call.arguments === "object" && !Array.isArray(call.arguments) ? call.arguments as Record<string, unknown> : {};
     // Refused calls keep their actual outcome: the handoff reports the refusal, never a fake success.
-    if (resultMessage?.role === "toolResult" && resultMessage.isError) { facts.push({ text: `调用 ${call.name} 未生效：${resultText || "执行被拒绝"}`, short: `调用 ${call.name} 未生效`, refused: true }); continue; }
+    if (resultMessage?.role === "toolResult" && resultMessage.isError) { facts.push({ text: natural ? `这项安排未能完成：${resultText || "执行被拒绝"}` : `调用 ${call.name} 未生效：${resultText || "执行被拒绝"}`, short: `调用 ${call.name} 未生效`, refused: true }); continue; }
+    if (natural && call.name === "background_work") {
+      const parsed = (() => { try { const value: unknown = JSON.parse(resultText); return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined; } catch { return undefined; } })();
+      const state = parsed?.state;
+      const text = args.action === "delegate" ? "已安排后台处理，完成后会在这里发送结果" : args.action === "append" ? state === "note_accepted" ? "新要求已交给原工作继续处理" : state === "continued" ? "原结果已保留，已安排处理新增要求" : "原工作已结束，这次要求未能追加" : args.action === "cancel" || args.action === "cancel_delegation" ? "已登记取消，正在核实原执行停止；已经完成的操作仍保留" : args.action === "report" ? "已安排汇总，结果核实后会在这里发送" : args.action === "redisplay" ? "已安排重新显示原卡片" : "这项安排已记录";
+      facts.push({ text, short: text, refused: args.action === "append" && state !== "note_accepted" && state !== "continued" });
+      continue;
+    }
     if (call.name === "background_work" && args.action === "report") facts.push({ text: `已登记委托 ${args.delegation} 的最终汇总安排，全部成员停止并核实后自动回报原入口`, short: `已登记委托${args.delegation}汇总安排`, refused: false });
     else if (call.name === "background_work" && args.action === "append") {
       // A completed call can still refuse admission (the work ended first); the persisted outcome,
@@ -244,7 +251,7 @@ export async function personalWorkHandoff(tx: Tx, answer: EntryId, limit?: numbe
     }
   }
   const prose = message.content.flatMap(part => part.type === "text" && part.text ? [part.text] : []).join("");
-  let body = `本轮以工具调用让出：${facts.map(fact => fact.text).join("；")}。`;
+  let body = natural ? `${facts.map(fact => fact.text).join("；")}。` : `本轮以工具调用让出：${facts.map(fact => fact.text).join("；")}。`;
   if (limit !== undefined && Array.from(body).length > limit) {
     // The factual body itself exceeded the budget (a large arrangement batch): rebuild it compactly.
     // The aggregate head is exact and always complete; refusals enumerate first, then accepted calls

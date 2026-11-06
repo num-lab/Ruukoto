@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import { PersonalError } from "./personal-error.ts";
 import { answerPersonalQuestion, cancelPersonalQuestion, personalQuestion, personalQuestionList, type PersonalQuestion } from "./personal-questions.ts";
 import { telegramSelection, telegramSourceActive } from "./personal-permissions.ts";
-import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput, type TelegramSelection } from "./personal-telegram-records.ts";
 
 export type PersonalQuestionMenu = { kind: "question-list"; ids: string[]; nextOffset?: number } | { kind: "question-draft"; id: string; version: number; step: number; answers: OwnerAnswer[]; selected?: number[]; page?: number } | { kind: "question-view"; id: string; page: number };
 export const questionOptionLabel = (value: NonNullable<OwnerQuestionItem["options"]>[number]) => typeof value === "string" ? value : value.label;
@@ -49,7 +49,15 @@ function advanceQuestionDraft(question: PersonalQuestion, draft: Extract<Persona
   return draft;
 }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-owner-questions.md
+export function personalQuestionSubmittedDraft(question: PersonalQuestion, menu: TelegramSelection | undefined, content: string, platform?: "qq") {
+  if (menu?.kind !== "question-draft" || menu.id !== question.id) return undefined;
+  if (content === "确认回答") return menu.step === question.questions.length && (menu.page ?? 0) === personalQuestionLastPage(question, menu) ? menu : undefined;
+  if (platform === "qq" || question.questions.length !== 1 || menu.step !== 0 || ["跳过", "全部跳过", "取消问题", "重新回答", "上一页问题", "下一页问题"].includes(content) || question.questions[0].multiple && content !== "完成选择") return undefined;
+  const draft = advanceQuestionDraft(question, copyJson(menu) as Extract<PersonalQuestionMenu, { kind: "question-draft" }>, content);
+  return draft.step === 1 ? draft : undefined;
+}
+
+// Note: See .agents/notes/implemented/feature/2026-10-21-personal-owner-questions.md
 export async function personalQuestionControl(tx: Tx, value: TelegramControlInput): Promise<boolean> {
   const previous = value.replyTo === undefined ? undefined : await telegramSelection(tx, value), menu = previous?.selection;
   if (!["/问题", "更多问题"].includes(value.content) && menu?.kind !== "question-list" && menu?.kind !== "question-draft" && menu?.kind !== "question-view") return false;
@@ -73,9 +81,10 @@ export async function personalQuestionControl(tx: Tx, value: TelegramControlInpu
       await cancelPersonalQuestion(tx, { question: id, version: draft.version, requestId: value.requestId }, { kind: "im", input: value, menuRequestId: previous!.requestId });
       value.questionCancel = { question: id, requestId: value.requestId }; value.reply = "原问题已取消，没有生成答案或续接；普通聊天可继续。"; return true;
     }
-    if (value.content === "确认回答" && draft.step === question.questions.length && (draft.page ?? 0) === personalQuestionLastPage(question, draft)) {
-      await answerPersonalQuestion(tx, { question: id, version: draft.version, requestId: value.requestId, answers: draft.answers }, { kind: "im", input: value, menuRequestId: previous!.requestId });
-      value.questionAnswer = { question: id, requestId: value.requestId }; value.reply = "全部答案已接纳，正在继续原会话；本次业务回答不批准工具操作。普通聊天可继续。"; return true;
+    const submitted = !choice ? personalQuestionSubmittedDraft(question, menu, value.content, value.platform) : undefined;
+    if (submitted) {
+      await answerPersonalQuestion(tx, { question: id, version: draft.version, requestId: value.requestId, answers: submitted.answers }, { kind: "im", input: value, menuRequestId: previous!.requestId });
+      value.questionAnswer = { question: id, requestId: value.requestId }; value.reply = value.platform === "qq" ? "全部答案已接纳，正在继续原会话；本次业务回答不批准工具操作。普通聊天可继续。" : "答案已保存，正在继续原工作。"; return true;
     }
     if (!choice) advanceQuestionDraft(question, draft, value.content);
     value.selection = draft; value.reply = personalQuestionPrompt(question, draft);
@@ -118,8 +127,9 @@ export async function verifyPersonalQuestionControls(tx: Tx, keys: string[], ena
     } else {
       if (previous?.kind !== "question-draft" || previous.id !== id || previous.version !== 1 || selected?.requestId === undefined) throw invalid();
       const receipt = value.questionAnswer ?? value.questionCancel;
-      if (!receipt || receipt.requestId !== key || value.content !== (value.questionAnswer ? "确认回答" : "取消问题")) throw invalid();
-      if (value.questionAnswer && (previous.step !== question.questions.length || (previous.page ?? 0) !== personalQuestionLastPage(question, previous) || question.answer?.requestId !== key || question.answer.actor.kind !== "im" || question.answer.actor.menuRequestId !== selected.requestId || !isDeepStrictEqual(question.answer.answers, previous.answers))) throw invalid();
+      if (!receipt || receipt.requestId !== key || value.questionCancel && value.content !== "取消问题") throw invalid();
+      const submitted = value.questionAnswer ? personalQuestionSubmittedDraft(question, previous, value.content, value.platform) : undefined;
+      if (value.questionAnswer && (!submitted || question.answer?.requestId !== key || question.answer.actor.kind !== "im" || question.answer.actor.menuRequestId !== selected.requestId || !isDeepStrictEqual(question.answer.answers, submitted.answers))) throw invalid();
     }
   }
 }

@@ -2,7 +2,13 @@ import { personalMainToolNames } from "./personal-tool-policy.ts";
 import { personalDesktopActions } from "./personal-desktop-actions.ts";
 import { personalSettingsExternalBlockers } from "./personal-settings-blockers.ts";
 import { PERSONAL_OUTPUTS, PersonalOutputsDoc, personalOutputs, verifyPersonalOutputs } from "./personal-outputs.ts";
-import { personalQuestions, PERSONAL_QUESTIONS, PERSONAL_QUESTION_INPUT, PersonalQuestionDoc, PersonalQuestionReceiptDoc, verifyPersonalQuestions, verifyPersonalQuestionRequest, refreshPersonalQuestions } from "./personal-questions.ts";
+import { loadPersonalArtifact } from "./personal-artifacts.ts";
+import { personalImDelivery, verifyPersonalImDeliveries, personalImDeliveryRecord, PersonalImDeliveriesDoc, PersonalImDeliveryDoc } from "./personal-im-delivery.ts";
+import { personalTelegramDisplays, authorizePersonalTelegramDisplay, verifyPersonalTelegramDisplays } from "./personal-telegram-displays.ts";
+import { PersonalTelegramDisplayDoc } from "./personal-telegram-display-records.ts";
+import { authorizePersonalTelegramRetrieval } from "./personal-telegram-results.ts";
+import { authorizePersonalTelegramCuaImages, personalTelegramCuaImage, PersonalTelegramCuaImages, verifyPersonalTelegramCuaImageDelivery } from "./personal-telegram-cua-images.ts";
+import { personalQuestions, PERSONAL_QUESTIONS, PERSONAL_QUESTION_INPUT, PersonalQuestionDoc, PersonalQuestionReceiptDoc, verifyPersonalQuestions, verifyPersonalQuestionRequest, refreshPersonalQuestions, authorizePersonalQuestionDelivery, personalQuestion, personalQuestionMultipart } from "./personal-questions.ts";
 import { personalQuestionControl, verifyPersonalQuestionControls } from "./personal-question-controls.ts";
 import { personalBackgroundControl, verifyPersonalBackgroundControls } from "./personal-background-controls.ts";
 import { personalBackground, PERSONAL_BACKGROUND, PERSONAL_BACKGROUND_TOOL_NAMES, PersonalBackgroundDoc, PersonalBackgroundProcessDoc, personalBackgroundProcesses, verifyPersonalBackground } from "./personal-background-processes.ts";
@@ -45,13 +51,15 @@ import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, PersonalServ
 import { personalServiceWork } from "./personal-service-work.ts";
 import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, verifyPersonalTelegram } from "./personal-telegram.ts";
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
-import { PersonalPermissionsDoc, personalPermissions, permissionSnapshot } from "./personal-permissions.ts";
+import { PersonalPermissionsDoc, personalPermissions, permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
 import { personalWorkTools, personalWorkHandoff } from "./personal-work-tools.ts";
 import { personalWorkControls, verifyWorkMenu, verifyDelegationMenu } from "./personal-work-controls.ts";
-import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations } from "./personal-delegation.ts";
+import { PersonalDelegationDoc, personalAnalysisDelegations, verifyPersonalDelegations, personalDelegation } from "./personal-delegation.ts";
+import { samePersonalEntry } from "./personal-telegram-records.ts";
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, personalInspectionControl, personalInspectionExtension, recheckServiceInspection, verifyServiceInspections } from "./personal-service-inspection.ts";
-import { personalDelegationReports, personalReportRequest, personalReportReference, verifyPersonalReports, personalReports } from "./personal-report.ts";
+import { personalDelegationReports, personalReportRequest, personalReportReference, verifyPersonalReports, personalReports, PersonalReportPublication, personalPublishedOutput, authorizePersonalReportDelivery, personalReportPublicationMessage, personalReportsFor } from "./personal-report.ts";
+import { personalReportMultipart } from "./personal-report-legacy.ts";
 import { personalInspectionControls, telegramInspectionControl, verifyInspectionControls, type PersonalInspectionRef } from "./personal-inspection-controls.ts";
 import { PersonalCoordinationDoc, personalCoordinationCutoff, personalCoordinationCutoffText, personalMainAdmit, startPersonalCoordination, type PersonalCoordinationProbe, type PersonalMainAdmission, type PersonalProgressionProbe } from "./personal-coordination.ts";
 
@@ -69,8 +77,8 @@ import { personalScheduleTools, personalScheduledWork } from "./personal-schedul
 import { PersonalSchedulesDoc, PersonalScheduleDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc, PERSONAL_SCHEDULED_WORK, SCHEDULE_SUPERVISOR_TASK, verifySchedules } from "./personal-scheduler-records.ts";
 import { authorizePersonalSchedule, validatePersonalScheduleActor, verifyPersonalScheduleCreator, verifyPersonalScheduleCancellation, verifyPersonalScheduleRunCancellation } from "./personal-schedule-authority.ts";
 import { capturePersonalScheduleScope, verifyPersonalScheduleScope } from "./personal-schedule-scope.ts";
-import { configurePersonalScheduledConversation, settlePersonalScheduledRun, sendPersonalScheduledReport, preparePersonalScheduledReport } from "./personal-schedule-execution.ts";
-import { personalSource } from "./personal-source.ts";
+import { configurePersonalScheduledConversation, settlePersonalScheduledRun, sendPersonalScheduledReport, preparePersonalScheduledReport, personalScheduledReportMessage } from "./personal-schedule-execution.ts";
+import { personalSource, personalSourceImReceipt } from "./personal-source.ts";
 import { assertPersonalConfigurationStorage, effectivePersonalConfiguration, initializePersonalSettings, loadPersonalConfigurationSelection, PersonalConfigurationDoc, PersonalFormatDoc, type PersonalConfigurationTarget } from "./personal-settings-records.ts";
 import { personalScheduleControl, personalSchedulerControls, verifyScheduleControls } from "./personal-scheduler-controls.ts";
 import { claimPersonalImPairing, personalImPairing } from "./personal-im-pairing.ts";
@@ -119,6 +127,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
   let background: ReturnType<typeof personalBackground> | undefined;
   let im: ReturnType<ReturnType<typeof personalTelegram>["api"]> | undefined;
   let imPairing: ReturnType<typeof personalImPairing> | undefined;
+  let telegramDisplays: ReturnType<typeof personalTelegramDisplays> | undefined;
   let backgroundReady = false;
   const suspendedSettings = new Set<string>();
   const isSettingsSuspended = (target: PersonalConfigurationTarget, scope = "*") => scope === "*" ? [...suspendedSettings].some(value => value.startsWith(target + ":")) : suspendedSettings.has(`${target}:*`) || suspendedSettings.has(`${target}:${scope}`);
@@ -189,14 +198,101 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     // one Session commit. Before the coordinator starts (early open tasks) queue-only is the safe
     // admission — never self-place, never advance the queue ahead of unknown coordination state.
     const admitInput: PersonalMainAdmission = (draft, callContext) => coordination ? coordination.admit(draft, callContext) : personalMainAdmit(harness!, draft, () => true, options.now ?? (() => Date.now()), callContext);
-    const telegram = personalTelegram(telegramConfig, telegramApi, async (tx, value) => await personalQuestionControl(tx, value) || await personalBackgroundControl(tx, value, background) || await personalOwnerControl(tx, value, commands) || await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop, browser?.chooseResume) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, !!mcp) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler), platform => isSettingsSuspended(platform), admitInput);
+    const telegram = personalTelegram(telegramConfig, telegramApi, async (tx, value) => await personalQuestionControl(tx, value) || await personalBackgroundControl(tx, value, background) || await personalOwnerControl(tx, value, commands) || await personalAppDataControl(tx, value, lock.directory) || await personalBrowserControl(tx, value, browser?.requestStop, browser?.chooseResume) || await personalToolControl(tx, value, general ? lock.directory : undefined) || await personalMcpControl(tx, value, !!mcp) || await serviceControls.control(tx, value) || await telegramInspectionControl(tx, value, inspectionControls.request) || !!await operations?.control(tx, value), media, qqConfig, qqApi, (tx, value) => personalScheduleControl(tx, value, scheduler), platform => isSettingsSuspended(platform), admitInput, desktopActions.admitImCua);
     const scheduler = personalScheduler(() => harness!, { admitInput, authorize: authorizePersonalSchedule, validateActor: validatePersonalScheduleActor, verifyCreator: (tx, plan) => verifyPersonalScheduleCreator(tx, plan, scheduleTools.tools?.find(tool => tool.name === "schedule_create")), captureScope: tx => capturePersonalScheduleScope(tx, service?.config.policyPath), verifyScope: verifyPersonalScheduleScope, configure: configurePersonalScheduledConversation, settle: (run, runtime, taskContext, cancel) => settlePersonalScheduledRun(run, runtime, taskContext, cancel, browser?.stop, browser ? (conversationId, taskContext) => browser!.releaseConversation(conversationId, undefined, taskContext) : undefined), im: telegram, prepareSend: (plan, text, signal) => preparePersonalScheduledReport(harness!, plan, text, signal, telegram), send: (plan, text, signal) => sendPersonalScheduledReport(harness!, plan, text, signal, telegram), now: options.now });
     const scheduleTools = personalScheduleTools(() => harness!, scheduler), scheduledWork = personalScheduledWork(() => harness!);
     const reports = personalReports(telegram, admitInput, () => harness!), questions = personalQuestions(() => harness!, telegram, admitInput), outputs = personalOutputs(lock.directory);
+    const delivery = personalImDelivery(() => harness!, telegram, async (output, source, signal) => {
+      signal.throwIfAborted();
+      const selected = await harness!.commit(async tx => {
+        if ("recovery" in output) return personalTelegramCuaImage(tx, output.recovery.requestId, output.recovery.image, source);
+        const publication = await tx.entry(PersonalReportPublication, output.publication), entry = await personalPublishedOutput(tx, output.publication, output.output);
+        if (!publication) throw new PersonalError("output_unpublished", "原文件尚未发布。");
+        const delegation = await personalDelegation(tx, publication.data.delegation);
+        if (!samePersonalEntry(delegation.telegram, source) || !await telegramSourceActive(tx, source) || !telegram.isActive(source)) throw new PersonalError("output_original_entry", "原文件属于其他入口或入口已失效。");
+        return { name: entry.data.name, artifact: { ...entry.data.artifact, identity: { ...entry.data.artifact.identity } } };
+      }, context);
+      const bytes = loadPersonalArtifact(lock.directory, selected.artifact);
+      signal.throwIfAborted();
+      return { name: selected.name, mime: selected.artifact.mime, bytes, sha256: selected.artifact.sha256, partial: selected.artifact.partial };
+    }, async (tx, input, parent) => {
+      if (parent !== undefined) {
+        const task = await tx.task(parent);
+        if (task?.kind === "ruukoto.delegation-report") return authorizePersonalReportDelivery(tx, input, parent);
+        if (task?.kind === "ruukoto.question-continuation") return authorizePersonalQuestionDelivery(tx, input, parent);
+        if (task?.kind === "ruukoto.schedule-send") return scheduler.authorizeDelivery(tx, input, parent);
+        if (task?.kind === "ruukoto.telegram-input" && task.input && typeof task.input === "object" && !Array.isArray(task.input) && typeof task.input.requestId === "string") {
+          const value = (await tx.doc(PersonalTelegramReceiptDoc, task.input.requestId, null)).receipt;
+          if (!value || value.multipart?.key !== input.key || value.messageId !== input.messageId || !samePersonalEntry(value, input.source)) throw new PersonalError("telegram_send_invalid", "原回复发送引用无法核实。");
+          return true;
+        }
+        throw new PersonalError("im_delivery_invalid", "原发送归属无法核实。");
+      }
+      if (input.key.startsWith("telegram-retrieval:")) return authorizePersonalTelegramRetrieval(tx, input);
+      if (input.key.startsWith("telegram-cua-images:")) return authorizePersonalTelegramCuaImages(tx, input);
+      const display = (await tx.doc(PersonalTelegramDisplayDoc, input.key, null)).display;
+      if (!display) throw new PersonalError("im_delivery_invalid", "原发送缺少宿主卡片或拥有者读取请求。");
+      return authorizePersonalTelegramDisplay(tx, input);
+    });
+    telegram.setDelivery(delivery);
+    async function verifyDeliveryOwners(tx: import("@earendil-works/pi-durable").Tx) {
+      const recoveryEntries = new Set<EntryId>();
+      for (const key of (await tx.doc(PersonalImDeliveriesDoc)).keys) {
+        const value = (await tx.doc(PersonalImDeliveryDoc, key, null)).delivery;
+        if (!value) throw new PersonalError("im_delivery_invalid", "原发送归属缺失，请保留档案。");
+        if (value.parent !== undefined) {
+          const parent = await tx.task(value.parent), data = parent?.input;
+          if (!parent || !data || typeof data !== "object" || Array.isArray(data)) throw new PersonalError("im_delivery_invalid", "原发送归属无法核实。");
+          if (parent.kind === "ruukoto.telegram-input" && typeof data.requestId === "string") {
+            const receipt = (await tx.doc(PersonalTelegramReceiptDoc, data.requestId, null)).receipt;
+            if (!receipt || receipt.taskId !== parent.id || !isDeepStrictEqual(receipt.multipart, value.ref) || !samePersonalEntry(receipt, value.input.source) || receipt.messageId !== value.input.messageId || value.input.key !== `telegram-reply:${receipt.requestId}` || receipt.replyFormat === "complete" && receipt.reply !== value.input.text || value.input.retrieval || value.input.outputs || value.input.keyboard) throw new PersonalError("im_delivery_invalid", "原回复与分段发送归属不符。");
+          } else if (parent.kind === "ruukoto.delegation-report" && data.delegation && typeof data.delegation === "object" && !Array.isArray(data.delegation) && typeof data.delegation.entryId === "number") {
+            const delegation = await personalDelegation(tx, { entryId: data.delegation.entryId as EntryId }), report = personalReportsFor(delegation).find(report => report.taskId === parent.id), receipt = await personalSourceImReceipt(tx, delegation.source.requestId);
+            if (!report?.multipart || !isDeepStrictEqual(report.multipart, value.ref) || report.taskId !== parent.id || !delegation.telegram || !receipt) throw new PersonalError("im_delivery_invalid", "原报告与分段发送归属不符。");
+            const publication = "publication" in report && report.publication ? await tx.entry(PersonalReportPublication, report.publication) : undefined, entry = !publication && report.answer ? await tx.entry(AssistantEntry, report.answer) : undefined;
+            const message = publication ? await personalReportPublicationMessage(tx, publication) : entry?.model?.[0];
+            if (message?.role !== "assistant") throw new PersonalError("im_delivery_invalid", "原报告完整正文缺失。");
+            const outputs = publication?.data.outputs?.map(output => ({ publication: publication.id, output }));
+            await personalReportMultipart(tx, report, { key: `report:${parent.id}`, source: delegation.telegram, messageId: receipt.messageId, text: message.content.filter(part => part.type === "text").map(part => part.text).join(""), ...(outputs?.length ? { outputs } : {}) });
+          } else if (parent.kind === "ruukoto.question-continuation" && typeof data.question === "string") {
+            const question = await personalQuestion(tx, data.question), delivery = await personalQuestionMultipart(tx, question);
+            if (question.answer?.taskId !== parent.id || !isDeepStrictEqual(delivery.ref, value.ref)) throw new PersonalError("im_delivery_invalid", "原答案与分段发送归属不符。");
+          } else if (parent.kind === "ruukoto.schedule-send" && typeof data.runId === "string") {
+            const run = (await tx.doc(PersonalScheduleRunDoc, data.runId, null)).run, plan = run && (await tx.doc(PersonalScheduleDoc, run.planId, null)).plan;
+            if (!run?.delivery?.multipart || run.delivery.taskId !== parent.id || !isDeepStrictEqual(run.delivery.multipart, value.ref) || !run.result || !plan?.telegram || !isDeepStrictEqual(value.input, { key: `schedule:${parent.id}`, source: plan.telegram, messageId: await personalScheduledReportMessage(tx, plan), text: run.result.text })) throw new PersonalError("im_delivery_invalid", "原定时结果与分段发送归属不符。");
+          } else throw new PersonalError("im_delivery_invalid", "原发送归属无法核实。");
+          continue;
+        }
+        if (key.startsWith("telegram-retrieval:")) await authorizePersonalTelegramRetrieval(tx, value.input);
+        else if (key.startsWith("telegram-cua-images:")) {
+          await verifyPersonalTelegramCuaImageDelivery(tx, value.input);
+          const receipt = (await tx.doc(PersonalTelegramReceiptDoc, key.slice("telegram-cua-images:".length), null)).receipt;
+          if (!receipt?.cuaImages) throw new PersonalError("im_delivery_invalid", "原截图读取缺少拥有者请求。");
+          recoveryEntries.add(receipt.cuaImages.entry);
+        } else {
+          const display = (await tx.doc(PersonalTelegramDisplayDoc, key, null)).display;
+          if (!display || !isDeepStrictEqual(display.delivery, value.ref)) throw new PersonalError("im_delivery_invalid", "原发送缺少宿主卡片或拥有者读取请求。");
+          await authorizePersonalTelegramDisplay(tx, value.input);
+        }
+      }
+      let cursor: Cursor | undefined;
+      do {
+        const conversations = await tx.scanConversations({}, 256, cursor);
+        for (const conversation of conversations.items) {
+          let entries: Cursor | undefined;
+          do { const page = await tx.scanEntries({ conversationId: conversation.id }, 256, entries); if (page.items.some(entry => entry.kind === PersonalTelegramCuaImages.kind && !recoveryEntries.has(entry.id))) throw new PersonalError("im_delivery_invalid", "原截图读取缺少发送或拥有者受理事实。"); entries = page.next; } while (entries);
+        }
+        cursor = conversations.next;
+      } while (cursor);
+    }
+    telegramDisplays = personalTelegramDisplays(() => harness!, telegram, telegram.transport);
     const registry = createRegistry();
     registry.install(questions);
     registry.install(desktopActions.extension);
     registry.install(outputs);
+    registry.install(delivery.extension);
+    registry.install(telegramDisplays.extension);
+    registry.install(telegram.callbacks.extension);
     const qqExtension = defineExtension({ name: "personal-qq" });
     registry.install(qqExtension);
     registry.install(scheduler.extension); registry.install(scheduleTools); registry.install(scheduledWork); registry.install(personalSchedulerControls);
@@ -638,7 +734,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     let coordination: { close: () => Promise<void>; admit: PersonalMainAdmission } | undefined;
     let closing: Promise<void> | undefined, sessionClosing = false;
     harness.subscribeClose(() => { sessionClosing = true; sealPersonalFileIoSessionClosed(lock.directory); });
-    unlocked = harness.closed.then(async () => { await waitPersonalFileIoDrained(lock.directory); const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); try { await coordination?.close(); } catch { process.stderr.write("[ruukoto:personal] Coordination watcher failed to stop; please inspect the profile before restarting.\n"); } if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
+    unlocked = harness.closed.then(async () => { await waitPersonalFileIoDrained(lock.directory); await telegramDisplays?.close(); const paired = imPairing?.close(); if (paired) await paired; const entryClosed = im?.close(); if (entryClosed) await entryClosed; if (background) await background.stopLive(); const closed = appData?.close(); if (closed) await closed; if (browser) await browser.close(); await general?.close(); try { await coordination?.close(); } catch { process.stderr.write("[ruukoto:personal] Coordination watcher failed to stop; please inspect the profile before restarting.\n"); } if (options.beforeUnlock) await options.beforeUnlock(); lock.release(); });
     void unlocked.catch(() => process.stderr.write("[ruukoto:personal] 本机管理接口未能停止，实例锁仍保留；请检查后台并核实停止。\n"));
     await initializePersonalSettings(lock, harness);
     const initialImVersions = await harness.commit(async tx => ({ telegram: await effectivePersonalConfiguration(tx, "telegram", "*"), qq: await effectivePersonalConfiguration(tx, "qq", "*") }), context);
@@ -646,6 +742,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     if (initialImVersions.qq && isDeepStrictEqual(initialImVersions.qq.config, qqConfig)) telegram.setVersion("qq", initialImVersions.qq.version);
     const inspection = await harness.inspect(context);
     const pendingWork = await hasPendingPersonalWork(storage);
+    await harness.commit(tx => verifyPersonalImDeliveries(tx), context);
+    await harness.commit(verifyDeliveryOwners, context);
     await harness.commit(async tx => {
       await verifySchedules(tx, scheduleKeys, scheduleRunKeys, !!savedSchedules, scheduler.verifyCreator, (tx, plan, cancellation) => verifyPersonalScheduleCancellation(tx, plan, cancellation, scheduleTools.tools?.find(tool => tool.name === "schedule_cancel")), scheduledWork.tools?.find(tool => tool.name === "background_work"), (tx, run, cancellation) => verifyPersonalScheduleRunCancellation(tx, run, cancellation, scheduleTools.tools?.find(tool => tool.name === "schedule_cancel")));
       for (const key of scheduleBindingKeys) {
@@ -792,7 +890,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [questions, desktopActions.extension, outputs, appData.extension, memory, history, skills.extension, qqExtension, personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(background ? [background.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension, ...(general.config ? [personalFileSearch] : [])] : [])];
+    const extensions = [questions, desktopActions.extension, outputs, delivery.extension, telegramDisplays.extension, telegram.callbacks.extension, appData.extension, memory, history, skills.extension, qqExtension, personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(background ? [background.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension, ...(general.config ? [personalFileSearch] : [])] : [])];
     const tools = [...questions.tools!, ...outputs.tools!, ...appData.extension.tools!, ...memory.tools!, ...history.tools!, ...skills.extension.tools!, ...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(background?.extension.tools ?? []), ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service!.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: currentModel.provider.id, modelId: currentModel.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { (await tx.doc(PersonalConfigurationDoc)).initializedWithoutRoot = false; await initializeAppData(tx); await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -887,11 +985,15 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await instance.commit(tx => scheduler.start(tx), context);
     im = telegram.api(instance);
     const entry = im;
+    await instance.commit(tx => verifyPersonalTelegramDisplays(tx), context);
+    await instance.commit(tx => telegram.callbacks.verify(tx), context);
+    await telegramDisplays.start();
     imPairing = personalImPairing(instance, lock, entry);
     const pairing = imPairing;
     const publicApi = {
       harness: instance,
       desktopActions,
+      imDelivery: delivery,
       isSettingsSuspended,
       suspendSettings(target: PersonalConfigurationTarget, scope: string) { suspendedSettings.add(`${target}:${scope}`); },
       resumeSettings(target: PersonalConfigurationTarget, scope: string) { suspendedSettings.delete(`${target}:${scope}`); },
@@ -1115,7 +1217,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
           try {
             await closePersonalFileIoNamespace(lock.directory);
             if (sessionClosing) { await unlocked; return; }
-            await waitPersonalSettings({ profile: lock }); await pairing.close(); await entry.close(); await coordination?.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked;
+            await waitPersonalSettings({ profile: lock }); await pairing.close(); await telegramDisplays?.close(); await entry.close(); await coordination?.close(); await mcp?.close(); await background?.close(); await appData?.close(); await browser?.close(); await instance.close(context); await unlocked;
           } catch (error) { closing = undefined; throw error; }
         })();
         return closing;

@@ -1,4 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
+import { personalTelegramCuaImagesDelivered } from "./personal-telegram-cua-images.ts";
+import { randomUUID } from "node:crypto";
 import { copyJson, type JsonValue } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT, withCancel, type Context } from "@earendil-works/chord/context";
 import { defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type EntryId, type Harness, type TaskId, type Tx } from "@earendil-works/pi-durable";
@@ -16,8 +18,10 @@ import { personalQuestion, personalQuestionActions, answerPersonalQuestion, canc
 import { PersonalInspectionDoc, PersonalPendingInspectionsDoc, ServiceInspectionAdmission, ServiceInspectionStopEntry } from "./personal-service-inspection.ts";
 import type { personalInspectionControls } from "./personal-inspection-controls.ts";
 import { PersonalWorkDoc, personalWorkRef } from "./personal-work.ts";
-import type { PersonalEntryIdentity } from "./personal-telegram-records.ts";
-import { recordPersonalOwnerClaim, recordPersonalRecoveryCheck, verifyPersonalOwnerClaim, verifyPersonalRecoveryCheck, personalNativeActorValid, PersonalOwnerClaim, PersonalRecoveryCheck, type PersonalNativeActor } from "./personal-recovery-claims.ts";
+import { PERSONAL_TELEGRAM_CUA_ACTIONS, PersonalTelegramReceiptDoc, samePersonalEntry, type PersonalEntryIdentity, type TelegramControlInput } from "./personal-telegram-records.ts";
+import { PersonalTelegramDisplayDoc } from "./personal-telegram-display-records.ts";
+import { telegramSelection, telegramSourceActive } from "./personal-permissions.ts";
+import { recordPersonalOwnerClaim, recordPersonalRecoveryCheck, verifyPersonalOwnerClaim, verifyPersonalRecoveryCheck, personalNativeActorValid, personalImControlAccepted, PersonalOwnerClaim, PersonalImEffectAction, PersonalRecoveryCheck, type PersonalNativeActor, type PersonalImClaimActor } from "./personal-recovery-claims.ts";
 import { executePersonalHttp } from "./personal-tool-io.ts";
 import { personalFileIoJobs, fileIoJobUnresolved, type PersonalFileJobId } from "./personal-file-io.ts";
 
@@ -33,10 +37,10 @@ const invalid = (code = "desktop_action_invalid", message = "原操作选择无�
 const json = (value: unknown): JsonObject => JSON.parse(JSON.stringify(value)) as JsonObject;
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 type Continuation = PersonalCuaRecoveryBinding & { fileJobs?: PersonalFileJobId[] };
-type Stored = { continuation?: Continuation; receipt: ActionReceipt; actor: PersonalNativeActor; at: number; binding: JsonObject; task?: TaskId; started?: EntryId; result?: EntryId; claim?: EntryId };
+type Stored = { continuation?: Continuation; receipt: ActionReceipt; actor: PersonalNativeActor | PersonalImClaimActor; at: number; binding: JsonObject; task?: TaskId; started?: EntryId; result?: EntryId; claim?: EntryId };
 export const PersonalDesktopActionsDoc = defineDoc<{ requests: string[] }>({ kind: "ruukoto.desktop-actions", scope: "session", version: 1, initial: () => ({ requests: [] }) });
 export const PersonalDesktopActionDoc = defineDocFamily<{ action?: Stored }, null>({ kind: "ruukoto.desktop-action", scope: "session", version: 1, family: true, initial: () => ({}) });
-const ActionAdmission = defineEntry<{ v: 1; request: ActionRequest; actor: PersonalNativeActor; at: number; binding: JsonObject; continuation?: Continuation; task?: TaskId }>("ruukoto.desktop-action-admission");
+const ActionAdmission = defineEntry<{ v: 1; request: ActionRequest; actor: PersonalNativeActor | PersonalImClaimActor; at: number; binding: JsonObject; continuation?: Continuation; task?: TaskId }>("ruukoto.desktop-action-admission");
 const ActionStart = defineEntry<{ requestId: string; admission: EntryId }>("ruukoto.desktop-action-start");
 const ActionResult = defineEntry<{ requestId: string; admission: EntryId; state: PersonalDesktopActionReceipt["state"]; code?: string; check?: PersonalDesktopCheck; claim?: EntryId }>("ruukoto.desktop-action-result");
 
@@ -86,7 +90,7 @@ async function inspectionRecoveryHistory(tx: Tx, value: NonNullable<ReturnType<t
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md
-export async function personalDesktopTarget(tx: Tx, family: PersonalDesktopFamily, operation: TaskId): Promise<PersonalDesktopTarget> {
+export async function personalDesktopTarget(tx: Tx, family: PersonalDesktopFamily, operation: TaskId, sourceEntry?: PersonalEntryIdentity): Promise<PersonalDesktopTarget> {
   const actions: PersonalDesktopActionName[] = [];
   let retained = false;
   let target: string, params: JsonObject, binding: JsonObject, source: PersonalDesktopTarget["origin"], summary: PersonalDesktopApproval, occurrences: number[], claim: EntryId | undefined;
@@ -131,18 +135,18 @@ export async function personalDesktopTarget(tx: Tx, family: PersonalDesktopFamil
     claims(actions, local && detail.summary.canResolve); claim = value.resolution?.claim; retained = value.observation !== undefined && ["effect_unknown", "no_write"].includes(value.effect) || !!value.stopEvidence || !!value.stopTask || !!value.resolution || value.params.action === "pause";
     occurrences = [value.admission]; summary = { family, operation, admission: value.admission, occurrence: value.admission, kind: "browser", target: target.slice(0, 512), targetTruncated: target.length > 512, approval: "unneeded", observed: value.observation !== undefined, started: value.started, effect: value.effect, code: value.code, stopped: value.stopped, canDecide: false, ...(value.superseded ? { notice: "要求已更新，这项旧网页操作没有执行。" } : {}) };
   } else if (family === "mcp") {
-    const value = await mcpOperation(tx, operation), detail = await mcpDetail(tx, operation, 0, undefined, false), local = !value.origin.telegram, cua = value.config.services.find(service => service.id === value.service)?.cua, facts = detail.summary, unneeded = value.origin.permission.mode === "full_access" || value.localEffect === "read" || !!value.controlled;
+    const value = await mcpOperation(tx, operation), detail = await mcpDetail(tx, operation, 0, undefined, false), local = !value.origin.telegram, original = local || samePersonalEntry(value.origin.telegram, sourceEntry), cua = value.config.services.find(service => service.id === value.service)?.cua, facts = detail.summary, unneeded = value.origin.permission.mode === "full_access" || value.localEffect === "read" || !!value.controlled;
     target = `${facts.service}: ${value.tool}`; params = json({ service: value.service, tool: value.tool, arguments: value.args }); source = origin(value.origin); binding = json({ admission: value.admission, origin: value.origin, config: value.config, configVersion: value.configVersion, service: value.service, tool: value.tool, args: value.args, controlled: value.controlled, interactive: value.interactive, execution: value.cua?.execution });
     if (local && !unneeded && facts.canDecide) actions.push("approve", "reject");
     if (value.started && value.code !== "started") actions.push("check");
     if (local && facts.canEnd) actions.push("end_unknown");
     if (cua) {
       if (facts.cuaStopUnverified) actions.push("cleanup");
-      if (local && facts.cuaRecovery === "frozen") actions.push("stop_sandbox");
-      if (local && ["stopped", "begun", "observed"].includes(facts.cuaRecovery ?? "")) actions.push("observe");
-      if (local && facts.cuaRecovery === "observed") actions.push("accept");
+      if (original && facts.cuaRecovery === "frozen") actions.push("stop_sandbox");
+      if (original && ["stopped", "begun", "observed"].includes(facts.cuaRecovery ?? "")) actions.push("observe");
+      if (original && facts.cuaRecovery === "observed") actions.push("accept");
       const paused = (await tx.doc(PersonalMcpConfigDoc)).cuaPause;
-      if (local && facts.cuaRecovery === "accepted" && paused?.paused && (paused.operation === undefined || paused.operation === operation) && !await workCanceled(tx, source.work)) actions.push("resume");
+      if (original && facts.cuaRecovery === "accepted" && paused?.paused && (paused.operation === undefined || paused.operation === operation) && !await workCanceled(tx, source.work)) actions.push("resume");
     }
     claims(actions, local && facts.canResolve);
     claim = value.resolution?.claim; retained = value.cuaStopPending !== undefined || !!value.takeover || !!value.cua?.recovery || !!value.ended || !!value.resolution;
@@ -171,7 +175,7 @@ export async function personalDesktopTarget(tx: Tx, family: PersonalDesktopFamil
   }
   summary.actions = actions;
   if (source.work !== undefined) summary.work = source.work;
-  if (claim !== undefined) { const data = await verifyPersonalOwnerClaim(tx, claim, { family, operation, admission: summary.admission, effect: (await tx.entry(PersonalOwnerClaim, claim))!.data.effect }); summary.claim = { entry: claim, effect: data.effect, at: data.at }; }
+  if (claim !== undefined) { const entry = await tx.entry(PersonalOwnerClaim, claim); if (!entry) throw new PersonalError("recovery_claim_invalid", "原效果说明缺失，请保留档案并查询原操作。"); const data = await verifyPersonalOwnerClaim(tx, claim, { family, operation, admission: summary.admission, effect: entry.data.effect }); summary.claim = { entry: claim, effect: data.effect, at: data.at }; }
   const saved = (await tx.doc(PersonalDesktopActionsDoc)).requests;
   for (let index = saved.length - 1; index >= 0; index--) {
     const receipt = (await tx.doc(PersonalDesktopActionDoc, saved[index], null)).action?.receipt;
@@ -213,12 +217,13 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
     value.result = (await tx.appendEntry(ActionResult, ROOT_CONVERSATION_ID, { data: { requestId: value.receipt.request.requestId, admission: value.receipt.entry as EntryId, state, ...(code === undefined ? {} : { code }), ...(check === undefined ? {} : { check }), ...(value.claim === undefined ? {} : { claim: value.claim }) } })).id;
   }
   async function stored(tx: Tx, key: string) { const value = (await tx.doc(PersonalDesktopActionDoc, key, null)).action; if (!value) throw invalid("desktop_action_stale"); return value; }
-  async function validateTarget(tx: Tx, input: PersonalDesktopAction) {
+  async function validateTarget(tx: Tx, input: PersonalDesktopAction, actor?: PersonalImClaimActor) {
     let target: PersonalDesktopTarget;
-    try { target = await personalDesktopTarget(tx, input.family, input.operation as TaskId); }
+    try { target = await personalDesktopTarget(tx, input.family, input.operation as TaskId, actor); }
     catch (error) { if (!(error instanceof PersonalError)) throw error; throw invalid("desktop_action_stale", "原操作无法核实，请刷新原卡片。"); }
     if (target.summary.admission !== input.admission || !target.occurrences.includes(input.occurrence)) throw invalid("desktop_action_stale", "原卡片已变化，请刷新原操作。");
-    if (target.origin.telegram && !["check", "cleanup", "cancel_question", "end_unknown"].includes(input.action)) throw invalid("desktop_action_original_entry", "请从发起工作的原入口处理此选择。");
+    if (actor && (input.family !== "mcp" || !["cleanup", "stop_sandbox", "observe", "accept", "resume"].includes(input.action) || target.summary.kind !== "cua" || !samePersonalEntry(target.origin.telegram, actor) || !await telegramSourceActive(tx, actor))) throw invalid("desktop_action_original_entry", "原电脑选择须从原私聊提交。");
+    if (!actor && target.origin.telegram && !["check", "cleanup", "cancel_question", "end_unknown"].includes(input.action)) throw invalid("desktop_action_original_entry", "请从发起工作的原入口处理此选择。");
     if (!target.summary.actions?.includes(input.action)) throw invalid("desktop_action_unavailable", "原操作现在不能执行此选择，请刷新卡片。");
     if (input.action === "accept" && input.observation !== target.summary.observation) throw invalid("desktop_action_stale", "新观察已变化，请重新查看原卡片。");
     if (input.check !== undefined) { try { await verifyPersonalRecoveryCheck(tx, input.check as EntryId, input); } catch (error) { if (!(error instanceof PersonalError)) throw error; throw invalid("desktop_action_stale", "所选检查不属于原操作。"); } }
@@ -305,10 +310,10 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
       if (!(await services.service.status(value.ref)).operation.launcherStopped) throw new PersonalError("service_stop_unverified", "原服务执行停止仍未核实。");
     } else if (input.family === "mcp") {
       if (!services.mcp) throw invalid("desktop_action_unavailable");
-      if (input.action === "resume") { const saved = await harness.commit(tx => stored(tx, input.requestId).then(value => copyJson(value.continuation) as Continuation), callContext); await services.mcp.resumeCua(operation, saved); }
+      if (input.action === "resume") { const saved = await harness.commit(async tx => copyJson(await stored(tx, input.requestId)) as Stored, callContext); await services.mcp.resumeCua(operation, saved.continuation!, saved.actor.kind === "im" ? saved.actor : undefined); }
       else if (input.action === "stop_sandbox") await services.mcp.recoverCua(operation, "stop", undefined, action, continuation);
       else if (input.action === "observe") await services.mcp.recoverCua(operation, "observe", undefined, undefined, continuation);
-      else if (input.action === "accept") await services.mcp.recoverCua(operation, "accept", input.observation as EntryId, undefined, continuation);
+      else if (input.action === "accept") await services.mcp.recoverCua(operation, "accept", input.observation as EntryId, undefined, continuation, action);
       else await services.mcp.cleanupCua(operation, continuation);
     } else if (input.family === "inspections") {
       if (!services.inspections) throw invalid("desktop_action_unavailable");
@@ -328,8 +333,8 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
       const value = await stored(tx, requestId);
       if (value.receipt.state !== "admitted") return undefined;
       if (value.started) { await finish(tx, value, "effect_unknown", "desktop_action_interrupted"); return undefined; }
-      const target = await personalDesktopTarget(tx, value.receipt.request.family, value.receipt.request.operation as TaskId), continuation = await actionContinuation(tx, value.receipt.request);
-      if (!isDeepStrictEqual(continuation, value.continuation) || !isDeepStrictEqual(target.binding, value.binding) || !target.summary.actions?.includes(value.receipt.request.action) || value.receipt.request.action === "accept" && target.summary.observation !== value.receipt.request.observation) { await finish(tx, value, "failed", "desktop_action_stale"); return undefined; }
+      const imActor = value.actor.kind === "im" ? value.actor : undefined, target = await personalDesktopTarget(tx, value.receipt.request.family, value.receipt.request.operation as TaskId, imActor), continuation = await actionContinuation(tx, value.receipt.request);
+      if (imActor && !await telegramSourceActive(tx, imActor) || !isDeepStrictEqual(continuation, value.continuation) || !isDeepStrictEqual(target.binding, value.binding) || !target.summary.actions?.includes(value.receipt.request.action) || value.receipt.request.action === "accept" && target.summary.observation !== value.receipt.request.observation) { await finish(tx, value, "failed", "desktop_action_stale"); return undefined; }
       value.started = (await tx.appendEntry(ActionStart, ROOT_CONVERSATION_ID, { data: { requestId, admission: value.receipt.entry as EntryId } })).id;
       return copyJson(value) as Stored;
     }, callContext);
@@ -344,8 +349,8 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
     await harness.commit(async tx => {
       const value = await stored(tx, requestId);
       if (value.receipt.state !== "admitted") return;
-      const result = checked && await recordPersonalRecoveryCheck(tx, value.receipt.request, value.receipt.entry as EntryId, value.actor, checked);
-      await finish(tx, value, state, code, result);
+      const result = checked && value.actor.kind !== "im" && await recordPersonalRecoveryCheck(tx, value.receipt.request, value.receipt.entry as EntryId, value.actor, checked);
+      await finish(tx, value, state, code, result || undefined);
     }, context);
   }
   const task = defineTask<{ requestId: string }, { phase: "run" }, null>({ name: TASK, version: 1, initial: () => ({ phase: "run" }), phases: { async run(current, runtime, callContext) {
@@ -356,12 +361,11 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
     }
     await runtime.commit(() => ({ status: "terminal", outcome: { status: "completed", result: null } }), callContext);
   } }, async abort(current, runtime, callContext) { await getHarness().commit(async tx => { const value = await stored(tx, current.input.requestId); if (value.receipt.state === "admitted") await finish(tx, value, value.started ? "effect_unknown" : "failed", "desktop_action_canceled"); }, context); await runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), callContext); } });
-  return { extension: defineExtension({ name: "personal-desktop-actions", tasks: [task] }), receipt,
-    async admit(tx: Tx, input: PersonalDesktopAction, actor: PersonalNativeActor = { kind: "local" }) {
-      const request = parsePersonalDesktopAction(input); if (!personalNativeActorValid(actor)) throw invalid();
+  async function admit(tx: Tx, input: PersonalDesktopAction, actor: PersonalNativeActor | PersonalImClaimActor) {
+      const request = parsePersonalDesktopAction(input); if (actor.kind !== "im" && !personalNativeActorValid(actor)) throw invalid();
       const old = (await tx.doc(PersonalDesktopActionDoc, input.requestId, null)).action;
       if (old) { if (!isDeepStrictEqual(old.receipt.request, input) || !isDeepStrictEqual(old.actor, actor)) throw invalid("desktop_action_conflict", "原选择请求的内容或来源不同，请查询原回执。"); return copyJson(old.receipt) as ActionReceipt; }
-      const target = await validateTarget(tx, input), at = Date.now(), operation = input.operation as TaskId, continuation = await actionContinuation(tx, input);
+      const target = await validateTarget(tx, input, actor.kind === "im" ? actor : undefined), at = Date.now(), operation = input.operation as TaskId, continuation = await actionContinuation(tx, input);
       const index = await tx.doc(PersonalDesktopActionsDoc);
       for (const key of index.requests) { const pending = (await tx.doc(PersonalDesktopActionDoc, key, null)).action; if (pending?.receipt.state === "admitted" && pending.receipt.request.family === input.family && pending.receipt.request.operation === input.operation) throw invalid("desktop_action_unavailable", "原选择已登记，请查询原回执。"); }
       let applyClaim: ((proof: { claim: EntryId }) => Promise<void>) | undefined;
@@ -379,19 +383,46 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
       try { completed = applyClaim ? false : await sync(tx, input); }
       catch (error) { if (!(error instanceof PersonalError)) throw error; throw invalid("desktop_action_unavailable", error.message); }
       draft.receipt.entry = (await tx.appendEntry(ActionAdmission, ROOT_CONVERSATION_ID, { data: { v: 1, request, actor, at, binding: target.binding, ...(continuation ? { continuation } : {}) } })).id;
-      if (applyClaim) { draft.claim = await recordPersonalOwnerClaim(tx, request, draft.receipt.entry as EntryId, actor); await applyClaim({ claim: draft.claim }); }
+      if (applyClaim && actor.kind !== "im") { draft.claim = await recordPersonalOwnerClaim(tx, request, draft.receipt.entry as EntryId, actor); await applyClaim({ claim: draft.claim }); }
       const document = await tx.doc(PersonalDesktopActionDoc, input.requestId, null); document.action = draft; const value = document.action!; index.requests.push(input.requestId);
       if (applyClaim || completed) await finish(tx, value, "completed");
       else value.task = await tx.createTask(task, { requestId: input.requestId }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
       return copyJson(value.receipt) as ActionReceipt;
+  }
+  return { extension: defineExtension({ name: "personal-desktop-actions", tasks: [task] }), receipt,
+    admit(tx: Tx, input: PersonalDesktopAction, actor: PersonalNativeActor = { kind: "local" }) { return admit(tx, input, actor); },
+    async admitImCua(tx: Tx, value: TelegramControlInput, selected: { requestId: string; selection?: import("./personal-telegram-records.ts").TelegramSelection } | undefined) {
+      const action = Object.hasOwn(PERSONAL_TELEGRAM_CUA_ACTIONS, value.content) ? PERSONAL_TELEGRAM_CUA_ACTIONS[value.content as keyof typeof PERSONAL_TELEGRAM_CUA_ACTIONS] : undefined;
+      if (!action || value.platform || !value.direct || selected?.selection?.kind !== "mcp" || value.replyTo === undefined || !await telegramSourceActive(tx, value)) return false;
+      const display = (await tx.doc(PersonalTelegramDisplayDoc, selected.requestId, null)).display;
+      if (!display?.target || display.target.family !== "mcp" || display.target.operation !== selected.selection.operation || !samePersonalEntry(display.source, value)) { value.reply = "请重新显示原电脑卡片，再选择恢复动作。"; return true; }
+      const actor: PersonalImClaimActor = { kind: "im", requestId: value.requestId, menuRequestId: selected.requestId, botId: value.botId, ownerId: value.ownerId, generation: value.generation, messageId: value.replyTo };
+      const request: PersonalDesktopAction = { v: 1, requestId: randomUUID(), family: "mcp", operation: display.target.operation, admission: display.target.admission, occurrence: display.target.occurrence, action, ...(action === "accept" && display.continuation?.observation !== undefined ? { observation: display.continuation.observation } : {}) };
+      let admissionStarted = false;
+      try {
+        const continuation = await actionContinuation(tx, request);
+        if (!display.continuation || !continuation || Object.entries(continuation).some(([key, expected]) => !isDeepStrictEqual(expected, display.continuation![key as keyof PersonalCuaRecoveryBinding]))) throw invalid("desktop_action_stale", "原电脑现场已变化，请重新显示后选择。");
+        if (action === "accept" && (!display.buttons.some(button => button.action === value.content) || !display.continuation.observation || !await personalTelegramCuaImagesDelivered(tx, display.target.operation, display.continuation.observation, value))) throw invalid("desktop_action_stale", "请先从原现场卡片查看完整送达的截图，再接受这次观察。");
+        await validateTarget(tx, request, actor);
+        admissionStarted = true;
+        const saved = await admit(tx, request, actor);
+        value.cuaAction = { operation: display.target.operation, requestId: request.requestId, entry: saved.entry as EntryId, action };
+        value.reply = action === "stop_sandbox" ? "停止原电脑沙箱的选择已保存。宿主将核实停止；其他未保存内容可能丢失。" : "原电脑恢复选择已保存，完成情况将显示在原卡片。";
+      } catch (error) { if (admissionStarted || !(error instanceof PersonalError)) throw error; value.reply = error.message; }
+      return true;
     },
     async verify(tx: Tx, enabled: boolean) {
       const keys = (await tx.doc(PersonalDesktopActionsDoc)).requests, admissions = new Set<EntryId>(), starts = new Set<EntryId>(), results = new Set<EntryId>(), tasks = new Set<TaskId>(), claims = new Set<EntryId>(), checks = new Set<EntryId>();
       if (new Set(keys).size !== keys.length || !enabled && keys.length) throw invalid("desktop_action_stale");
       if (!await tx.conversation(ROOT_CONVERSATION_ID)) { if (keys.length) throw invalid("desktop_action_stale"); return; }
       for (const key of keys) {
-        const value = await stored(tx, key), input = parsePersonalDesktopAction(value.receipt.request), target = await personalDesktopTarget(tx, input.family, input.operation as TaskId), entry = await tx.entry(ActionAdmission, value.receipt.entry as EntryId);
-        if (key !== input.requestId || !entry || entry.conversationId !== ROOT_CONVERSATION_ID || !personalNativeActorValid(value.actor) || !Number.isSafeInteger(value.at) || value.at < 1 || !isDeepStrictEqual(entry.data, { v: 1, request: input, actor: value.actor, at: value.at, binding: value.binding, ...(value.continuation ? { continuation: value.continuation } : {}) }) || !isDeepStrictEqual(target.binding, value.binding) || target.summary.admission !== input.admission || !target.occurrences.includes(input.occurrence) || !["admitted", "completed", "failed", "effect_unknown"].includes(value.receipt.state)) throw invalid("desktop_action_stale");
+        const value = await stored(tx, key), input = parsePersonalDesktopAction(value.receipt.request), target = await personalDesktopTarget(tx, input.family, input.operation as TaskId, value.actor.kind === "im" ? value.actor : undefined), entry = await tx.entry(ActionAdmission, value.receipt.entry as EntryId);
+        if (key !== input.requestId || !entry || entry.conversationId !== ROOT_CONVERSATION_ID || value.actor.kind !== "im" && !personalNativeActorValid(value.actor) || !Number.isSafeInteger(value.at) || value.at < 1 || !isDeepStrictEqual(entry.data, { v: 1, request: input, actor: value.actor, at: value.at, binding: value.binding, ...(value.continuation ? { continuation: value.continuation } : {}) }) || !isDeepStrictEqual(target.binding, value.binding) || target.summary.admission !== input.admission || !target.occurrences.includes(input.occurrence) || !["admitted", "completed", "failed", "effect_unknown"].includes(value.receipt.state)) throw invalid("desktop_action_stale");
+        if (value.actor.kind === "im") {
+          const actor = value.actor, receipt = (await tx.doc(PersonalTelegramReceiptDoc, actor.requestId, null)).receipt, selected = receipt && await telegramSelection(tx, receipt), display = (await tx.doc(PersonalTelegramDisplayDoc, actor.menuRequestId, null)).display;
+          if (input.family !== "mcp" || target.summary.kind !== "cua" || !receipt?.cuaAction || !await personalImControlAccepted(tx, receipt) || !receipt.control || !receipt.direct || receipt.platform || !samePersonalEntry(actor, receipt) || !samePersonalEntry(target.origin.telegram, actor) || receipt.replyTo !== actor.messageId || selected?.requestId !== actor.menuRequestId || selected.selection?.kind !== "mcp" || selected.selection.operation !== input.operation || !display?.target || display.target.admission !== input.admission || display.target.occurrence !== input.occurrence || !isDeepStrictEqual(receipt.cuaAction, { operation: input.operation, requestId: key, entry: entry.id, action: input.action }) || !Object.hasOwn(PERSONAL_TELEGRAM_CUA_ACTIONS, receipt.content) || PERSONAL_TELEGRAM_CUA_ACTIONS[receipt.content as keyof typeof PERSONAL_TELEGRAM_CUA_ACTIONS] !== input.action || !display.continuation || Object.entries(value.continuation ?? {}).some(([key, expected]) => !isDeepStrictEqual(expected, display.continuation![key as keyof PersonalCuaRecoveryBinding]))) throw invalid("desktop_action_stale");
+          if (input.action === "accept" && (input.observation === undefined || !display.buttons.some(button => button.action === receipt.content) || !await personalTelegramCuaImagesDelivered(tx, input.operation as TaskId, input.observation as EntryId, actor, entry.id))) throw invalid("desktop_action_stale", "原现场接受缺少此前完整送达的截图。");
+        }
         if (value.continuation?.pause) { const pause = await tx.entry(value.continuation.pause); if (!pause || pause.id >= entry.id || !["ruukoto.mcp-cua-pause", "ruukoto.browser-pause"].includes(pause.kind) || !pause.data || typeof pause.data !== "object" || Array.isArray(pause.data) || pause.data.operation !== input.operation) throw invalid("desktop_action_stale"); }
         if (input.action === "accept" && value.continuation?.observation !== input.observation) throw invalid("desktop_action_stale");
         admissions.add(entry.id);
@@ -402,8 +433,21 @@ export function personalDesktopActions(directory: string, getHarness: () => Harn
         if (value.claim) { const claim = await tx.entry(PersonalOwnerClaim, value.claim); if (!claim || claim.data.action !== entry.id) throw invalid("desktop_action_stale"); await verifyPersonalOwnerClaim(tx, value.claim, { family: input.family, operation: input.operation, admission: input.admission, effect: input.action === "claim_applied" ? "applied" : "not_applied" }); claims.add(value.claim); }
         if (value.receipt.check) { const check = await verifyPersonalRecoveryCheck(tx, value.receipt.check.entry as EntryId, input); if (check.action !== entry.id || !isDeepStrictEqual(value.receipt.check, { entry: value.receipt.check.entry, kind: check.kind, code: check.code, text: check.text })) throw invalid("desktop_action_stale"); checks.add(value.receipt.check.entry as EntryId); }
       }
+      const imActions = new Set<EntryId>();
+      let imClaims: Cursor | undefined;
+      do {
+        const page = await tx.scanEntries({ conversationId: ROOT_CONVERSATION_ID }, 256, imClaims);
+        for (const entry of page.items) if (PersonalOwnerClaim.is(entry) && entry.data.actor.kind === "im") {
+          const claim = entry.data, target = await personalDesktopTarget(tx, claim.family, claim.operation as TaskId);
+          if (target.summary.claim?.entry !== entry.id) throw invalid("desktop_action_stale");
+          await verifyPersonalOwnerClaim(tx, entry.id, { family: claim.family, operation: claim.operation, admission: claim.admission, effect: claim.effect });
+          claims.add(entry.id);
+          imActions.add(claim.action);
+        }
+        imClaims = page.next;
+      } while (imClaims);
       let conversations: Cursor | undefined;
-      do { const page = await tx.scanConversations({}, 256, conversations); for (const conversation of page.items) { let entries: Cursor | undefined; do { const page = await tx.scanEntries({ conversationId: conversation.id }, 256, entries); for (const entry of page.items) if (ActionAdmission.is(entry) && !admissions.has(entry.id) || ActionStart.is(entry) && !starts.has(entry.id) || ActionResult.is(entry) && !results.has(entry.id) || PersonalOwnerClaim.is(entry) && !claims.has(entry.id) || PersonalRecoveryCheck.is(entry) && !checks.has(entry.id)) throw invalid("desktop_action_stale"); entries = page.next; } while (entries); } conversations = page.next; } while (conversations);
+      do { const page = await tx.scanConversations({}, 256, conversations); for (const conversation of page.items) { let entries: Cursor | undefined; do { const page = await tx.scanEntries({ conversationId: conversation.id }, 256, entries); for (const entry of page.items) if (ActionAdmission.is(entry) && !admissions.has(entry.id) || ActionStart.is(entry) && !starts.has(entry.id) || ActionResult.is(entry) && !results.has(entry.id) || PersonalOwnerClaim.is(entry) && !claims.has(entry.id) || PersonalRecoveryCheck.is(entry) && !checks.has(entry.id) || PersonalImEffectAction.is(entry) && !imActions.has(entry.id)) throw invalid("desktop_action_stale"); entries = page.next; } while (entries); } conversations = page.next; } while (conversations);
       let cursor: Cursor | undefined;
       cursor = undefined; do { const page = await tx.scanTasks({ kind: TASK }, 256, cursor); if (page.items.some(value => !tasks.has(value.id))) throw invalid("desktop_action_stale"); cursor = page.next; } while (cursor);
     },

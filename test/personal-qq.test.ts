@@ -66,6 +66,8 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
   const telegramServer = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+    if (req.url?.endsWith("/sendChatAction") || req.url?.endsWith("/answerCallbackQuery")) { res.end(JSON.stringify({ ok: true, result: true })); return; }
+    if (req.url?.endsWith("/editMessageText")) { res.end(JSON.stringify({ ok: true, result: { message_id: body.message_id, chat: { id: Number(body.chat_id), type: "private" } } })); return; }
     assert.equal(req.url, `/bot${TOKEN}/sendMessage`); telegramSends.push(body);
     res.end(JSON.stringify({ ok: true, result: { message_id: 900000 + telegramSends.length, chat: { id: Number(body.chat_id), type: "private" } } }));
   });

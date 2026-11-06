@@ -4,6 +4,8 @@ Status: implemented
 
 For version-2 host reports, [validated report publication](2026-11-04-personal-report-publication.md) supersedes explicit model registration, sealing and raw-answer display. The version-1 records below retain their original verification and sending rules; owner-input framing and report query authority remain shared.
 
+[Complete Telegram delivery](2026-11-06-personal-telegram-delivery.md) replaces outgoing truncation for new Telegram sends and supplies ordered per-part recovery. Historical formatter fields and unknown receipts remain unchanged; the existing active-version-1 cutover rule still applies.
+
 Main-conversation admission and send claims use the [short IM platform mutex](2026-10-25-personal-im-updates.md) to select original configuration/fixed handles, not a QQ API captured at startup.
 
 ## Problem

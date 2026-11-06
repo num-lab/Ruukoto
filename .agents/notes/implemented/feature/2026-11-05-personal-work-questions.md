@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Telegram cards and complete delivery](../architecture/2026-11-06-personal-telegram-delivery.md) presents the same original work question and draft records. Child answers still return through the asking ToolTask; the eventual validated report uses complete original-entry delivery without a new child continuation workflow.
+
 ## Problem
 
 [Main questions](2026-10-21-personal-owner-questions.md) return pending and later admit a new owner input to main. That path keeps ordinary chat usable but cannot hold an independent work's execution or resources. It also limits the entire session to one unanswered batch and captures reply-time permissions. Letting a child use that path would complete its WorkTask before clarification and route its answers through another execution.

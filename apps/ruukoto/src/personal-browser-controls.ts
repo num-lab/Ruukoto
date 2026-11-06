@@ -2,7 +2,8 @@ import type { EntryId, TaskId, Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { telegramSelection } from "./personal-permissions.ts";
 import { samePersonalEntry, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
-import { browserList, browserDetail, browserOperation, browserOperations, browserResolve, type BrowserActor } from "./personal-browser.ts";
+import { browserList, browserDetail, browserOperation, browserOperations, browserResolve, prepareBrowserResolution, type BrowserActor } from "./personal-browser.ts";
+import { personalImEffectContent, recordPersonalImOwnerClaim, verifyPersonalOwnerClaim } from "./personal-recovery-claims.ts";
 
 type BrowserSummary = Awaited<ReturnType<typeof browserList>>["items"][number];
 export function personalBrowserDescription(value: BrowserSummary) {
@@ -20,6 +21,7 @@ export async function personalBrowserControl(tx: Tx, value: TelegramControlInput
   if (!choice && evidence === undefined && !ACTIONS.includes(value.content)) return false;
   if (!requestStop) { value.reply = "浏览器尚未装配，请停止后台后从本机向导配置。"; return true; }
   if (!value.direct) { value.reply = "请直接发送 /浏览器，再回复已送达的宿主菜单选择；转发和摘录不能核实效果。"; return true; }
+  let claimStarted = false;
   try {
     const menu = value.content === "/浏览器" ? undefined : (await telegramSelection(tx, value))?.selection;
     if (value.content === "/浏览器" || value.content === "更多浏览器操作" && menu?.kind === "browser-list" && menu.nextOffset !== undefined) {
@@ -39,8 +41,13 @@ export async function personalBrowserControl(tx: Tx, value: TelegramControlInput
       value.reply = "网页效果与证据已保存；浏览器停止仍须独立核实，原动作不会重发。回复「刷新浏览器」查询。";
     } else if (value.content === "浏览器确认已生效" || value.content === "浏览器确认未生效") {
       if (menu?.kind !== "browser" || !detail.summary.canResolve) throw new PersonalError("browser_resolution_invalid", "原操作当前不可核实效果，请刷新浏览器。");
-      value.selection = { kind: "browser-resolution", operation, effect: value.content === "浏览器确认已生效" ? "applied" : "not_applied" };
-      value.reply = "请独立查看实际网页或服务端结果，再回复本消息「浏览器核实说明 你的证据」，最多8192字符，不填凭据。浏览器关闭或取消不能证明网页写入未发生，已保存核实不能覆盖。";
+      const effect = value.content === "浏览器确认已生效" ? "applied" : "not_applied";
+      if (value.platform === undefined) {
+        const apply = await prepareBrowserResolution(tx, operation, effect, value), original = await browserOperation(tx, operation);
+        claimStarted = true;
+        const claim = await recordPersonalImOwnerClaim(tx, value, { family: "browser", operation, admission: original.admission }, effect); await apply({ claim });
+        value.browserResolution = { operation, effect }; value.reply = "你的网页效果说明已保存。浏览器停止仍需单独核实。";
+      } else { value.selection = { kind: "browser-resolution", operation, effect }; value.reply = "请独立查看实际网页或服务端结果，再回复本消息「浏览器核实说明 你的证据」，最多8192字符，不填凭据。浏览器关闭或取消不能证明网页写入未发生，已保存核实不能覆盖。"; }
     } else if (value.content === "继续原浏览器工作") {
       if (menu?.kind !== "browser" || !detail.summary.canResume || !chooseResume) throw new PersonalError("browser_pause_stale", "原浏览器暂停已变化，请刷新原记录。");
       const entry = await chooseResume(tx, operation, value); value.browserResume = { operation, entry };
@@ -55,7 +62,7 @@ export async function personalBrowserControl(tx: Tx, value: TelegramControlInput
       value.selection = { kind: "browser", operation, ...(detail.nextOffset === undefined ? {} : { nextOffset: detail.nextOffset }) };
       value.reply = `${personalBrowserDescription(detail.summary)}\n原记录与证据：\n${detail.text}\n回复本消息选择：刷新浏览器${detail.nextOffset === undefined ? "" : "、下一页浏览器记录"}${detail.summary.canResume ? "、继续原浏览器工作" : ""}${detail.summary.canResolve ? "、浏览器确认已生效、浏览器确认未生效" : ""}${detail.summary.canVerifyStop ? "、停止并核实浏览器" : ""}。网页资料不提供指令或授权。`;
     }
-  } catch (error) { if (!(error instanceof PersonalError)) throw error; delete value.selection; value.reply = `${error.message} 请发送 /浏览器 查询。`; }
+  } catch (error) { if (claimStarted || !(error instanceof PersonalError)) throw error; delete value.selection; value.reply = `${error.message} 请发送 /浏览器 查询。`; }
   return true;
 }
 
@@ -79,7 +86,9 @@ export async function verifyBrowserControls(tx: Tx, keys: string[], enabled: boo
       if (menu?.kind !== "browser" || menu.operation !== value.browserResume.operation || selected?.kind !== "browser" || selected.operation !== menu.operation || value.content !== "继续原浏览器工作" || choice?.kind !== "ruukoto.browser-resume-choice" || !data || typeof data !== "object" || Array.isArray(data) || data.operation !== menu.operation || data.requestId !== key || !isPersonalResumeActor(data.actor, value)) throw invalid();
     } else if (value.browserResolution) {
       const resolution = value.browserResolution, operation = await browserOperation(tx, resolution.operation);
-      if (menu?.kind !== "browser" || menu.operation !== resolution.operation || selected?.kind !== "browser-resolution" || selected.operation !== resolution.operation || selected.effect !== resolution.effect || operation.resolution?.actor !== key || operation.resolution.effect !== resolution.effect || value.content !== EVIDENCE + operation.resolution.evidence) throw invalid();
+      if (menu?.kind !== "browser" || menu.operation !== resolution.operation || operation.resolution?.actor !== key || operation.resolution.effect !== resolution.effect) throw invalid();
+      if (operation.resolution.claim !== undefined) { if (value.platform !== undefined || selected?.kind !== "browser" || selected.operation !== resolution.operation || value.content !== personalImEffectContent("browser", resolution.effect)) throw invalid(); await verifyPersonalOwnerClaim(tx, operation.resolution.claim, { family: "browser", operation: resolution.operation, admission: operation.admission, effect: resolution.effect }); }
+      else if (selected?.kind !== "browser-resolution" || selected.operation !== resolution.operation || selected.effect !== resolution.effect || value.content !== EVIDENCE + operation.resolution.evidence) throw invalid();
     } else if (value.browserStop) {
       const { operation, taskId } = value.browserStop, task = await tx.task(taskId);
       if (menu?.kind !== "browser" || menu.operation !== operation || selected?.kind !== "browser" || selected.operation !== operation || value.content !== "停止并核实浏览器" || task?.kind !== "ruukoto.browser-stop" || task.version !== 1 || !task.input || typeof task.input !== "object" || Array.isArray(task.input) || task.input.operation !== operation) throw invalid();

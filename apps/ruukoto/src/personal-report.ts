@@ -24,9 +24,10 @@ import { AppDataAdmission, appDataOperations } from "./personal-app-data.ts";
 import { BrowserAdmission, browserOperations } from "./personal-browser.ts";
 import { ToolAdmission } from "./personal-tools.ts";
 import { ServiceInspectionAdmission } from "./personal-service-inspection.ts";
-import { legacyPersonalReportRequest, legacyPersonalReportResult, legacyPlatformText, verifyLegacyPersonalReports, type LegacyPersonalReportFacts } from "./personal-report-legacy.ts";
+import { authorizeLegacyPersonalReportDelivery, legacyPersonalReportRequest, legacyPersonalReportResult, personalReportMultipart, personalReportReplyText, settlePersonalReportDelivery, verifyLegacyPersonalReports, type LegacyPersonalReportFacts } from "./personal-report-legacy.ts";
 import { PERSONAL_OUTPUT_LIMIT, personalOutputIntent, personalOutputMetadata, personalWorkOutputs } from "./personal-outputs.ts";
 import type { PersonalDesktopOutput } from "@ruukoto/view/personal-protocol.ts";
+import { personalImDeliveryRecord, personalImDeliveryResult, personalImDeliveryTextReceipt, settlePersonalImDelivery, type PersonalImDeliveryInput, type PersonalImDeliveryRef } from "./personal-im-delivery.ts";
 
 type Delivery = LegacyPersonalReportFacts["delivery"];
 type CoveredMember = { ref: PersonalWorkRef; admission?: EntryId; notes: { admission: EntryId; requestId: string; submissionId?: SubmissionId; status: string; answer?: EntryId }[]; submissionId?: SubmissionId; answer?: EntryId; outcome: JsonValue; facts: JsonValue; outputs?: EntryId[] };
@@ -35,7 +36,7 @@ type ReportAttempt = { coverage: EntryId; content: string; submissionId?: Submis
 type V2Facts = LegacyPersonalReportFacts & { version: 2; trigger: EntryId; triggers: EntryId[]; attempts: ReportAttempt[]; publication?: EntryId; supersessions: EntryId[]; sendCanceled?: EntryId; failure?: EntryId; failureOutcome?: JsonValue };
 export type PersonalReportFacts = (LegacyPersonalReportFacts & { version?: 1 }) | V2Facts;
 type ReportInput = { version: 2; delegation: PersonalDelegationRef; source: PersonalWorkSource; modelCall: TaskId; content: string; trigger: EntryId };
-type ReportState = { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "publish"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" };
+type ReportState = { phase: "wait" } | { phase: "summarize"; attempt: number } | { phase: "publish"; attempt: number } | { phase: "send"; retryAt?: number } | { phase: "verify" } | { phase: "deliver" };
 const INPUT_KIND = "ruukoto.delegation-report";
 const ReportAdmission = defineEntry<ReportInput & { taskId: TaskId }>("ruukoto.report-host-admission");
 const ReportRequest = defineEntry<{ version: 2; delegation: PersonalDelegationRef; source: PersonalWorkSource; modelCall: TaskId }>("ruukoto.report-request");
@@ -88,8 +89,10 @@ export async function refreshPersonalReportState(tx: Tx, ref: PersonalDelegation
   if (!report || report.version !== 2) return;
   const task = await tx.task(report.taskId);
   if (!task) throw invalid();
-  if (task.state.status !== "terminal" || !["faulted", "orphaned"].includes(task.state.outcome.status) || report.failure !== undefined) return;
-  report.delivery = report.delivery === "sending" ? "effect_unknown" : report.publication === undefined ? "unanswered" : "canceled";
+  if (task.state.status !== "terminal" || !["faulted", "orphaned"].includes(task.state.outcome.status)) return;
+  if (report.multipart) await settlePersonalReportDelivery(tx, report);
+  else report.delivery = report.delivery === "sending" ? "effect_unknown" : report.publication === undefined ? "unanswered" : "canceled";
+  if (report.failure !== undefined) return;
   report.failure = undefined;
   report.failureOutcome = json(task.state.outcome);
 }
@@ -454,7 +457,7 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
           let wait = false;
           try {
         await runtime.commit(async tx => {
-          const { report } = await reportFacts(tx, ref, current.id), original = await verifyAttempt(tx, ref, report, index), state = await readiness(tx, ref);
+          const { value, report } = await reportFacts(tx, ref, current.id), original = await verifyAttempt(tx, ref, report, index), state = await readiness(tx, ref);
           if ("canceled" in state || "inactive" in state) { report.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "canceled" } } }; }
           if ("intake" in state) { wait = true; return undefined; }
           if (!("coverage" in state) || !isDeepStrictEqual(original.coverage, state.coverage)) { await supersede(tx, report, index, "blocker" in state ? "source_paused" : "requirements_changed", "coverage" in state ? state.coverage : undefined, "blocker" in state ? state.blocker : undefined); return { status: "running", checkpoint: { phase: "wait" } }; }
@@ -465,7 +468,8 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
           const outputs = original.coverage.members.flatMap(member => member.outputs ?? []);
           if (outputs.length > PERSONAL_OUTPUT_LIMIT) throw invalid();
           report.publication = (await tx.appendEntry(PersonalReportPublication, ROOT_CONVERSATION_ID, { data: { version: 2, delegation: ref, taskId: current.id, attempt: index, coverage: original.attempt.coverage, answer, ...(outputs.length ? { outputs } : {}) } })).id;
-          report.answer = answer; report.reply = legacyPlatformText(message.content.filter(part => part.type === "text").map(part => part.text).join("")); report.delivery = "pending";
+          if (value.telegram && value.telegram.platform === undefined && im?.delivery) report.replyFormat = "complete";
+          report.answer = answer; report.reply = personalReportReplyText(report, message.content.filter(part => part.type === "text").map(part => part.text).join("")); report.delivery = "pending";
           return { status: "running", checkpoint: { phase: "send" } };
         }, context);
             if (!wait) return;
@@ -484,6 +488,7 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
             await withPersonalImEntry(im, source ?? {}, async () => {
               await runtime.commit(async tx => {
                 const { value, report } = await reportFacts(tx, ref, current.id), original = await verifyAttempt(tx, ref, report, report.attempt), state = await readiness(tx, ref);
+                if (report.multipart) return { status: "running", checkpoint: { phase: "deliver" } };
                 const changedRequirements = await requirementsChanged(tx, ref, original.coverage);
                 const reason = "canceled" in state ? "canceled" : "inactive" in state || source && im && !im.isActive(source) ? "source_inactive" : changedRequirements || "coverage" in state && !isDeepStrictEqual(state.coverage, original.coverage) ? "requirements_changed" : undefined;
                 if (reason) {
@@ -497,6 +502,15 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
                 const receipt = await personalSourceImReceipt(tx, value.source.requestId), config = personalEntryConfig(await tx.doc(PersonalTelegramDoc), value.telegram);
                 if (!receipt || !report.reply || report.delivery !== "pending" || !config?.enabled || config.generation !== value.telegram.generation || config.botId !== value.telegram.botId || config.ownerId !== value.telegram.ownerId) throw invalid();
                 owner = value.telegram.ownerId; message = receipt.messageId; reply = report.reply;
+                if (value.telegram.platform === undefined && im?.delivery) {
+                  const publication = await tx.entry(PersonalReportPublication, report.publication!);
+                  if (!publication) throw invalid();
+                  const text = (await personalReportPublicationMessage(tx, publication))!.content.filter(part => part.type === "text").map(part => part.text).join("");
+                  const outputs = publication.data.outputs?.map(output => ({ publication: publication.id, output }));
+                  report.multipart = await im.delivery.request(tx, { key: `report:${current.id}`, source: value.telegram, messageId: receipt.messageId, text, ...(outputs?.length ? { outputs } : {}) }, current.id);
+                  report.delivery = "sending"; owner = "";
+                  return { status: "running", checkpoint: { phase: "deliver" } };
+                }
                 if (!im) { if (!("apiBase" in config)) throw invalid(); api = personalTelegramApi(config.apiBase, telegramToken(config)); }
                 report.delivery = "sending";
                 const version = im?.configurationVersion(value.telegram); if (version) report.configurationVersion = version;
@@ -519,12 +533,24 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
           return { status: "terminal", outcome: { status: "completed", result: { delivery: report.delivery } } };
         }, context);
       },
-      async verify(current, runtime, context) { await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); report.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "effect_unknown" } } }; }, context); },
+      async verify(current, runtime, context) { await runtime.commit(async tx => { const { report } = await reportFacts(tx, current.input.delegation, current.id); if (report.multipart) return { status: "running", checkpoint: { phase: "deliver" } }; report.delivery = "effect_unknown"; return { status: "terminal", outcome: { status: "completed", result: { delivery: "effect_unknown" } } }; }, context); },
+      async deliver(current, runtime, context) {
+        const ref = current.input.delegation, saved = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))!.delegation!;
+        const report = personalReportsFor(saved).find(report => report.taskId === current.id);
+        if (!report?.multipart || !im?.delivery) throw invalid();
+        await runtime.waitForTask(report.multipart.taskId, context);
+        await runtime.commit(async tx => {
+          const { report } = await reportFacts(tx, ref, current.id);
+          await settlePersonalReportDelivery(tx, report);
+          return { status: "terminal", outcome: { status: "completed", result: { delivery: report.delivery } } };
+        }, context);
+      },
     },
     async abort(current, runtime, context) {
       const ref = current.input.delegation, saved = (await runtime.snapshot(PersonalDelegationDoc, String(ref.entryId), context))?.delegation;
       const report = saved && personalReportsFor(saved).find(report => report.taskId === current.id);
       if (!report || report.version !== 2) throw invalid();
+      if (report.multipart) { if (!im?.delivery) throw invalid(); await im.delivery.abort(report.multipart); }
       const attempt = report.attempts[report.attempt];
       if (attempt) {
         const main = await runtime.conversation(ROOT_CONVERSATION_ID, context);
@@ -532,7 +558,7 @@ function reportTask(im?: PersonalImAccess, admitInput?: PersonalMainAdmission, g
         await runtime.commit(async tx => { admitted = !!(await verifyAttempt(tx, ref, (await reportFacts(tx, ref, current.id)).report, report.attempt)).submission; return undefined; }, context);
         if (main && admitted) { const original = await (admitInput ?? main.submit.bind(main))({ type: "input", requestId: keyFor(current.id, report.attempt), content: attempt.content, entry: { kind: INPUT_KIND, data: inputData(ref, report, report.attempt) }, whenBusy: "followUp" }, context); await original.abort(context); }
       }
-      await runtime.commit(async tx => { const { report } = await reportFacts(tx, ref, current.id); report.delivery = report.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: report.delivery } } }; }, context);
+      await runtime.commit(async tx => { const { report } = await reportFacts(tx, ref, current.id); if (report.multipart) await settlePersonalReportDelivery(tx, report); else report.delivery = report.delivery === "sending" ? "effect_unknown" : "canceled"; return { status: "terminal", outcome: { status: "aborted", result: { delivery: report.delivery } } }; }, context);
     },
   });
 }
@@ -756,7 +782,7 @@ export async function personalReportPublicationMessage(tx: Tx, entry: EntryRecor
   const outputs = original.coverage.members.flatMap(member => member.outputs ?? []);
   if (outputs.length > PERSONAL_OUTPUT_LIMIT || !isDeepStrictEqual(data.outputs, outputs.length ? outputs : undefined)) throw invalid();
   const answer = await tx.entry(AssistantEntry, data.answer), message = answer?.model?.[0];
-  if (answer?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || !message.content.some(part => part.type === "text" && part.text) || report.reply !== legacyPlatformText(message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw invalid();
+  if (answer?.conversationId !== ROOT_CONVERSATION_ID || message?.role !== "assistant" || !message.content.some(part => part.type === "text" && part.text) || report.replyFormat !== undefined && report.replyFormat !== "complete" || report.reply !== personalReportReplyText(report, message.content.filter(part => part.type === "text").map(part => part.text).join(""))) throw invalid();
   return message;
 }
 
@@ -774,7 +800,29 @@ export async function personalPublishedOutput(tx: Tx, publication: EntryId, outp
   return personalOutputIntent(tx, output);
 }
 
-export async function personalReportResult(tx: Tx, ref: PersonalDelegationRef, offset = 0, size = 4096): Promise<{ delivery: string; state?: string; text?: string; offset?: number; totalChars?: number; nextOffset?: number }> {
+export async function authorizePersonalReportDelivery(tx: Tx, input: PersonalImDeliveryInput, parent: TaskId) {
+  const task = await tx.task(parent);
+  if (!task || task.kind !== PersonalReportTask.definition.name) throw invalid();
+  if (task.version === 1) return authorizeLegacyPersonalReportDelivery(tx, input, parent);
+  const data = task.input;
+  if (!data || typeof data !== "object" || Array.isArray(data) || !data.delegation || typeof data.delegation !== "object" || Array.isArray(data.delegation) || typeof data.delegation.entryId !== "number") throw invalid();
+  const ref = { entryId: data.delegation.entryId as EntryId }, { value, report } = await reportFacts(tx, ref, parent);
+  if (!value.telegram || value.telegram.platform !== undefined || !report.publication) throw invalid();
+  const original = await verifyAttempt(tx, ref, report, report.attempt);
+  if (value.cancelRequested || !await telegramSourceActive(tx, value.telegram) || await requirementsChanged(tx, ref, original.coverage)) return false;
+  const publication = await tx.entry(PersonalReportPublication, report.publication), receipt = await personalSourceImReceipt(tx, value.source.requestId);
+  if (!publication || !receipt) throw invalid();
+  const text = (await personalReportPublicationMessage(tx, publication))!.content.filter(part => part.type === "text").map(part => part.text).join("");
+  const outputs = publication.data.outputs?.map(output => ({ publication: publication.id, output }));
+  await personalReportMultipart(tx, report, { key: `report:${parent}`, source: value.telegram, messageId: receipt.messageId, text, ...(outputs?.length ? { outputs } : {}) });
+  if (!isDeepStrictEqual(input, (await personalImDeliveryRecord(tx, report.multipart!)).input)) throw invalid();
+  const state = await readiness(tx, ref);
+  if ("canceled" in state || "inactive" in state || await requirementsChanged(tx, ref, original.coverage)) return false;
+  if (!("coverage" in state)) return "wait" as const;
+  return !!state.coverage && isDeepStrictEqual(state.coverage, original.coverage);
+}
+
+export async function personalReportResult(tx: Tx, ref: PersonalDelegationRef, offset = 0, size = 4096): Promise<{ delivery: string; state?: string; text?: string; offset?: number; totalChars?: number; nextOffset?: number; multipart?: PersonalImDeliveryRef; outputDelivery?: string }> {
   const value = await personalDelegation(tx, ref);
   if (!value.report) return { delivery: "not_requested" };
   if (value.report.version !== 2) return legacyPersonalReportResult(tx, ref, offset, size);
@@ -789,7 +837,8 @@ export async function personalReportResult(tx: Tx, ref: PersonalDelegationRef, o
   const text = message.content.filter(part => part.type === "text").map(part => part.text).join("");
   let end = Math.min(offset + size, text.length);
   if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
-  return { delivery: report.delivery, state, text: text.slice(offset, end), offset, totalChars: text.length, ...(end < text.length ? { nextOffset: end } : {}) };
+  const delivery = report.multipart && personalImDeliveryResult(await personalImDeliveryRecord(tx, report.multipart));
+  return { delivery: delivery && delivery.textState !== "none" ? delivery.textState : report.delivery, state, text: text.slice(offset, end), offset, totalChars: text.length, ...(end < text.length ? { nextOffset: end } : {}), ...(delivery ? { multipart: { ...report.multipart! }, ...(delivery.outputState === "none" ? {} : { outputDelivery: delivery.outputState }) } : {}) };
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-11-04-personal-report-publication.md
@@ -848,13 +897,25 @@ export async function verifyPersonalReports(tx: Tx, keys: string[], enabled: boo
         facts.add(report.publication);
         const entry = await tx.entry(report.publication); if (!entry) throw invalid();
         await personalReportPublicationMessage(tx, entry);
+        if (report.multipart) {
+          const publication = await tx.entry(PersonalReportPublication, report.publication), receipt = await personalSourceImReceipt(tx, value.source.requestId);
+          if (!publication || !receipt || !value.telegram || value.telegram.platform !== undefined) throw invalid();
+          const message = await personalReportPublicationMessage(tx, publication), outputs = publication.data.outputs?.map(output => ({ publication: publication.id, output }));
+          const delivery = await personalReportMultipart(tx, report, { key: `report:${report.taskId}`, source: value.telegram, messageId: receipt.messageId, text: message!.content.filter(part => part.type === "text").map(part => part.text).join(""), ...(outputs?.length ? { outputs } : {}) });
+          if (task.state.status === "terminal" && ["faulted", "orphaned"].includes(task.state.outcome.status)) await settlePersonalReportDelivery(tx, report);
+          if (task.state.status === "terminal" && !["faulted", "orphaned"].includes(task.state.outcome.status)) {
+            const result = await settlePersonalImDelivery(tx, report.multipart);
+            if (result.textState !== report.delivery || report.delivery === "sent" && delivery.parts.findLast(part => part.kind === "text" && part.state === "sent")?.platformMessageId !== report.platformMessageId) throw invalid();
+          }
+        }
       } else if (report.answer !== undefined || report.reply !== undefined || ["local", "pending", "sending", "sent", "failed", "effect_unknown"].includes(report.delivery)) throw invalid();
       if (report.sendCanceled !== undefined) { facts.add(report.sendCanceled); const canceled = await tx.entry(ReportSendCanceled, report.sendCanceled); if (!canceled || canceled.conversationId !== ROOT_CONVERSATION_ID || !["requirements_changed", "canceled", "source_inactive"].includes(canceled.data.reason) || canceled.data.taskId !== report.taskId || canceled.data.publication !== report.publication || canceled.data.version !== 2 || canceled.id <= report.publication! || report.delivery !== "canceled") throw invalid(); }
       if (report.failureOutcome !== undefined && (task.state.status !== "terminal" || !["faulted", "orphaned"].includes(task.state.outcome.status) || !isDeepStrictEqual(report.failureOutcome, task.state.outcome))) throw invalid();
       if (report.failure !== undefined) {
         facts.add(report.failure);
         const failure = await tx.entry(ReportFailure, report.failure);
-        if (!failure || failure.conversationId !== ROOT_CONVERSATION_ID || failure.data.version !== 2 || failure.data.taskId !== report.taskId || failure.data.delivery !== report.delivery || task.state.status !== "terminal" || !["faulted", "orphaned"].includes(task.state.outcome.status) || !isDeepStrictEqual(failure.data.outcome, task.state.outcome)) throw invalid();
+        const historicalDelivery = report.multipart && failure ? (await personalImDeliveryTextReceipt(tx, report.multipart, failure.id)).state : report.delivery;
+        if (!failure || failure.conversationId !== ROOT_CONVERSATION_ID || failure.data.version !== 2 || failure.data.taskId !== report.taskId || failure.data.delivery !== historicalDelivery || task.state.status !== "terminal" || !["faulted", "orphaned"].includes(task.state.outcome.status) || !isDeepStrictEqual(failure.data.outcome, task.state.outcome)) throw invalid();
       }
       if (report.platformMessageId !== undefined && (typeof report.platformMessageId !== "string" || !report.platformMessageId || report.delivery !== "sent") || report.delivery === "sent" && report.platformMessageId === undefined) throw invalid();
       if (task.state.status === "terminal") {
@@ -863,8 +924,8 @@ export async function verifyPersonalReports(tx: Tx, keys: string[], enabled: boo
       }
       if (task.state.status !== "terminal") {
         const checkpoint = task.state.status !== "completing" && task.state.checkpoint;
-        if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint) || !["wait", "summarize", "publish", "send", "verify"].includes(String(checkpoint.phase)) || ["summarize", "publish"].includes(String(checkpoint.phase)) && checkpoint.attempt !== report.attempt || checkpoint.phase === "send" && report.delivery !== "pending" || checkpoint.phase === "verify" && report.delivery !== "sending") throw invalid();
-      } else if (report.delivery === "sending") report.delivery = "effect_unknown";
+        if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint) || !["wait", "summarize", "publish", "send", "verify", "deliver"].includes(String(checkpoint.phase)) || ["summarize", "publish"].includes(String(checkpoint.phase)) && checkpoint.attempt !== report.attempt || checkpoint.phase === "send" && report.delivery !== "pending" || checkpoint.phase === "verify" && report.delivery !== "sending" || checkpoint.phase === "deliver" && (!report.multipart || report.delivery !== "sending")) throw invalid();
+      } else if (report.delivery === "sending") { if (report.multipart) await settlePersonalReportDelivery(tx, report); else report.delivery = "effect_unknown"; }
     }
   }
   let cursor: Cursor | undefined;

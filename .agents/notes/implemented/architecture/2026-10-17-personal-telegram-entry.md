@@ -4,6 +4,8 @@ Status: implemented
 
 [Online IM updates](2026-10-25-personal-im-updates.md) supersedes stopped-only pairing and startup-fixed API objects. Source identity, pinned authority, and unknown-send rules remain. Pairing below describes the identity protocol; ordinary configuration no longer requires stopping the backend.
 
+[Complete Telegram delivery](2026-11-06-personal-telegram-delivery.md) supersedes the single bounded outgoing reply with ordered original-text pieces, proactive cards and published-file transfer. Input identity, polling acknowledgement, QQ transport and historical send verification remain here.
+
 ## Problem
 
 [The Personal migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) had a local conversation and host service API but no proof of the owner's real platform identity. The old Telegram adapter depended on core Store, Runtime, and SchedulerStore, so reuse would restore the old authority. A provenance API alone would not provide usable owner chat.

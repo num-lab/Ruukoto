@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Telegram cards and complete delivery](2026-11-06-personal-telegram-delivery.md) admits eligible Cua recovery choices through this same canonical action task, binding the original IM actor, displayed occurrence and pause/observation. Native and IM affirmative authority remain separate; exact cleanup, fresh acceptance and explicit whole-sandbox stopping keep their existing meanings.
+
 ## Problem
 
 The file milestone projects one-shot ordinary decisions into the desktop timeline, while other operation families and recovery choices remain in local management. Reusing broad shutdown or current default permissions for recovery would change the original execution's authority. Requiring freeform evidence for every owner effect statement also makes a simple business decision depend on an unverified text field.

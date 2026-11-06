@@ -77,7 +77,10 @@ async function dualFixture(t: TestContext) {
   const token = `${MOCK_QQ_ACCOUNT}:schedule-test-secret`;
   const telegramServer = http.createServer(async (request, response) => {
     let body = ""; for await (const chunk of request) body += String(chunk);
-    const value = JSON.parse(body) as { text: string; chat_id: string; reply_parameters: { message_id: number } }; telegramSends.push(value);
+    const value = JSON.parse(body) as { text: string; chat_id: string; message_id?: number; reply_parameters: { message_id: number } };
+    if (request.url?.endsWith("/sendChatAction") || request.url?.endsWith("/answerCallbackQuery")) { response.end(JSON.stringify({ ok: true, result: true })); return; }
+    if (request.url?.endsWith("/editMessageText")) { response.end(JSON.stringify({ ok: true, result: { message_id: value.message_id, chat: { id: Number(value.chat_id), type: "private" } } })); return; }
+    telegramSends.push(value);
     assert.ok(Array.from(value.text).length <= 4096, "Telegram发送必须保留平台长度上限");
     assert.equal(request.url, `/bot${token}/sendMessage`);
     response.end(JSON.stringify({ ok: true, result: { message_id: 1900000 + telegramSends.length, chat: { id: Number(value.chat_id), type: "private" } } }));

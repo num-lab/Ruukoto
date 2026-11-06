@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Complete Telegram delivery](2026-11-06-personal-telegram-delivery.md) extends original-entry sending with per-part coverage checks, independent text/file outcomes and canonical receipt reconciliation. Immutable failure entries keep delivery state at their original entry boundary even when a started part later confirms. Publication, covered-work authority and successor rules remain here.
+
 ## Problem
 
 [Explicit delegation reports](2026-10-17-personal-delegation-reports.md) use report registration to seal further work. That prevents ordinary cross-turn amendments, while publishing the main conversation's raw answer can expose a stale summary before its source and coverage are checked. A fast child can also finish while main still arranges another member, and an owner amendment can be accepted before its native conversation input is placed.

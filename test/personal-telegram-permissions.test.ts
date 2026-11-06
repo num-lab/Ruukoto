@@ -9,7 +9,7 @@ import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, SessionFailed, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
+import { AgentDoc, SessionFailed, ROOT_CONVERSATION_ID, type EntryId } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
@@ -18,8 +18,10 @@ import { PersonalWorkDoc } from "../apps/ruukoto/src/personal-work.ts";
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { personalPermissionFor, PersonalPermissionsDoc } from "../apps/ruukoto/src/personal-permissions.ts";
 import { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "../apps/ruukoto/src/personal-telegram.ts";
+import { PersonalTelegramDisplayDoc } from "../apps/ruukoto/src/personal-telegram-display-records.ts";
 import { listPersonalServiceGrants, revokePersonalServiceGrant, PersonalServiceGrantsDoc, PersonalServiceOperationDoc, ServiceOperationEvidence, type PersonalServiceOperationRef } from "../apps/ruukoto/src/personal-service-operations.ts";
 import { personalServiceControls, listPersonalServices } from "../apps/ruukoto/src/personal-service-controls.ts";
+import { PersonalOwnerClaim, verifyPersonalOwnerClaim } from "../apps/ruukoto/src/personal-recovery-claims.ts";
 import type { PersonalTelegramConfig } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import type { TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
 import { PersonalMockModelServer as MockModelServer, type Responder } from "./helpers/mock-provider.ts";
@@ -32,20 +34,22 @@ async function until(check: () => Promise<boolean>) {
   while (!await check()) { assert.ok(Date.now() < deadline, "等待审批事实超时"); await delay(10); }
 }
 
-async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text", text: "收到" })) {
+async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text", text: "收到" }), units = [UNIT]) {
   const root = fs.mkdtempSync(path.join(process.platform === "darwin" ? "/tmp" : tmpdir(), "rk-tg-perm-"));
   const helper = path.join(root, "helper"); fs.mkdirSync(path.join(helper, "units"), { recursive: true }); fs.mkdirSync(path.join(helper, "ops"));
   const helperPath = path.join(helper, "helper.mjs"); fs.copyFileSync(new URL("./helpers/fake-service-helper.mjs", import.meta.url), helperPath);
-  const policyPath = path.join(helper, "services.json"); fs.writeFileSync(policyPath, JSON.stringify({ machineId: "test-machine", inspectUid: 1, inspectGid: 1, services: { [UNIT]: { actions: ["restart"] } } }));
-  fs.writeFileSync(path.join(helper, "units", UNIT), "[Service]\nExecStart=/usr/bin/true\n");
-  fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify({ [UNIT]: { loadState: "loaded", activeState: "active", subState: "running", mainPid: 123, invocationId: "before", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z", starts: 0 } }));
-  const sends: { text: string; messageId: number }[] = []; let failure = false;
+  const policyPath = path.join(helper, "services.json"); fs.writeFileSync(policyPath, JSON.stringify({ machineId: "test-machine", inspectUid: 1, inspectGid: 1, services: Object.fromEntries(units.map(unit => [unit, { actions: ["restart"] }])) }));
+  for (const unit of units) fs.writeFileSync(path.join(helper, "units", unit), "[Service]\nExecStart=/usr/bin/true\n");
+  fs.writeFileSync(path.join(helper, "state.json"), JSON.stringify(Object.fromEntries(units.map(unit => [unit, { loadState: "loaded", activeState: "active", subState: "running", mainPid: 123, invocationId: "before", result: "success", activeEnterTimestamp: "2026-10-17T00:00:00Z", starts: 0 }]))));
+  const sends: { text: string; messageId: number }[] = []; let failure: true | string | false = false;
   const bot = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const body = JSON.parse(Buffer.concat(chunks).toString()) as { text: string; chat_id: string };
+    const body = JSON.parse(Buffer.concat(chunks).toString()) as { text: string; chat_id: string; message_id?: number };
+    if (req.url?.endsWith("/sendChatAction") || req.url?.endsWith("/answerCallbackQuery")) { res.end(JSON.stringify({ ok: true, result: true })); return; }
+    if (req.url?.endsWith("/editMessageText")) { res.end(JSON.stringify({ ok: true, result: { message_id: body.message_id, chat: { id: Number(body.chat_id), type: "private" } } })); return; }
     assert.match(req.url!, /\/sendMessage$/);
     sends.push({ text: body.text, messageId: 1000 + sends.length + 1 });
-    if (failure) { failure = false; res.destroy(); return; }
+    if (failure === true || typeof failure === "string" && body.text.startsWith(failure)) { failure = false; res.destroy(); return; }
     res.end(JSON.stringify({ ok: true, result: { message_id: sends.at(-1)!.messageId, chat: { id: Number(body.chat_id), type: "private" } } }));
   });
   bot.listen(0, "127.0.0.1"); await once(bot, "listening"); const address = bot.address(); assert.ok(address && typeof address !== "string");
@@ -64,12 +68,12 @@ async function fixture(t: TestContext, respond: Responder = () => ({ kind: "text
     await p.harness.waitForTask(value.taskId, context);
     return { key, update, value: (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt! };
   };
-  const request = async () => { const source = await receive("重启测试服务"); const ref = await p.service!.request({ requestId: randomUUID(), sourceRequestId: source.key, unit: UNIT }); await until(async () => !!(await p.service!.status(ref)).operation.snapshot); return ref; };
+  const request = async (unit = UNIT) => { const source = await receive("重启测试服务"); const ref = await p.service!.request({ requestId: randomUUID(), sourceRequestId: source.key, unit }); await until(async () => !!(await p.service!.status(ref)).operation.snapshot); return ref; };
   return { options, telegram, root, model, sends, helper, receive, request,
     open: async (overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) => p = await openPersonalHarness({ ...options, ...overrides }),
-    starts: () => (JSON.parse(fs.readFileSync(path.join(helper, "state.json"), "utf8")) as Record<string, { starts: number }>)[UNIT].starts,
+    starts: (unit = UNIT) => (JSON.parse(fs.readFileSync(path.join(helper, "state.json"), "utf8")) as Record<string, { starts: number }>)[unit].starts,
     touch: (name: string) => fs.writeFileSync(path.join(helper, name), ""),
-    loseSend: () => { failure = true; },
+    loseSend: (startsWith?: string) => { failure = startsWith ?? true; },
   };
 }
 async function menu(f: Awaited<ReturnType<typeof fixture>>, command = "/审批") { return Number((await f.receive(command)).value.platformMessageId); }
@@ -83,28 +87,65 @@ async function unknownRecovery(f: Awaited<ReturnType<typeof fixture>>, p: Person
   return { ref, detail };
 }
 
-test("Telegram 服务核实：原确认菜单保存证据、重投不覆盖、错误停止不释放且控制零模型", async t => {
+test("Queried Telegram service approvals retain their offered actions and accept exact owner synonyms", async t => {
+  for (const text of ["好的", "拒绝"] as const) await t.test(text, async t => {
+    const f = await fixture(t); let p = await f.open(); const ref = await f.request(), calls = f.model.calls.length;
+    const card = await f.receive("/审批"); assert.deepEqual(card.value.selection, { kind: "approval", ref }); assert.ok(card.value.display);
+    const display = (await p.harness.snapshot(PersonalTelegramDisplayDoc, card.value.display!, context))!.display!;
+    assert.deepEqual(display.buttons.map(button => button.action), ["批准本次", "拒绝", "批准并长期授权"]);
+    assert.equal(display.target!.operation, ref.taskId); assert.equal(display.origin, card.value.accepted);
+    const decision = await f.receive(text, Number(card.value.platformMessageId)), expected = text === "拒绝" ? "rejected" : "approved";
+    assert.deepEqual(decision.value.serviceDecision, { ref, decision: expected }); assert.equal(decision.value.rawContent, text);
+    await done(p, ref); assert.equal(f.starts(), text === "拒绝" ? 0 : 1); assert.equal(f.model.calls.length, calls);
+    await p.close(); p = await f.open();
+    assert.equal((await p.service!.status(ref)).operation.decidedBy, decision.key);
+    assert.deepEqual((await p.harness.snapshot(PersonalTelegramDisplayDoc, card.value.display!, context))!.display!.buttons, display.buttons);
+    assert.equal(f.model.calls.length, calls);
+  });
+});
+
+test("Approval queries and next-item replies prepare the newly selected service operation", async t => {
+  const secondUnit = "approval-second-test.service", f = await fixture(t, undefined, [UNIT, secondUnit]), p = await f.open();
+  const first = await f.request(), second = await f.request(secondUnit), calls = f.model.calls.length;
+  const permissions = await f.receive("/权限"), queried = await f.receive("/审批", Number(permissions.value.platformMessageId));
+  const firstDisplay = (await p.harness.snapshot(PersonalTelegramDisplayDoc, queried.value.display!, context))!.display!;
+  assert.deepEqual(queried.value.selection, { kind: "approval", ref: first });
+  assert.ok(firstDisplay.target); assert.equal(firstDisplay.target.operation, first.taskId); assert.deepEqual(firstDisplay.buttons.map(button => button.action), ["批准本次", "拒绝", "批准并长期授权"]);
+  const next = await f.receive("下一项", Number(queried.value.platformMessageId)), secondDisplay = (await p.harness.snapshot(PersonalTelegramDisplayDoc, next.value.display!, context))!.display!;
+  assert.deepEqual(next.value.selection, { kind: "approval", ref: second });
+  assert.ok(secondDisplay.target); assert.equal(secondDisplay.target.operation, second.taskId); assert.deepEqual(secondDisplay.buttons.map(button => button.action), ["批准本次", "拒绝", "批准并长期授权"]);
+  await f.receive("拒绝", Number(next.value.platformMessageId)); await done(p, second);
+  assert.equal((await p.service!.status(first)).operation.decision, "pending"); assert.equal(f.starts(secondUnit), 0);
+  await f.receive("好的", Number(queried.value.platformMessageId)); await done(p, first);
+  assert.equal(f.starts(), 1); assert.equal(f.model.calls.length, calls);
+});
+
+test("Telegram service recovery records one immutable owner claim and keeps stopping independent", async t => {
   const f = await fixture(t); let p = await f.open(); const { ref, detail } = await unknownRecovery(f, p);
   assert.equal((await p.harness.commit(tx => listPersonalServices(tx, 0, f.telegram), context)).items.length, 1);
-  const before = f.model.calls.length;
-  const confirm = await f.receive("确认已生效", Number(detail.value.platformMessageId));
-  const confirmationId = Number(confirm.value.platformMessageId);
-  const wrongMenu = await f.receive("核实操作停止", confirmationId);
-  assert.equal(wrongMenu.value.serviceStop, undefined); assert.match(wrongMenu.value.reply!, /详情菜单/);
-  for (const extra of [{ forward_origin: { type: "user" } }, { quote: { text: "核实说明 已生效" } }, { reply_to_message: { message_id: confirmationId, from: { id: 789, is_bot: true } } }]) await f.receive("核实说明 已生效", confirmationId, extra);
+  const initialCalls = f.model.calls.length;
+  const wrongMenu = await f.receive("确认已生效", await menu(f, "/服务核实"));
+  assert.equal(wrongMenu.value.serviceResolution, undefined);
+  for (const extra of [{ forward_origin: { type: "user" } }, { quote: { text: "确认已生效" } }, { reply_to_message: { message_id: Number(detail.value.platformMessageId), from: { id: 789, is_bot: true } } }]) await f.receive("确认已生效", Number(detail.value.platformMessageId), extra);
   assert.equal((await p.service!.status(ref)).operation.resolution, undefined);
-  await f.receive("核实说明 ", confirmationId);
+  await f.receive("确认已生效。", Number(detail.value.platformMessageId));
   assert.equal((await p.service!.status(ref)).operation.resolution, undefined);
-  const evidence = "核实实际启动计数及服务状态；".repeat(200);
-  const decision = await f.receive(`核实说明 ${evidence}`, confirmationId);
-  assert.deepEqual((await p.service!.status(ref)).operation.resolution, { effect: "applied", evidence, controlRequestId: decision.key });
+  const before = f.model.calls.length; assert.equal(before, initialCalls + 1);
+  const decision = await f.receive("确认已生效", Number(detail.value.platformMessageId)), original = (await p.service!.status(ref)).operation;
+  assert.deepEqual(decision.value.serviceResolution, { ref, effect: "applied" }); assert.equal(original.resolution!.evidence, undefined); assert.ok(original.resolution!.claim);
+  assert.equal(original.result!.effect, "effect_unknown"); assert.equal(original.launcherStopped, false);
+  const claim = await p.harness.commit(async tx => JSON.parse(JSON.stringify(await verifyPersonalOwnerClaim(tx, original.resolution!.claim!, { family: "services", operation: ref.taskId, admission: original.work?.admission ?? original.configurationEntry ?? original.source.entryId, effect: "applied" }))) as Awaited<ReturnType<typeof verifyPersonalOwnerClaim>>, context);
+  assert.equal(claim.actor.kind, "im"); assert.equal(claim.requestId, decision.key); assert.equal(claim.occurrence, Number(detail.value.platformMessageId)); assert.ok(claim.at > 0);
   await p.telegram.receive(decision.update);
-  await f.receive("核实说明 改写", confirmationId);
-  assert.equal((await p.service!.status(ref)).operation.resolution!.evidence, evidence);
+  await f.receive("确认未生效", Number(detail.value.platformMessageId));
+  assert.equal((await p.service!.status(ref)).operation.resolution!.claim, original.resolution!.claim);
+  assert.equal((await p.main.entries({}, 256, undefined, context)).items.filter(PersonalOwnerClaim.is).length, 1);
+  const wrongStop = await f.receive("核实操作停止", await menu(f, "/服务核实"));
+  assert.equal(wrongStop.value.serviceStop, undefined); assert.match(wrongStop.value.reply!, /没有核实|详情菜单/);
   const refresh = await f.receive("刷新服务", Number(decision.value.platformMessageId));
-  assert.ok(refresh.value.selection?.kind === "service-recovery" && refresh.value.selection.nextOffset);
+  assert.ok(refresh.value.selection?.kind === "service-recovery");
+  assert.match(refresh.value.reply!, /拥有者已说明实际效果/);
   assert.ok(refresh.value.reply!.length < 3900);
-  const next = await f.receive("更多核实说明", Number(refresh.value.platformMessageId)); assert.match(next.value.reply!, /核实实际启动计数/);
   const stop = await f.receive("核实操作停止", Number(detail.value.platformMessageId));
   const stopped = await p.harness.waitForTask(stop.value.serviceStop!.taskId, context);
   assert.deepEqual(stopped.state.outcome.result, { stopped: false, code: "stop_unverified" });
@@ -121,33 +162,32 @@ test("Telegram 服务核实：原确认菜单保存证据、重投不覆盖、�
   assert.equal((await p.service!.status(ref)).operation.result?.effect, "effect_unknown");
 });
 
-test("Telegram 服务核实：未送达确认与旧代次菜单不能核实，本机保留管理资格", async t => {
+test("Telegram committed effect claims survive a lost reply and old generations remain fenced", async t => {
   const f = await fixture(t); let p = await f.open(); const { ref, detail } = await unknownRecovery(f, p);
-  f.loseSend(); const confirmation = await f.receive("确认未生效", Number(detail.value.platformMessageId));
-  assert.equal(confirmation.value.delivery, "effect_unknown");
-  await f.receive("核实说明 未生效", f.sends.at(-1)!.messageId); assert.equal((await p.service!.status(ref)).operation.resolution, undefined);
+  f.loseSend(); const confirmation = await f.receive("确认未生效", Number(detail.value.platformMessageId)); assert.equal(confirmation.value.delivery, "effect_unknown");
+  const old = (await p.service!.status(ref)).operation.resolution!; assert.equal(old.effect, "not_applied"); assert.ok(old.claim);
+  await f.receive("确认已生效", f.sends.at(-1)!.messageId); assert.equal((await p.service!.status(ref)).operation.resolution!.claim, old.claim);
   await p.close(); p = await f.open({ telegram: { ...f.telegram, generation: randomUUID() } });
   assert.match((await f.receive("/服务核实")).value.reply!, /暂无/);
   await f.receive("核实操作停止", Number(detail.value.platformMessageId));
   assert.equal((await p.harness.commit(tx => tx.scanTasks({ kind: "ruukoto.service-stop" }, 8), context)).items.length, 0);
   assert.equal((await p.harness.commit(tx => listPersonalServices(tx), context)).items.length, 1);
-  await p.service!.resolve(ref, "not_applied", "本机独立核实旧入口操作");
-  assert.equal((await p.service!.status(ref)).operation.resolution!.effect, "not_applied");
+  assert.equal((await p.service!.status(ref)).operation.resolution!.claim, old.claim);
+  await assert.rejects(p.service!.resolve(ref, "applied", "本机不能覆盖已保存说明"), code("service_resolution_invalid"));
 });
 
-test("Telegram 服务核实：效果、停止与原收件双向回链缺失或扩展缺失拒绝恢复", async t => {
-  for (const mutation of ["resolution", "evidence", "stop", "marker"] as const) await t.test(mutation, async t => {
+test("Telegram service claim, stop and original receipt links are verified on reopen", async t => {
+  for (const mutation of ["resolution", "claim", "stop", "marker"] as const) await t.test(mutation, async t => {
     const f = await fixture(t); const p = await f.open(); const { ref, detail } = await unknownRecovery(f, p);
-    const confirm = await f.receive("确认已生效", Number(detail.value.platformMessageId));
-    const decision = await f.receive("核实说明 独立核实已生效", Number(confirm.value.platformMessageId));
+    const decision = await f.receive("确认已生效", Number(detail.value.platformMessageId));
     const stop = await f.receive("核实操作停止", Number(detail.value.platformMessageId)); await p.harness.waitForTask(stop.value.serviceStop!.taskId, context);
     await p.harness.commit(async tx => {
       if (mutation === "resolution") delete (await tx.doc(PersonalTelegramReceiptDoc, decision.key, null)).receipt!.serviceResolution;
-      if (mutation === "evidence") (await tx.doc(PersonalServiceOperationDoc, ref.requestId, null)).operation!.resolution!.evidence = "其他说明";
+      if (mutation === "claim") (await tx.doc(PersonalServiceOperationDoc, ref.requestId, null)).operation!.resolution!.claim = 999999 as EntryId;
       if (mutation === "stop") delete (await tx.doc(PersonalTelegramReceiptDoc, stop.key, null)).receipt!.serviceStop;
       if (mutation === "marker") { const doc = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID); assert.ok(Array.isArray(doc.extensions)); doc.extensions = doc.extensions.filter(name => name !== "personal-service-recovery-controls"); }
     }, context);
-    await p.close(); await assert.rejects(f.open(), code("service_control_invalid"));
+    await p.close(); await assert.rejects(f.open(), error => error instanceof PersonalError && ["service_control_invalid", "recovery_claim_invalid"].includes(error.code));
   });
 });
 
@@ -232,7 +272,11 @@ test("Telegram 长期授权：来源可追溯、独立再用、原入口撤销�
 test("Telegram 审批：换代及旧无快照服务工作不能按本机批准消费", async t => {
   for (const kind of ["rebind", "legacy"] as const) await t.test(kind, async t => {
     const f = await fixture(t); let p = await f.open(); const ref = await f.request(); const originalMenu = await menu(f);
-    if (kind === "legacy") await p.harness.commit(async tx => { const op = (await tx.doc(PersonalServiceOperationDoc, ref.requestId, null)).operation!; delete op.telegram; delete (await tx.doc(PersonalTelegramReceiptDoc, op.source.requestId, null)).receipt!.permission; }, context);
+    if (kind === "legacy") {
+      await p.harness.commit(async tx => { const op = (await tx.doc(PersonalServiceOperationDoc, ref.requestId, null)).operation!; delete op.telegram; delete (await tx.doc(PersonalTelegramReceiptDoc, op.source.requestId, null)).receipt!.permission; }, context);
+      await assert.rejects(p.service!.decide(ref, "approved"), code("service_original_entry_required"));
+      await p.close(); await assert.rejects(f.open(), code("telegram_display_invalid")); assert.equal(f.starts(), 0); return;
+    }
     await p.close(); p = await f.open(kind === "rebind" ? { telegram: { ...f.telegram, generation: randomUUID() } } : {});
     await done(p, ref); assert.equal(f.starts(), 0);
     await f.receive("批准本次", originalMenu); assert.equal(f.starts(), 0);
@@ -251,7 +295,7 @@ test("Telegram 授权：未知效果撤销授权并保留目标占用，主聊�
 });
 
 test("Telegram 控制：菜单未知发送不能批准，待审批重启后仍可按新菜单决定", async t => {
-  const f = await fixture(t); let p = await f.open(); const ref = await f.request(); f.loseSend(); const query = await f.receive("/审批");
+  const f = await fixture(t); let p = await f.open(); const ref = await f.request(); f.loseSend("待审批："); const query = await f.receive("/审批");
   assert.equal(query.value.delivery, "effect_unknown");
   await f.receive("批准本次", f.sends.at(-1)!.messageId); assert.equal(f.starts(), 0);
   await p.close(); p = await f.open(); await f.receive("批准本次", await menu(f)); await done(p, ref); assert.equal(f.starts(), 1);

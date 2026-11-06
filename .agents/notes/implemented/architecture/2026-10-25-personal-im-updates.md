@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Telegram cards and complete delivery](2026-11-06-personal-telegram-delivery.md) applies the same short claim/handle section to every ordered text or file part. Pairing and per-platform connection ownership remain unchanged; display, callback acknowledgement and multipart records retain their own transport facts.
+
 ## Problem
 
 QQ API, Telegram configuration, and polling lived in a startup closure. Removing only the stopped-backend requirement would leave questions, replies, delegation reports, and scheduled reports using stale connections. Asynchronous gaps between provenance check/main acceptance and send claim allowed rebinding races. CLI-only pairing proved the shell environment, not backend credentials or transfer of an already started send.

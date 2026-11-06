@@ -2,16 +2,18 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { copyJson } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
+import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type ConversationId, type Harness, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { firstDue, latestAtOrBefore, nextAfter, parseRule, RuleError } from "@ruukoto/channels/scheduler/time.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalImApiError, withPersonalImEntry, type PersonalImAccess } from "./personal-im-api.ts";
+import { personalImDeliveryRecord, type PersonalImDeliveryInput } from "./personal-im-delivery.ts";
+import { personalScheduledReportMessage } from "./personal-schedule-execution.ts";
 import type { PersonalMainAdmission } from "./personal-coordination.ts";
 import { telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity } from "./personal-telegram-records.ts";
 import { personalWorkResult, personalWorkStatus, requestPersonalWorkCancel } from "./personal-work.ts";
 import { personalServiceSourceBlocker } from "./personal-service-operations.ts";
-import { PERSONAL_SCHEDULER, PersonalSchedulesDoc, PersonalScheduledConversationDoc, PersonalScheduleDoc, PersonalScheduleRunDoc, ScheduleAdmission, ScheduleRunAdmission, ScheduleCancellation, ScheduleRunCancellation, ScheduleSummary, ScheduleResult, ScheduleSendAdmission, ScheduleSendClaim, ScheduleSendObservation, SCHEDULE_INPUT, SCHEDULE_SUMMARY_INPUT, SCHEDULE_RUN_TASK, SCHEDULE_SEND_TASK, SCHEDULE_SUPERVISOR_TASK, verifyScheduleSupervisor, scheduleAdmissionData, scheduleRunAdmissionData, scheduleRequestId, personalScheduleReportText, personalSchedule, personalScheduleRun, type PersonalSchedule, type PersonalScheduleActor, type PersonalScheduleAuthority, type PersonalScheduleRun, type PersonalScheduleScope } from "./personal-scheduler-records.ts";
+import { PERSONAL_SCHEDULER, PersonalSchedulesDoc, PersonalScheduledConversationDoc, PersonalScheduleDoc, PersonalScheduleRunDoc, ScheduleAdmission, ScheduleRunAdmission, ScheduleCancellation, ScheduleRunCancellation, ScheduleSummary, ScheduleResult, ScheduleSendAdmission, ScheduleSendClaim, ScheduleSendObservation, SCHEDULE_INPUT, SCHEDULE_SUMMARY_INPUT, SCHEDULE_RUN_TASK, SCHEDULE_SEND_TASK, SCHEDULE_SUPERVISOR_TASK, verifyScheduleSupervisor, scheduleAdmissionData, scheduleRunAdmissionData, scheduleRequestId, personalScheduleReportText, personalSchedule, personalScheduleRun, settlePersonalScheduleDelivery, preparePersonalScheduleDelivery, refreshPersonalScheduleDelivery, type PersonalSchedule, type PersonalScheduleActor, type PersonalScheduleAuthority, type PersonalScheduleRun, type PersonalScheduleScope } from "./personal-scheduler-records.ts";
 
 export type PersonalScheduleBody = { requestId: string; label: string; instruction: string; rule: unknown };
 type RunInput = { runId: string };
@@ -50,7 +52,7 @@ async function canceled(runtime: PersonalScheduleRuntime, id: string, context: C
   return { watch, promise };
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
 export function personalScheduler(getHarness: () => Harness, deps: PersonalSchedulerDeps) {
   const now = deps.now ?? Date.now;
   const runTask = defineTask<RunInput, { phase: "run" } | { phase: "summarize" }, object>({
@@ -178,9 +180,10 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
       const entry = (await tx.appendEntry(ScheduleResult, run.conversationId, { data: { runId: id, status, text } })).id;
       run.result = { status, text, entry, closedAt: new Date(now()).toISOString() };
       const taskId = await tx.createTask(sendTask, { runId: id }, { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: "conversation" }, background: true });
-      const reply = personalScheduleReportText(text);
-      const admission = (await tx.appendEntry(ScheduleSendAdmission, run.conversationId, { data: { runId: id, taskId, text: reply } })).id;
-      run.delivery = { taskId, admission, text: reply, claims: [], state: status === "canceled" ? "canceled" : "pending" };
+      const replyFormat = plan.telegram && plan.telegram.platform === undefined && deps.im?.delivery ? "complete" as const : undefined;
+      const reply = replyFormat === "complete" ? text : personalScheduleReportText(text);
+      const admission = (await tx.appendEntry(ScheduleSendAdmission, run.conversationId, { data: { runId: id, taskId, text: reply, ...(replyFormat ? { replyFormat } : {}) } })).id;
+      run.delivery = { taskId, admission, text: reply, ...(replyFormat ? { replyFormat } : {}), claims: [], state: status === "canceled" ? "canceled" : "pending" };
       if (plan.activeRun !== id) throw new PersonalError("schedule_record_invalid", "原计划运行占用不符，未关闭；请保留档案。");
       delete plan.activeRun;
       if (plan.rule.kind === "once" || plan.canceled) plan.nextDueAt = null;
@@ -188,11 +191,25 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
     }
     return { status: "terminal" as const, outcome: { status: "completed" as const, result: {} } };
   }
-  const sendTask = defineTask<RunInput, { phase: "send"; retryAt?: number }, object>({ name: SCHEDULE_SEND_TASK, version: 1, initial: () => ({ phase: "send" }), phases: { async send(current, runtime, taskContext) {
+  const sendTask = defineTask<RunInput, { phase: "send"; retryAt?: number } | { phase: "deliver" }, object>({ name: SCHEDULE_SEND_TASK, version: 1, initial: () => ({ phase: "send" }), phases: { async send(current, runtime, taskContext) {
     if (current.state.checkpoint.retryAt) await runtime.sleep(current.state.checkpoint.retryAt, taskContext);
     let plan!: PersonalSchedule, text = "", shouldSend = false;
     const sourceRun = (await runtime.snapshot(PersonalScheduleRunDoc, current.input.runId, taskContext))?.run;
     const sourcePlan = sourceRun && (await runtime.snapshot(PersonalScheduleDoc, sourceRun.planId, taskContext))?.plan;
+    if (sourcePlan?.telegram && sourcePlan.telegram.platform === undefined && deps.im?.delivery && (sourceRun?.delivery?.state === "pending" || sourceRun?.delivery?.multipart)) {
+      await withPersonalImEntry(deps.im, sourcePlan.telegram, () => runtime.commit(async tx => {
+        const run = await personalScheduleRun(tx, current.input.runId), delivery = run.delivery!, plan = await personalSchedule(tx, run.planId);
+        if (!delivery || delivery.taskId !== current.id || !run.result || !plan.telegram) throw new PersonalError("schedule_record_invalid", "原定时发送关系缺失，请查询原计划。");
+        if (delivery.multipart) return { status: "running", checkpoint: { phase: "deliver" } };
+        if (plan.canceled || run.cancelRequested || !deps.im!.isActive(plan.telegram) || !await telegramSourceActive(tx, plan.telegram)) { delivery.state = "canceled"; delivery.observation = (await tx.appendEntry(ScheduleSendObservation, run.conversationId, { data: { runId: run.id, state: "canceled" } })).id; return { status: "terminal", outcome: { status: "completed", result: {} } }; }
+        if (run.submissionId) {
+          try { await deps.verifyScope(tx, plan.scope); } catch (error) { if (!(error instanceof PersonalError)) throw error; delivery.state = "canceled"; delivery.code = "source_scope_changed"; delivery.observation = (await tx.appendEntry(ScheduleSendObservation, run.conversationId, { data: { runId: run.id, state: "canceled", code: delivery.code } })).id; return { status: "terminal", outcome: { status: "completed", result: {} } }; }
+        }
+        delivery.multipart = await deps.im!.delivery!.request(tx, { key: `schedule:${current.id}`, source: plan.telegram, messageId: await personalScheduledReportMessage(tx, plan), text: run.result.text }, current.id);
+        delivery.state = "sending";
+        return { status: "running", checkpoint: { phase: "deliver" } };
+      }, taskContext)); return;
+    }
     let fixedSend: (() => Promise<string>) | undefined;
     await withPersonalImEntry(deps.im, sourcePlan?.telegram ?? {}, async () => {
     await runtime.commit(async tx => {
@@ -225,7 +242,27 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
       delivery.observation = (await tx.appendEntry(ScheduleSendObservation, run.conversationId, { data: { runId: run.id, state, code, ...(messageId ? { platformMessageId: messageId } : {}) } })).id;
       return { status: "terminal", outcome: { status: "completed", result: {} } };
     }, taskContext);
-  } }, async abort(current, runtime, taskContext) { await runtime.commit(async tx => { const run = await personalScheduleRun(tx, current.input.runId); if (run.delivery?.state === "sending") { run.delivery.state = "effect_unknown"; run.delivery.code = "send_interrupted"; } else if (run.delivery?.state === "pending") run.delivery.state = "canceled"; if (run.delivery && ["effect_unknown", "canceled"].includes(run.delivery.state)) run.delivery.observation = (await tx.appendEntry(ScheduleSendObservation, run.conversationId, { data: { runId: run.id, state: run.delivery.state, ...(run.delivery.code ? { code: run.delivery.code } : {}) } })).id; return { status: "terminal", outcome: { status: "aborted" } }; }, taskContext); } });
+  }, async deliver(current, runtime, taskContext) {
+    const ref = (await runtime.snapshot(PersonalScheduleRunDoc, current.input.runId, taskContext))?.run?.delivery?.multipart;
+    if (!ref || !deps.im?.delivery) throw new PersonalError("schedule_record_invalid", "原定时分段发送模块缺失，请恢复对应程序。");
+    await runtime.waitForTask(ref.taskId, taskContext);
+    await runtime.commit(async tx => { const run = await personalScheduleRun(tx, current.input.runId); await settlePersonalScheduleDelivery(tx, run, ref); return { status: "terminal", outcome: { status: "completed", result: {} } }; }, taskContext);
+  } }, async abort(current, runtime, taskContext) {
+    const ref = (await runtime.snapshot(PersonalScheduleRunDoc, current.input.runId, taskContext))?.run?.delivery?.multipart;
+    if (ref) { if (!deps.im?.delivery) throw new PersonalError("schedule_record_invalid", "原定时分段发送模块缺失，请恢复对应程序。"); await deps.im.delivery.abort(ref); }
+    await runtime.commit(async tx => { const run = await personalScheduleRun(tx, current.input.runId); if (ref) await settlePersonalScheduleDelivery(tx, run, ref); else { if (run.delivery?.state === "sending") { run.delivery.state = "effect_unknown"; run.delivery.code = "send_interrupted"; } else if (run.delivery?.state === "pending") run.delivery.state = "canceled"; if (run.delivery && ["effect_unknown", "canceled"].includes(run.delivery.state)) run.delivery.observation = (await tx.appendEntry(ScheduleSendObservation, run.conversationId, { data: { runId: run.id, state: run.delivery.state, ...(run.delivery.code ? { code: run.delivery.code } : {}) } })).id; } return { status: "terminal", outcome: { status: "aborted" } }; }, taskContext);
+  } });
+  async function authorizeDelivery(tx: Tx, input: PersonalImDeliveryInput, parent: TaskId) {
+    const task = await tx.task(parent), data = task?.input;
+    if (task?.kind !== SCHEDULE_SEND_TASK || !data || typeof data !== "object" || Array.isArray(data) || typeof data.runId !== "string") throw new PersonalError("schedule_record_invalid", "原定时报告发送关系缺失，请查询原计划。");
+    const run = await personalScheduleRun(tx, data.runId), plan = await personalSchedule(tx, run.planId), delivery = run.delivery;
+    if (!delivery?.multipart || !plan.telegram || !run.result || delivery.taskId !== parent) throw new PersonalError("schedule_record_invalid", "原定时报告发送引用缺失，请查询原计划。");
+    const record = await personalImDeliveryRecord(tx, delivery.multipart), expected = { key: `schedule:${parent}`, source: plan.telegram, messageId: await personalScheduledReportMessage(tx, plan), text: run.result.text };
+    if (record.parent !== parent || !isDeepStrictEqual(record.input, expected) || !isDeepStrictEqual(input, expected)) throw new PersonalError("schedule_record_invalid", "原定时报告分段原文不符，请查询原计划。");
+    if (run.cancelRequested || plan.canceled || !await telegramSourceActive(tx, plan.telegram)) return false;
+    if (run.submissionId) { try { await deps.verifyScope(tx, plan.scope); } catch (error) { if (!(error instanceof PersonalError)) throw error; return false; } }
+    return true;
+  }
 
   async function hasFuture(tx: Tx) { for (const id of (await tx.doc(PersonalSchedulesDoc)).plans) { const plan = await personalSchedule(tx, id); if (!plan.canceled && plan.nextDueAt !== null) return true; } return false; }
   const supervisorTask = defineTask<object, { phase: "scan" }, object>({ name: SCHEDULE_SUPERVISOR_TASK, version: 1, initial: () => ({ phase: "scan" }), phases: { async scan(_current, runtime, taskContext) {
@@ -297,9 +334,16 @@ export function personalScheduler(getHarness: () => Harness, deps: PersonalSched
     return copy(run);
   }
   async function list(tx: Tx, offset = 0, actor?: PersonalEntryIdentity) { pageOffset(offset); const plans: PersonalSchedule[] = []; for (const id of (await tx.doc(PersonalSchedulesDoc)).plans.slice().reverse()) { const plan = await personalSchedule(tx, id); if (!actor || samePersonalEntry(actor, plan.telegram)) plans.push(plan); } return { items: plans.slice(offset, offset + 8).map(plan => copy(plan)), ...(offset + 8 < plans.length ? { nextOffset: offset + 8 } : {}) }; }
-  async function runs(tx: Tx, id: string, offset = 0) { pageOffset(offset); await personalSchedule(tx, id); const items = []; for (const runId of (await tx.doc(PersonalSchedulesDoc)).runs.slice().reverse()) { const run = await personalScheduleRun(tx, runId); if (run.planId === id) items.push({ id: run.id, planId: id, scheduledFor: run.scheduledFor, mergedFrom: run.mergedFrom, mergedThrough: run.mergedThrough, state: await runState(tx, run), ...(run.delivery ? { delivery: run.delivery.state } : {}) }); } return { items: items.slice(offset, offset + 8), ...(offset + 8 < items.length ? { nextOffset: offset + 8 } : {}) }; }
-  async function result(tx: Tx, id: string, offset = 0, size = 4096) { pageOffset(offset); if (!Number.isSafeInteger(size) || size < 1 || size > 16384) throw new PersonalError("schedule_input_invalid", "结果分页大小无效，请重新查询原运行。"); const run = await personalScheduleRun(tx, id); return { runId: id, state: await runState(tx, run), ...(run.result ? pageText(run.result.text, offset, size) : {}), ...(run.delivery ? { delivery: run.delivery.state } : {}) }; }
-  return { extension: defineExtension({ name: PERSONAL_SCHEDULER, tasks: [supervisorTask, runTask, sendTask] }), runTask, sendTask, supervisorTask, create, createByRequest, list, get: async (tx: Tx, id: string) => copy(await personalSchedule(tx, id)), cancel, cancelRun, runs, result, scan,
+  async function runs(tx: Tx, id: string, offset = 0) {
+    pageOffset(offset); await personalSchedule(tx, id);
+    const selected: { run: PersonalScheduleRun; state: Awaited<ReturnType<typeof runState>>; reconcile?: () => Promise<void> }[] = [];
+    for (const runId of (await tx.doc(PersonalSchedulesDoc)).runs.slice().reverse()) { const run = await personalScheduleRun(tx, runId); if (run.planId === id) selected.push({ run, state: await runState(tx, run), reconcile: await preparePersonalScheduleDelivery(tx, run) }); }
+    for (const item of selected) await item.reconcile?.();
+    const items = selected.map(({ run, state }) => ({ id: run.id, planId: id, scheduledFor: run.scheduledFor, mergedFrom: run.mergedFrom, mergedThrough: run.mergedThrough, state, ...(run.delivery ? { delivery: run.delivery.state } : {}) }));
+    return { items: items.slice(offset, offset + 8), ...(offset + 8 < items.length ? { nextOffset: offset + 8 } : {}) };
+  }
+  async function result(tx: Tx, id: string, offset = 0, size = 4096) { pageOffset(offset); if (!Number.isSafeInteger(size) || size < 1 || size > 16384) throw new PersonalError("schedule_input_invalid", "结果分页大小无效，请重新查询原运行。"); const run = await personalScheduleRun(tx, id), state = await runState(tx, run); await refreshPersonalScheduleDelivery(tx, run); return { runId: id, state, ...(run.result ? pageText(run.result.text, offset, size) : {}), ...(run.delivery ? { delivery: run.delivery.state } : {}) }; }
+  return { extension: defineExtension({ name: PERSONAL_SCHEDULER, tasks: [supervisorTask, runTask, sendTask] }), runTask, sendTask, supervisorTask, create, createByRequest, list, get: async (tx: Tx, id: string) => copy(await personalSchedule(tx, id)), cancel, cancelRun, runs, result, scan, authorizeDelivery,
     start,
     verifyCreator: deps.verifyCreator,
   };

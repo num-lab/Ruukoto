@@ -1,9 +1,9 @@
-import { personalRecoveryEvidenceText } from "./personal-recovery-claims.ts";
+import { personalImEffectContent, personalRecoveryEvidenceText, recordPersonalImOwnerClaim, verifyPersonalOwnerClaim } from "./personal-recovery-claims.ts";
 import { isDeepStrictEqual } from "node:util";
 import { defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type Harness, type TaskId, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalPendingInspectionsDoc } from "./personal-service-inspection.ts";
-import { personalServiceOperation, personalServiceOperationsIn, resolvePersonalServiceOperation, type personalServiceOperations, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
+import { personalServiceOperation, personalServiceOperationsIn, resolvePersonalServiceOperation, preparePersonalServiceResolution, type personalServiceOperations, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
 import { telegramSelection, telegramSourceActive } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, PersonalTelegramReceiptDoc, type TelegramControlInput } from "./personal-telegram-records.ts";
 
@@ -118,6 +118,7 @@ export function personalServiceControls(getHarness: () => Harness, getService: (
       const evidence = value.content.startsWith("核实说明 ") ? value.content.slice(5) : undefined;
       if (!choice && evidence === undefined && !ACTIONS.includes(value.content)) return false;
       if (!value.direct) { value.reply = "请直接发送 /服务核实，再回复已送达宿主菜单；转发和引用摘录不能核实操作。"; return true; }
+      let claimStarted = false;
       async function applyControl() {
         const actor = value;
         const menu = value.content === "/服务核实" ? undefined : (await telegramSelection(tx, value))?.selection;
@@ -137,8 +138,13 @@ export function personalServiceControls(getHarness: () => Harness, getService: (
           value.reply = "原服务效果核实及证据已保存，不覆盖原未知结论。停止未核实仍保留占用；回复「刷新服务」查询。";
         } else if (value.content === "确认已生效" || value.content === "确认未生效") {
           if (!(await summary(tx, ref)).canResolve) throw new PersonalError("service_resolution_invalid", "原操作尚不可核实或已经保存效果，请刷新服务。");
-          value.selection = { kind: "service-resolution", ref: { ...ref }, effect: value.content === "确认已生效" ? "applied" : "not_applied" };
-          value.reply = `选择${value.content}。请独立核实实际效果后，回复本消息「核实说明 你的证据」，最多 8192 字符；不填凭据。证据提交后不可覆盖，单凭效果说明不能释放停止未核实的占用。`;
+          const effect = value.content === "确认已生效" ? "applied" : "not_applied";
+          if (value.platform === undefined) {
+            const op = await originalService(tx, ref, value), apply = await preparePersonalServiceResolution(tx, ref, effect, value.requestId);
+            claimStarted = true;
+            const claim = await recordPersonalImOwnerClaim(tx, value, { family: "services", operation: ref.taskId, admission: op.work?.admission ?? op.configurationEntry ?? op.source.entryId }, effect); await apply({ claim });
+            value.serviceResolution = { ref: { ...ref }, effect }; value.reply = "你的服务效果说明已保存。原执行停止仍需单独核实。";
+          } else { value.selection = { kind: "service-resolution", ref: { ...ref }, effect }; value.reply = `选择${value.content}。请独立核实实际效果后，回复本消息「核实说明 你的证据」，最多 8192 字符；不填凭据。证据提交后不可覆盖，单凭效果说明不能释放停止未核实的占用。`; }
         } else if (value.content === "核实操作停止") {
           if (menu?.kind !== "service-recovery") throw new PersonalError("service_menu_stale", "停止重核须回复原服务详情菜单，未请求停止。");
           value.serviceStop = { ref: { ...ref }, taskId: await request(tx, ref, value) };
@@ -150,7 +156,7 @@ export function personalServiceControls(getHarness: () => Harness, getService: (
           value.reply = `${personalServiceDescription(detail.summary)}。\n核实说明：${detail.evidence}\n回复本消息选择：刷新服务${detail.summary.canResolve ? "、确认已生效、确认未生效" : ""}${detail.summary.canRecheck ? "、核实操作停止" : ""}${detail.nextOffset === undefined ? "" : "、更多核实说明"}。未知效果须效果及停止均核实后才解除占用；不会重新执行 restart。`;
         }
       }
-      try { await applyControl(); } catch (error) { if (!(error instanceof PersonalError)) throw error; delete value.selection; value.reply = `${error.message} 请发送 /服务核实 查询。`; }
+      try { await applyControl(); } catch (error) { if (claimStarted || !(error instanceof PersonalError)) throw error; delete value.selection; value.reply = `${error.message} 请发送 /服务核实 查询。`; }
       return true;
     },
   };
@@ -169,7 +175,10 @@ export async function verifyServiceControls(tx: Tx, keys: string[], enabled: boo
     const selected = (await telegramSelection(tx, value))?.selection;
     if (value.serviceResolution) {
       const op = await originalService(tx, value.serviceResolution.ref, actor, false);
-      if (selected?.kind !== "service-resolution" || !isDeepStrictEqual(selected.ref, op.ref) || selected.effect !== value.serviceResolution.effect || !["applied", "not_applied"].includes(selected.effect) || op.resolution?.controlRequestId !== key || op.resolution.effect !== selected.effect || value.content !== `核实说明 ${op.resolution.evidence}`) throw new PersonalError("service_control_invalid", "服务效果核实缺少原菜单、证据或决定回链，已停止恢复。");
+      const effect = value.serviceResolution.effect;
+      if (op.resolution?.controlRequestId !== key || op.resolution.effect !== effect) throw new PersonalError("service_control_invalid", "服务效果说明缺少原决定回链，已停止恢复。");
+      if (op.resolution.claim !== undefined) { if (value.platform !== undefined || selected?.kind !== "service-recovery" || !isDeepStrictEqual(selected.ref, op.ref) || value.content !== personalImEffectContent("services", effect)) throw new PersonalError("service_control_invalid", "服务效果说明缺少原菜单，已停止恢复。"); await verifyPersonalOwnerClaim(tx, op.resolution.claim, { family: "services", operation: op.ref.taskId, admission: op.work?.admission ?? op.configurationEntry ?? op.source.entryId, effect }); }
+      else if (selected?.kind !== "service-resolution" || !isDeepStrictEqual(selected.ref, op.ref) || selected.effect !== effect || !["applied", "not_applied"].includes(effect) || value.content !== `核实说明 ${op.resolution.evidence}`) throw new PersonalError("service_control_invalid", "服务效果核实缺少原菜单、证据或决定回链，已停止恢复。");
     }
     if (value.serviceStop) {
       const task = await tx.task(value.serviceStop.taskId);

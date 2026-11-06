@@ -17,7 +17,9 @@ import { parsePersonalMcp } from "./personal-mcp-config.ts";
 import type { PersonalScheduleScope } from "./personal-scheduler-records.ts";
 import { personalConfigurationVersions } from "./personal-settings-records.ts";
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
+const TELEGRAM_TRANSPORT_EXTENSIONS = new Set(["personal-im-delivery", "personal-telegram-displays", "personal-telegram-callbacks"]);
+
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
 export async function capturePersonalScheduleScope(tx: Tx, servicePolicyPath?: string): Promise<PersonalScheduleScope> {
   const agent = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID), tools = await tx.doc(PersonalToolsDoc);
   if (!Array.isArray(agent.tools) || !Array.isArray(agent.extensions)) throw new PersonalError("schedule_scope_invalid", "当前工具范围无法核实，未创建或执行计划；请查询配置。");
@@ -34,6 +36,7 @@ export async function capturePersonalScheduleScope(tx: Tx, servicePolicyPath?: s
   return { tools: [...agent.tools], extensions: [...agent.extensions], snapshot };
 }
 
+// Note: See .agents/notes/implemented/architecture/2026-11-06-personal-telegram-delivery.md
 export async function verifyPersonalScheduleScope(tx: Tx, scope: PersonalScheduleScope) {
   const snapshot = scope.snapshot, policy = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.servicePolicy : undefined;
   const policyPath = policy && typeof policy === "object" && !Array.isArray(policy) && typeof policy.path === "string" ? policy.path : undefined;
@@ -47,5 +50,8 @@ export async function verifyPersonalScheduleScope(tx: Tx, scope: PersonalSchedul
   const before = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot.mcp : undefined;
   const after = current.snapshot && typeof current.snapshot === "object" && !Array.isArray(current.snapshot) ? current.snapshot.mcp : undefined;
   if (before && after && await mcpConfigurationCompatible(tx, parsePersonalMcp(before), parsePersonalMcp(after))) comparable = { ...scope, snapshot: { ...(snapshot as Record<string, JsonValue>), mcp: after } };
+  // Host send tasks add no execution authority to the plan's preserved business ceiling.
+  current.extensions = current.extensions.filter(name => !TELEGRAM_TRANSPORT_EXTENSIONS.has(name));
+  comparable = { ...comparable, extensions: comparable.extensions.filter(name => !TELEGRAM_TRANSPORT_EXTENSIONS.has(name)) };
   if (!isDeepStrictEqual(current, comparable)) throw new PersonalError("schedule_scope_changed", "计划创建时的工具或资料范围已变更，已停止后续执行；请查询原运行和配置，核实未决效果后取消并重新创建计划。");
 }

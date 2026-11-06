@@ -29,8 +29,9 @@ export async function configurePersonalScheduledConversation(tx: Tx, conversatio
   agent.extensions = extensions; agent.tools = tools;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
 export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runtime: PersonalScheduleRuntime, context: Context, cancel: boolean, stopBrowser?: (conversationId: ConversationId) => Promise<boolean>, releaseBrowser?: (conversationId: ConversationId, context: Context) => Promise<void>) {
+  context.abortSignal?.throwIfAborted();
   let started = false;
   await runtime.commit(async tx => { started = !!(await tx.submissionByRequest(run.conversationId, run.requestId))?.entry; return undefined; }, context);
   if (!started) {
@@ -44,25 +45,33 @@ export async function settlePersonalScheduledRun(run: PersonalScheduleRun, runti
   let wakeCancel: () => void = () => undefined;
   const canceled = new Promise<void>(resolve => { wakeCancel = resolve; });
   const stop = () => stopping ??= stopBrowser?.(run.conversationId) ?? Promise.resolve(true);
-  cancelWatch.start(async value => { if (value?.run?.cancelRequested) { wakeCancel(); await stop(); } });
   try {
+    context.abortSignal?.throwIfAborted();
+    cancelWatch.start(async value => { if (value?.run?.cancelRequested) { wakeCancel(); await stop(); } });
     if (cancel || cancelWatch.value.run.cancelRequested) { cancellationObserved = true; await stop(); }
     let initial: Awaited<ReturnType<typeof personalServiceSourceBlocker>>;
     await runtime.commit(async tx => { initial = await personalServiceSourceBlocker(tx, run.requestId, true); return undefined; }, context);
     if (typeof initial === "string" || !initial || !("pause" in initial)) await stop();
     while (true) {
+      context.abortSignal?.throwIfAborted();
       let blocker: Awaited<ReturnType<typeof personalServiceSourceBlocker>>;
       await runtime.commit(async tx => { blocker = await personalServiceSourceBlocker(tx, run.requestId, true); return undefined; }, context);
       if (!blocker) break;
       const watch = typeof blocker === "string" ? await runtime.watchDoc(PersonalServiceOperationDoc, blocker, context) : "appData" in blocker ? await runtime.watchDoc(PersonalAppDataOperationDoc, blocker.appData, context) : "browser" in blocker ? blocker.session ? await runtime.watchDoc(PersonalBrowserSessionDoc, String(run.conversationId), context) : await runtime.watchDoc(PersonalBrowserOperationDoc, blocker.browser, context) : "tool" in blocker ? await runtime.watchDoc(PersonalToolDoc, blocker.tool, context) : "mcp" in blocker ? await runtime.watchDoc(PersonalMcpDoc, blocker.mcp, context) : "command" in blocker ? await runtime.watchDoc(PersonalCommandDoc, blocker.command, context) : await runtime.watchDoc(PersonalInspectionDoc, String(blocker.inspection), context);
       if (!watch) throw new PersonalError("schedule_effect_missing", "定时运行的待核实操作缺失，已保留占用；请保留档案。");
       try {
-        const changed = new Promise<void>(resolve => { watch.start(async () => resolve()); void watch.closed.then(() => resolve()); });
+        context.abortSignal?.throwIfAborted();
+        let wakeChange: () => void = () => undefined;
+        const changed = new Promise<void>(resolve => { wakeChange = resolve; });
+        // Register before another await so a stopped watch fails through the drain task.
+        watch.start(async () => wakeChange());
+        void watch.closed.then(() => wakeChange());
         let waiting = false;
         await runtime.commit(async tx => { waiting = isDeepStrictEqual(await personalServiceSourceBlocker(tx, run.requestId, true), blocker); return undefined; }, context);
         if (waiting) {
           if (cancellationObserved) await changed;
           else await Promise.race([changed, canceled]);
+          context.abortSignal?.throwIfAborted();
           if (cancelWatch.value?.run?.cancelRequested && !cancellationObserved) { cancellationObserved = true; await stop(); }
         }
       } finally { await watch.stop(); }
@@ -99,6 +108,13 @@ export async function preparePersonalScheduledReport(harness: Harness, plan: Per
   const api = im ? im.sender(source!) : source!.platform !== "qq" && target.telegram && personalTelegramApi(target.telegram.apiBase, telegramToken(target.telegram));
   if (!api) throw new PersonalImApiError("schedule_target_unavailable", "定时原回报平台不可用，未发送；请查询连接。", "not_sent");
   return () => api.send(source!.ownerId, target.messageId, text, signal);
+}
+
+export async function personalScheduledReportMessage(tx: Tx, plan: PersonalSchedule) {
+  const creator = plan.createdBy, requestId = creator.actor.kind === "im" ? creator.actor.input.requestId : creator.authority.source?.requestId;
+  const receipt = requestId && await personalSourceImReceipt(tx, requestId);
+  if (!plan.telegram || !receipt || !isDeepStrictEqual({ platform: receipt.platform, botId: receipt.botId, ownerId: receipt.ownerId, generation: receipt.generation }, { platform: plan.telegram.platform, botId: plan.telegram.botId, ownerId: plan.telegram.ownerId, generation: plan.telegram.generation })) throw new PersonalError("schedule_target_missing", "定时原回报来源缺失，请查询原计划。");
+  return receipt.messageId;
 }
 
 export async function sendPersonalScheduledReport(harness: Harness, plan: PersonalSchedule, text: string, signal: AbortSignal, im?: PersonalImAccess) {

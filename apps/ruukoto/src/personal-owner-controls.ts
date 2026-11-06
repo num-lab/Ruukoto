@@ -3,7 +3,8 @@ import { AgentDoc, defineExtension, ROOT_CONVERSATION_ID, type Tx } from "@earen
 import { PersonalError } from "./personal-error.ts";
 import { personalPermissionFor, telegramSelection, telegramSourceActive } from "./personal-permissions.ts";
 import { PersonalTelegramReceiptDoc, samePersonalEntry, type TelegramControlInput } from "./personal-telegram-records.ts";
-import { personalCommand, personalCommandsIn, resolvePersonalCommand, type PersonalCommandRef, type personalCommandWork } from "./personal-command-work.ts";
+import { personalCommand, personalCommandsIn, resolvePersonalCommand, preparePersonalCommandResolution, type PersonalCommandRef, type personalCommandWork } from "./personal-command-work.ts";
+import { personalImEffectContent, recordPersonalImOwnerClaim, verifyPersonalOwnerClaim } from "./personal-recovery-claims.ts";
 
 export const personalOwnerControls = defineExtension({ name: "personal-owner-controls" });
 const ACTIONS = ["/命令", "更多命令", "刷新命令", "下一页命令记录", "查看命令输出", "查看命令错误", "命令确认已生效", "命令确认未生效", "核实命令停止"];
@@ -17,8 +18,8 @@ async function original(tx: Tx, ref: PersonalCommandRef, actor: TelegramControlI
 }
 const description = (op: Awaited<ReturnType<typeof personalCommand>>) => `${op.command.slice(0, 120)}；${op.result?.effect === "effect_unknown" ? "业务效果未知" : op.result?.effect === "returned" ? `运行返回，退出码 ${op.result.exitCode}` : op.result?.effect === "not_executed" ? "已知未执行" : "结果尚未核实"}；停止${op.stopped ? "已核实" : "未核实"}${op.resolution ? `；业务${op.resolution.effect === "applied" ? "已生效" : "未生效"}已核实` : ""}`;
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-local-management.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-durable-commands.md
 export async function personalOwnerControl(tx: Tx, value: TelegramControlInput, commands?: Commands): Promise<boolean> {
   if (value.content === "/帮助" || value.content === "/状态") {
     if (!value.direct) { value.reply = "请由绑定拥有者直接发送 /帮助 或 /状态。"; return true; }
@@ -34,6 +35,7 @@ export async function personalOwnerControl(tx: Tx, value: TelegramControlInput, 
   if (!choice && evidence === undefined && !ACTIONS.includes(value.content)) return false;
   if (!commands) { value.reply = "命令能力未装配，请停止后台后在 Linux 本机向导配置专用目录。"; return true; }
   if (!value.direct) { value.reply = "请直接发送 /命令，再回复已送达宿主菜单选择；转发和引用摘录不能核实命令。"; return true; }
+  let claimStarted = false;
   try {
     const menu = value.content === "/命令" ? undefined : (await telegramSelection(tx, value))?.selection;
     if (value.content === "/命令" || value.content === "更多命令" && menu?.kind === "command-list" && menu.nextOffset !== undefined) {
@@ -54,8 +56,13 @@ export async function personalOwnerControl(tx: Tx, value: TelegramControlInput, 
       value.reply = "原命令业务效果证据已保存，不可覆盖；停止仍须分别核实。回复「刷新命令」查询；不会重新执行命令。";
     } else if (value.content === "命令确认已生效" || value.content === "命令确认未生效") {
       if (menu?.kind !== "command" || !(await commands.detailIn(tx, ref, "stdout")).canResolve) throw new PersonalError("command_resolution_invalid", "原命令当前不可核实效果，请刷新原记录。");
-      value.selection = { kind: "command-resolution", ref, effect: value.content === "命令确认已生效" ? "applied" : "not_applied" };
-      value.reply = "请独立核实实际业务效果，再回复本消息「命令核实说明 你的证据」，非空、最多8192字符，不填凭据。效果说明不能证明停止；记录后不可覆盖。";
+      const effect = value.content === "命令确认已生效" ? "applied" : "not_applied";
+      if (value.platform === undefined) {
+        const apply = await preparePersonalCommandResolution(tx, ref, effect, value.requestId);
+        claimStarted = true;
+        const claim = await recordPersonalImOwnerClaim(tx, value, { family: "commands", operation: ref.taskId, admission: op.admission }, effect); await apply({ claim });
+        value.commandResolution = { ref, effect }; value.reply = "你的命令效果说明已保存。原执行停止仍需单独核实。";
+      } else { value.selection = { kind: "command-resolution", ref, effect }; value.reply = "请独立核实实际业务效果，再回复本消息「命令核实说明 你的证据」，非空、最多8192字符，不填凭据。效果说明不能证明停止；记录后不可覆盖。"; }
     } else if (value.content === "核实命令停止") {
       if (menu?.kind !== "command") throw new PersonalError("command_menu_stale", "停止重核须回复原命令详情菜单，未登记。");
       value.commandStop = { ref, taskId: await commands.requestStop(tx, ref, value.requestId) };
@@ -73,7 +80,7 @@ export async function personalOwnerControl(tx: Tx, value: TelegramControlInput, 
       value.reply = `${description(op)}。运行返回不代表业务成功。\n${text}\n回复本消息选择：刷新命令、查看命令输出、查看命令错误${nextOffset === undefined ? "" : "、下一页命令记录"}${detail.canResolve ? "、命令确认已生效、命令确认未生效" : ""}${detail.canRecheck ? "、核实命令停止" : ""}。效果与停止均核实后才释放占用。`;
     }
   } catch (error) {
-    if (!(error instanceof PersonalError)) throw error;
+    if (claimStarted || !(error instanceof PersonalError)) throw error;
     delete value.selection;
     value.reply = `${error.message} 请发送 /命令 查询原记录。`;
   }
@@ -94,7 +101,9 @@ export async function verifyOwnerControls(tx: Tx, keys: string[], enabled: boole
     if (value.commandResolution && value.commandStop) throw invalid();
     if (value.commandResolution) {
       const { ref, effect } = value.commandResolution, op = await original(tx, ref, value, false);
-      if (menu?.kind !== "command" || !isDeepStrictEqual(menu.ref, ref) || selected?.kind !== "command-resolution" || !isDeepStrictEqual(selected.ref, ref) || selected.effect !== effect || op.resolution?.actor !== key || op.resolution.effect !== effect || value.content !== `${EVIDENCE}${op.resolution.evidence}`) throw invalid();
+      if (menu?.kind !== "command" || !isDeepStrictEqual(menu.ref, ref) || op.resolution?.actor !== key || op.resolution.effect !== effect) throw invalid();
+      if (op.resolution.claim !== undefined) { if (value.platform !== undefined || selected?.kind !== "command" || !isDeepStrictEqual(selected.ref, ref) || value.content !== personalImEffectContent("commands", effect)) throw invalid(); await verifyPersonalOwnerClaim(tx, op.resolution.claim, { family: "commands", operation: ref.taskId, admission: op.admission, effect }); }
+      else if (selected?.kind !== "command-resolution" || !isDeepStrictEqual(selected.ref, ref) || selected.effect !== effect || value.content !== `${EVIDENCE}${op.resolution.evidence}`) throw invalid();
     } else if (value.commandStop) {
       const { ref, taskId } = value.commandStop, op = await original(tx, ref, value, false), task = await tx.task(taskId);
       if (menu?.kind !== "command" || !isDeepStrictEqual(menu.ref, ref) || selected?.kind !== "command" || !isDeepStrictEqual(selected.ref, ref) || value.content !== "核实命令停止" || task?.kind !== "ruukoto.command-stop" || task.version !== 1 || task.conversationId !== ROOT_CONVERSATION_ID || task.owner !== undefined || !task.background || !task.input || typeof task.input !== "object" || Array.isArray(task.input) || !isDeepStrictEqual(task.input.ref, ref) || task.input.admission !== op.admission) throw invalid();

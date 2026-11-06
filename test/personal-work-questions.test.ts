@@ -213,7 +213,9 @@ test("work questions: only the original IM question menu can answer and reply-ti
   let sent = 1000;
   const bot = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { chat_id: string };
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { chat_id: string; message_id?: number };
+    if (req.url?.endsWith("/sendChatAction") || req.url?.endsWith("/answerCallbackQuery")) { res.end(JSON.stringify({ ok: true, result: true })); return; }
+    if (req.url?.endsWith("/editMessageText")) { res.end(JSON.stringify({ ok: true, result: { message_id: body.message_id, chat: { id: Number(body.chat_id), type: "private" } } })); return; }
     assert.equal(req.url, `/bot${token}/sendMessage`);
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, result: { message_id: ++sent, chat: { id: Number(body.chat_id), type: "private" } } }));
   });
@@ -232,9 +234,8 @@ test("work questions: only the original IM question menu can answer and reply-ti
   const original = await receive("拥有者来源"), ref = await p.work.delegate({ content: "IM work", requestId: "im-work", sourceRequestId: original.requestId }), q = await pending(p, ref);
   await assert.rejects(p.harness.commit(tx => answerPersonalQuestion(tx, input(q), { kind: "local" }), context), code("question_original_entry_required"));
   await p.harness.commit(async tx => { const permission = await tx.doc(PersonalPermissionsDoc); permission.mode = "full_access"; permission.version++; }, context);
-  let menu = await receive("/问题"); menu = await receive("问题1", Number(menu.platformMessageId)); menu = await receive("1", Number(menu.platformMessageId));
-  assert.equal(menu.selection?.kind, "question-draft");
-  const receipt = await receive("确认回答", Number(menu.platformMessageId)); assert.ok(receipt.questionAnswer);
+  let menu = await receive("/问题"); menu = await receive("问题1", Number(menu.platformMessageId));
+  const receipt = await receive("1", Number(menu.platformMessageId)); assert.ok(receipt.questionAnswer);
   await p.harness.waitForTask(ref.taskId, context);
   const answered = await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context);
   assert.equal(answered.answer!.delivery, "returned"); assert.equal(answered.answer!.permission.mode, q.origin.permission.mode); assert.equal(answered.answer!.actor.kind, "im");

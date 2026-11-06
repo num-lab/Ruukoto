@@ -4,6 +4,8 @@ Status: implemented
 
 [Personal IM updates](2026-10-25-personal-im-updates.md) owns online entry changes and short pre-send locking. Old generations do not regain authorization; permissions/approvals still verify original sources here.
 
+[Telegram cards and complete delivery](2026-11-06-personal-telegram-delivery.md) extends the queried host menus below with proactive durable displays, opaque callback tokens and exact direct-reply approval words. Canonical service decisions, original-entry authority and fixed-service standing scope remain here; callback acknowledgement and card edits do not change committed permission.
+
 ## Problem
 
 The [text entry](2026-10-17-personal-telegram-entry.md) only records messages, and [service work](2026-10-17-personal-service-operations.md) only has trusted host approval APIs. Turning chat text into decisions lets models or expired entries authorize operations. Reconstructing old input with current default mode expands its delegation.

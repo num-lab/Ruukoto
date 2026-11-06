@@ -66,6 +66,8 @@ The isolated Personal amendment/model check uses an explicitly selected configur
 
 For M2 app-data/MCP routing, run `RUN_MODEL_CHECK=1 RUN_PERSONAL_M2_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m2-model-acceptance.test.ts` after building workers; select `RUN_PERSONAL_M2_MODEL=provider/model` for multiple models. [M2 acceptance](docs/development-acceptance.md#personal-m2-execution) separates model routing from actual Linux resource and SQLite checks.
 
+Telegram cards and complete-result regressions start with `npx tsx --test test/personal-im-delivery.test.ts test/personal-im-delivery-consumers.test.ts test/personal-scheduler-cold-recovery.test.ts` after building workers. [Telegram verification](docs/development.md#telegram-verification) adds transport, callback and original-result retrieval checks; real-account, isolated Linux and configured-model evidence remain separate.
+
 ## Documentation
 
 - [Usage](docs/usage.md): running, configuration, SubAgent roles, entry setup, imports and troubleshooting.

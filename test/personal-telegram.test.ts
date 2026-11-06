@@ -40,13 +40,27 @@ class Bot {
   updates: TelegramUpdate[] = [];
   polls: Record<string, unknown>[] = [];
   sends: Record<string, unknown>[] = [];
+  typing: Record<string, unknown>[] = [];
+  callbacks: Record<string, unknown>[] = [];
+  edits: Record<string, unknown>[] = [];
+  documents: { body: Record<string, unknown>; name: string; mime: string; bytes: Buffer }[] = [];
   responses: string[] = [];
   private server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+    const bytes = Buffer.concat(chunks), form = req.headers["content-type"]?.startsWith("multipart/form-data") ? await new Request("http://localhost", { method: "POST", headers: { "content-type": req.headers["content-type"] }, body: Uint8Array.from(bytes) }).formData() : undefined;
+    const body: Record<string, unknown> = form ? {} : JSON.parse(bytes.toString()) as Record<string, unknown>;
+    if (form) for (const key of ["chat_id", "reply_parameters", "disable_content_type_detection"]) body[key] = form.get(key);
     const reply = (result: unknown) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, result }));
     if (req.url === `/bot${TOKEN}/getMe`) { reply({ id: 123, is_bot: true, username: "test_bot" }); return; }
+    if (req.url === `/bot${TOKEN}/sendChatAction`) { this.typing.push(body); reply(true); return; }
+    if (req.url === `/bot${TOKEN}/answerCallbackQuery`) { this.callbacks.push(body); reply(true); return; }
+    if (req.url === `/bot${TOKEN}/editMessageText`) { this.edits.push(body); reply({ message_id: Number(body.message_id), chat: { id: Number(body.chat_id), type: "private" } }); return; }
+    if (req.url === `/bot${TOKEN}/sendDocument`) {
+      const file = form?.get("document"); assert.ok(file && typeof file !== "string");
+      this.documents.push({ body, name: file.name, mime: file.type, bytes: Buffer.from(await file.arrayBuffer()) });
+      reply({ message_id: 2000 + this.documents.length, chat: { id: Number(body.chat_id), type: "private" }, document: { file_id: `file-${this.documents.length}`, file_name: file.name, file_size: file.size } }); return;
+    }
     if (req.url === `/bot${TOKEN}/getUpdates`) {
       this.polls.push(body);
       if (typeof body.offset === "number") this.updates = body.offset === -1 ? this.updates.slice(-1) : this.updates.filter(item => item.update_id >= Number(body.offset));
@@ -250,12 +264,14 @@ test("Telegram：明确429持久延后原发送，明确403失败不重试", asy
   await p.telegram.receive(update(12)); assert.equal((await settled(p, 12)).delivery, "failed"); assert.equal(f.bot.sends.length, 3);
 });
 
-test("Telegram：超长回答单条截断且不破坏 Unicode，完整回答留在会话", async t => {
-  const f = await fixture(t, () => ({ kind: "text", text: "😀".repeat(4100) })); const p = await f.open();
+test("Telegram：超长回答自动分段且不破坏 Unicode，原文完整保留在会话与发送", async t => {
+  const text = "😀".repeat(4100), f = await fixture(t, () => ({ kind: "text", text })); const p = await f.open();
   await p.telegram.receive(update(11)); const value = await settled(p, 11);
-  assert.ok(Array.from(value.reply!).length <= 4096); assert.match(value.reply!, /显示已截断/);
-  assert.ok(f.model.calls.length === 1 && JSON.stringify((await p.main.entries({}, 32, undefined, context)).items).includes("😀".repeat(4100)));
-  assert.equal(f.bot.sends.length, 1);
+  assert.equal(value.reply, text);
+  assert.ok(f.model.calls.length === 1 && JSON.stringify((await p.main.entries({}, 32, undefined, context)).items).includes(text));
+  assert.equal(f.bot.sends.length, 3);
+  assert.equal(f.bot.sends.map(body => body.text).join(""), text);
+  assert.ok(f.bot.sends.every(body => Array.from(String(body.text)).length <= 4096));
 });
 
 test("Telegram：unanswered 中断片段不外发；换代未发送回复取消，普通主聊天继续", async t => {
@@ -311,7 +327,7 @@ test("Telegram：配置、收件、Task 与版本断链拒绝恢复", async t =>
       const record = await storage.findDocument({ kind: PersonalTelegramReceiptDoc.definition.kind, scope: { kind: "session" }, key: "telegram:123:456:11" }, "current", context); const saved = await storage.document(record!.id, "current", context);
       await storage.commit([{ type: "document.change", id: record!.id, content: { kind: "base", version: 2, value: saved!.value } }], context); await storage.close(context);
     }
-    await assert.rejects(f.open(kind === "missing" ? { telegram: undefined } : kind === "same-generation" ? { telegram: { ...f.telegram, ownerId: "789" } } : {}), code(kind === "config" || kind === "version" ? "telegram_version" : kind === "missing" ? "telegram_config_missing" : kind === "same-generation" ? "telegram_config_changed" : "telegram_receipt_invalid"));
+    await assert.rejects(f.open(kind === "missing" ? { telegram: undefined } : kind === "same-generation" ? { telegram: { ...f.telegram, ownerId: "789" } } : {}), code(kind === "version" ? "telegram_version" : kind === "missing" ? "telegram_config_missing" : kind === "same-generation" ? "telegram_config_changed" : kind === "receipt" || kind === "task" ? "im_delivery_invalid" : "telegram_receipt_invalid"));
     assert.equal(f.bot.sends.length, 1);
   });
 });
@@ -416,9 +432,9 @@ test("Telegram问题：设置暂停先于续接接纳时不提交新的旧入口
   let id = 700;
   const receive = async (text: string, replyTo?: number) => { const messageId = ++id; const incoming = update(messageId, messageId, text); if (replyTo !== undefined) Object.assign(incoming.message!, { reply_to_message: { message_id: replyTo, from: { id: Number(f.telegram.botId), is_bot: true } } }); await p.telegram.receive(incoming); return settled(p, messageId); };
   await receive("发起问题"); const q = (await p.harness.commit(tx => personalQuestionList(tx), context)).items[0];
-  let menu = await receive("/问题"); menu = await receive("问题1", Number(menu.platformMessageId)); menu = await receive("1", Number(menu.platformMessageId));
+  let menu = await receive("/问题"); menu = await receive("问题1", Number(menu.platformMessageId));
   const calls = f.model.calls.length;
-  await receive("确认回答", Number(menu.platformMessageId));
+  const answerReceipt = await receive("1", Number(menu.platformMessageId)); assert.ok(answerReceipt.questionAnswer);
   await until(async () => (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer?.delivery === "canceled");
   const answer = (await p.harness.commit(tx => personalQuestionDetail(tx, q.id), context)).answer!;
   assert.equal(answer.submissionId, undefined); assert.equal(f.model.calls.length, calls);
@@ -532,16 +548,16 @@ test("Telegram协调：调用前正文不冒充执行结果，被拒安排的提
   });
   const p = await f.open();
   await p.telegram.receive(update(13, 13, "假委派"));
-  // IM 回执与本地回答同一优先序：正文保留，被拒绝调用的提交事实一并送达。
+  // Keep the pre-call prose with the committed refusal so it cannot stand as a success claim.
   await until(() => f.bot.sends.length > 0);
-  assert.match(String(f.bot.sends[0].text), /已委派分析；本轮以工具调用让出/);
-  assert.match(String(f.bot.sends[0].text), /未生效/);
+  assert.match(String(f.bot.sends[0].text), /已委派分析；这项安排未能完成/);
+  assert.doesNotMatch(String(f.bot.sends[0].text), /本轮以工具调用让出/);
   const receipt = await settled(p, 13);
   assert.equal(receipt.delivery, "sent");
 });
 
-test("Telegram协调：长调用前正文先截断，提交事实在外发预算内完整送达", { timeout: 30000 }, async t => {
-  const prose = `已委派分析${"长".repeat(4000)}`;
+test("Telegram协调：长调用前正文与实际拒绝完整分段送达", { timeout: 30000 }, async t => {
+  const prose = `已委派分析${"长".repeat(8000)}`;
   const f = await fixture(t, request => {
     if (request.system?.includes("你是个人助手的子 Agent")) return { kind: "text", text: "成员完成" };
     const last = request.messages.at(-1), content = String(last?.content);
@@ -551,17 +567,17 @@ test("Telegram协调：长调用前正文先截断，提交事实在外发预算
   });
   const p = await f.open();
   await p.telegram.receive(update(14, 14, "假委派"));
-  // 外发预算先让位给提交事实：长正文按剩余空间截断，拒绝事实绝不越过截断点丢失。
-  await until(() => f.bot.sends.length > 0);
-  const sent = String(f.bot.sends[0].text);
-  assert.ok(Array.from(sent).length <= 3900);
-  assert.match(sent, /未生效/);
   const receipt = await settled(p, 14);
   assert.equal(receipt.delivery, "sent");
+  const sent = f.bot.sends.filter(body => (body.reply_parameters as { message_id: number }).message_id === 14).map(body => body.text).join("");
+  assert.equal(sent, receipt.reply);
+  assert.ok(sent.startsWith(`${prose}；`));
+  assert.match(sent, /这项安排未能完成/);
+  assert.ok(f.bot.sends.length > 1);
+  assert.ok(f.bot.sends.every(body => Array.from(String(body.text)).length <= 4096));
 });
 
-test("Telegram协调：大批混合成败安排下外发回执保留聚合与拒绝存在", { timeout: 30000 }, async t => {
-  // 复现评审探针：24 项成功的 delegate 结果 JSON 足以耗尽外发预算，末位被拒调用不得被截掉。
+test("Telegram协调：大批混合成败安排逐项保留自然回执与末位拒绝", { timeout: 30000 }, async t => {
   const calls: { id: string; name: string; arguments: Record<string, unknown> }[] = Array.from({ length: 24 }, (_, i) => ({ id: `ok-${i}`, name: "background_work", arguments: { action: "delegate", content: `分析-${i}`, label: `分析员-${i}` } }));
   calls.push({ id: "bad", name: "background_work", arguments: { action: "delegate" } });
   const f = await fixture(t, request => {
@@ -573,13 +589,14 @@ test("Telegram协调：大批混合成败安排下外发回执保留聚合与拒
   });
   const p = await f.open();
   await p.telegram.receive(update(15, 15, "大批委派"));
-  await until(() => f.bot.sends.length > 0);
-  const sent = String(f.bot.sends[0].text);
-  assert.ok(Array.from(sent).length <= 3900, `外发回执应在预算内:${Array.from(sent).length}`);
-  assert.match(sent, /共25项调用/);
-  assert.match(sent, /未生效/);
   const receipt = await settled(p, 15);
   assert.equal(receipt.delivery, "sent");
+  const sent = f.bot.sends.filter(body => (body.reply_parameters as { message_id: number }).message_id === 15).map(body => body.text).join("");
+  assert.equal(sent, receipt.reply);
+  assert.equal(sent.match(/已安排后台处理/g)?.length, 24);
+  assert.match(sent, /这项安排未能完成/);
+  assert.doesNotMatch(sent, /本轮以工具调用让出/);
+  assert.ok(f.bot.sends.every(body => Array.from(String(body.text)).length <= 4096));
 });
 test("Telegram协调：登记未完成时同入口控制不被挂起的收件互斥阻塞", { timeout: 30000 }, async t => {
   let looping = false, released = false, completionReached = false, release!: () => void;

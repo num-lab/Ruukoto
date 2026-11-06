@@ -32,8 +32,9 @@ test("IM 配对请求：固定动作和字段，拒绝任意命令、路径与�
 test("IM 固定发送句柄：不能将已领取的原入口凭据用于另一个拥有者", async () => {
   let sent = 0;
   const config: PersonalTelegramConfig = { version: 1, enabled: true, generation: randomUUID(), apiBase: "https://api.telegram.org", tokenEnv: "TOKEN", tokenDigest: "a".repeat(64), botId: "123", ownerId: "456", boundary: 0 };
-  const im = personalTelegram(config, { me: async () => ({ id: config.botId, username: "bot" }), updates: async () => [], photo: () => { throw new Error("unused"); }, send: async () => { sent++; return "1"; } });
+  const im = personalTelegram(config, { me: async () => ({ id: config.botId, username: "bot" }), updates: async () => [], photo: () => { throw new Error("unused"); }, send: async () => { sent++; return "1"; }, document: async () => { sent++; return "2"; }, answerCallback: async () => {}, edit: async () => {}, typing: async () => {} });
   const sender = im.sender(config)!;
   await assert.rejects(sender.send("789", 1, "正文", new AbortController().signal), { code: "im_target_changed", effect: "not_sent" });
+  await assert.rejects(sender.document!("789", 1, { name: "result.txt", mime: "text/plain", bytes: Buffer.from("正文") }, new AbortController().signal), { code: "im_target_changed", effect: "not_sent" });
   assert.equal(sent, 0);
 });

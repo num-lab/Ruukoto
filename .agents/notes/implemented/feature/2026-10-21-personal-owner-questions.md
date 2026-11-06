@@ -4,6 +4,8 @@ Status: implemented
 
 [Online IM switching](../architecture/2026-10-25-personal-im-updates.md) serializes continuation acceptance, original send-handle selection, and configuration versions. Original question/answer identity remains.
 
+[Telegram cards and complete delivery](../architecture/2026-11-06-personal-telegram-delivery.md) replaces bounded Telegram continuation sends and adds proactive opaque-token displays. Telegram single choice submits directly, multi-select uses Done, and multiple questions retain review; QQ keeps its existing interaction. Original answer receipts, authority and continuation identity remain here.
+
 ## Problem
 
 Personal main shares an input queue, so a tool waiting for answers blocks their acceptance. Ordinary chat lacks question versions, original entry, and consumption facts. Coding's question tables, Task Store, and control protocol are outside Personal durable and must not be reintroduced for tool reuse.

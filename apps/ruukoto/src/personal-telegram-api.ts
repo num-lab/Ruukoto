@@ -2,12 +2,37 @@ import { PersonalMediaError, type PersonalMediaDownload } from "./personal-media
 import { PersonalError } from "./personal-error.ts";
 import { PersonalImApiError } from "./personal-im-api.ts";
 
-export type TelegramUpdate = { update_id: number; message?: unknown };
+export type TelegramUpdate = { update_id: number; message?: unknown; callback_query?: unknown };
 export type TelegramText = { id: number; ownerId: string; text: string; name: string; direct: boolean; media?: { identity: string; fileId: string; sizeBytes?: number }[]; replyTo?: number; replyBotId?: string };
+export type TelegramCallback = { queryId: string; data: string; ownerId: string; botId: string; chatId: string; messageId: number; date: number };
+export type TelegramKeyboard = { text: string; callback_data: string }[][];
 export type TelegramAck = { offset: number; receivedAt: number };
 
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function id(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value > 0; }
+const indirect = (value: Record<string, unknown>) => ["forward_origin", "forward_from", "forward_from_chat", "forward_sender_name", "is_automatic_forward", "via_bot", "sender_chat", "external_reply", "quote"].some(key => key in value);
+const callbackId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 256 && !/[\x00-\x1f\x7f]/.test(value);
+const validText = (value: string) => value.length > 0 && Array.from(value).length <= 4096;
+const invalidInput = () => new PersonalImApiError("telegram_input_invalid", "Telegram 发送内容或目标无效，未发送；请核实原记录。", "not_sent");
+
+export function telegramCallbackQueryId(update: TelegramUpdate): string | undefined { const query = update.callback_query; return object(query) && callbackId(query.id) ? query.id : undefined; }
+
+export function telegramCallbackIdentity(update: TelegramUpdate) {
+  const query = update.callback_query;
+  if (!object(query)) return {};
+  const message = object(query.message) ? query.message : undefined, from = object(query.from) ? query.from : undefined;
+  const chat = message && object(message.chat) ? message.chat : undefined, bot = message && object(message.from) ? message.from : undefined;
+  return { queryId: telegramCallbackQueryId(update) ?? null, sender: from?.id ?? null, senderBot: from?.is_bot ?? null, token: query.data ?? null, message: message?.message_id ?? null, chat: chat?.id ?? null, chatType: chat?.type ?? null, bot: bot?.id ?? null, botFlag: bot?.is_bot ?? null, accessible: !!message && id(message.date), inline: "inline_message_id" in query, game: "game_short_name" in query, indirect: indirect(query) || !!message && indirect(message) };
+}
+
+function checkTarget(ownerId: string, messageId?: number) {
+  if (!/^[1-9][0-9]{0,15}$/.test(ownerId) || messageId !== undefined && !id(messageId)) throw invalidInput();
+}
+
+function messageResult(result: unknown, ownerId: string): Record<string, unknown> {
+  if (!object(result) || !id(result.message_id) || !object(result.chat) || !id(result.chat.id) || String(result.chat.id) !== ownerId || result.chat.type !== "private") throw new PersonalTelegramApiError("effect_unknown");
+  return result;
+}
 
 async function readReply(response: Response): Promise<unknown> {
   const reader = response.body?.getReader();
@@ -41,10 +66,18 @@ export function telegramMessage(update: TelegramUpdate, allowImages = true): Tel
     media = [{ identity: typeof photo?.file_unique_id === "string" ? photo.file_unique_id : typeof photo?.file_id === "string" ? photo.file_id : "invalid-photo", fileId: typeof photo?.file_id === "string" ? photo.file_id : "", ...(typeof photo?.file_size === "number" ? { sizeBytes: photo.file_size } : {}) }];
   }
   const reply = object(m.reply_to_message) ? m.reply_to_message : undefined;
-  return { id: m.message_id, ownerId: String(m.from.id), text, ...(media ? { media } : {}), name: typeof m.from.first_name === "string" ? m.from.first_name.slice(0, 128) : "Telegram 用户", direct: !["forward_origin", "forward_from", "forward_from_chat", "forward_sender_name", "via_bot", "sender_chat", "external_reply", "quote"].some(key => key in m), ...(reply && id(reply.message_id) ? { replyTo: reply.message_id } : {}), ...(reply && object(reply.from) && reply.from.is_bot === true && id(reply.from.id) ? { replyBotId: String(reply.from.id) } : {}) };
+  return { id: m.message_id, ownerId: String(m.from.id), text, ...(media ? { media } : {}), name: typeof m.from.first_name === "string" ? m.from.first_name.slice(0, 128) : "Telegram 用户", direct: !indirect(m), ...(reply && id(reply.message_id) ? { replyTo: reply.message_id } : {}), ...(reply && object(reply.from) && reply.from.is_bot === true && id(reply.from.id) ? { replyBotId: String(reply.from.id) } : {}) };
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
+export function telegramCallback(update: TelegramUpdate): TelegramCallback | undefined {
+  const q = update.callback_query;
+  if (!object(q) || !callbackId(q.id) || typeof q.data !== "string" || !q.data || Buffer.byteLength(q.data) > 64 || "inline_message_id" in q || "game_short_name" in q || indirect(q) || !object(q.from) || !id(q.from.id) || q.from.is_bot !== false) return;
+  const m = q.message;
+  if (!object(m) || !id(m.message_id) || !id(m.date) || indirect(m) || !object(m.chat) || m.chat.type !== "private" || !id(m.chat.id) || m.chat.id !== q.from.id || !object(m.from) || !id(m.from.id) || m.from.is_bot !== true) return;
+  return { queryId: q.id, data: q.data, ownerId: String(q.from.id), botId: String(m.from.id), chatId: String(m.chat.id), messageId: m.message_id, date: m.date };
+}
+
+// Note: See .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
 export function telegramOffset(ack?: TelegramAck, now = performance.now()): number | undefined {
   return ack && now >= ack.receivedAt && now - ack.receivedAt < 60_000 ? ack.offset : undefined;
 }
@@ -56,15 +89,15 @@ export class PersonalTelegramApiError extends PersonalImApiError {
 }
 
 export function personalTelegramApi(apiBase: string, token: string) {
-  async function call(method: string, body: object, signal: AbortSignal, timeoutMs = 35_000): Promise<unknown> {
+  async function call(method: string, body: object | FormData, signal: AbortSignal, timeoutMs = 35_000): Promise<unknown> {
     let response: Response;
-    try { response = await fetch(`${apiBase}/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: "error" }); } catch {
-      // fetch 错误可能含凭据 URL；对外只保留不可核实的效果分类。
+    try { response = await fetch(`${apiBase}/bot${token}/${method}`, { method: "POST", ...(body instanceof FormData ? { body } : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]), redirect: "error" }); } catch {
+      // Fetch failures may contain credential URLs; expose only the effect classification.
       throw new PersonalTelegramApiError("effect_unknown");
     }
     let value: unknown;
     try { value = await readReply(response); } catch {
-      // 超限、截断或非 JSON 回执都不能证明发送未发生。
+      // Oversized, truncated or non-JSON receipts do not prove the request was not sent.
       throw new PersonalTelegramApiError("effect_unknown");
     }
     if (response.ok && object(value) && value.ok === true && "result" in value) return value.result;
@@ -85,8 +118,8 @@ export function personalTelegramApi(apiBase: string, token: string) {
       return { id: String(result.id), username: result.username };
     },
     async updates(signal: AbortSignal, offset?: number, timeout = 25): Promise<TelegramUpdate[]> {
-      // 单批为文本原文和平台引用留出 1 MiB 回执预算，避免大批合法消息反复超限。
-      const result = await call("getUpdates", { ...(offset === undefined ? {} : { offset }), timeout, limit: 16, allowed_updates: ["message"] }, signal, (timeout + 10) * 1000);
+      // Keep each batch within the 1 MiB receipt budget, including original text and references.
+      const result = await call("getUpdates", { ...(offset === undefined ? {} : { offset }), timeout, limit: 16, allowed_updates: ["message", "callback_query"] }, signal, (timeout + 10) * 1000);
       if (!Array.isArray(result) || result.length > 16 || result.some((item, i) => !object(item) || typeof item.update_id !== "number" || !Number.isSafeInteger(item.update_id) || item.update_id < 0 || (i > 0 && item.update_id <= result[i - 1].update_id))) throw new PersonalTelegramApiError("effect_unknown");
       return result as TelegramUpdate[];
     },
@@ -107,9 +140,36 @@ export function personalTelegramApi(apiBase: string, token: string) {
         return new Response(response.body, { status: response.status, headers });
       } };
     },
-    async send(ownerId: string, messageId: number, text: string, signal: AbortSignal) {
-      const result = await call("sendMessage", { chat_id: ownerId, text, reply_parameters: { message_id: messageId, allow_sending_without_reply: true } }, signal, 10_000);
-      if (!object(result) || !id(result.message_id) || !object(result.chat) || String(result.chat.id) !== ownerId || result.chat.type !== "private") throw new PersonalTelegramApiError("effect_unknown");
+    async send(ownerId: string, messageId: number, text: string, signal: AbortSignal, keyboard?: TelegramKeyboard) {
+      checkTarget(ownerId, messageId);
+      if (!validText(text) || keyboard !== undefined && (!Array.isArray(keyboard) || !keyboard.length || keyboard.some(row => !Array.isArray(row) || !row.length || row.some(button => !object(button) || typeof button.text !== "string" || !button.text || typeof button.callback_data !== "string" || !button.callback_data || Buffer.byteLength(button.callback_data) > 64)))) throw invalidInput();
+      const result = messageResult(await call("sendMessage", { chat_id: ownerId, text, reply_parameters: { message_id: messageId, allow_sending_without_reply: true }, ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}) }, signal, 10_000), ownerId);
+      return String(result.message_id);
+    },
+    async answerCallback(queryId: string, signal: AbortSignal): Promise<void> {
+      if (!callbackId(queryId)) throw invalidInput();
+      if (await call("answerCallbackQuery", { callback_query_id: queryId }, signal, 5_000) !== true) throw new PersonalTelegramApiError("effect_unknown");
+    },
+    async edit(ownerId: string, messageId: number, text: string, signal: AbortSignal): Promise<void> {
+      checkTarget(ownerId, messageId);
+      if (!validText(text)) throw invalidInput();
+      const result = messageResult(await call("editMessageText", { chat_id: ownerId, message_id: messageId, text, reply_markup: { inline_keyboard: [] } }, signal, 10_000), ownerId);
+      if (result.message_id !== messageId) throw new PersonalTelegramApiError("effect_unknown");
+    },
+    async typing(ownerId: string, signal: AbortSignal): Promise<void> {
+      checkTarget(ownerId);
+      if (await call("sendChatAction", { chat_id: ownerId, action: "typing" }, signal, 5_000) !== true) throw new PersonalTelegramApiError("effect_unknown");
+    },
+    async document(ownerId: string, messageId: number, input: { name: string; mime: string; bytes: Uint8Array }, signal: AbortSignal): Promise<string> {
+      checkTarget(ownerId, messageId);
+      if (!input.name || input.name.length > 128 || !input.name.trim() || input.name === "." || input.name === ".." || /[\x00-\x1f\x7f\\/]/.test(input.name) || !input.mime || input.mime.length > 256 || !/^[a-z0-9.+_-]+\/[a-z0-9.+_-]+(?:;[\x20-\x7e]+)?$/i.test(input.mime) || !(input.bytes instanceof Uint8Array) || input.bytes.byteLength > 8 * 1024 * 1024) throw invalidInput();
+      const body = new FormData();
+      body.set("chat_id", ownerId);
+      body.set("reply_parameters", JSON.stringify({ message_id: messageId, allow_sending_without_reply: true }));
+      body.set("disable_content_type_detection", "true");
+      body.set("document", new Blob([Uint8Array.from(input.bytes)], { type: input.mime }), input.name);
+      const result = messageResult(await call("sendDocument", body, signal), ownerId), file = result.document;
+      if (!object(file) || typeof file.file_id !== "string" || !file.file_id || file.file_id.length > 4096 || file.file_size !== undefined && (!Number.isSafeInteger(file.file_size) || file.file_size !== input.bytes.byteLength) || file.file_name !== undefined && file.file_name !== input.name) throw new PersonalTelegramApiError("effect_unknown");
       return String(result.message_id);
     },
   };

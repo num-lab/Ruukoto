@@ -64,6 +64,7 @@ stateDiagram-v2
 | Interactive resources | Host work qualification, FIFO claims, acquisition and release entries with original stop evidence |
 | Published reports | Immutable publication references to original answers; drafts remain inspectable in conversation history |
 | Final outputs | Immutable instruction/source-bound intents and artifact bytes; report coverage/publication fixes at most eight file references |
+| Telegram displays and delivery | Original card occurrences and opaque actions; exact text/file parts, ordered claims and separate callback/edit receipts |
 | Native owner display | Data-only admission entry and reciprocal request/submission/history association; native model history remains unchanged |
 | Native choices and recovery | Original family records, `ruukoto.desktop-action` intent/outcome receipts, immutable owner claims and fixed checks |
 
@@ -92,6 +93,20 @@ sequenceDiagram
 ```
 
 Platform message identity deduplicates admission. Auto-review handles eligible read-only operations; sensitive actions follow the original platform's approval flow. Replies retain the original platform, account, owner and generation.
+
+### Telegram Cards and Complete Results
+
+Telegram sends proactive cards from the same canonical operations and questions used by native clients. Each display fixes the original admission, occurrence, private entry and opaque action tokens. A choice requires the bound owner, current generation and confirmed bot-message identity, then rechecks the original action's eligibility. Callback acknowledgement and terminal editing have separate durable receipts; their failure cannot undo a committed choice or make a stale button eligible. An explicit redisplay retains the same decision and earlier send facts.
+
+One-shot approval direct replies accept only the exact words and listed numbers in the [Telegram delivery decision](../../.agents/notes/implemented/architecture/2026-11-06-personal-telegram-delivery.md), and require the original display to offer that approval action; other text remains ordinary chat. Question answers and applied/not-applied owner claims retain their own actions. Cua recovery uses the existing canonical recovery task with the original IM actor and captured pause/observation. An explicit `查看原电脑现场` read sends the saved observation's original images through the shared ledger; acceptance requires confirmed delivery of every image before its own admission. Inspection is separate from final publication, and the owner must open and check the images. Exact cleanup, fresh observation acceptance and explicit whole-sandbox stopping remain separate.
+
+Owner replies, question continuations, reports, scheduled results and long card bodies share one ordered delivery ledger. It stores exact original text and sends pieces of at most 4096 UTF-16 code units without dividing a surrogate pair. Each claim rechecks source, cancellation and caller authority, persists before dispatch, and uses the pinned sender outside the short platform mutex. Later pieces require confirmed earlier text. A known text failure or uncertain send stops the remainder; a verified Telegram rate-limit rejection may delay that same piece within three total attempts. Reopen waits for the canonical delivery reference and retains confirmed message IDs or original uncertainty.
+
+Reopen validates immutable received-entry backlinks and exact delivery ownership before continuing transport. Host faults reconcile unclaimed pieces as canceled and claimed pieces as unknown after integrity scans finish, preserving fault outcomes and committed choices. Parentless sends need an issued card or accepted original-text/recovery-image request; sharing the owner's private entry is insufficient authority.
+
+Adding Telegram's host delivery, display and callback tasks leaves a schedule's business scope unchanged. A proven unsent historical report can deliver its complete stored result once after upgrade; its original scope and formatter admission stay intact. Business tools, configuration/material changes and original-entry generation still gate execution and every send claim.
+
+Published final files follow the text using complete original bytes, up to 8 MiB each, with SHA-256 validation and the existing eight-file publication limit. Text and file outcomes are independent: a pending or failed attachment does not hide already confirmed text and never repeats work. `/结果` pages original results from the same private entry; explicit selection sends saved original text through a new retrieval intent while keeping old receipts unchanged. Normal long delivery advances automatically. Typing is best effort while ordinary replies are pending and establishes no acceptance or model-speed guarantee.
 
 ### Final Files and Setup
 
@@ -193,6 +208,7 @@ Canceling one scheduled occurrence records its original owner authority, cancels
 - Report publication and external send claims verify their covered requirements independently. Published history stays immutable, and an already-started send keeps its original outcome identity across successor reports.
 - Desktop approval remains the original native/IM operation decision. Display, redisplay and client reconnection grant no authority; native cannot approve an IM-origin item.
 - Sending retains destination and outcome identity across connection failures. An inconclusive sent operation is not automatically retried as if unsent.
+- Telegram display, callback acknowledgement, card editing and delivery facts do not grant or replace canonical business authority. Pending pieces stop on source or requirement changes; started sends retain their observations.
 
 ## Design Rationale
 
@@ -216,4 +232,5 @@ Canceling one scheduled occurrence records its original owner authority, cancels
 - [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
 - [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
 - [Personal final-file publication](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)
+- [Personal Telegram cards and complete delivery](../../.agents/notes/implemented/architecture/2026-11-06-personal-telegram-delivery.md)
 - [Personal setup presets and administration](../../.agents/notes/implemented/feature/2026-11-05-personal-setup-presets.md)

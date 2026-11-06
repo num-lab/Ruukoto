@@ -2,7 +2,7 @@ import { personalQuestionSource } from "./personal-questions.ts";
 import { ROOT_CONVERSATION_ID, type Tx } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { LocalInputDoc, personalLocalPermission } from "./personal-local-records.ts";
-import { isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
+import { isPersonalImRequest, PersonalTelegramReceiptDoc, samePersonalEntry, type TelegramReceipt } from "./personal-telegram-records.ts";
 import { permissionSnapshot, PersonalPermissionsDoc, telegramSourceActive } from "./personal-permissions.ts";
 import { personalScheduledSource, requireScheduledSourceReady } from "./personal-scheduler-records.ts";
 import { verifyPersonalScheduleScope } from "./personal-schedule-scope.ts";
@@ -11,7 +11,7 @@ export async function personalSourceSubmission(tx: Tx, requestId: string) {
   return (await personalScheduledSource(tx, requestId))?.submission ?? await tx.submissionByRequest(ROOT_CONVERSATION_ID, requestId);
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
+// Note: See .agents/notes/implemented/architecture/2026-10-18-personal-durable-scheduled-work.md
 export async function personalSource(tx: Tx, requestId: string, options?: { active?: boolean; invalidCode?: string }) {
   const question = await personalQuestionSource(tx, requestId, options?.active);
   if (question) return { ...question, scheduled: false as const, question: true as const };
@@ -31,8 +31,14 @@ export async function personalSource(tx: Tx, requestId: string, options?: { acti
   return { submission, entry, accepted, source: { requestId, submissionId: submission.id, entryId: entry.id }, permission: { mode: permission.mode, version: permission.version }, ...(telegram ? { telegram } : {}), scheduled: false as const };
 }
 
-export async function personalSourceImReceipt(tx: Tx, requestId: string) {
+export async function personalSourceImReceipt(tx: Tx, requestId: string): Promise<TelegramReceipt | undefined> {
   const question = await personalQuestionSource(tx, requestId);
-  const key = question ? question.receiptRequestId : requestId;
-  return key ? (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt : undefined;
+  if (question) return question.receiptRequestId ? (await tx.doc(PersonalTelegramReceiptDoc, question.receiptRequestId, null)).receipt : undefined;
+  const scheduled = await personalScheduledSource(tx, requestId);
+  if (scheduled) {
+    const actor = scheduled.plan.createdBy.actor, original = actor.kind === "im" ? await personalSourceImReceipt(tx, actor.input.requestId) : actor.kind === "model" ? await personalSourceImReceipt(tx, actor.requestId) : undefined;
+    if (scheduled.telegram && (!original || !samePersonalEntry(original, scheduled.telegram))) throw new PersonalError("source_inactive", "定时工作的原私聊来源缺失，请保留档案并查询原计划。");
+    return original;
+  }
+  return (await tx.doc(PersonalTelegramReceiptDoc, requestId, null)).receipt;
 }

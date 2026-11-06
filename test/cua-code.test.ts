@@ -84,7 +84,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const runtime = await startTestRuntime("cua-code", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const runtime = await startTestRuntime("cua-code", withMcpDiscovery(responder), { config: { product: product.runtime } });
   const { client, dirs } = runtime;
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [
@@ -92,7 +92,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     { name: "click", description: "点击画面", inputSchema: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, scope: { type: "string" }, mode: { type: "string" }, debug_image_out: { type: "string" }, session: { type: "string" } }, required: ["x", "y"] } },
     { name: "run_script", inputSchema: { type: "object", properties: {} } },
   ];
-  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify({...m,pid:process.pid})+'\\n');if(m.params.arguments.mode==='lost')continue;if(m.params.arguments.mode==='incomplete'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{resultType:'input_required',content:[]}})+'\\n');continue;}if(m.params.arguments.mode==='error'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'known failure'}})+'\\n');continue;}result={content:m.params.name==='get_desktop_state'?[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}]:[{type:'text',text:'clicked'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
+  fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';const record=${JSON.stringify(record)},tools=${JSON.stringify(tools)};if(process.argv[2]==='dump-docs'){process.stdout.write(JSON.stringify({version:'0.38.0',tools:tools.map(t=>({name:t.name,description:t.description??'',input_schema:t.inputSchema}))}));process.exit(0);}fs.appendFileSync(record,JSON.stringify({start:process.pid})+'\\n');for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);if(m.id===undefined)continue;let result;if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'offline-cua',version:'0.38.0'}};else if(m.method==='tools/list')result={tools};else if(m.method==='tools/call'){fs.appendFileSync(record,JSON.stringify({...m,pid:process.pid})+'\\n');if(m.params.arguments.mode==='lost')process.exit(1);if(m.params.arguments.mode==='incomplete'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{resultType:'input_required',content:[]}})+'\\n');continue;}if(m.params.arguments.mode==='error'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'known failure'}})+'\\n');continue;}result={content:m.params.name==='get_desktop_state'?[{type:'image',data:${JSON.stringify(PNG)},mimeType:'image/png'}]:[{type:'text',text:'clicked'}]};}else result={};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');}\n`, { mode: 0o700 });
   const cua = { kind: "cua-mac", executable, version: "0.38.0", sha256: createHash("sha256").update(fs.readFileSync(executable)).digest("hex") } as const;
   const calls = () => fs.existsSync(record) ? fs.readFileSync(record, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
   const sent = () => calls().filter(call => call.method === "tools/call");
@@ -267,7 +267,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const runtime = await startTestRuntime("cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const runtime = await startTestRuntime("cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime } });
   const { client, dirs } = runtime;
   const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
@@ -353,7 +353,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
 test("Code Cua：观察授权只在结果进入后续模型请求后激活，同响应写零发送", { skip: !available }, async () => {
   const script: Array<{ kind: "tool_calls"; calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> } | { kind: "text"; text: string }> = [];
   const responder: Responder = async () => script.shift() ?? { kind: "text", text: "done" };
-  const runtime = await startTestRuntime("cua-deliver", withMcpDiscovery(responder), { config: { ...realTools(), product: product.runtime, budgetOverrides: { toolResultViewChars: 600 }, mcp: { callTimeoutMs: 300 } } });
+  const runtime = await startTestRuntime("cua-deliver", withMcpDiscovery(responder), { config: { ...realTools(), product: product.runtime, budgetOverrides: { toolResultViewChars: 600 } } });
   const { client, dirs } = runtime;
   const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
   const LONG_TREE = '- [20] AXTextField "Visible"\n' + "x".repeat(3000) + '\n- [14] AXButton "Hidden"\n' + "x".repeat(3000) + '\n- [90] AXButton "Tail"';
@@ -438,7 +438,7 @@ test("Code CUA binds observations to persisted host operations, not reusable SDK
   const runtime = await startTestRuntime("cua-result-identity", withMcpDiscovery(async () => {
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [call] } : { kind: "text", text: "done" };
-  }), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  }), { config: { product: product.runtime } });
   const { client, dirs } = runtime;
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [

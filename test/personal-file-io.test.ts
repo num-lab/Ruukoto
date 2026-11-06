@@ -320,12 +320,12 @@ test("文件工作线程：旧版本文件操作按完成与否兼容或拒绝",
     await compat.close();
   }
 
-  // The old active WorkTask is refused before file-I/O activation.
+  // Output capability cutover rejects unfinished legacy work before task activation.
   const pendingRead = await restorePersonalFileIoLegacy("pending-read", fs.mkdtempSync(path.join(root, "pending-read-")));
-  await assert.rejects(open(pendingRead), code("task_version"));
+  await assert.rejects(open(pendingRead), code("outputs_cutover_pending"));
   assert.equal(fs.readFileSync(pendingRead.target, "utf8"), "x");
   const pendingWrite = await restorePersonalFileIoLegacy("pending-write", fs.mkdtempSync(path.join(root, "pending-write-")));
-  await assert.rejects(open(pendingWrite), code("task_version"));
+  await assert.rejects(open(pendingWrite), code("outputs_cutover_pending"));
   assert.equal(fs.readFileSync(pendingWrite.target, "utf8"), "x");
   const storage = await openNodeSqliteStorage(path.join(pendingWrite.directory, "personal.sqlite"));
   try {
@@ -1166,10 +1166,11 @@ test("Native cleanup stops an admitted revalidation job before the file write st
   });
   const key = "RUUKOTO_NATIVE_REVALIDATE_KEY", previous = process.env[key]; process.env[key] = "test-only";
   const stat = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "native-revalidation", workspace, identity: { dev: stat.dev, ino: stat.ino }, credentials: [] });
-  const fileIo = openPersonalFileIo({ profile: directory, script: FIFO_WRAPPER, deadlineMs: 1000, terminationGraceMs: 100 });
+  const fileIo = openPersonalFileIo({ profile: directory }), revalidationIo = openPersonalFileIo({ profile: directory, script: FIFO_WRAPPER, deadlineMs: 1000, terminationGraceMs: 100 });
   let p: PersonalHarness | undefined;
-  t.after(async () => { f.release(64); const results = await Promise.allSettled([p?.close(), fileIo.close(), server.close()]); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; fs.rmSync(root, { recursive: true, force: true }); const failure = results.find(result => result.status === "rejected"); if (failure?.status === "rejected") throw failure.reason; });
-  p = await openPersonalHarness({ directory, tools, fileIo, modelId: "mock-model", provider: personalProvider({ api: "openai-completions", baseUrl: await server.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 8192 }) });
+  t.after(async () => { f.release(64); const results = await Promise.allSettled([p?.close(), fileIo.close(), revalidationIo.close(), server.close()]); if (previous === undefined) delete process.env[key]; else process.env[key] = previous; fs.rmSync(root, { recursive: true, force: true }); const failure = results.find(result => result.status === "rejected"); if (failure?.status === "rejected") throw failure.reason; });
+  // Only the held revalidation gets the short deadline; initial identity checks use the production budget.
+  p = await openPersonalHarness({ directory, tools, fileIo: { ...fileIo, prepare: (input, job) => (job?.phase === "revalidate" ? revalidationIo : fileIo).prepare(input, job) }, modelId: "mock-model", provider: personalProvider({ api: "openai-completions", baseUrl: await server.start(), modelId: "mock-model", apiKeyEnv: key, contextWindow: 128000, maxTokens: 8192 }) });
   await p.answer("source", "native-revalidate-source");
   const work = await p.work.delegate({ requestId: "native-revalidate-work", sourceRequestId: "native-revalidate-source", content: "write" });
   const operations = () => p!.harness.commit(async tx => JSON.parse(JSON.stringify(await toolOperations(tx))) as PersonalToolOperation[], context);

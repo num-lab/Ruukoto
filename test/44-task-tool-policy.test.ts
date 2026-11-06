@@ -62,8 +62,16 @@ test("宿主任务白名单：只读 MCP、调用门与发送校验，下一普�
     assert.equal(t.runtime.store.listConfirmationsByTask(restricted.id).length, 0);
     const sdk = driver.sdk;
 
+    const prompt = sdk.prompt.bind(sdk);
+    sdk.prompt = async (...args: unknown[]) => {
+      // MCP discovery can publish after the host selects this task's tools.
+      const registration = driver.mcpSession.registrations.get("mcp__policy__get");
+      driver.mcpSession.add(registration.original);
+      return prompt(...args);
+    };
     const ownerCallIndex = t.server.calls.length;
     const owner = await submit("owner-request");
+    sdk.prompt = prompt;
     assert.equal(owner.status, "completed", owner.errorMessage ?? owner.interruptReason ?? "");
     assert.equal(driver.sdk, sdk, "任务限制变化不重建 SDK 会话");
     assert.equal(readFileSync(marker, "utf8"), "owner\n", "普通任务恢复工具执行能力");

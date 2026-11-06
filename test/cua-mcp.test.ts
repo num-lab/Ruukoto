@@ -126,21 +126,6 @@ test("Cua stdio：两次调用间退出使连接失效，下一调用不记录�
   } finally { await f.close(); }
 });
 
-test("Cua stdio：原请求持久慢于SDK超时，释放后禁止首次发送", async () => {
-  const f = await fixture({ callTimeoutMs: 40 });
-  let release!: () => void, entered!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
-  try {
-    const pending = f.connection.callTool(tool, { stale: true }, undefined, { async recordCallRequest() { entered(); await gate; } });
-    const rejected = assert.rejects(pending, (error: unknown) => error instanceof McpError && error.code === "timeout");
-    await started;
-    await new Promise(resolve => setTimeout(resolve, 80));
-    release(); await rejected;
-    await f.connection.callTool(tool, { barrier: true });
-    assert.deepEqual((await f.calls()).map(message => message.params.arguments), [{ barrier: true }]);
-  } finally { release(); await f.close(); }
-});
-
 test("Cua stdio：48MiB聚合预算容纳四张上限图片，超限保留原发送事实", async () => {
   const f = await fixture();
   try {

@@ -388,6 +388,7 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
   const beforeWork = await p.work.delegate({ requestId: "before-work", sourceRequestId: "before-source", content: "子快照" });
   await p.harness.waitForTask(beforeWork.taskId, context);
   const child = (request: RecordedRequest) => request.system?.includes("你是个人助手的子 Agent") === true;
+  const toolNames = (request: RecordedRequest) => request.tools?.map(tool => (tool.function as { name: string }).name) ?? [];
   const beforeChild = f.model.calls.findLast(child)!;
   const estimate = (request: RecordedRequest) => ({ systemPrompt: Math.ceil((request.system?.length ?? 0) / 4), toolSchemas: Math.ceil(JSON.stringify(request.tools ?? []).length / 4) });
   const evidence: { before: { main: ReturnType<typeof estimate>; child: ReturnType<typeof estimate> }; after: Record<string, { main: ReturnType<typeof estimate>; child: ReturnType<typeof estimate> }> } = { before: { main: estimate(beforeMain), child: estimate(beforeChild) }, after: {} };
@@ -402,14 +403,14 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
     const delegation = mainCall.tools?.find(tool => (tool.function as { name: string }).name === "background_work")?.function as { parameters: { properties: { content: { description: string } } } } | undefined;
     assert.match(delegation!.parameters.properties.content.description, /原样保留.*字面正文.*末尾换行.*不得.*添加换行.*不得增加读取/);
     for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) {
-      assert.ok(JSON.stringify(childCall.tools).includes(JSON.stringify(name)));
-      assert.ok(!JSON.stringify(mainCall.tools).includes(JSON.stringify(name)));
+      assert.ok(toolNames(childCall).includes(name));
+      assert.ok(!toolNames(mainCall).includes(name));
     }
     evidence.after[access] = { main: estimate(mainCall), child: estimate(childCall) };
   }
-  for (const request of [beforeMain, beforeChild]) assert.doesNotMatch(JSON.stringify(request.tools ?? []), /read_file|write_file|http_request|web_search/);
-  assert.doesNotMatch(JSON.stringify(beforeMain.tools ?? []), /read_artifact/);
-  assert.ok(!beforeChild.tools?.some(tool => (tool.function as { name: string }).name === "read_artifact"));
+  for (const request of [beforeMain, beforeChild]) {
+    for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) assert.ok(!toolNames(request).includes(name));
+  }
   t.diagnostic(JSON.stringify({ estimatedTokens: evidence }));
 });
 

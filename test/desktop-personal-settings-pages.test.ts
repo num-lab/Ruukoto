@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { test } from "node:test";
+import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createServer, type ViteDevServer } from "vite";
+import react from "@vitejs/plugin-react";
 import type { DesktopBridge, DesktopFailure, DesktopResult, DesktopTarget } from "../apps/desktop/src/shared/bridge.ts";
 import type { PersonalMaintenanceRecord, PersonalConfigurationReceipt } from "../apps/desktop/src/shared/personal-settings.ts";
 import { PersonalSettingsPageState } from "../apps/desktop/src/renderer/personal-settings-state.ts";
 import type { PersonalService } from "../apps/desktop/src/renderer/personal-settings-state.ts";
 import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
+
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
+let server: ViteDevServer, PersonalSettingsEditor: ComponentType<{ state: PersonalSettingsPageState; onConnection: () => void }>;
+before(async () => {
+  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
+  ({ PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx"));
+});
+after(async () => { await server?.close(); });
 
 const profile = { directory: "/remote/profile", id: "sha256:" + "a".repeat(64) };
 const modelRevision = "sha256:" + "b".repeat(64), libraryRevision = "sha256:" + "c".repeat(64), skillsRevision = "sha256:" + "d".repeat(64), mcpRevision = "sha256:" + "e".repeat(64);
@@ -365,14 +378,7 @@ test("旧 MCP 格式须先显式迁入，再允许新增停用服务", async () 
   assert.equal(h.writes().length, 1);
 });
 
-test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安全正文", async t => {
-  const { createElement } = await import("react");
-  const { renderToStaticMarkup } = await import("react-dom/server");
-  const { createServer } = await import("vite"); const { default: react } = await import("@vitejs/plugin-react");
-  const { fileURLToPath } = await import("node:url");
-  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
-  t.after(() => server.close());
-  const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
+test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安全正文", async () => {
   for (const category of ["models", "skills", "mcp"] as const) {
     const h = harness(category);
     if (category === "models") Object.assign(h.view.settings, { modelPresets: [{ id: "openai/preset", provider: "OpenAI", name: "Installed preset", config: modelConfig }] });
@@ -475,14 +481,9 @@ test("Personal Cua connection-stop verification uses the original control withou
   assert.equal(h.writes().length, 0);
 });
 
-test("Personal Cua offers connection-stop verification after an accepted takeover", async t => {
+test("Personal Cua offers connection-stop verification after an accepted takeover", async () => {
   const h = harness("computer"); await h.state.read();
   h.state.cua = { available: true, paused: false, busy: false, operations: [{ operation: 12, service: "电脑", tool: "computer_screenshot", effect: "returned", code: "returned", cuaStopUnverified: true, cuaRecovery: "accepted", images: [] }] };
-  const { renderToStaticMarkup } = await import("react-dom/server"), { createElement } = await import("react");
-  const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
-  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
-  t.after(() => server.close());
-  const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
   const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
   assert.match(html, /核实连接停止/); assert.doesNotMatch(html, /停止沙箱/);
 });
@@ -520,14 +521,7 @@ test("Personal 电脑页共用 MCP 修订与保存入口，只编辑 CUA 服务"
   assert.equal(h.writes()[0].request.id, cuaService.id);
 });
 
-test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不再显示 Cua", async t => {
-  const { createElement } = await import("react");
-  const { renderToStaticMarkup } = await import("react-dom/server");
-  const { createServer } = await import("vite"); const { default: react } = await import("@vitejs/plugin-react");
-  const { fileURLToPath } = await import("node:url");
-  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
-  t.after(() => server.close());
-  const { PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx");
+test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不再显示 Cua", async () => {
   const computer = harness("computer"); computer.view.settings.mcp.services.push(structuredClone(cuaService)); await computer.state.read();
   const computerHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: computer.state, onConnection() {} }));
   assert.match(computerHtml, /Linux 桌面沙箱/); assert.match(computerHtml, /Linux 电脑/); assert.match(computerHtml, /local:desktop/);

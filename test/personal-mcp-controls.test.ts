@@ -117,19 +117,19 @@ test("MCP 原入口控制：原宿主菜单批准只消费一次，转发、引�
   await f.p.harness.commit(tx => verifyMcpControls(tx, f.keys, true), context);
 });
 
-test("MCP 效果核实：原菜单保存业务证据仍不证明远端结束，回链缺失拒绝恢复", async t => {
+test("MCP 效果核实：原菜单保存拥有者选择仍不证明远端结束，回链缺失拒绝恢复", async t => {
   const f = await fixture(t, true);
   const list = await f.receive("/MCP"), menu = await f.receive("MCP1", list.sentId);
   await f.receive("MCP批准本次", menu.sentId);
   await until(async () => { const op = (await f.p.harness.snapshot(PersonalMcpDoc, String(f.operation), context))?.operation; return op?.effect === "effect_unknown" && op.code !== "started"; });
   const detail = await f.receive("刷新MCP", menu.sentId);
-  const selected = await f.receive("MCP确认已生效", detail.sentId);
-  assert.equal(selected.value.selection?.kind, "mcp-resolution");
-  const saved = await f.receive("MCP核实说明 远端业务记录已核对", selected.sentId);
+  const saved = await f.receive("MCP确认已生效", detail.sentId);
+  assert.deepEqual(saved.value.mcpResolution, { operation: f.operation, effect: "applied" });
   const op = (await f.p.harness.snapshot(PersonalMcpDoc, String(f.operation), context))!.operation!;
   assert.equal(op.resolution?.effect, "applied"); assert.equal(op.remoteEnded, false); assert.equal(mcpUnresolved(op), true);
+  assert.ok(op.resolution?.claim); assert.equal(op.resolution?.evidence, undefined);
   assert.equal(f.mcp.hits.filter(hit => hit.rpcMethod === "tools/call").length, 1);
-  assert.match(saved.value.reply!, /人工说明不证明原远端请求已结束/);
+  assert.match(saved.value.reply!, /原调用是否结束仍需单独核实/);
   await f.p.harness.commit(tx => verifyMcpControls(tx, f.keys, true), context);
   await f.p.harness.commit(async tx => { delete (await tx.doc(PersonalTelegramReceiptDoc, saved.key, null)).receipt!.mcpResolution; }, context);
   await assert.rejects(f.p.harness.commit(tx => verifyMcpControls(tx, f.keys, true), context), code("mcp_control_invalid"));

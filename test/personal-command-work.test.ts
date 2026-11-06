@@ -338,7 +338,6 @@ for (const scenario of ["restricted", "full_access", "unproved-stop"] as const) 
     else if (mutation === "full-mounts") saved.prepared!.input.mounts.push({ path: f.workspace, access: "read_write" });
     else if (mutation === "full-node") saved.prepared!.input.nodePath = "/bin/false";
     else if (mutation === "stop-task") saved.stopTask = work.taskId;
-    else if (mutation === "unproved-stop") { saved.stopped = true; delete saved.observation; }
     const forgedPreparation = mutation === "worker" || mutation === "mounts" || mutation.startsWith("full-");
     if (forgedPreparation) saved.prepared!.fingerprint = personalCommandFingerprint(saved.command, saved.prepared!.spec, saved.prepared!.input);
     await p.harness.commit(async tx => {
@@ -346,7 +345,14 @@ for (const scenario of ["restricted", "full_access", "unproved-stop"] as const) 
       if (mutation === "permission") (await tx.doc(PersonalWorkDoc, work.requestId, null)).permission!.mode = "full_access";
     }, context);
     await p.close();
-    if (forgedPreparation) {
+    if (mutation === "unproved-stop") {
+      // Close reconciles live commands; corrupt the closed record so recovery cannot repair the fixture first.
+      saved.stopped = true; delete saved.observation;
+      const db = new DatabaseSync(database);
+      try {
+        assert.equal(db.prepare("UPDATE document_revisions SET kind = 'base', content = ? WHERE document_id IN (SELECT id FROM documents WHERE json_extract(record, '$.kind') = ? AND json_extract(record, '$.key') = ? AND retired_at IS NULL) AND seq = (SELECT MAX(latest.seq) FROM document_revisions latest WHERE latest.document_id = document_revisions.document_id)").run(JSON.stringify({ command: saved }), PersonalCommandDoc.definition.kind, ref.requestId).changes, 1);
+      } finally { db.close(); }
+    } else if (forgedPreparation) {
       // A matching fingerprint cannot replace the pinned worker and visible directory.
       const db = new DatabaseSync(database);
       try {
@@ -423,9 +429,9 @@ test("durable 命令：原接纳不能因任务和 document 一起丢失而静�
   await p.harness.waitForTask(work.taskId, context); await p.close();
   const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
   try {
-    db.prepare("DELETE FROM document_revisions WHERE document_id IN (SELECT id FROM documents WHERE kind = ? AND json_extract(record, '$.key') = ?)").run(PersonalCommandDoc.definition.kind, ref.requestId);
-    db.prepare("DELETE FROM documents WHERE kind = ? AND json_extract(record, '$.key') = ?").run(PersonalCommandDoc.definition.kind, ref.requestId);
-    db.prepare("DELETE FROM tasks WHERE id = ?").run(ref.taskId);
+    assert.ok(db.prepare("DELETE FROM document_revisions WHERE document_id IN (SELECT id FROM documents WHERE json_extract(record, '$.kind') = ? AND json_extract(record, '$.key') = ?)").run(PersonalCommandDoc.definition.kind, ref.requestId).changes > 0);
+    assert.equal(db.prepare("DELETE FROM documents WHERE json_extract(record, '$.kind') = ? AND json_extract(record, '$.key') = ?").run(PersonalCommandDoc.definition.kind, ref.requestId).changes, 1);
+    assert.equal(db.prepare("DELETE FROM tasks WHERE id = ?").run(ref.taskId).changes, 1);
     assert.equal(db.prepare("SELECT count(*) AS count FROM entries WHERE json_extract(record, '$.kind') = 'ruukoto.command-admission'").get()!.count, 1);
   } finally { db.close(); }
   const requests = f.server.calls.length;

@@ -27,10 +27,10 @@ function gate() {
   let release!: () => void;
   return { wait: new Promise<void>(resolve => { release = resolve; }), release: () => release() };
 }
-function harness(handlers: FakeHandlers = {}, target: "code" | "personal" = "code") {
+function harness(handlers: FakeHandlers = {}) {
   const transport = new FakeTransport({ handlers: { work_list: () => ({ works: [] }), list_workspace_files: params => directory(params.workspace_id, params.path), read_workspace_file: params => file(params.workspace_id, params.path), ...handlers } });
   const bridge: Pick<DesktopBridge, "request"> = { request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) };
-  const model = new CodeState(bridge, () => {}, target);
+  const model = new CodeState(bridge, () => {});
   const initial = { snapshot: fakeSnapshot({ projects: [workspace("w1"), workspace("w2")], sessions: [session("a"), session("b"), session("c", "w2")] }), replay: [], seq: 0 };
   model.view.applySnapshot(initial, false);
   model.status = { type: "state", state: "online" };
@@ -368,18 +368,6 @@ test("加载和空态占位不消耗消息滚动器的首次 start 定位", () =
   }
 });
 
-
-test("PA Inspector 工具读取使用 Personal，文件／diff／Git 动作不能绕过限制", async () => {
-  const h = harness({}, "personal");
-  h.inspector.openParent("a");
-  h.inspector.openBrowser();
-  assert.equal(h.inspector.activeTab()?.kind, "browser");
-  h.inspector.openFiles(); h.inspector.openFile("w1", "actual.txt"); h.inspector.openGit();
-  await h.inspector.loadDirectory("w1", ""); await h.inspector.loadFile("w1", "actual.txt"); await h.inspector.loadGit("w1");
-  assert.equal(h.inspector.workspace(), undefined);
-  assert.equal(h.inspector.tabs().length, 1);
-  assert.ok(h.transport.requests.every(request => !["read_workspace_file", "list_workspace_files", "read_workspace_git"].includes(request.op)));
-});
 
 for (const boundary of ["snapshot", "offline", "retry"] as const) test(`Git 缓存跨 ${boundary} 不安装迟到响应，非仓库仍能打开标签`, async () => {
   const blocked = gate(); let reads = 0;

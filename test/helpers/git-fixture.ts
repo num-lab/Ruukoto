@@ -21,6 +21,7 @@ export function initGitRepo(root: string): void {
   runGitStep(root, "git init -q");
   runGitStep(root, "git config user.email test@example.com");
   runGitStep(root, "git config user.name test");
+  runGitStep(root, "git config maintenance.auto false");
   runGitStep(root, "git add -A");
   runGitStep(root, "git commit -q -m init");
 }

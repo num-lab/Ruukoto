@@ -650,11 +650,13 @@ test("mcp：任务间工具刷新（允许列表变化 → 下一任务生效）
 test("mcp：运行中禁用服务 → 后续调用立即阻止且不发请求", async () => {
   const mcp = await startMockMcp({ tools: [{ name: "get_me", result: { content: [{ type: "text", text: "me" }] } }] });
   let serviceId = "";
+  let awaitingDisable = false;
   const responder: Responder = async (req) => {
     const toolResults = (req.messages as any[]).filter((m) => m.role === "tool").length;
     if (toolResults === 0) return { kind: "tool_calls", calls: [{ id: "c0", name: "mcp__mock__get_me", arguments: {} }] };
     if (toolResults === 1) {
-      // 第二次调用前等待拥有者禁用服务（确定性时序）
+      // Revoke only after the next request has declared the original tool.
+      awaitingDisable = true;
       await waitFor("服务已禁用", () => t.runtime.mcp.getService(serviceId)?.enabled === false);
       return { kind: "tool_calls", calls: [{ id: "c1", name: "mcp__mock__get_me", arguments: {} }] };
     }
@@ -667,10 +669,10 @@ test("mcp：运行中禁用服务 → 后续调用立即阻止且不发请求", 
     serviceId = service.id;
 
     const submit = await t.client.request<any>("submit", { model_selection: MODEL, session_id: sessionId, request_id: "r1", input: "调用两次" });
-    // 第一次调用落盘后禁用服务
+    // The result commit precedes the next request; wait for both.
     await waitFor("第一次调用完成", async () => {
       const s = await taskStatus(t.client, submit.id);
-      return s.toolOps.some((o: any) => o.toolName === "mcp__mock__get_me" && !o.isError);
+      return awaitingDisable && s.toolOps.some((o: any) => o.toolName === "mcp__mock__get_me" && !o.isError);
     });
     await t.client.request("mcp_set_enabled", { service_id: serviceId, enabled: false });
 

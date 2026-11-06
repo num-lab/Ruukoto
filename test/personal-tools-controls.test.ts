@@ -69,25 +69,19 @@ test("工具审批能力：本机不代批IM，原IM菜单保留本次批准", a
   assert.match(detail.value.reply!, /工具批准本次、工具拒绝/);
 });
 
-test("工具宿主控制：原菜单分别核实效果与结束，错回复不保存且回链缺失拒绝恢复", async t => {
+test("工具宿主控制：原菜单核实结束，错回复不保存且回链缺失拒绝恢复", async t => {
   const f = await fixture(t), list = await f.receive("/工具"), menu = await f.receive("工具1", list.sent);
   assert.equal(menu.value.selection?.kind, "tool"); assert.match(menu.value.reply!, /工具确认已生效/); assert.match(menu.value.reply!, /核实工具原请求结束/);
   for (const changes of [{}, { replyTo: 9999, replyBotId: "123" }, { replyTo: menu.sent, replyBotId: "789" }, { replyTo: menu.sent, replyBotId: "123", direct: false }, { replyTo: menu.sent, replyBotId: "123", generation: randomUUID() }, { replyTo: menu.sent, replyBotId: "123", platform: "qq" as const }]) {
-    const rejected = await f.receive("工具确认已生效", undefined, changes);
-    assert.equal(rejected.value.selection, undefined); assert.equal(rejected.value.toolResolution, undefined);
+    const rejected = await f.receive("核实工具原请求结束", undefined, changes);
+    assert.equal(rejected.value.selection, undefined); assert.equal(rejected.value.toolStop, undefined);
   }
-  const effect = await f.receive("工具确认已生效", menu.sent);
-  assert.equal(effect.value.selection?.kind, "tool-resolution");
-  const wrong = await f.receive("工具核实说明 已核实", menu.sent); assert.equal(wrong.value.toolResolution, undefined);
-  const resolved = await f.receive("工具核实说明 外部业务记录已核对", effect.sent);
-  assert.equal(resolved.value.toolResolution?.operation, f.operation);
-  let op = (await f.harness.snapshot(PersonalToolDoc, String(f.operation), context))!.operation!;
-  assert.equal(op.resolution?.effect, "applied"); assert.equal(op.stopped, false); assert.equal(toolUnresolved(op), true);
-  const stop = await f.receive("核实工具原请求结束", resolved.sent); assert.equal(stop.value.selection?.kind, "tool-stop");
+  const stop = await f.receive("核实工具原请求结束", menu.sent); assert.equal(stop.value.selection?.kind, "tool-stop");
+  const wrong = await f.receive("工具结束说明 已核实", menu.sent); assert.equal(wrong.value.toolStop, undefined);
   const stopped = await f.receive("工具结束说明 服务端请求已结束且无排队任务", stop.sent);
   assert.equal(stopped.value.toolStop?.operation, f.operation);
-  op = (await f.harness.snapshot(PersonalToolDoc, String(f.operation), context))!.operation!;
-  assert.equal(op.stopped, true); assert.equal(toolUnresolved(op), false);
+  const op = (await f.harness.snapshot(PersonalToolDoc, String(f.operation), context))!.operation!;
+  assert.equal(op.stopped, true); assert.equal(op.resolution, undefined); assert.equal(toolUnresolved(op), true);
   const duplicate = await f.receive("工具结束说明 覆盖旧证据", stop.sent); assert.equal(duplicate.value.toolStop, undefined);
   await f.harness.commit(tx => verifyToolControls(tx, f.keys, true), context);
   await f.harness.commit(async tx => { delete (await tx.doc(PersonalTelegramReceiptDoc, stopped.key, null)).receipt!.toolStop; }, context);

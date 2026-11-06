@@ -714,7 +714,13 @@ export class Driver {
           this.currentMcpTools.get(meta.exposedName)?.service.configVersion === meta.service.configVersion && this.currentMcpTools.get(meta.exposedName)?.toolSignature === meta.toolSignature && this.currentMcpTools.get(meta.exposedName)?.credentialDigest === (meta.service.credential ? mcpCredentialDigest(this.deps.credentials.get(meta.service.credential)) : null) && (this.taskTools?.allowed.has(meta.exposedName) ?? true);
       },
       dispatch: (id, params, signal) => this.router.executeRouted(id, params, signal),
-      changed: () => { if (this.sdk) this.allToolNames = [...new Set([...allTools.map(tool => tool.name), ...this.sdk.getAllTools().map(tool => tool.name)])]; },
+      changed: () => {
+        if (!this.sdk) return;
+        this.allToolNames = [...new Set([...allTools.map(tool => tool.name), ...this.sdk.getAllTools().map(tool => tool.name)])];
+        // Note: See .agents/notes/implemented/bug-fix/2026-11-06-mcp-registration-task-tools.md
+        // MCP registration also reactivates allowlisted host tools in the SDK.
+        if (this.taskTools) this.sdk.setActiveToolsByName(this.sdk.getActiveToolNames().filter(name => this.taskTools!.allowed.has(name)));
+      },
     }) : null;
     this.sdk = await createSdkSession({
       session: this.session,

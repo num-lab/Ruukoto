@@ -37,8 +37,9 @@ test("MyGo 只在固定顶层文档安装 bridge，监听先于订阅且支持�
   assert.deepEqual(updates, [{ type: "state", state: "online" }]);
   unsubscribe();
   assert.equal(f.removed(), true);
-  await f.window.ruukoto!.request("code", "read_history", { session_id: "s" });
-  assert.deepEqual(f.calls[1], { method: "Desktop.Request", args: ["code", "read_history", { session_id: "s" }] });
+  const params = { request: { v: 1, op: "settings.read" } };
+  await f.window.ruukoto!.request("personal", "desktop_personal_settings_request", params);
+  assert.deepEqual(f.calls[1], { method: "Desktop.Request", args: ["personal", "desktop_personal_settings_request", params] });
   await f.window.ruukoto!.pickAttachments("code-session");
   await f.window.ruukoto!.pickAttachments("main-session", "personal");
   await f.window.ruukoto!.pickDraftAttachments();
@@ -54,14 +55,6 @@ test("MyGo 传输拒绝保留 disconnected，不能变成未发送或自动重�
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.outcome, "disconnected");
   assert.equal(f.calls.filter(call => call.method === "Desktop.Request").length, 1);
-});
-
-test("MyGo 设置管理沿原 Request 桥保留操作、目标与 JSON 参数", async () => {
-  const f = fixture();
-  f.window.ruukoto!.subscribe("personal", () => {});
-  const params = { request: { v: 1, op: "settings.read" } };
-  await f.window.ruukoto!.request("personal", "desktop_personal_settings_request", params);
-  assert.deepEqual(f.calls.at(-1), { method: "Desktop.Request", args: ["personal", "desktop_personal_settings_request", params] });
 });
 
 test("MyGo 不暴露技能目录选择桥", () => {

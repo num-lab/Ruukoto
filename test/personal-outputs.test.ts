@@ -166,11 +166,15 @@ test("A reused child cannot publish an artifact from its earlier work", { timeou
   await f.p.close(); await f.open();
 });
 
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 test("Output recovery rejects altered original sources, permissions and work provenance", { timeout: 60_000 }, async t => {
-  for (const mutation of ["source", "permission", "work", "telegram"] as const) await t.test(mutation, async t => {
-    const f = await fixture(t); fs.writeFileSync(path.join(f.workspace, "source.bin"), "ORIGINAL");
-    await f.p.answer("source.bin", "owner"); const publication = await f.publication(); await f.p.close();
-    const db = new DatabaseSync(path.join(f.directory, "personal.sqlite")), id = publication.outputs![0].output;
+  const f = await fixture(t); fs.writeFileSync(path.join(f.workspace, "source.bin"), "ORIGINAL");
+  await f.p.answer("source.bin", "owner"); const publication = await f.publication(); await f.p.close();
+  const database = path.join(f.directory, "personal.sqlite"), baseline = path.join(f.root, "baseline.sqlite"); fs.copyFileSync(database, baseline);
+  const calls = f.model.calls.length;
+  for (const mutation of ["source", "permission", "work", "telegram"] as const) await t.test(mutation, async () => {
+    fs.copyFileSync(baseline, database);
+    const db = new DatabaseSync(database), id = publication.outputs![0].output;
     const row = db.prepare("SELECT record FROM entries WHERE id = ?").get(id) as { record: string };
     const entry = JSON.parse(row.record) as { data: { origin: { source: unknown; permission: unknown; work: { permission: unknown }; telegram?: unknown } } };
     if (mutation === "source") entry.data.origin.source = { requestId: "forged-source", submissionId: 99999, entryId: 99998 };
@@ -179,6 +183,7 @@ test("Output recovery rejects altered original sources, permissions and work pro
     if (mutation === "telegram") entry.data.origin.telegram = { platform: "telegram", ownerId: "foreign", generation: "foreign" };
     db.prepare("UPDATE entries SET record = ? WHERE id = ?").run(JSON.stringify(entry), id); db.close();
     await assert.rejects(f.open(), error => error instanceof PersonalError && ["output_record_invalid", "source_invalid"].includes(error.code));
+    assert.equal(f.model.calls.length, calls);
   });
 });
 

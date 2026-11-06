@@ -50,7 +50,7 @@ export class McpSession {
 
   install(pi: ExtensionAPI): void {
     this.api = pi;
-    this.register = definition => pi.registerTool(definition);
+    this.register = definition => { pi.registerTool(definition); this.opts.changed(); };
     const credentials: Pick<NonNullable<McpExtensionOptions["credentials"]>, "forServer" | "tokens" | "remove"> = {
       forServer: () => ({ load: () => undefined, save: () => { throw new McpError("auth_failed", "当前入口不开放 OAuth 凭据保存。"); }, withRefreshLock: fn => fn() }),
       tokens: () => undefined, remove: () => false,
@@ -154,7 +154,6 @@ export class McpSession {
     };
     this.registrations.set(definition.name, { original: definition, wrapped, meta, disabled: !effect || !validated || "disabledReason" in validated || invalidOutput });
     this.register!(wrapped);
-    this.opts.changed();
   }
 
   tools(): McpToolInfo[] {

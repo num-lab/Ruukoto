@@ -122,6 +122,7 @@ test("TUI 工作流全程选择启动、回答、控制；宽屏聊天共存，�
     assert.match(workflowScreen(h), /运行详情/);
     await chooseWorkflow(h, "取消运行"); await chooseWorkflow(h, "确认取消");
     await waitFor("第二项取消", () => requireWorkflowRun(t.runtime.store, second.id).status === "canceled");
+    await waitFor("取消回执已返回工作流列表", () => (h.app as any).workflowSidebar.screen?.title === "当前会话 · 活动与最近结果");
     h.terminal.send("\x1b"); await renderFlush();
     assert.equal((h.app as any).workflowSidebar.opened, false);
     assert.ok(requests.some(request => request.op === "workflow_logs"));

@@ -29,6 +29,7 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
   Object.defineProperty(process, "platform", { value: "linux" });
   const realSpawn = childProcess.spawn, readFile = nodeFs.readFileSync, exists = nodeFs.existsSync, access = nodeFs.accessSync, open = nodeFs.openSync, stat = nodeFs.statSync;
+  let stopSignalError: string | undefined;
   const alive = () => !!child && child.exitCode === null && child.signalCode === null;
   t.mock.method(nodeFs, "readFileSync", (target: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
     if (target === "/etc/machine-id") return machineId + "\n";
@@ -55,7 +56,15 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
   t.mock.method(nodeFs, "openSync", (target: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
     if (target === `/sys/fs/cgroup${group}`) return open(groupPath, flags, mode);
     if (/^\/proc\/self\/fd\/\d+\/cgroup.kill$/.test(String(target))) {
-      if (alive()) process.kill(-child!.pid!, "SIGKILL");
+      if (alive()) {
+        try { process.kill(-child!.pid!, "SIGKILL"); }
+        catch (error) {
+          stopSignalError = error instanceof Error && "code" in error ? String(error.code) : String(error);
+          // cgroup.kill also succeeds after another stopper has emptied the group.
+          // Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
+          if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+        }
+      }
       return open(path.join(groupPath, "kill"), "w");
     }
     return open(target, flags, mode);
@@ -92,7 +101,17 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(input.tempDir, { recursive: true, force: true });
   });
   const options = { directory, ref, input, spec, timeoutMs: 10_000 };
-  return { root, record, options, input, workspace, count: () => count, systemdExit: () => { wrapperExit = true; }, beforeLaunch: (callback: () => void) => { beforeManager = callback; }, failStop: (value = true) => { stopFails = value; }, run: (command: string) => runPersonalCommand({ ...options, command }) };
+  const stopEvidence = () => {
+    const ps = childProcess.spawnSync("/bin/ps", ["-axo", "pid,ppid,pgid,stat"], { encoding: "utf8" });
+    const evidence = Object.fromEntries(["claim.json", "observation.json", "launcher.json"].map(name => {
+      try { return [name, fs.readFileSync(path.join(directory, ref.executionId, name), "utf8")]; }
+      catch (error) { return [name, { error: String(error) }]; }
+    }));
+    return { child: child && { pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode }, stopSignalError,
+      psStatus: ps.status, psError: ps.error?.message, evidence,
+      group: (ps.stdout ?? "").split("\n").filter(line => Number(line.trim().split(/\s+/)[2]) === child?.pid) };
+  };
+  return { root, record, options, stopEvidence, input, workspace, count: () => count, systemdExit: () => { wrapperExit = true; }, beforeLaunch: (callback: () => void) => { beforeManager = callback; }, failStop: (value = true) => { stopFails = value; }, run: (command: string) => runPersonalCommand({ ...options, command }) };
 }
 
 test("宿主先消费双流再提交 stdin，回执保留二进制/非零且同引用永不重跑", async t => {
@@ -263,6 +282,7 @@ for (const missing of ["native-claim", "request", "expected-fingerprint", "nativ
   else if (missing === "request") fs.renameSync(retainedRequest, request);
   else if (original !== undefined) fs.writeFileSync(claimFile, original);
   const stopped = await stopPersonalCommand(f.options.directory, f.options.ref, fingerprint);
+  if (!stopped.exited) t.diagnostic(JSON.stringify({ stopped, ...f.stopEvidence() }));
   assert.equal(stopped.exited, true); assert.equal(stopped.cleaned, true);
   assert.equal(await outcome, "command_result_unknown");
   assert.equal(f.count(), 1);

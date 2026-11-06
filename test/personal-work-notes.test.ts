@@ -377,16 +377,32 @@ test("追加说明：其他模型工具不能冒充 append 的恢复来源", asy
   await p.work.cancel(ref);
 });
 
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 test("追加说明：接纳、admission、模型在途及回答完成四个强杀窗口按原键恢复", { timeout: 20000 }, async t => {
   for (const gap of ["accepted", "admission", "running", "done"] as const) await t.test(gap, async t => {
-    const f = await fixture(t, request => ({ kind: "text", text: child(request) ? "分析内容".repeat(100) : "收到", chunkDelayMs: child(request) ? 10 : 0 }));
+    let childProcess: ReturnType<typeof spawn> | undefined;
+    t.after(async () => {
+      if (!childProcess || childProcess.exitCode !== null || childProcess.signalCode !== null) return;
+      const exited = once(childProcess, "exit"); childProcess.kill("SIGKILL"); await exited;
+    });
+    const initial = gate(t), running = gate(t);
+    const f = await fixture(t, async request => {
+      if (child(request) && request.messages.at(-1)?.content === "初始分析") await initial.wait;
+      if (gap === "running" && request.messages.at(-1)?.content === "崩溃追加") await running.wait;
+      return { kind: "text", text: child(request) ? "分析内容".repeat(100) : "收到" };
+    });
     const p = await f.open(); await p.answer("拥有者来源", "owner"); await p.close();
-    const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,config,gap}=JSON.parse(process.env.RUUKOTO_NOTE_TEST); setInterval(()=>{},1000); const p=await openPersonalHarness({directory,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename); const commit=s.commit.bind(s);s.commit=async(writes,c)=>{await commit(writes,c);if(writes.some(w=>w.type==="submission"&&w.value.requestId?.includes(":note:")&&(gap==="admission"||gap==="done"&&w.value.status==="done"))){process.stdout.write("note-gap\\n");await new Promise(()=>{});}};return s;}}); const ref=await p.work.delegate({content:"初始分析",requestId:"crash",sourceRequestId:"owner"});await p.work.append(ref,{requestId:"note",content:"崩溃追加",sourceRequestId:"owner"});if(gap==="accepted")process.stdout.write("note-gap\\n");`;
+    const script = `import {openPersonalHarness} from "./apps/ruukoto/src/personal-harness.ts"; import {personalProvider} from "./apps/ruukoto/src/personal-model.ts"; import {openNodeSqliteStorage} from "@earendil-works/pi-durable/storage/sqlite/node"; const {directory,config,gap}=JSON.parse(process.env.RUUKOTO_NOTE_TEST); setInterval(()=>{},1000); const p=await openPersonalHarness({directory,provider:personalProvider(config),modelId:config.modelId,openStorage:async filename=>{const s=await openNodeSqliteStorage(filename); const commit=s.commit.bind(s);s.commit=async(writes,c)=>{if(gap==="accepted"&&writes.some(w=>w.type==="submission"&&w.value.requestId?.includes(":note:")))await new Promise(()=>{});await commit(writes,c);if(writes.some(w=>w.type==="submission"&&w.value.requestId?.includes(":note:")&&(gap==="admission"||gap==="done"&&w.value.status==="done"))){process.stdout.write("note-gap\\n");await new Promise(()=>{});}};return s;}}); const ref=await p.work.delegate({content:"初始分析",requestId:"crash",sourceRequestId:"owner"});await p.work.append(ref,{requestId:"note",content:"崩溃追加",sourceRequestId:"owner"});process.stdout.write("note-accepted\\n");`;
     const processChild = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], { cwd: new URL("..", import.meta.url), env: { ...process.env, RUUKOTO_NOTE_TEST: JSON.stringify({ directory: f.directory, config: f.config, gap }) }, stdio: ["ignore", "pipe", "pipe"] });
+    childProcess = processChild;
     let stdout = ""; processChild.stdout.on("data", data => { stdout += data; }); processChild.stderr.pipe(process.stderr);
-    t.after(() => { if (processChild.exitCode === null && processChild.signalCode === null) processChild.kill("SIGKILL"); });
-    await until(() => gap === "running" ? f.model.calls.some(request => request.messages.at(-1)?.content === "崩溃追加") : stdout.includes("note-gap"));
+    await until(() => stdout.includes("note-accepted"));
+    if (gap !== "accepted") {
+      initial.release();
+      await until(() => gap === "running" ? f.model.calls.some(request => request.messages.at(-1)?.content === "崩溃追加") : stdout.includes("note-gap"));
+    }
     const exited = once(processChild, "exit"); processChild.kill("SIGKILL"); await exited;
+    initial.release(); running.release();
     const restored = await f.open(); const work = (await restored.harness.snapshot(PersonalWorkDoc, "crash", context))!;
     assert.equal((await restored.harness.waitForTask(work.ref!.taskId, context)).state.outcome.status, "completed");
     const conversation = (await restored.harness.conversation(work.ref!.agentId, context))!;

@@ -62,6 +62,10 @@ File-worker close rejection requires actual OS blocking, not the wrapper's pre-r
 
 Personal generic-tool fixtures use the existing temporary HOME helper, restored after resource cleanup. Restricted file revalidation scans protected roots under HOME; unrelated file removal there can correctly reject the operation before reservation and leave a fixture waiting for a reservation that will never occur. Isolation keeps this check on fixture-owned state and avoids loading user skills; approval consumption, requirement amendments and already-started effects retain their real worker assertions.
 
+Work-note crash fixtures hold the actual acceptance, native admission, model request and committed-answer boundaries with gates instead of delaying every response chunk. The accepted window blocks native submission before commit; admission and completion block after commit, and the running window holds its response. Cleanup waits for the killed child before releasing gates or deleting its profile. All four independent crash/reopen cases retain their original input keys, complete text and shared twenty-second deadline.
+
+The command fixture emulates idempotent Linux cgroup killing with a process-group signal. A concurrent stopper can remove the group before Node updates the child's exit fields, so the emulator tolerates only `ESRCH`; the existing inactive-unit, empty-cgroup and actual process-group checks still determine stopping. Failed stop-verification assertions include child, group and original identity evidence, because delayed group disappearance and other signal failures must remain distinguishable from an empty-group signal race.
+
 Cua product integration uses normal call deadlines. A fixture exits after recording a sent request to produce response loss; it does not make every ordinary response race a 300 ms budget. The transport cancellation/timeout case owns persistence-before-send deadline coverage, including zero late sends and no pollution of subsequent calls; its duplicate timeout-only case is removed. Product integration retains unknown-effect freezing, recovery, actual process stopping and no replay.
 
 ## Related decisions

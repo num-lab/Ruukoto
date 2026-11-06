@@ -60,6 +60,8 @@ Telegram control fixtures reply to each completed receipt's `platformMessageId`,
 
 File-worker close rejection requires actual OS blocking, not the wrapper's pre-read marker: termination before the read can legitimately succeed. Capacity, durable-Harness close and backend-stop tests share the existing Linux thread wait-channel/macOS stack observation. The four-worker case owns close rejection, retained capacity, canceled calls, actual exit and successful close retry; its duplicate single-worker case is removed. Durable and backend cases retain their distinct profile-lock, live control and reopen checks.
 
+Personal generic-tool fixtures use the existing temporary HOME helper, restored after resource cleanup. Restricted file revalidation scans protected roots under HOME; unrelated file removal there can correctly reject the operation before reservation and leave a fixture waiting for a reservation that will never occur. Isolation keeps this check on fixture-owned state and avoids loading user skills; approval consumption, requirement amendments and already-started effects retain their real worker assertions.
+
 Cua product integration uses normal call deadlines. A fixture exits after recording a sent request to produce response loss; it does not make every ordinary response race a 300 ms budget. The transport cancellation/timeout case owns persistence-before-send deadline coverage, including zero late sends and no pollution of subsequent calls; its duplicate timeout-only case is removed. Product integration retains unknown-effect freezing, recovery, actual process stopping and no replay.
 
 ## Related decisions

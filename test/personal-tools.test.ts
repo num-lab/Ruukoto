@@ -35,6 +35,7 @@ import { readPersonalArtifact } from "../apps/ruukoto/src/personal-artifacts.ts"
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { openPersonalFileIo, personalFileIoJobs, type PersonalFileIo, type PersonalFileJobMeta, type PersonalFileJobContext, type PersonalFileIoEvent } from "../apps/ruukoto/src/personal-file-io.ts";
 import { PersonalMockModelServer as MockModelServer, type RecordedRequest, type Responder } from "./helpers/mock-provider.ts";
+import { isolateSkillHome } from "./helpers/skill-home.ts";
 
 const context = BACKGROUND_CONTEXT;
 let fixtureIndex = 0;
@@ -76,6 +77,7 @@ async function fixture(t: TestContext, responder = respond, reviewError = false)
     if (process.env.RUUKOTO_TOOLS_EVIDENCE) { fs.mkdirSync(process.env.RUUKOTO_TOOLS_EVIDENCE, { recursive: true }); fs.writeFileSync(path.join(process.env.RUUKOTO_TOOLS_EVIDENCE, `requests-${index}.json`), JSON.stringify({ test: t.name, requests: model.calls }, null, 2) + "\n"); }
     if (previous === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previous; fs.rmSync(root, { recursive: true, force: true });
   });
+  isolateSkillHome(t);
   return { root, directory, workspace, outside, tools, model, config, options, async open(overrides: Partial<Omit<Parameters<typeof openPersonalHarness>[0], "directory" | "profile">> = {}) { return current = await openPersonalHarness({ ...options, ...overrides }); } };
 }
 async function mode(p: PersonalHarness, mode: "auto-review" | "confirm" | "full_access") { await p.harness.commit(async tx => { const doc = await tx.doc(PersonalPermissionsDoc); doc.mode = mode; doc.version++; }, context); }

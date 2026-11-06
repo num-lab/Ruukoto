@@ -58,6 +58,8 @@ Fixture timing follows the boundary under test. Workflow cancellation waits for 
 
 Telegram control fixtures reply to each completed receipt's `platformMessageId`, not the last message in a shared send log: proactive cards and other host replies may arrive between controls. The browser case inserts another real menu before stopping to retain that ordering counterexample. A crash fixture must retain its resource owner as well as its process: the authentication child references its auth object from the live timer and forces GC before announcing readiness, so SQLite cannot release the lock before the actual SIGKILL. Reopening still must preserve identity and invalidate the old pairing window.
 
+File-worker close rejection requires actual OS blocking, not the wrapper's pre-read marker: termination before the read can legitimately succeed. Capacity, durable-Harness close and backend-stop tests share the existing Linux thread wait-channel/macOS stack observation. The four-worker case owns close rejection, retained capacity, canceled calls, actual exit and successful close retry; its duplicate single-worker case is removed. Durable and backend cases retain their distinct profile-lock, live control and reopen checks.
+
 Cua product integration uses normal call deadlines. A fixture exits after recording a sent request to produce response loss; it does not make every ordinary response race a 300 ms budget. The transport cancellation/timeout case owns persistence-before-send deadline coverage, including zero late sends and no pollution of subsequent calls; its duplicate timeout-only case is removed. Product integration retains unknown-effect freezing, recovery, actual process stopping and no replay.
 
 ## Related decisions

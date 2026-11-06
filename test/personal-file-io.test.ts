@@ -177,26 +177,31 @@ function fifoFixture(t: TestContext, prefix: string) {
 }
 const FIFO_WRAPPER = fileURLToPath(new URL("./helpers/personal-file-io-fifo-worker.mjs", import.meta.url));
 
-test("文件工作线程：四个真实持住任务占满容量，第五个拒绝且新宿主不能重置", { timeout: 60_000 }, async t => {
-  const f = fifoFixture(t, "rk-file-io-cap-");
-  const workers = new Map<string, Worker>(); let exits = 0;
-  const io = openPersonalFileIo({ script: FIFO_WRAPPER, terminationGraceMs: 100, workerProbe: (worker, meta) => { workers.set(meta.id, worker); worker.on("exit", () => exits++); } });
-  const heldJobs = [0, 1, 2, 3].map(() => io.prepare({ path: f.held, access: "read", protectedRoots: [] }).then(() => "done", error => String((error as PersonalError).code)));
-  t.after(async () => { f.release(4); await Promise.allSettled(heldJobs); await io.close().catch(() => undefined); });
-  await until(() => workers.size === 4 && [...workers.keys()].every(id => fs.existsSync(`${f.marker}.${id}`)));
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
+async function waitForBlockedWorkers(f: ReturnType<typeof fifoFixture>, workers: ReadonlyMap<string, Worker>, expected: number) {
+  await until(() => workers.size === expected && [...workers.keys()].every(id => fs.existsSync(`${f.marker}.${id}`)));
   // A pre-read marker cannot prove a worker has entered blocking OS I/O.
   if (process.platform === "linux") {
     const tids = [...workers.keys()].map(id => fs.readFileSync(`${f.marker}.${id}`, "utf8").trim());
-    assert.equal(new Set(tids).size, 4); assert.ok(tids.every(id => /^[1-9][0-9]*$/.test(id)));
+    assert.equal(new Set(tids).size, expected); assert.ok(tids.every(id => /^[1-9][0-9]*$/.test(id)));
     await until(() => tids.every(id => ["pipe_read", "anon_pipe_read"].includes(fs.readFileSync(`/proc/self/task/${id}/wchan`, "utf8").trim())), 10_000);
   } else {
     assert.equal(process.platform, "darwin", "File-worker OS blocking must be verified on a supported platform");
     const sample = path.join(f.root, "blocked-threads.txt");
     await until(async () => {
       await promisify(execFile)("/usr/bin/sample", [String(process.pid), "1", "10", "-file", sample], { timeout: 5_000, maxBuffer: 1024 * 1024 });
-      return fs.readFileSync(sample, "utf8").split(/^    \d+ Thread_/m).filter(thread => thread.includes("node::worker::Worker::StartThread") && thread.includes("node::fs::Read(") && thread.includes("uv_fs_read") && thread.includes("read  (in libsystem_kernel.dylib)")).length === 4;
+      return fs.readFileSync(sample, "utf8").split(/^    \d+ Thread_/m).filter(thread => thread.includes("node::worker::Worker::StartThread") && thread.includes("node::fs::Read(") && thread.includes("uv_fs_read") && thread.includes("read  (in libsystem_kernel.dylib)")).length === expected;
     }, 10_000);
   }
+}
+
+test("文件工作线程：四个真实持住任务占满容量，第五个拒绝且新宿主不能重置", { timeout: 60_000 }, async t => {
+  const f = fifoFixture(t, "rk-file-io-cap-");
+  const workers = new Map<string, Worker>(); let exits = 0;
+  const io = openPersonalFileIo({ script: FIFO_WRAPPER, terminationGraceMs: 100, workerProbe: (worker, meta) => { workers.set(meta.id, worker); worker.on("exit", () => exits++); } });
+  const heldJobs = [0, 1, 2, 3].map(() => io.prepare({ path: f.held, access: "read", protectedRoots: [] }).then(() => "done", error => String((error as PersonalError).code)));
+  t.after(async () => { f.release(4); await Promise.allSettled(heldJobs); await io.close().catch(() => undefined); });
+  await waitForBlockedWorkers(f, workers, 4);
   await assert.rejects(io.prepare({ path: f.other, access: "read", protectedRoots: [] }), code("file_io_capacity_unavailable"));
   const fresh = openPersonalFileIo(); t.after(() => fresh.close().catch(() => undefined));
   await assert.rejects(fresh.prepare({ path: f.other, access: "read", protectedRoots: [] }), code("file_io_capacity_unavailable"));
@@ -207,6 +212,7 @@ test("文件工作线程：四个真实持住任务占满容量，第五个拒�
   f.release(4);
   assert.deepEqual(await Promise.all(heldJobs), ["file_io_canceled", "file_io_canceled", "file_io_canceled", "file_io_canceled"]);
   await until(() => exits === 4);
+  await io.close();
   assert.equal((await fresh.prepare({ path: f.other, access: "read", protectedRoots: [] })).access, "read");
 });
 
@@ -250,19 +256,6 @@ test("文件工作线程：预留未用释放后再执行拒绝，已用预留�
   assert.equal(result.code, "file_returned"); assert.equal(result.bytes.toString("utf8"), "原文");
 });
 
-test("文件工作线程：真实持住使关闭未核实退出，实际退出后重试关闭成功", { timeout: 60_000 }, async t => {
-  const f = fifoFixture(t, "rk-file-io-close-");
-  const workers = new Map<string, Worker>();
-  const io = openPersonalFileIo({ script: FIFO_WRAPPER, terminationGraceMs: 100, workerProbe: (worker, meta) => workers.set(meta.id, worker) });
-  const held = io.prepare({ path: f.held, access: "read", protectedRoots: [] }).then(() => "done", error => String((error as PersonalError).code));
-  await until(() => workers.size === 1 && fs.existsSync(f.marker));
-  await assert.rejects(io.close(), code("file_io_stop_unverified"));
-  f.release(1);
-  assert.deepEqual(await held, "file_io_canceled");
-  await until(() => [...workers.values()].every(worker => worker.threadId < 0));
-  await io.close();
-});
-
 test("文件工作线程：真实持住拒绝关闭并保留档案锁，实际退出后重试关闭并安全重开", { timeout: 60_000 }, async t => {
   const f = fifoFixture(t, "rk-file-io-durable-");
   const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "rk-file-io-"))), directory = path.join(root, "profile"), workspace = path.join(root, "workspace");
@@ -288,7 +281,7 @@ test("文件工作线程：真实持住拒绝关闭并保留档案锁，实际�
   await p.harness.commit(async tx => { const doc = await tx.doc(PersonalPermissionsDoc); doc.mode = "full_access"; doc.version++; }, context);
   await p.answer("读取停顿", "stall-read");
   await p.work.delegate({ requestId: "stall-read-work", sourceRequestId: "stall-read", content: `tool:{"name":"read_file","args":{"path":${JSON.stringify(held)}}}` });
-  await until(() => fs.existsSync(f.marker));
+  await waitForBlockedWorkers(f, workers, 1);
 
   await assert.rejects(p.close(), code("file_io_stop_unverified"));
   await p.harness.commit(async tx => { (await tx.doc(PersonalPermissionsDoc)).version++; }, context);
@@ -1017,15 +1010,15 @@ test("文件工作线程：停止未核实前关闭保留锁，证据放行后�
     const previousKey = process.env[config.apiKeyEnv]; process.env[config.apiKeyEnv] = "test-only";
     const identity = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "file-io-test", workspace, identity: { dev: identity.dev, ino: identity.ino }, credentials: [] });
     await savePersonalConfig(directory, config); await savePersonalTools(directory, tools);
-    const workers: Worker[] = [];
-    const fileIo = openPersonalFileIo({ profile: directory, script: FIFO_WRAPPER, terminationGraceMs: 100, workerProbe: worker => workers.push(worker) });
+    const workers = new Map<string, Worker>();
+    const fileIo = openPersonalFileIo({ profile: directory, script: FIFO_WRAPPER, terminationGraceMs: 100, workerProbe: (worker, meta) => workers.set(meta.id, worker) });
     let backend: Awaited<ReturnType<typeof startPersonalServer>> | undefined;
     t.after(async () => { await backend?.stop().catch(() => undefined); await fileIo.close().catch(() => undefined); await server.close(); if (previousKey === undefined) delete process.env[config.apiKeyEnv]; else process.env[config.apiKeyEnv] = previousKey; fs.rmSync(root, { recursive: true, force: true }); });
     backend = await startPersonalServer(directory, { fileIo });
     await personalControl(directory, "POST", "/permissions", { mode: "full_access" });
     const aId = randomUUID(), qId = randomUUID();
     await personalControl(directory, "POST", "/inputs", { requestId: aId, input: `委派:tool:{"name":"write_file","args":{"path":${JSON.stringify(aTarget)},"content":"A写"}}` });
-    await until(() => workers.length > 0 && fs.existsSync(f.marker));
+    await waitForBlockedWorkers(f, workers, 1);
     await assert.rejects(backend.stop(), code("file_io_stop_unverified"));
     assert.ok((await personalControl(directory, "GET", "/status")) !== undefined);
     await personalControl(directory, "POST", "/inputs", { requestId: qId, input: "普通查询" });
@@ -1033,7 +1026,7 @@ test("文件工作线程：停止未核实前关闭保留锁，证据放行后�
     await assert.rejects(fileIo.prepare({ path: f.other, access: "read", protectedRoots: [] }), code("file_io_closed"));
     assert.throws(() => lockPersonalProfile(directory), code("profile_busy"));
     f.release(1);
-    await until(() => workers.every(worker => worker.threadId < 0));
+    await until(() => [...workers.values()].every(worker => worker.threadId < 0));
     await backend.stop(); backend = undefined;
     const reopened = await openPersonalHarness({ directory, provider: personalProvider(config), modelId: config.modelId, tools });
     await reopened.close();

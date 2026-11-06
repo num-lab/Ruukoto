@@ -987,7 +987,6 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     const entry = im;
     await instance.commit(tx => verifyPersonalTelegramDisplays(tx), context);
     await instance.commit(tx => telegram.callbacks.verify(tx), context);
-    await telegramDisplays.start();
     imPairing = personalImPairing(instance, lock, entry);
     const pairing = imPairing;
     const publicApi = {
@@ -1224,6 +1223,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       },
     };
     await recoverPersonalSettings({ profile: lock, instance: publicApi });
+    // Card scanning resumes persisted work, so settings recovery must finish first.
+    // Note: See .agents/notes/implemented/architecture/2026-11-06-personal-telegram-delivery.md
+    await telegramDisplays.start();
     instance.resume();
     return publicApi;
   } catch (error) {

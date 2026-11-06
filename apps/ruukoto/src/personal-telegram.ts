@@ -508,7 +508,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
               versions.set(platform, version); receivePaused.delete(platform); switching.delete(platform);
             });
           } catch (error) { await nextQq?.close(); switching.delete(platform); restart(platform); throw error; }
-          restart(platform); harness.resume();
+          restart(platform);
           if (previousQq && !sends.has(previousQq)) await closeRetired(previousQq);
           return { effectiveRevision: revision, code: selected.enabled ? "settings_active_entry_unverified" : "settings_active", relatedOperations: [] };
         },

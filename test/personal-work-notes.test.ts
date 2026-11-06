@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as http from "node:http";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { AgentDoc, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type SubmissionId } from "@earendil-works/pi-durable";
@@ -12,6 +13,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { openPersonalHarness, type PersonalHarness } from "../apps/ruukoto/src/personal-harness.ts";
 import { personalProvider, type PersonalModelConfig } from "../apps/ruukoto/src/personal-model.ts";
 import { savePersonalConfig } from "../apps/ruukoto/src/personal-config.ts";
+import { savePersonalTelegram } from "../apps/ruukoto/src/personal-telegram-config.ts";
 import { personalControl, startPersonalServer } from "../apps/ruukoto/src/personal-control.ts";
 import { checkPersonalInput, managePersonalWorks, pendingPersonalInputs, preparePersonalInput } from "../apps/ruukoto/src/personal-cli.ts";
 import { appendPersonalWork, PersonalAgentsDoc, PersonalWorkDoc, PersonalWorkTask, personalWorkNoteSource, personalWorkResult, verifyPersonalWorkNotes, type PersonalWorkRef } from "../apps/ruukoto/src/personal-work.ts";
@@ -288,10 +290,28 @@ test("追加说明：原回答 done 至 abort、abort 至最终事务两个窗�
   });
 });
 
-test("追加说明：CLI 原键/目标保留，重复受理不重做，旧待核实文件规则不扫描追加", async t => {
+test("Work notes: recovering IM and model settings preserves the original unfinished child", async t => {
+  const initial = gate(t);
+  const f = await fixture(t, async request => {
+    if (child(request)) await initial.wait;
+    return { kind: "text", text: "完成" };
+  });
+  const p = await f.open(); const ref = await delegate(p);
+  await until(() => f.model.calls.some(child)); await p.close();
+  await savePersonalTelegram(f.directory, { version: 1, enabled: false, generation: randomUUID(), apiBase: "https://api.telegram.org", tokenEnv: "UNUSED_WORK_NOTE_TELEGRAM_KEY", tokenDigest: "a".repeat(64), botId: "123", ownerId: "456", boundary: 0 });
+  await f.start();
+  await until(async () => f.model.calls.filter(child).length === 2 || (await personalControl<{ summary: { state: string } }>(f.directory, "GET", `/work?work=${ref.taskId}`)).summary.state === "failed");
+  assert.equal(f.model.calls.filter(child).length, 2, "The saved child must reach the provider after settings recovery");
+  initial.release();
+  await until(async () => (await personalControl<{ summary: { state: string } }>(f.directory, "GET", `/work?work=${ref.taskId}`)).summary.state === "completed");
+  assert.equal(f.model.calls.filter(request => !child(request)).length, 1);
+});
+
+test("Work notes: server recovery publishes settings before resuming work and preserves CLI append keys", async t => {
   const initial = gate(t);
   const f = await fixture(t, async request => { if (child(request) && request.messages.at(-1)?.content === "初始分析") await initial.wait; return { kind: "text", text: "完成" }; });
   const p = await f.open(); const ref = await delegate(p); await until(() => f.model.calls.some(child)); await p.close();
+  // Saving the same model again exercises configuration recovery while the child is unfinished.
   await f.start(); await until(() => f.model.calls.filter(child).length === 2);
   const input = preparePersonalInput(f.directory, "本机追加", ref.taskId);
   assert.deepEqual(pendingPersonalInputs(f.directory), [input]);

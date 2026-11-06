@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Managed Coding workspaces](2026-11-07-managed-coding-workspaces.md) supersedes the workspace-selection requirement below; first-send creation and creation-bound identity/permissions remain.
+
 ## Problem
 
 The old flow created an empty workspace session/tab before composing. The owner wanted an unassigned composer first, then workspace selection and the first message before session creation. Project/cwd fix data identity, AccessScope and tool grants at creation; an unassigned UI must be a local draft, not a session later reassigned.

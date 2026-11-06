@@ -13,7 +13,7 @@ The macOS native supervisor and MyGo CGO require Command Line Tools' Clang. [Nat
 
 ## Collaboration
 
-Use the GitHub Issue and current role as the handoff entry. The [development workflow](../.agents/skills/development-workflow/SKILL.md) defines plan review, implementation review and acceptance. Roles do not prescribe models. Record engineering evidence separately from owner experience decisions; keep raw evidence outside the repository.
+Use the GitHub Issue as the handoff entry. The [development workflow](../.agents/skills/development-workflow/SKILL.md) defines review and acceptance. Roles do not prescribe models. Keep engineering evidence separate from owner experience decisions and raw evidence outside the repository.
 
 ## Daily Feedback
 
@@ -124,15 +124,16 @@ Personal uses `~/.ruukoto-durable-dev/<checkout-realpath-hash12>/`, ignoring inh
 
 Root and app dev scripts enter the same thin tsx launcher. Without arguments it hosts `node --watch --import tsx`, forwards stop signals and waits for exit; a source change stops the old backend before restarting it. Watch can await corrected source after startup failure. `--config` opens the same profile's menu in-process without watching; any backend it starts stops when the menu exits. Reopen the menu after configuration-source edits. Enabled QQ/Telegram makes development startup reject without connecting, changing configuration or advancing sending generations; use the production entry with a separately chosen new profile for real IM exercises.
 
-Coding uses `~/.ruukoto-code-dev/<repository>-<hash>/`, including `data/agent/control/pending/logs`, isolated locks and control endpoints. `--import-models` copies only `models.json` and `auth.json`, not service credentials or default-model files. `--config` also supports initial setup.
+Coding uses `~/.ruukoto-code-dev/<repository>-<hash>/` for data, configuration, locks and control. Managed roots belong to this profile. `--import-models` copies only `models.json` and `auth.json`; `--config` supports initial setup.
 
 | Coding launcher behavior | Guarantee |
 | --- | --- |
+| No workspace | Fresh selector draft; first send allocates in this profile; see [Coding usage](usage.md#22-coding-agent) |
 | Workspace argument | Existing directory, mutually exclusive with `--config`; normal identity and protected-root checks; source reload does not create another conversation |
 | Environment | Clears inherited product paths, production owner token, service settings and execution overrides; fixes Coding identity/profile; disables QQ/Telegram; native prerequisites fail explicitly |
 | Process ownership | Owns this backend and frontend process group; TUI/config exit, Ctrl+C and terminal closure clean up; an existing external backend is rejected, never attached or stopped |
 | Reload | Watches `packages/*/src/` and `apps/*/src/`; backend changes restart gracefully; UI-only changes do not restart the backend; view belongs to the task UI; launcher changes require manual restart |
-| UI recovery | Saves conversation and ordinary draft per instance; secrets must be reentered; old pending continue/answer records retain their original instance and key for verification without conversion or replay |
+| UI recovery | Saves conversation/draft per instance; first-send journals retain keys for explicit retry; old continue/answer records remain verification-only in their original instance |
 | Configuration | Missing models enter offline setup first; backend starts only after successful save and lock release; cancel/failure leaves it stopped |
 
 The configuration UI follows backend reload and restores its section. `backend.log` and `dev.log` stay separate from interactive input.

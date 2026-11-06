@@ -12,9 +12,28 @@ interface AttachmentPicker {
   instanceId(): string | null;
   pick(): Promise<string[]>;
   upload(params: AttachmentUpload): Promise<{ nextOffset: number; complete: boolean }>;
+  attachmentId?(file: string, index: number): string;
+}
+export function readAttachmentBytes(file: string): Buffer {
+  try {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const before = fs.fstatSync(fd);
+      if (!before.isFile() || before.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "请选择不超过 8 MiB 的普通文件。");
+      const buffer = Buffer.alloc(MAX_ATTACHMENT_BYTES + 1);
+      let size = 0;
+      while (size < buffer.length) { const read = fs.readSync(fd, buffer, size, buffer.length - size, size); if (!read) break; size += read; }
+      const after = fs.fstatSync(fd);
+      if (size > MAX_ATTACHMENT_BYTES || size !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) throw new DesktopError("attachment_changed", "所选文件读取时发生变化，请保存后重新选择。");
+      return buffer.subarray(0, size);
+    } finally { fs.closeSync(fd); }
+  } catch (error) {
+    if (error instanceof DesktopError) throw error;
+    throw new DesktopError("attachment_read_failed", "所选文件不可读，未附加；请检查文件后重新选择。");
+  }
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-16-owner-attachments.md
+// Note: See .agents/notes/implemented/architecture/2026-10-16-owner-attachments.md
 export async function pickAttachments(sessionId: string, source: AttachmentPicker): Promise<DesktopAttachment[]> {
   if (typeof sessionId !== "string" || !sessionId) throw new DesktopError("invalid_params", "请选择会话后附加文件。");
   const instanceId = source.instanceId();
@@ -24,26 +43,10 @@ export async function pickAttachments(sessionId: string, source: AttachmentPicke
   check();
   if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `每次最多选择 ${MAX_ATTACHMENTS} 个文件。`);
   const attachments: DesktopAttachment[] = [];
-  for (const file of files) {
-    let bytes: Buffer;
-    try {
-      const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-      try {
-        const before = fs.fstatSync(fd);
-        if (!before.isFile() || before.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "请选择不超过 8 MiB 的普通文件。");
-        const buffer = Buffer.alloc(MAX_ATTACHMENT_BYTES + 1);
-        let size = 0;
-        while (size < buffer.length) { const read = fs.readSync(fd, buffer, size, buffer.length - size, size); if (!read) break; size += read; }
-        const after = fs.fstatSync(fd);
-        if (size > MAX_ATTACHMENT_BYTES || size !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) throw new DesktopError("attachment_changed", "所选文件读取时发生变化，请保存后重新选择。");
-        bytes = buffer.subarray(0, size);
-      } finally { fs.closeSync(fd); }
-    } catch (error) {
-      if (error instanceof DesktopError) throw error;
-      throw new DesktopError("attachment_read_failed", "所选文件不可读，未附加；请检查文件后重新选择。");
-    }
+  for (const [index, file] of files.entries()) {
+    const bytes = readAttachmentBytes(file);
     check();
-    const attachment = { id: `att_${randomUUID()}`, name: path.basename(file), size: bytes.length };
+    const attachment = { id: source.attachmentId?.(file, index) ?? `att_${randomUUID()}`, name: path.basename(file), size: bytes.length };
     const hash = createHash("sha256").update(bytes).digest("hex");
     let offset = 0;
     do {
@@ -65,7 +68,7 @@ export async function pickAttachments(sessionId: string, source: AttachmentPicke
   return attachments;
 }
 
-/** 新对话尚未建会话：先只登记所选文件并读元数据，等会话建好后按 token 补做上传。 */
+/** Register local metadata before a first send owns attachment snapshots. */
 export function stageAttachments(files: string[]): StagedAttachment[] {
   if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `每次最多选择 ${MAX_ATTACHMENTS} 个文件。`);
   return files.map(file => {

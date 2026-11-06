@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as path from "node:path";
-import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
+import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import { product } from "../apps/ruukoto-code/src/product.ts";
 import { handleRequest, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import type { DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
+import { DesktopChatDrafts } from "../apps/desktop/src/main/chat-drafts.ts";
+import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { connectAuthedClient, startTestRuntime, type TestRuntime, waitFor } from "./helpers/testkit.ts";
 
 function deferred<T>() {
@@ -156,13 +158,15 @@ test("桌面二次未知保留原操作，迟到创建事件能确认原会话",
   } finally { await t.shutdown(); }
 });
 
-test("桌面新对话：未选工作区不建会话，首条消息在建好后发送给该工作区", async () => {
+test("Desktop selected-workspace new chat binds its first message after creation", async () => {
   const t = await startTestRuntime("desktop-new-chat", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
   try {
     const sent: Array<{ sessionId: string; text: string; attachments?: Array<{ id: string; name: string; size: number }> }> = [];
     const uploads: Array<{ sessionId: string; tokens: string[] }> = [];
+    const source = { instanceId: () => t.runtime.store.db.getInstanceId(), status: { type: "state" as const, state: "online" as const }, request: <K extends TuiOp>(op: K, params: OpParams<K>) => t.client.request<OpResult<K>>(op, params) };
+    const chats = new DesktopChatDrafts(new PendingRequestStore(path.join(t.dirs.root, "chats")), () => source, id => t.runtime.store.getProject(id) ?? undefined, new Map());
     const model = new CodeState({ request: async (target, name, input) => {
-      const result = await handleRequest(target, name, input, async () => {}, (op, params) => t.client.request(op, params));
+      const result = await handleRequest(target, name, input, async () => {}, (op, params) => t.client.request(op, params), (op, params) => op === "desktop_chat_start" ? chats.start(params) : op === "desktop_chat_finish" ? chats.finish(params.request_id) : op === "desktop_chat_prepare_submission" ? chats.prepareSubmission(params) : undefined);
       if ((name === "submit" || name === "continue") && result.ok) {
         const params = input as OpParams<"submit">;
         sent.push({ sessionId: params.session_id, text: params.input, attachments: params.attachments });

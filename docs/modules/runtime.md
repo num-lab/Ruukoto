@@ -14,6 +14,7 @@ Runtime owns one-level SubAgent delegation, independent work copies, parent deli
 
 | Entry | Caller | Contract |
 | --- | --- | --- |
+| `create_managed_session` / `find_managed_session` | Coding clients | Reserve and publish a workspace/session on first send; query the original creation identity |
 | `submit` | Clients | Verify `(sessionId, requestId)` and queue a persisted task |
 | `cancel` / `interrupt` | Owner/system | Cancel the selected task / persist owner pause before interrupting ordinary Coding execution; preserve unresolved stop facts |
 | `switch_mode` | Owner | Change access mode at an eligible safe boundary |
@@ -82,6 +83,14 @@ Required role/workflow/delegation MCP tools are verified after official registra
 
 Due schedules activate independent development conversations from fixed engineering configuration. Their history and results remain available after task finalization; the personal notification outbox is not the Coding conversation's persistence authority.
 
+### Managed Coding Workspaces
+
+A New chat draft without directory selection allocates nothing before its first send. `create_managed_session` fixes an ordinary workspace identity under `<current-instance>/workspace/<workspace-id>` and its first session, retaining existing creation defaults and instance-wide settings. Another independently started chat gets another workspace; branching retains the source root and data permissions.
+
+The creation receipt precedes directory preparation. A synced random staging directory is installed exclusively through the pinned parent directory, then workspace, session, managed marker and completed receipt publish in one transaction. Recovery verifies that original inode before finishing; a foreign, symlinked or missing recorded directory remains a visible failure. Request replay returns the existing session without resetting later settings. Client journals retain the original first-message submission and attachments through partial creation, upload and submit failures.
+
+Close, archive and restart retain files and history. Normal history/artifact scope cannot cross independent managed workspaces without an explicit grant. Their root is the default execution directory; owner terminals and full access retain the starting account's rights.
+
 ### Coding Message Recall and Edit/Resend
 
 `MessageRecallRuntime` separates queued retrieval from historical recall using the persisted `purpose`. Queued retrieval transactionally cancels any eligible unstarted ordinary message and restores its text/attachments to the initiating draft. It preserves other queue items, their order and the active/paused state, and writes no history marker. A dequeue race rejects rather than becoming a historical recall.
@@ -109,6 +118,7 @@ Trusted reports arriving during request N wait for its tools to settle, then ent
 
 ## Design Rationale
 
+- [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Work delegation subagent task](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)
 - [Code scheduled](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)

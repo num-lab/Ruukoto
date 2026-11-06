@@ -80,7 +80,7 @@ function ArchivedPage({ code }: { code: CodeState }) {
     <SettingsPage title="已存档会话" description="存档只把会话从左栏隐藏，历史与任务仍保留。">
       <SettingsGroup title="存档列表" action={<SettingsButton variant="icon" aria-label="重新读取存档" title="重新读取存档"><RefreshCw /></SettingsButton>}>
         <SettingsList label="已存档会话" empty="没有已存档的会话。">
-          {sessions.map(session => <SettingsListItem key={session.id} title={code.sessionName(session.id)} description={`${code.view.projects.find(project => project.id === (session.workspaceProjectId ?? session.projectId))?.name ?? "未知工作区"} · ${session.archivedAt?.slice(0, 10)}`}>
+          {sessions.map(session => <SettingsListItem key={session.id} title={code.sessionName(session.id)} description={`${code.workspaceName(session.workspaceProjectId ?? session.projectId)} · ${session.archivedAt?.slice(0, 10)}`}>
             <SettingsButton variant="icon" aria-label={`取消存档 ${code.sessionName(session.id)}`} title="取消存档" disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><ArchiveRestore /></SettingsButton>
           </SettingsListItem>)}
         </SettingsList>

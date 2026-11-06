@@ -1,5 +1,5 @@
 import type { DesktopResult } from "../shared/bridge.ts";
-import type { PendingOp } from "../shared/bridge.ts";
+import type { DesktopChatOp, PendingOp } from "../shared/bridge.ts";
 import { DesktopError } from "./environment.ts";
 import { serializeFailure } from "./controller.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
@@ -10,10 +10,11 @@ export const CODE_WEB_SEARCH_OPS = ["web_search_save_credential", "web_search_re
 // Note: 见 .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
 export const CODE_SKILL_OPS = ["skills_list", "skill_get"] as const satisfies readonly TuiOp[];
 export const CODE_SCHEDULE_OPS = ["code_schedules", "code_schedule", "code_schedule_save", "code_schedule_control", "code_schedule_receipt"] as const satisfies readonly TuiOp[];
-export const DESKTOP_OPS = [...CODE_SCHEDULE_OPS, ...CODE_MODEL_OPS, ...CODE_MCP_OPS, ...CODE_WEB_SEARCH_OPS, ...CODE_SKILL_OPS, "search_history", "list_session_summaries", "open_workspace", "create_session", "branch_session", "find_branch_session", "read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "work_list", "work_get", "read_tool_result", "read_artifact", "get_tool_op_params", "list_models", "set_session_model", "set_session_mode", "set_session_archived", "get_session", "interrupt", "cancel", "resume_queue", "task_queue", "queue_reorder", "steer_task", "get_confirmation_params", "respond_confirmation", "submit", "message_recall", "message_recall_verify", "message_recall_state", "background_processes", "background_process_output", "background_process_stop", "session_background_end", "owner_questions", "owner_question_answer", "owner_question_cancel", "owner_question_receipt", "list_prompt_requests", "get_context_breakdown", "list_workspace_files", "read_workspace_file", "read_workspace_git"] as const satisfies readonly TuiOp[];
+export const DESKTOP_OPS = [...CODE_SCHEDULE_OPS, ...CODE_MODEL_OPS, ...CODE_MCP_OPS, ...CODE_WEB_SEARCH_OPS, ...CODE_SKILL_OPS, "search_history", "list_session_summaries", "open_workspace", "create_session", "create_managed_session", "branch_session", "find_branch_session", "read_history", "read_history_entry", "list_tasks", "get_task", "read_task_events", "work_list", "work_get", "read_tool_result", "read_artifact", "get_tool_op_params", "list_models", "set_session_model", "set_session_mode", "set_session_archived", "get_session", "interrupt", "cancel", "resume_queue", "task_queue", "queue_reorder", "steer_task", "get_confirmation_params", "respond_confirmation", "submit", "message_recall", "message_recall_verify", "message_recall_state", "background_processes", "background_process_output", "background_process_stop", "session_background_end", "owner_questions", "owner_question_answer", "owner_question_cancel", "owner_question_receipt", "list_prompt_requests", "get_context_breakdown", "list_workspace_files", "read_workspace_file", "read_workspace_git"] as const satisfies readonly TuiOp[];
 export type DesktopOp = typeof DESKTOP_OPS[number];
 export const TERMINAL_OPS = ["desktop_terminal_open", "desktop_terminal_input", "desktop_terminal_resize", "desktop_terminal_kill"] as const;
-type LocalOp = PendingOp | typeof TERMINAL_OPS[number];
+export const CHAT_OPS = ["desktop_chat_start", "desktop_chat_drafts", "desktop_chat_finish", "desktop_chat_prepare_submission", "desktop_workspace_path"] as const satisfies readonly DesktopChatOp[];
+type LocalOp = PendingOp | DesktopChatOp | typeof TERMINAL_OPS[number];
 
 export async function ipcResult<T>(action: () => T | Promise<T>): Promise<DesktopResult<T>> {
   try { return { ok: true, value: await action() }; }
@@ -24,7 +25,7 @@ export async function handleRequest(target: unknown, op: unknown, params: unknow
   return ipcResult(async () => {
     if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "此连接目标尚未启用。");
     if (target === "personal") throw new DesktopError("op_not_allowed", "个人 Agent 使用独立的个人连接操作，请更新客户端页面。");
-    if (typeof op !== "string" || (op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !TERMINAL_OPS.some(value => value === op) && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "此操作未向桌面客户端开放。");
+    if (typeof op !== "string" || (op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !CHAT_OPS.some(value => value === op) && !TERMINAL_OPS.some(value => value === op) && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "此操作未向桌面客户端开放。");
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "操作参数必须是对象。");
     if (op === "reconnect") {
       if (Object.keys(params).length !== 0) throw new DesktopError("invalid_params", "重新连接不接受参数。");
@@ -33,6 +34,10 @@ export async function handleRequest(target: unknown, op: unknown, params: unknow
     if (op === "desktop_pending_read" || op === "desktop_pending_clear") {
       if (!local) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
       return local(op, params as Record<string, unknown>);
+    }
+    if (CHAT_OPS.some(value => value === op)) {
+      if (!local) throw new DesktopError("connection_unavailable", "请等待连接恢复后再发送。");
+      return local(op as DesktopChatOp, params as Record<string, unknown>);
     }
     if (TERMINAL_OPS.some(value => value === op)) {
       if (!local) throw new DesktopError("terminal_closed", "终端宿主不可用，请重新打开应用。");

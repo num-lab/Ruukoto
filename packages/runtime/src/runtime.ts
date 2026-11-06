@@ -90,6 +90,8 @@ import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { getBranchRequest, sourceArtifact } from "@ruukoto/core/branch.ts";
 import { getSideChatByRequest, listSideChats } from "@ruukoto/core/side-chat.ts";
+import { getManagedWorkspaceRequest, listManagedWorkspaceRequestIds, saveManagedWorkspaceRequest, type ManagedWorkspaceRequest } from "@ruukoto/core/managed-workspaces.ts";
+import { prepareManagedWorkspace, verifyManagedWorkspace } from "./managed-workspace.ts";
 import { finishCompactionRequest, getCompactionRequest, getLatestSessionCompaction, recoverCompactionRequests, reserveCompactionRequest, updateCompactionSource } from "@ruukoto/core/compaction.ts";
 import { DirIdentityError,legacyProjectClaimableFromDir,resolveDirIdentity,sameDirIdentity,verifyDirIdentity,type DirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { effectiveProjection } from "@ruukoto/core/history-effective.ts";
@@ -1011,6 +1013,7 @@ export class Runtime {
     // Recover pending recalls from persisted phases and verify completion markers for completed receipts
     // after workflow and SubAgent managers are assembled.
     await runtime.messageRecall.recoverAll();
+    runtime.recoverManagedSessions();
     await recoverBranchSessions(runtime.branchDeps());
     await recoverSideChats(runtime.sideDeps());
     // GitHub 专用模块退役迁移（issue 17）：仅升级后首次启动执行；无旧表直接跳过
@@ -2746,6 +2749,7 @@ export class Runtime {
   // ---------- 项目与会话 ----------
 
   createProject(name: string, createRequestId?: string): Project {
+    this.assertNotManagedCreation(createRequestId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
     if (!name.trim()) throw new RuntimeApiError("invalid_params", "项目名不能为空");
     try {
@@ -2772,6 +2776,7 @@ export class Runtime {
     createRequestId?: string;
   }): Promise<Session> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    this.assertNotManagedCreation(input.createRequestId);
     if (!input.projectId && !input.projectName?.trim()) {
       throw new RuntimeApiError("invalid_params", "project_id 或 project_name 必填其一");
     }
@@ -2825,6 +2830,110 @@ export class Runtime {
     return { modelSelection, mode: input.mode ?? "confirm", check };
   }
 
+  private assertNotManagedCreation(requestId?: string): void {
+    if (requestId && getManagedWorkspaceRequest(this.store, requestId)) throw new RuntimeApiError("request_conflict", "请求键已用于自动工作区创建");
+  }
+
+  // Note: See .agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md
+  async createManagedSession(input: { createRequestId: string; mode?: SessionDefaultMode; modelSelection?: ModelSelection }): Promise<{ session: Session; project: Project }> {
+    if (this.config.product.type !== "ruukoto-code") throw new RuntimeApiError("unavailable", "当前产品不提供自动 Coding 工作区。");
+    if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.createRequestId)) throw new RuntimeApiError("invalid_params", "工作区创建请求键无效。");
+    if (input.mode !== undefined && !isSessionDefaultMode(input.mode)) throw new RuntimeApiError("invalid_params", "会话默认模式无效");
+    const explicitModel = input.modelSelection === undefined ? null : parseModelSelection(input.modelSelection);
+    const paramsDigest = createHash("sha256").update(JSON.stringify([input.mode ?? null, explicitModel])).digest("hex");
+    let request = getManagedWorkspaceRequest(this.store, input.createRequestId);
+    if (request && request.paramsDigest !== paramsDigest) throw new RuntimeApiError("request_conflict", "工作区创建请求键已用于不同参数。");
+    if (!request) {
+      const settings = await this.sessionCreationSettings(input);
+      request = this.store.withTx(() => {
+        const existing = getManagedWorkspaceRequest(this.store, input.createRequestId);
+        if (existing) {
+          if (existing.paramsDigest !== paramsDigest) throw new RuntimeApiError("request_conflict", "工作区创建请求键已用于不同参数。");
+          return existing;
+        }
+        if (this.store.findProjectByCreateRequestId(input.createRequestId) || this.store.findSessionByCreateRequestId(input.createRequestId) ||
+            getBranchRequest(this.store, input.createRequestId) || getSideChatByRequest(this.store, input.createRequestId)) {
+          throw new RuntimeApiError("request_conflict", "请求键已用于其他项目或会话创建。");
+        }
+        settings.check?.();
+        const projectId = randomId("proj");
+        const root = path.join(fs.realpathSync(path.dirname(path.resolve(this.config.dataDir))), "workspace", projectId);
+        const reserved: ManagedWorkspaceRequest = { requestId: input.createRequestId, paramsDigest, projectId, root, parent: null, stage: null,
+          modelSelection: { ...settings.modelSelection }, mode: settings.mode, sessionId: null, error: null };
+        saveManagedWorkspaceRequest(this.store, reserved);
+        return reserved;
+      });
+    }
+    return this.publishManagedSession(request);
+  }
+
+  findManagedSession(requestId: string): { status: "not_found" | "prepared" | "published"; session: Session | null; project: Project | null; error: string | null } {
+    const request = getManagedWorkspaceRequest(this.store, requestId);
+    if (!request) return { status: "not_found", session: null, project: null, error: null };
+    this.validateManagedWorkspaceRequest(request);
+    if (!request.sessionId) return { status: "prepared", session: null, project: null, error: request.error };
+    const session = this.store.getSession(request.sessionId), project = this.store.getProject(request.projectId);
+    if (!session || !project?.rootDir || !project.managed || session.projectId !== project.id || session.cwdReal !== request.root || session.cwdIno !== project.rootDir.ino || session.createRequestId !== request.requestId) throw new RuntimeApiError("managed_workspace_corrupt", "已创建的工作区或会话记录缺失，请恢复原数据。");
+    verifyManagedWorkspace(request, project.rootDir);
+    return { status: "published", session, project, error: null };
+  }
+
+  findCreatedSession(requestId: string): Session | null {
+    return this.store.findSessionByCreateRequestId(requestId);
+  }
+
+  private publishManagedSession(request: ManagedWorkspaceRequest): { session: Session; project: Project } {
+    this.validateManagedWorkspaceRequest(request);
+    if (request.sessionId) {
+      const result = this.findManagedSession(request.requestId);
+      return { session: result.session!, project: result.project! };
+    }
+    try {
+      const identity = prepareManagedWorkspace(this.store, request);
+      return this.store.withTx(() => {
+        let name = "No workspace";
+        for (let n = 2; this.store.findProjectByName(name); n++) name = `No workspace (${n})`;
+        const project = this.store.createProject(name, request.requestId, identity, { id: request.projectId });
+        const session = this.store.createSession({ projectId: project.id, kind: "dev", cwd: identity.cwd, cwdReal: identity.cwdReal,
+          cwdDev: identity.dev, cwdIno: identity.ino, piSessionId: randomUUID(), confirmTools: [], createRequestId: request.requestId,
+          modelSelection: request.modelSelection, defaultAccessMode: request.mode, managedWorkspace: true });
+        saveManagedWorkspaceRequest(this.store, { ...request, sessionId: session.id, error: null });
+        return { session, project };
+      });
+    } catch (error) {
+      const committed = getManagedWorkspaceRequest(this.store, request.requestId);
+      if (committed?.sessionId) {
+        const result = this.findManagedSession(request.requestId);
+        return { session: result.session!, project: result.project! };
+      }
+      const code = error instanceof RuntimeApiError || error instanceof StoreConflictError ? error.code : "managed_prepare_failed";
+      this.store.withTx(() => saveManagedWorkspaceRequest(this.store, { ...(committed ?? request), error: code }));
+      if (error instanceof RuntimeApiError) throw error;
+      if (error instanceof StoreConflictError) throw new RuntimeApiError(error.code, error.message);
+      process.stderr.write(`[ruukoto:workspace] Creation ${request.requestId} remains prepared: ${error instanceof Error ? error.message : String(error)}\n`);
+      throw new RuntimeApiError("managed_prepare_failed", "工作区尚未创建完成；请按原请求核实或重试。");
+    }
+  }
+
+  private validateManagedWorkspaceRequest(request: ManagedWorkspaceRequest): void {
+    const parent = path.join(fs.realpathSync(path.dirname(path.resolve(this.config.dataDir))), "workspace");
+    if (request.root !== path.join(parent, request.projectId) || request.parent !== null && request.parent.cwdReal !== parent ||
+        request.stage !== null && (path.dirname(request.stage.cwdReal) !== parent || !path.basename(request.stage.cwdReal).startsWith(`.${request.projectId}.prepare-`))) {
+      throw new RuntimeApiError("managed_workspace_corrupt", "工作区创建记录与当前实例不符，请保留原数据并核实记录。");
+    }
+  }
+
+  private recoverManagedSessions(): void {
+    if (this.config.product.type !== "ruukoto-code") return;
+    for (const requestId of listManagedWorkspaceRequestIds(this.store)) {
+      try {
+        const request = getManagedWorkspaceRequest(this.store, requestId)!;
+        if (request.sessionId === null) this.publishManagedSession(request);
+      } catch (error) { process.stderr.write(`[ruukoto:workspace] Creation ${requestId} requires recovery: ${error instanceof RuntimeApiError ? error.code : "store_failed"}\n`); }
+    }
+  }
+
   private branchDeps(): BranchSessionDeps {
     return { store: this.store, access: this.access, sessionsDir: sessionsDirFor(this.config.dataDir), enabled: this.config.product.branchSessions === true,
       validate: async (session) => {
@@ -2848,6 +2957,7 @@ export class Runtime {
   }
 
   async branchSession(input: { sessionId: string; name?: string; taskId?: string; requestId: string }): Promise<Session> {
+    this.assertNotManagedCreation(input.requestId);
     this.assertCodeScheduleSessionMutable(input.sessionId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝会话分支");
     // Do not snapshot pending recalls: incomplete omissions must not leak into branch copies.
@@ -2867,6 +2977,7 @@ export class Runtime {
 
   /** 打开侧聊（创建或重开）：父会话唯一绑定，首次打开冻结安全快照。 */
   async openSideChat(input: { sessionId: string; requestId: string }): Promise<Session> {
+    this.assertNotManagedCreation(input.requestId);
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝打开侧聊");
     // Do not snapshot pending recalls: incomplete omissions must not leak into side-chat copies.
     this.messageRecall.assertNoOpenRecall(input.sessionId);
@@ -3126,11 +3237,13 @@ export class Runtime {
     createRequestId?: string;
   }): Promise<{ session: Session; projectName: string; createdProject: boolean }> {
     if (this.stopping) throw new RuntimeApiError("stopping", "后台正在停止，拒绝新操作");
+    this.assertNotManagedCreation(input.createRequestId);
     if (input.createRequestId && getBranchRequest(this.store, input.createRequestId)) throw new RuntimeApiError("request_conflict", "请求键已用于会话分支");
     const identity = await this.resolveWorkspaceDir(input.cwd);
     const settings = await this.sessionCreationSettings(input);
     try {
       return this.store.withTx(() => {
+        this.assertNotManagedCreation(input.createRequestId);
         // 应答丢失后的同一标识重发：直接返回首次成果，项目/会话都不重建；
         // 同键异目录按 request_conflict 处理（与 create_session 同一纪律，
         // 目录身份同样是 realpath 或 dev+ino 别名判定）

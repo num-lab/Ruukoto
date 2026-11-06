@@ -29,11 +29,13 @@ npm link            # Optional: install both commands in PATH; otherwise use npm
 ```bash
 ruukoto-code config               # Instance-wide MCP; model/API keys can be configured offline
 ruukoto-code ~/code/my-repo       # Open a new conversation; start the backend if needed
-ruukoto-code                      # Return to an existing conversation
+ruukoto-code                      # Select a conversation or start with No workspace
 ruukoto-code stop                 # Stop the backend
 ```
 
 Coding keeps ordinary messages in the user queue. Retrieve any unstarted message from the desktop queue or TUI `/queue` to edit its text and attachments. Interrupting the current task pauses dispatch until explicit resume; later messages create new tasks in the same conversation. See [queue controls and recovery](docs/usage.md#72-commands).
+
+Desktop New chat and the TUI No workspace choice create a persistent managed workspace on first send. Independent chats get separate roots; branches share the source files. Close, archive and restart retain them. See [Coding usage](docs/usage.md#22-coding-agent).
 
 ### Personal Agent
 

@@ -414,7 +414,7 @@ for (const instanceChanged of [false, true]) for (const fails of [false, true]) 
   assert.equal(transport.requests.length, 2, "不继续旧目录的下一页");
 });
 
-test("Desktop 新对话草稿：工作区选择在输入框外，未选工作区禁止发送，控件与会话输入区一致", () => {
+test("Desktop new-chat draft sends without workspace selection and retains ordinary controls", () => {
   const projects: Project[] = [{ id: "p1", name: "ruukoto", createRequestId: null, rootDir: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, instructionFiles: [], settingsVersion: 1, createdAt: at }];
   const h = harness();
   const draft = (workspaceId: string, modelSelection: ModelSelection | null = selection) => renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId, text: "写一个测试", mode: "auto-review", modelSelection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
@@ -422,7 +422,8 @@ test("Desktop 新对话草稿：工作区选择在输入框外，未选工作区
   assert.match(attr(button(empty, "选择工作区"), "class")!, /workspace-picker/);
   assert.equal(attr(button(empty, "选择工作区"), "aria-description"), undefined);
   assert.match(empty, /Task or question/);
-  assert.ok(hasAttr(button(empty, "发送消息"), "disabled"), "未选工作区不能开始对话");
+  assert.ok(!hasAttr(button(empty, "发送消息"), "disabled"));
+  assert.match(empty, /No workspace/);
   const chosen = draft("p1");
   assert.equal(attr(button(chosen, "选择工作区"), "aria-description"), "ruukoto");
   assert.ok(!hasAttr(button(chosen, "发送消息"), "disabled"));

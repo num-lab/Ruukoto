@@ -27,6 +27,8 @@ Each frame ends in `\n`.
 | `get_task`, `list_tasks`, `read_task_events` | Task/event reads |
 | `respond_confirmation`, `get_confirmation_params` | Owner decisions and bounded parameter reads |
 | `open_workspace`, `create_session`, `branch_session`, `compact_session` | Workspace identity, new/branched conversations and explicit compaction |
+| `create_managed_session`, `find_managed_session` | First-send managed workspace/session creation and original-request recovery; creation accepts only request key, model and mode |
+| `find_created_session` | Query a completed session by its original creation key, including selected-workspace first sends |
 | `open_side_chat`, `find_side_chat`, `submit_side_chat` | Prepare/reopen side chat, verify original request, submit plain text |
 | `list_models`, `get_model_config`, `set_session_model`, `test_model_connection` | Model catalog, configuration and connection tests |
 | `workflow_start`, `workflow_list`, `workflow_control`, `workflow_answer` | Workflow execution and owner interaction |
@@ -75,6 +77,8 @@ sequenceDiagram
 
 Version validation precedes authentication and dispatch. Authentication precedes business reads/writes. Snapshot and sequence align the client's starting state; reconnect reauthenticates and uses the last consumed sequence to recover missing events.
 
+Managed creation returns both the registered Project and Session. The optional managed flag appears in snapshots and creation events. Local first-send journals retain input and upload state in private client storage; those fields never enter the backend creation request. Original creation keys cannot be reused for ordinary workspace creation, branches or side chat.
+
 Computer recovery forwards the original recovery identity and fresh observation through **verify stop → observe → accept**. Runtime verifies real execution, image persistence and acceptance eligibility.
 
 ## Invariants and Failure Handling
@@ -89,6 +93,7 @@ Computer recovery forwards the original recovery identity and fresh observation 
 
 ## Design Rationale
 
+- [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Split agent and human docs](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)
 - [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)

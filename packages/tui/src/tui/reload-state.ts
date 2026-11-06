@@ -1,24 +1,20 @@
-/**
- * dev 重载状态（issue 21 §5）：界面状态与待提交任务分开保存——这里只存界面
- * 状态（当前会话、草稿 / 配置中心所在分区），不复用也不伪装成
- * PendingRequestStore 记录。落盘方式沿用其原子写（tmp + rename、0600）。
- *
- * 只在 dev 启动注入 RUUKOTO_RELOAD_STATE_FILE 时启用；秘密（API key 等表单值）
- * 永不写入——类型上就没有这些字段。恢复时用 instanceId 核对数据实例，不匹配
- * 或文件损坏一律视为无效，由调用方提示并按正常入口继续。
- */
+/** Development UI state is separate from executable pending requests; restoring a draft never sends it. */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
+import { isSessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { ManagedChatDraft } from "./managed-chat.ts";
 
 export const RELOAD_STATE_ENV = "RUUKOTO_RELOAD_STATE_FILE";
 
 export interface TaskTuiReloadState {
   kind: "task-tui";
-  /** 写入时的数据实例 id（握手 instanceId）；不匹配则记录无效。 */
+  /** Restoring UI state requires the original backend data identity. */
   instanceId: string;
   sessionId: string | null;
   draft: string;
+  managedDraft?: ManagedChatDraft;
   updatedAt: string;
 }
 
@@ -48,6 +44,11 @@ export function loadReloadState(file: string): ReloadState | null {
         instanceId: raw.instanceId,
         sessionId: typeof raw.sessionId === "string" ? raw.sessionId : null,
         draft: typeof raw.draft === "string" ? raw.draft : "",
+        ...(raw.managedDraft && isSessionDefaultMode(raw.managedDraft.mode) ? { managedDraft: {
+          text: typeof raw.managedDraft.text === "string" ? raw.managedDraft.text : "",
+          mode: raw.managedDraft.mode,
+          modelSelection: raw.managedDraft.modelSelection === null ? null : parseModelSelection(raw.managedDraft.modelSelection),
+        } } : {}),
         updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : "",
       };
     }

@@ -1,13 +1,13 @@
-/** 侧聊的持久绑定与准备回执；消息正文仍只存在 JSONL。
+/** Persistent side-chat bindings and preparation receipts; message bodies remain in JSONL.
  *
- * 父会话 ↔ 侧聊是一对一宿主绑定：parent_session_id 是主键，准备阶段即占用
- * 绑定，两个客户端并发打开不能各自冻结不同的快照。payload 是准备回执
- * （会话元数据 + 冻结历史清单 + 文件哈希 + 压缩点），SQLite 与文件系统不
- * 假定原子：发布中断后恢复只按回执与来源前缀重建，绝不取父会话最新历史。
- * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+ * The host reserves one side chat per parent during preparation, so concurrent opens reuse one frozen snapshot.
+ * Its receipt fixes session metadata, history entries, file hashes and compaction. SQLite and files are not atomic;
+ * interrupted publication recovers from this receipt and source prefix, never the parent's latest history.
+ * Note: See .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
  */
 import { StoreConflictError, type Store } from "./store.ts";
 import type { ContextCheckpoint, Session } from "./types.ts";
+import { getManagedWorkspaceRequest } from "./managed-workspaces.ts";
 
 /** side_chats.payload：发布前已准备好的侧聊事实。 */
 export interface SideChatReceipt {
@@ -77,11 +77,11 @@ export function listSideChats(store: Store): SideChatBinding[] {
 }
 
 /**
- * 占用父会话的侧聊绑定并写入准备回执；调用方须在事务内调用。
- * 已建立绑定（任何状态）一律返回原绑定：重复打开复用同一冻结快照，
- * prepared/failed 由调用方继续驱动同一回执完成发布。
+ * The caller reserves the parent binding and receipt in a transaction. Every later open reuses that frozen snapshot;
+ * the caller resumes publication of prepared or failed receipts.
  */
 export function reserveSideChat(store: Store, input: { parentSessionId: string; requestId: string; paramsDigest: string }, build: () => SideChatReceipt): SideChatBinding {
+  if (getManagedWorkspaceRequest(store, input.requestId)) throw new StoreConflictError("请求键已用于自动工作区创建", "request_conflict");
   const existing = getSideChatByParent(store, input.parentSessionId);
   if (existing) {
     if (existing.requestId === input.requestId && existing.paramsDigest !== input.paramsDigest) {

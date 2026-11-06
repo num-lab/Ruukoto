@@ -52,13 +52,15 @@ The main entities are `tasks`, `work_delegations`, `sub_agents`, `background_pro
 
 `message_recalls` fixes queued/historical purpose, input/execution identity, history fingerprints, original text and attachments, stop/sealed-source sets, phase, edit window and failure reason. `(session_id, request_id)` is unique, with at most one unresolved recall per conversation. Queued completion is proved by its cancellation facts; historical completion uses JSONL omissions and a marker. The latest accepted structured answer or Skip remains an unsupported historical-recall candidate. The current schema version is `58`; use a fresh data directory and preserve old profiles without migration.
 
+Managed Coding chats use ordinary projects/workspaces and sessions. Host metadata records the managed flag and first-send creation receipt, including fixed project ID, request fingerprint, model/mode, canonical root and preparation identities. These additive records use the existing schema. Each independently started chat has its own data scope; branches retain that same workspace. No history, artifacts, instructions or credentials move into the work directory.
+
 ```text
 ~/.ruukoto-code/
-├── data/                  # SQLite and runtime.lock/
-├── agent/                 # Configuration and history
+├── workspace/<workspace-id>/ # Managed chat files, retained across close/archive/restart
+├── data/                  # SQLite, runtime.lock/ and captured data
 │   ├── sessions/
-│   ├── artifacts/
-│   └── config.lock/
+│   └── artifacts/
+├── agent/                 # Model/service configuration and config.lock/
 └── control/
     ├── control.sock
     └── spawn.log
@@ -93,6 +95,7 @@ Identity resolution reads the conversation and its SubAgent/schedule bindings, c
 
 ## Design Rationale
 
+- [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Preserve session history](../../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Work delegation subagent task](../../.agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md)

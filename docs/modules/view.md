@@ -31,6 +31,8 @@ ViewState
 
 Recovery first installs the `ConnectResult` snapshot, then applies subsequent events in sequence order. Older events must not roll the view back.
 
+Snapshots and `project.created` events retain the host-owned managed flag. Clients use it to group No workspace conversations while preserving each registered workspace identity and directory.
+
 Personal independently pages operation cards, owner questions, works and delegations in groups of at most eight. Family, operation and admission fix the canonical record; displayed occurrences place it in the timeline and retain redisplay identity. Committed updates refresh current state across those occurrences, while reconnect reads cached originals outside the first page. Optional family, question and recovery fields preserve the existing version-1 ordinary-tool protocol.
 
 Personal action receipts echo the exact original request and report admission or action outcome. The family's operation card separately reports effects and stopping. Original-receipt checks, current observations, immutable owner claims and recovery-image descriptors remain distinct typed facts; backend records determine action eligibility.
@@ -69,6 +71,7 @@ Initial projection establishes indexes before rendering. Streamed text and think
 
 ## Design Rationale
 
+- [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Shared history recovery](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [Complete reasoning and preview](../../.agents/notes/implemented/feature/2026-10-18-complete-reasoning-and-preview.md)
 - [In repo workspace packages](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)

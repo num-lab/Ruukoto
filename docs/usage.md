@@ -4,7 +4,7 @@ Daily operation, configuration, service management and troubleshooting for Perso
 
 ## 1. Prerequisites and Installation
 
-Both products use native execution; Docker is unnecessary. Install Node ≥ 24.15.0, Bash, Git and ripgrep (`rg`) in PATH. Development checks also require Python 3 with PTY support.
+Both products use native execution; Docker is unnecessary. Install Node ≥ 24.15.0, Bash, Git, ripgrep (`rg`) and Python 3 in PATH. Coding uses Python's OS interface to prepare managed chat directories; development checks also require its PTY support.
 
 | Platform | Native prerequisites |
 | --- | --- |
@@ -40,12 +40,16 @@ Production restricted execution defaults to native and rejects legacy `local`/`c
 ### 2.2 Coding Agent
 
 ```bash
-ruukoto-code                     # Open an existing conversation
+ruukoto-code                     # Select a conversation or start with No workspace
 ruukoto-code ~/code/my-project   # New conversation in this workspace
 ruukoto-code config              # Model and parameter configuration
 ```
 
 The TUI discovers an existing backend or starts one on demand, logging to `<controlDir>/spawn.log`, then connects when ready. Instance locking coordinates competing startup attempts. Closing the TUI or terminal does not cancel backend work; stop the service explicitly when intended.
+
+Choose No workspace in the TUI selector or send from Desktop New chat without selecting a directory. First send creates a persistent root under `<current-instance>/workspace/<workspace-id>`; an abandoned unsent draft creates nothing. Every independently started chat gets its own workspace and history/artifact scope. `/new` in a managed chat opens another such draft; `/new` in an ordinary workspace keeps that workspace. A branch shares its source files and permissions while its conversation history continues independently.
+
+Managed conversations appear together as No workspace. Reopen them through the selector, sidebar or search, inspect Files, start a terminal, or reveal the folder to take files elsewhere. Close, restart and archive retain files and history. After creation, upload or submission failure, retry the retained draft to use its original workspace/session and request; reopening restores the input for explicit send. Full access and owner terminals retain the starting account's rights.
 
 ### 2.3 Development Instances
 
@@ -191,7 +195,7 @@ Personal recovery cards separate original receipts, current observations and you
 | `/todo` | Toggle work checklist |
 | `/resume` | Switch conversations |
 | `/project` | Workspace/legacy-project selection |
-| `/new-project <name>`, `/new-session <directory>`, `/new` | Legacy project, current-project conversation, or current-workspace conversation |
+| `/new-project <name>`, `/new-session <directory>`, `/new` | Legacy project, current-project conversation, or new conversation/draft according to the current workspace |
 | `/branch [name]` | Branch persisted ordinary Coding history and switch; no model call; names can contain spaces |
 | `/side` | Toggle tool-free side chat; Esc retains its draft and generation |
 | `/compact [prompt]` | Summarize an idle ordinary Coding conversation, optionally giving a focus |

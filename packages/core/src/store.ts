@@ -64,6 +64,7 @@ import { FRAGMENT_TEXT_CAP } from "./views.ts";
 import { sameDirIdentity, type DirIdentity } from "./dir-identity.ts";
 import { parseWorkWriteTarget, writeTargetToJson } from "./types.ts";
 import * as path from "node:path";
+import { getManagedWorkspaceRequest, managedWorkspaceKey } from "./managed-workspaces.ts";
 
 /** 实例级 Web Search 开关在 meta 表的键（值形如 {"version":1,"state":"enabled"}）。 */
 const WEB_SEARCH_META_KEY = "web_search";
@@ -147,12 +148,16 @@ export class Store {
   // ---------- 项目 ----------
 
   /**
-   * 创建项目（可选幂等，issue 21）。携带 createRequestId 时：同键同名返回
-   * 已存在项目（不重复插入、不产生事件）；同键异名抛 request_conflict。
-   * 查找与插入由调用方事务包住（node:sqlite 同步、单进程），唯一索引作兜底：
-   * 插入冲突时按幂等键重取核实，核实不过按冲突处理。
+   * With a creation key, the same name returns the existing project without another event; a changed name rejects with request_conflict.
+   * The caller owns the transaction. Unique-index conflicts reread and verify the original project.
    */
-  createProject(name: string, createRequestId?: string | null, rootDir?: DirIdentity | null): Project {
+  createProject(name: string, createRequestId?: string | null, rootDir?: DirIdentity | null, managed?: { id: string }): Project {
+    const reservation = createRequestId ? getManagedWorkspaceRequest(this, createRequestId) : null;
+    if (reservation || managed) {
+      if (!reservation || managed?.id !== reservation.projectId || rootDir?.cwdReal !== reservation.root || rootDir.ino !== reservation.stage?.ino) {
+        throw new StoreConflictError("请求键已用于自动工作区创建", "request_conflict");
+      }
+    }
     if (createRequestId) {
       const existing = this.findProjectByCreateRequestId(createRequestId);
       if (existing) {
@@ -168,7 +173,7 @@ export class Store {
     if (rootDir && this.findProjectByRoot(rootDir)) {
       throw new StoreConflictError(`工作区已存在：${rootDir.cwdReal}`, "duplicate");
     }
-    const project: Project = { id: randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, instructionFiles: [], settingsVersion: 1, createdAt: new Date().toISOString() };
+    const project: Project = { id: managed?.id ?? randomId("proj"), name, createRequestId: createRequestId ?? null, rootDir: rootDir ?? null, ...(managed ? { managed: true } : {}), instructionFiles: [], settingsVersion: 1, createdAt: new Date().toISOString() };
     try {
       this.db
         .prepare("INSERT INTO projects (id, name, create_request_id, root_cwd, root_real, root_dev, root_ino, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
@@ -192,13 +197,14 @@ export class Store {
           return existing;
         }
       }
-      // 根目录部分唯一索引兜底（idx_projects_root_real 只含非 NULL 行）
+      // The root's partial unique index covers only registered directories.
       if (isRootDirClash(err)) {
         throw new StoreConflictError(`工作区已存在：${rootDir?.cwdReal}`, "duplicate");
       }
       throw err;
     }
-    this.appendEvent({ type: "project.created", projectId: project.id, name: project.name, createRequestId: project.createRequestId, rootDir: project.rootDir });
+    if (managed) this.setMetaValue(managedWorkspaceKey(project.id), "true");
+    this.appendEvent({ type: "project.created", projectId: project.id, name: project.name, createRequestId: project.createRequestId, rootDir: project.rootDir, ...(managed ? { managed: true } : {}) });
     return project;
   }
 
@@ -339,6 +345,7 @@ export class Store {
       rootDir: row.root_real
         ? { cwd: row.root_cwd, cwdReal: row.root_real, dev: row.root_dev, ino: row.root_ino }
         : null,
+      ...(this.getMetaValue(managedWorkspaceKey(row.id)) === "true" ? { managed: true } : {}),
       instructionFiles: JSON.parse(row.instruction_files ?? "[]") as string[],
       settingsVersion: Number(row.settings_version ?? 1),
       createdAt: row.created_at,
@@ -348,9 +355,8 @@ export class Store {
   // ---------- 会话 ----------
 
   /**
-   * 创建会话（可选幂等，issue 21）。携带 createRequestId 时：同键同参
-   * （项目 + cwdReal + confirmTools）返回已存在会话；同键异参抛
-   * request_conflict。唯一索引作兜底（冲突时重取核实）。
+   * A creation key reuses the session only when project, canonical directory and confirmation tools match; changed parameters reject with request_conflict.
+   * Unique-index conflicts reread and verify the original session.
    */
   createSession(input: {
     projectId: string;
@@ -365,11 +371,19 @@ export class Store {
     confirmTools: string[];
     modelSelection?: ModelSelection | null;
     defaultAccessMode?: SessionDefaultMode;
-    /** 创建幂等键（issue 21；null/缺省 = 不去重，每次插入新会话）。 */
+    /** Without a creation key, each call inserts a new session. */
     createRequestId?: string | null;
-    /** 分支发布只接受宿主预先固定的完整元数据。 */
+    /** Branch publication accepts only complete metadata fixed by the host. */
     branchSession?: Session;
+    /** Publication of the workspace fixed by a managed creation reservation. */
+    managedWorkspace?: boolean;
   }): Session {
+    const reservation = input.createRequestId ? getManagedWorkspaceRequest(this, input.createRequestId) : null;
+    if (reservation || input.managedWorkspace) {
+      if (!reservation || !input.managedWorkspace || input.branchSession || input.projectId !== reservation.projectId || input.cwdReal !== reservation.root || input.cwdIno !== reservation.stage?.ino) {
+        throw new StoreConflictError("请求键已用于自动工作区创建", "request_conflict");
+      }
+    }
     if (input.createRequestId && !input.branchSession && (
       this.db.prepare("SELECT 1 FROM branch_requests WHERE request_id = ?").get(input.createRequestId) ||
       this.db.prepare("SELECT 1 FROM side_chats WHERE request_id = ?").get(input.createRequestId)
@@ -390,14 +404,14 @@ export class Store {
         return existing;
       }
     }
-    // 分支沿用来来源的存档状态：分支是同一份工作的延续，不因复制而重新出现在列表。
+    // Branches retain their source's archive state rather than reappear as new work.
     const archivedAt = input.branchSession ? input.branchSession.archivedAt ?? null : null;
     const session: Session = input.branchSession ?? {
       id: randomId("sess"),
       name: input.name ?? null,
       branchSource: null,
       projectId: input.projectId,
-      // 新会话无组织归属（workspace_project_id 列默认 NULL，插入不写该列）
+      // A new conversation has no owner-assigned organizational membership.
       workspaceProjectId: null,
       kind: input.kind ?? "dev",
       cwd: input.cwd,

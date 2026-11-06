@@ -240,14 +240,17 @@ test("配对提交前后进程崩溃：同一候选可核实，未提交不登�
   }
 });
 
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 test("认证进程崩溃：OS释放独占锁，重开保留原身份并使旧配对窗口落盘失效", async t => {
   const f = fixture(t), auth = f.open(true), identity = auth.identity(); auth.close();
   const module = new URL("../apps/ruukoto/src/personal-remote-auth.ts", import.meta.url).href;
-  const source = `import {openPersonalRemoteAuth} from ${JSON.stringify(module)};const auth=openPersonalRemoteAuth(${JSON.stringify(binding)},{home:()=>${JSON.stringify(f.home)}});auth.openPairing();process.stdout.write('ready\\n');setInterval(()=>{},1000);`;
-  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], { stdio: ["ignore", "pipe", "pipe"] });
+  // Keep the lock owner reachable while exercising GC before the real process crash.
+  const source = `import {openPersonalRemoteAuth} from ${JSON.stringify(module)};const auth=openPersonalRemoteAuth(${JSON.stringify(binding)},{home:()=>${JSON.stringify(f.home)}});auth.openPairing();setInterval(()=>auth.identity(),1000);setImmediate(()=>{global.gc();process.stdout.write('ready\\n');});`;
+  const child = spawn(process.execPath, ["--expose-gc", "--import", "tsx", "--input-type=module", "-e", source], { stdio: ["ignore", "pipe", "pipe"] });
   t.after(() => child.kill("SIGKILL"));
   const closed = once(child, "exit");
-  await once(child.stdout!, "data");
+  const [ready] = await once(child.stdout!, "data");
+  assert.equal(String(ready), "ready\n"); assert.equal(child.exitCode, null);
   assert.throws(() => f.open(), code("remote_busy"));
   child.kill("SIGKILL"); await closed;
   assert.ok(JSON.parse(fs.readFileSync(f.filename, "utf8")).pairing);

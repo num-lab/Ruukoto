@@ -204,13 +204,14 @@ for (const kind of ["ruukoto.media", "ruukoto.image", "ruukoto.browser", "ruukot
   await assert.rejects(f.open(), code(kind.startsWith("ruukoto.media") || kind === "ruukoto.image" ? "media_record_invalid" : "browser_record_invalid")); assert.equal(f.model.calls.length, before);
 });
 
+// Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
 test("个人组合：Telegram浏览器菜单沿原actor核实效果与后台停止，控制不调用模型", async t => {
   const f = await fixture(t), token = "123:integration_test", tokenEnv = "RK_BROWSER_INTEGRATION_TG_KEY", previousToken = process.env[tokenEnv]; process.env[tokenEnv] = token;
-  const sends: { id: number; text: string }[] = [];
+  let nextMessageId = 1000;
   const bot = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { text?: string; chat_id?: string };
-    if (req.url?.endsWith("/sendMessage")) { const id = 1000 + sends.length; sends.push({ id, text: input.text! }); res.end(JSON.stringify({ ok: true, result: { message_id: id, chat: { id: Number(input.chat_id), type: "private" } } })); return; }
+    if (req.url?.endsWith("/sendMessage")) { res.end(JSON.stringify({ ok: true, result: { message_id: nextMessageId++, chat: { id: Number(input.chat_id), type: "private" } } })); return; }
     res.end(JSON.stringify({ ok: true, result: [] }));
   });
   bot.listen(0, "127.0.0.1"); await once(bot, "listening"); const address = bot.address(); assert.ok(address && typeof address === "object");
@@ -219,21 +220,26 @@ test("个人组合：Telegram浏览器菜单沿原actor核实效果与后台停�
   const p = await f.open({ telegram }); await f.mode("full_access");
   const receive = async (id: number, text: string, replyTo?: number) => {
     const update: TelegramUpdate = { update_id: id, message: { message_id: id, from: { id: 456, is_bot: false }, chat: { id: 456, type: "private" }, text, ...(replyTo === undefined ? {} : { reply_to_message: { message_id: replyTo, from: { id: 123, is_bot: true } } }) } };
-    await p.telegram.receive(update); const key = `telegram:123:456:${id}`, value = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!; await p.harness.waitForTask(value.taskId, context); return (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
+    await p.telegram.receive(update); const key = `telegram:123:456:${id}`, value = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!; await p.harness.waitForTask(value.taskId, context);
+    const receipt = (await p.harness.snapshot(PersonalTelegramReceiptDoc, key, context))!.receipt!;
+    assert.equal(receipt.delivery, "sent"); assert.ok(receipt.platformMessageId);
+    return receipt;
   };
   f.stop(false); f.unknown(true);
   await receive(1, browser("open", { url: "https://example.com" }));
   await until(async () => (await f.operations())[0]?.observation !== undefined); const operation = (await f.operations())[0]; assert.ok(operation); assert.equal(operation.effect, "effect_unknown"); assert.equal(operation.stopped, false);
   const before = f.model.calls.length;
-  await receive(2, "/浏览器"); assert.match(sends.at(-1)!.text, /浏览器1/);
-  await receive(3, "浏览器1", sends.at(-1)!.id); assert.match(sends.at(-1)!.text, /浏览器确认已生效/);
+  const list = await receive(2, "/浏览器"); assert.match(list.reply!, /浏览器1/);
+  const detail = await receive(3, "浏览器1", Number(list.platformMessageId)); assert.match(detail.reply!, /浏览器确认已生效/);
   await assert.rejects(p.harness.commit(tx => browserResolve(tx, operation.operation, "applied", "不能使用新代次", { requestId: "wrong-actor", generation: randomUUID(), botId: "123", ownerId: "456" }), context), code("browser_original_entry"));
   await assert.rejects(p.harness.commit(tx => browserResolve(tx, operation.operation, "applied", "不能使用另一平台", { requestId: "wrong-platform", platform: "qq", generation: telegram.generation, botId: "123", ownerId: "456" }), context), code("browser_original_entry"));
-  const resolution = await receive(4, "浏览器确认已生效", sends.at(-1)!.id); assert.equal(resolution.browserResolution!.operation, operation.operation);
+  const resolution = await receive(4, "浏览器确认已生效", Number(detail.platformMessageId)); assert.equal(resolution.browserResolution!.operation, operation.operation);
   const resolved = (await f.operations())[0];
   assert.equal(resolved.resolution!.actor, "telegram:123:456:4"); assert.ok(resolved.resolution!.claim); assert.equal(resolved.resolution!.evidence, undefined); assert.equal(resolved.stopped, false);
-  await receive(5, "刷新浏览器", sends.at(-1)!.id); f.stop(true);
-  const stopped = await receive(6, "停止并核实浏览器", sends.at(-1)!.id); assert.ok(stopped.browserStop);
+  const refreshed = await receive(5, "刷新浏览器", Number(resolution.platformMessageId));
+  // A later host reply must not replace the selected browser menu.
+  await receive(6, "/权限"); f.stop(true);
+  const stopped = await receive(7, "停止并核实浏览器", Number(refreshed.platformMessageId)); assert.ok(stopped.browserStop, stopped.reply);
   await p.harness.waitForTask(stopped.browserStop.taskId, context); assert.equal((await f.operations())[0].stopped, true); assert.ok(f.model.calls.slice(before).every(request => request.system?.includes("本轮来源为宿主委托汇总参考"))); assert.equal(f.calls(), 1);
   await settleBrowserWork(p); const completedCalls = f.model.calls.length; await p.close(); await f.open({ telegram }); assert.equal(f.model.calls.length, completedCalls);
 });

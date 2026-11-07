@@ -18,6 +18,8 @@ TUI recovery validates both creation and submission identity before replay. Unre
 
 In both clients, navigation ends the draft's permission to submit; its durable journal remains available for explicit restoration.
 
+The development-entry PTY case selects No workspace before waiting for its draft and quitting. The startup selector hides the online header, so transport readiness alone cannot release editor input. Abandonment checks both process/terminal cleanup and the absence of registered roots, ordinary conversations and tasks.
+
 This supersedes only [Desktop New chat](2026-10-20-desktop-new-chat.md)'s requirement to select a workspace. Identity and permissions remain bound at creation. The existing [branch snapshot](2026-10-11-branch-session-snapshot.md) and [owner workspace browsing](2026-10-24-owner-workspace-browsing.md) contracts remain.
 
 ## Alternatives considered

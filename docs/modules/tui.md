@@ -8,7 +8,7 @@
 
 | CLI | Purpose |
 | --- | --- |
-| `ruukoto-code [path]` | Open a workspace and TUI; start backend on demand |
+| `ruukoto-code [path]` | Open a workspace or the conversation selector, including No workspace; start backend on demand |
 | `ruukoto-code server` | Foreground backend |
 | `ruukoto-code config` | Model, credential and default configuration |
 | `ruukoto-code stop` | Graceful backend stop |
@@ -21,6 +21,7 @@ Online MCP settings are instance-wide across workspaces. The owner chooses allow
 
 | TUI command | Behavior |
 | --- | --- |
+| `/new` | In an ordinary workspace, create another conversation there; in a managed chat, open a fresh No workspace draft |
 | `/mode` | Choose the conversation's run mode |
 | `/model` | Select a conversation model |
 | `/todo` | Toggle the work checklist overlay |
@@ -35,6 +36,10 @@ Online MCP settings are instance-wide across workspaces. The owner chooses allow
 ## Data and State
 
 The terminal shows conversation/workspace identity and mode at the top, the shared event timeline in the body, an input area, and model/usage statistics. Overlays retain the main screen; full windows replace it. Resizing recalculates layout without changing backend task state.
+
+The Coding startup selector offers No workspace even when the profile has no conversations. Selecting it opens a local draft with the current backend default or the source conversation's settings; first send creates its persistent workspace/session. Draft controls stay local, and abandoning before send leaves no workspace or session. Managed conversations appear together under No workspace but retain their real owning roots.
+
+First-send recovery retains original creation and submission keys for explicit send. After verified nonacceptance, text/model/mode can change while creation identity stays fixed; unresolved submissions keep their original parameters. Later text typed during a request remains in the editor when it completes. Unreadable recovery records prevent another first send until the original result is verified.
 
 | Computer-recovery state | Available action |
 | --- | --- |
@@ -80,6 +85,7 @@ Computer recovery starts from the original operation in MCP settings. Verify it 
 
 ## Design Rationale
 
+- [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Shared history recovery](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [In repo workspace packages](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)

@@ -66,7 +66,7 @@ export function SearchDialog({ model, onOpenSession }: { model: CodeState; onOpe
   }, [search, viewport, loadMoreEnabled, search.hits, search.hits.length]);
   const workspaceName = (sessionId: string) => {
     const workspaceId = search.summaries?.find(item => item.sessionId === sessionId)?.workspaceId;
-    return model.view.projects.find(project => project.id === workspaceId)?.name ?? "未知工作区";
+    return model.workspaceName(workspaceId ?? "");
   };
   const sessionName = (sessionId: string) => search.summaries?.find(item => item.sessionId === sessionId)?.name ?? model.sessionName(sessionId);
   const archived = (sessionId: string) => !!search.summaries?.find(item => item.sessionId === sessionId)?.archivedAt;

@@ -221,7 +221,7 @@ export class ViewState {
         return;
       case "project.created":
         if (!this.projects.some((p) => p.id === body.projectId)) {
-          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, instructionFiles: [], settingsVersion: 1, createdAt: event.createdAt });
+          this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, ...(body.managed ? { managed: true } : {}), instructionFiles: [], settingsVersion: 1, createdAt: event.createdAt });
         }
         return;
       case "project.root_attached": {

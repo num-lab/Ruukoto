@@ -48,6 +48,8 @@ import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { loadReloadState, saveReloadState } from "./reload-state.ts";
+import { ManagedChat } from "./managed-chat.ts";
+import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
 import {
   ensureWorkspaceSession,
   findWorkspaceByRoot,
@@ -886,6 +888,8 @@ export class TuiApp {
   private readonly branchPendingStore: PendingRequestStore;
   private readonly recallPendingStore: PendingRequestStore;
   private readonly compactionPendingStore: PendingRequestStore;
+  private readonly managedChat: ManagedChat;
+  private managedChatQuery = false;
   private readonly pendingCompactions = new Map<string, PendingCompaction>();
   private readonly compactionResults = new Map<string, SessionCompactionRequest>();
   private readonly compactionQueries = new Set<string>();
@@ -969,6 +973,7 @@ export class TuiApp {
     this.branchPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "branches"));
     this.recallPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "recalls"));
     this.compactionPendingStore = new PendingRequestStore(join(opts.pendingStore.dir, "compactions"));
+    this.managedChat = new ManagedChat(new PendingRequestStore(join(opts.pendingStore.dir, "managed-chats")), this.connection);
     this.state = opts.state;
     this.history = new HistoryRecovery({
       state: this.state, request: (op, params) => this.connection.request(op, params), entryPageBytes: ENTRY_PAGE_BYTES,
@@ -1019,6 +1024,7 @@ export class TuiApp {
         if (requestId) { this.recallPendingStore.clear(requestId); this.installedRecalls.delete(key); }
         view.draft = this.editor.getExpandedText();
       }
+      if (this.managedChat.draft) this.managedChat.draft.text = this.editor.getExpandedText();
       this.scheduleReloadPersist();
     };
     // 候选列表经覆盖层绘制：覆盖层在布局之后合成，叠在转录区之上而不挤占它。
@@ -1146,8 +1152,9 @@ export class TuiApp {
     });
   }
 
-  /** 右下角信息：模型来源 · 模型名 · 思考强度（未握手完成时显示占位）。 */
+  /** Model selection for the active draft or conversation, falling back to the backend default. */
   private modelInfoText(): string {
+    if (this.managedChat.draft?.modelSelection) return this.selectionText(this.managedChat.draft.modelSelection);
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
     if (session) return `${this.selectionText(session.modelSelection)}`;
     const m = this.state.defaultModel;
@@ -1229,6 +1236,7 @@ export class TuiApp {
       void this.ownerQuestions.reconnect();
       void this.backgroundProcesses.refresh();
       void this.reconcilePendingInputs();
+      void this.reconcileManagedChat();
       void this.recoverRecalls();
       for (const pending of this.pendingCompactions.values()) void this.reconcileCompaction(pending.sessionId, true);
       if (this.state.currentSessionId) void this.reconcileCompaction(this.state.currentSessionId);
@@ -1244,6 +1252,7 @@ export class TuiApp {
     if (ctx.instanceChanged) this.sessionUsage.clear();
     this.history.reset();
     this.state.applySnapshot(result, ctx.instanceChanged);
+    if (ctx.instanceChanged) this.managedChat.close();
     this.workflowSidebar.refresh();
     void this.ownerQuestions.refresh();
     void this.backgroundProcesses.refresh();
@@ -1259,6 +1268,9 @@ export class TuiApp {
       }
     }
     if (this.generation === 1) {
+      try {
+        for (const name of this.managedChat.restore()) this.notify(`首条消息恢复记录损坏：${name}，请核实原后台结果。`);
+      } catch (error) { this.notify(`首条消息恢复记录不可读：${error instanceof Error ? error.message : String(error)}`); }
       const saved = this.compactionPendingStore.list();
       for (const name of saved.corrupt) this.notify(`压缩待核实记录损坏：${name}，请核实原后台结果`);
       for (const record of saved.records) {
@@ -1285,6 +1297,7 @@ export class TuiApp {
       return;
     }
     this.normalStartupFlow(ctx);
+    void this.reconcileManagedChat();
     if (this.pendingBranch) void this.reconcileBranch();
     this.checkSideChatBinding();
     void this.reconcileSideChat();
@@ -1297,7 +1310,6 @@ export class TuiApp {
    * 仅 dev 注入重载状态文件时启用，秘密从不写入（类型上就没有这些字段）。
    */
   private scheduleReloadPersist(): void {
-    if (!this.reloadStateFile) return;
     if (this.reloadPersistTimer) clearTimeout(this.reloadPersistTimer);
     this.reloadPersistTimer = setTimeout(() => this.persistReloadState(), 300);
   }
@@ -1308,6 +1320,8 @@ export class TuiApp {
       clearTimeout(this.reloadPersistTimer);
       this.reloadPersistTimer = null;
     }
+    try { this.managedChat.saveDraft(); }
+    catch (error) { this.notify(`首条消息草稿未保存：${error instanceof Error ? error.message : String(error)}`); }
     const file = this.reloadStateFile;
     const instanceId = this.state.instanceId;
     if (!file || !instanceId) return;
@@ -1315,7 +1329,8 @@ export class TuiApp {
       kind: "task-tui",
       instanceId,
       sessionId: this.state.currentSessionId,
-      draft: this.currentView()?.draft ?? "",
+      draft: this.currentView()?.draft ?? this.managedChat.draft?.text ?? "",
+      ...(this.managedChat.draft ? { managedDraft: this.managedChat.draft } : {}),
       updatedAt: "", // 落盘时由 saveReloadState 写入当前时间
     });
   }
@@ -1342,6 +1357,14 @@ export class TuiApp {
     const sessionId =
       saved.sessionId && result.snapshot.sessions.some((s) => s.id === saved.sessionId) ? saved.sessionId : null;
     if (sessionId === null) {
+      if (saved.managedDraft && this.devProductPicker()) {
+        try { this.managedChat.open(saved.managedDraft); }
+        catch (error) { this.notify(error instanceof Error ? error.message : "首条消息恢复失败。"); this.normalStartupFlow({ resync: false }); return; }
+        this.managedChat.draft!.text = this.managedChat.pending?.input ?? saved.draft;
+        this.editor.setText(this.managedChat.draft!.text);
+        this.refreshAll();
+        return;
+      }
       // 无会话或会话已不在快照中：草稿/继续意图无从归属，按正常入口启动
       this.normalStartupFlow({ resync: false });
       return;
@@ -1354,9 +1377,9 @@ export class TuiApp {
     this.refreshAll();
   }
 
-  /** 正常启动流程：--session 精确/前缀匹配 → 项目与会话选择 → 欢迎页；重连时重载历史。 */
+  /** Resolve an explicit conversation or open the startup selector; reconnect only reloads observation. */
   private normalStartupFlow(ctx: { resync: boolean }): void {
-    if (this.initialSessionId && !this.state.currentSessionId) {
+    if (this.initialSessionId && !this.state.currentSessionId && !this.managedChat.draft) {
       const wanted = this.initialSessionId;
       const target = this.state.sessions.find((s) => s.id === wanted || s.id.startsWith(wanted));
       if (!target) {
@@ -1366,9 +1389,9 @@ export class TuiApp {
       }
       this.switchSession(target.id);
     }
-    if (!this.state.currentSessionId && this.state.sessions.length > 0 && !ctx.resync) {
-      // 默认先选择项目，再选择项目中的会话
-      this.openProjectPicker();
+    if (!this.state.currentSessionId && !this.managedChat.draft && !ctx.resync && (this.devProductPicker() || this.state.sessions.length > 0)) {
+      // Keep the startup selector; an empty Coding profile can choose a local draft.
+      void this.openProjectPicker();
     }
     const current = this.state.currentSessionId;
     if (current) {
@@ -1525,6 +1548,7 @@ export class TuiApp {
       void this.loadEntry(body.sessionId, body.entryId);
       if (body.role === "toolResult") void this.refreshSessionTodos(body.sessionId);
     }
+    if (body.type === "session.created" || body.type === "task.queued") void this.reconcileManagedChat();
     this.refreshAll();
   }
 
@@ -1594,6 +1618,7 @@ export class TuiApp {
     this.compactionTimer = null;
     // dev 重载（issue 21 §5）：退出前把最终界面状态同步落盘（防抖可能还在等）
     this.persistReloadState();
+    this.managedChat.close();
     // 退出前保留尚未确认接收的请求（pendingStore 已在磁盘）；不发送 stop/取消
     this.connection.close();
     const pending = this.pendingStore.list();
@@ -1619,8 +1644,11 @@ export class TuiApp {
   }
 
   private switchSession(sessionId: string, preserveSettings = false): void {
-    // 侧聊跟随父会话：切走即收起（草稿/滚动/生成状态保留在侧聊视图，重开恢复）
+    // Reopening an unsent first message must retain its original submission key.
+    if (!preserveSettings && this.managedChat.pending?.sessionId === sessionId) { void this.openManagedChat(); return; }
+    // Side chat follows its parent; keep its independent draft and scroll state when hidden.
     if (this.sideChatHandle && this.sideChat.parentSessionId !== sessionId) this.hideSideChat();
+    this.managedChat.close();
     this.clearToolExpansions();
     const prev = this.currentView();
     const source = this.state.sessions.find((session) => session.id === prev?.sessionId);
@@ -1796,8 +1824,114 @@ export class TuiApp {
     await dispatchInput(text, this.commandEnv());
   }
 
+  // Note: See .agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md
+  private async openManagedChat(): Promise<void> {
+    if (!this.devProductPicker()) return;
+    if (this.managedChat.busy) { this.notify("首条消息正在处理，请稍后重试。"); return; }
+    const currentSessionId = this.state.currentSessionId, instanceId = this.state.instanceId, currentDraft = this.managedChat.draft;
+    try { await this.sessionSettingsSync; }
+    catch { this.notify("会话设置仍待核实，请恢复连接后再开始新对话。"); return; }
+    if (this.exiting || this.state.currentSessionId !== currentSessionId || this.state.instanceId !== instanceId || this.managedChat.draft !== currentDraft) return;
+    const source = this.state.sessions.find(session => session.id === this.state.currentSessionId);
+    let modelSelection: ModelSelection | null = this.managedChat.pending?.modelSelection ?? currentDraft?.modelSelection ?? source?.modelSelection ?? this.carriedSettings?.model ?? null;
+    if (!modelSelection) {
+      try { modelSelection = (await this.connection.request("get_model_config", {})).runtimeDefault; }
+      catch { this.notify("默认模型不可用，请通过 /model 选择模型。"); }
+      if (this.exiting || this.state.currentSessionId !== currentSessionId || this.state.instanceId !== instanceId || this.managedChat.draft !== currentDraft || currentDraft?.modelSelection) return;
+    }
+    if (currentDraft) {
+      const pending = this.managedChat.pending;
+      if (pending && !currentDraft.text.trim()) currentDraft.text = pending.input;
+      this.editor.setText(currentDraft.text); this.refreshAll(); return;
+    }
+    try { this.managedChat.open({ mode: source?.defaultAccessMode ?? this.carriedSettings?.mode ?? "confirm", modelSelection }); }
+    catch (error) { this.notify(error instanceof Error ? error.message : "首条消息仍待核实。"); return; }
+    const previous = this.currentView();
+    if (previous) {
+      previous.draft = this.editor.getExpandedText();
+      previous.scrollTop = this.scroll.isFollowingEnd ? null : this.scroll.scrollTop;
+    }
+    this.hideSideChat();
+    this.carriedSettings = null;
+    this.state.currentSessionId = null;
+    this.selectedProjectId = null;
+    this.workflowSidebar.sessionChanged();
+    this.clearToolExpansions();
+    this.editor.setText(this.managedChat.draft!.text);
+    this.scroll.scrollToEnd();
+    this.refreshAll();
+    this.scheduleReloadPersist();
+  }
+
+  private async submitManagedChat(text: string): Promise<void> {
+    const draft = this.managedChat.draft;
+    if (!draft) return;
+    if (this.connection.state !== "online") { this.editor.setText(text); this.notify("当前离线：草稿已保留，恢复在线后请重新提交。"); return; }
+    if (this.managedChat.busy) { this.editor.setText(text); this.notify("首条消息正在处理，请稍后重试。"); return; }
+    let result: Awaited<ReturnType<ManagedChat["send"]>>;
+    try { result = await this.managedChat.send(text); }
+    catch (error) {
+      if (this.managedChat.draft === draft) {
+        const remainder = this.editor.getExpandedText();
+        this.editor.setText(remainder === text || remainder.startsWith(`${text}\n\n`) ? remainder : remainder ? `${text}\n\n${remainder}` : text);
+      }
+      if (!this.exiting) this.notify(writeFailure("开始对话", error, "/new 恢复原首条消息后发送"));
+      void this.reconcileManagedChat();
+      return;
+    }
+    if (!result) return;
+    if (this.exiting) return;
+    const { creation, outcome, input } = result;
+    const projectIndex = this.state.projects.findIndex(project => project.id === creation.project.id);
+    if (projectIndex < 0) this.state.projects.push(creation.project);
+    else this.state.projects[projectIndex] = creation.project;
+    const sessionIndex = this.state.sessions.findIndex(session => session.id === creation.session.id);
+    if (sessionIndex < 0) this.state.sessions.push(creation.session);
+    else this.state.sessions[sessionIndex] = creation.session;
+    if (outcome?.kind === "accepted") {
+      this.state.upsertTask(outcome.task);
+      this.state.addPendingInput(outcome.task);
+      if (this.managedChat.draft === draft) {
+        const current = this.editor.getExpandedText();
+        const unsent = text === input ? "" : text.startsWith(`${input}\n\n`) ? text.slice(input.length + 2) : text;
+        this.state.openSession(creation.session.id).draft = unsent && current !== unsent && !current.startsWith(`${unsent}\n\n`) ? current ? `${unsent}\n\n${current}` : unsent : current;
+        this.switchSession(creation.session.id, true);
+      }
+    } else if (this.managedChat.draft === draft) {
+      const remainder = this.editor.getExpandedText();
+      this.editor.setText(remainder === text || remainder.startsWith(`${text}\n\n`) ? remainder : remainder ? `${text}\n\n${remainder}` : text);
+      if (outcome?.kind === "pending_verification") this.notify("首条消息接收结果待核实，保留原请求；恢复连接后再发送会核实原任务。");
+      else if (outcome) this.notify(`${outcome.kind === "conflict" ? "首条消息冲突" : "首条消息未提交"}：${outcome.message}；重试沿用原工作区和请求。`);
+    }
+    this.refreshAll();
+    void this.reconcileManagedChat();
+  }
+
+  private async reconcileManagedChat(): Promise<void> {
+    if (this.exiting || this.managedChatQuery || this.connection.state !== "online") return;
+    this.managedChatQuery = true;
+    try {
+      const result = await this.managedChat.reconcile();
+      if (this.exiting || !result?.task) return;
+      this.state.upsertTask(result.task);
+      this.state.addPendingInput(result.task);
+      if (this.managedChat.draft) {
+        const remainder = this.editor.getExpandedText(), input = result.task.input;
+        this.state.openSession(result.session.id).draft = remainder === input ? "" : remainder.startsWith(`${input}\n\n`) ? remainder.slice(input.length + 2) : remainder;
+        this.switchSession(result.session.id, true);
+      }
+    } catch (error) {
+      if (!this.exiting) this.notify(`首条消息仍待核实：${error instanceof Error ? error.message : String(error)}`);
+    } finally { this.managedChatQuery = false; }
+  }
+
   /** 以当前会话提交任务（沿用 request_id 去重；/skill 以 /skill:<名称> 输入复用）。 */
   private async submitText(text: string, opts: { guidance?: boolean } = {}): Promise<void> {
+    if (this.managedChat.draft) {
+      if (opts.guidance) { this.editor.setText(text); this.notify("请先发送首条消息，再向当前任务提供引导。"); return; }
+      await this.submitManagedChat(text);
+      return;
+    }
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话：/project 选择，或 /new-project、/new-session 创建");
@@ -1905,7 +2039,7 @@ export class TuiApp {
     quit: () => this.quit(0),
     openHelp: () => this.openHelp(),
     openResume: () => this.openSessionPicker(),
-    openProjects: () => this.openProjectPicker(),
+    openProjects: () => { void this.openProjectPicker(); },
     newSession: (cwd) => this.cmdNewSession(cwd),
     newSessionHere: () => this.cmdNew(),
     branchSession: (name, result) => this.cmdBranch(name, result),
@@ -1983,6 +2117,10 @@ export class TuiApp {
   }
 
   private async cmdNew(): Promise<void> {
+    if (this.devProductPicker() && (!this.currentView() || this.state.projects.find(project => project.id === this.currentDisplayProjectId())?.managed)) {
+      await this.openManagedChat();
+      return;
+    }
     const view = this.currentView();
     if (!view) {
       this.notify("尚未选择会话：/new-project <名称> 创建项目，或 /new-session <工作目录> 创建会话");
@@ -2732,6 +2870,14 @@ export class TuiApp {
 
   private async cycleMode(sessionId: string | null): Promise<void> {
     await this.sessionSettingsSync.catch(() => {});
+    const draft = this.managedChat.draft;
+    if (draft) {
+      if (!this.managedChat.editable()) { this.notify("首条消息的模式已固定，请先核实原请求。"); return; }
+      draft.mode = SESSION_DEFAULT_MODES[(SESSION_DEFAULT_MODES.indexOf(draft.mode) + 1) % SESSION_DEFAULT_MODES.length]!;
+      this.refreshChrome();
+      this.scheduleReloadPersist();
+      return;
+    }
     const session = this.state.sessions.find((item) => item.id === sessionId);
     if (!session) {
       this.notify("尚未选择会话");
@@ -2753,13 +2899,15 @@ export class TuiApp {
     }
     const view = this.currentView();
     const session = view ? this.state.sessions.find((s) => s.id === view.sessionId) : undefined;
-    if (!session) {
+    const draft = this.managedChat.draft;
+    if (draft && !this.managedChat.editable()) { this.notify("首条消息的模式已固定，请先核实原请求。"); return; }
+    if (!session && !draft) {
       this.notify("尚未选择会话");
       return;
     }
-    const sessionId = session.id;
-    const version = session.defaultAccessModeVersion;
-    const items: SelectItem[] = this.sessionModes(session).map((mode) => ({
+    const sessionId = session?.id;
+    const version = session?.defaultAccessModeVersion;
+    const items: SelectItem[] = (session ? this.sessionModes(session) : SESSION_DEFAULT_MODES).map((mode) => ({
       value: mode,
       label: `${accessModeLabel(mode)}`,
       description:
@@ -2772,7 +2920,12 @@ export class TuiApp {
               : "完全访问",
     }));
     this.showBareList(`会话默认模式`, items, (item) => {
-      void this.sendSessionMode(sessionId, version, item.value as SessionDefaultMode, result);
+      if (draft) {
+        if (this.managedChat.draft !== draft || !this.managedChat.editable()) return;
+        draft.mode = item.value as SessionDefaultMode;
+        this.refreshChrome();
+        this.scheduleReloadPersist();
+      } else void this.sendSessionMode(sessionId!, version!, item.value as SessionDefaultMode, result);
     });
   }
 
@@ -3622,14 +3775,16 @@ export class TuiApp {
     this.openWindow({ widthRatio: 0.85, content: new Text(sanitizeForDisplay(text), 0, 0), maxHeightRatio: 0.85 });
   }
 
-  /** /model：三列面板（提供方 / 模型 / 思考强度）。 */
+  /** Use the same model picker for local drafts and persisted conversation settings. */
   private async openModelPicker(result: CommandResult): Promise<void> {
     await this.sessionSettingsSync.catch(() => {});
     const session = this.state.sessions.find((s) => s.id === this.state.currentSessionId);
-    if (!session) { this.notify("尚未选择会话"); return; }
-    const sessionId = session.id;
-    const version = session.modelSelectionVersion;
-    const current = session.modelSelection;
+    const draft = this.managedChat.draft;
+    if (draft && !this.managedChat.editable()) { this.notify("首条消息的模型已固定，请先核实原请求。"); return; }
+    if (!session && !draft) { this.notify("尚未选择会话"); return; }
+    const sessionId = session?.id;
+    const version = session?.modelSelectionVersion;
+    const current = session?.modelSelection ?? draft?.modelSelection;
     try {
       const models: ModelOption[] = [];
       let offset: number | null = 0;
@@ -3638,10 +3793,10 @@ export class TuiApp {
         models.push(...page.models);
         offset = page.nextOffset;
       } while (offset !== null);
-      if (this.state.currentSessionId !== sessionId) return;
+      if (draft ? this.managedChat.draft !== draft : this.state.currentSessionId !== sessionId) return;
       if (models.length === 0) { this.notify("后台未配置模型"); return; }
 
-      // 按提供方分组，保留后台返回的顺序
+      // Preserve the backend catalog order within each provider.
       const providers: string[] = [];
       const byProvider = new Map<string, ModelOption[]>();
       for (const model of models) {
@@ -3656,14 +3811,20 @@ export class TuiApp {
         (provider, model, level) => {
           close();
           if (!model.available) { this.notify("此模型认证材料不可用，请在后台配置后重试"); return; }
-          void this.saveModelSelection(sessionId, version, {
+          const selection: ModelSelection = {
             provider,
             modelId: model.modelId,
             thinkingLevel: level as ModelSelection["thinkingLevel"],
-          }, result);
+          };
+          if (draft) {
+            if (this.managedChat.draft !== draft || !this.managedChat.editable()) return;
+            draft.modelSelection = selection;
+            this.refreshChrome();
+            this.scheduleReloadPersist();
+          } else void this.saveModelSelection(sessionId!, version!, selection, result);
         },
         close,
-        // ✓ 标记：会话当前生效的选择（空串表示该列不参与比较）
+        // Empty columns do not participate in the current-selection check.
         (provider, modelId, level) =>
           (!provider || current?.provider === provider) &&
           (!modelId || current?.modelId === modelId) &&
@@ -3741,10 +3902,16 @@ export class TuiApp {
     return !this.state.sideChats.has(sessionId) && (!session || (session.kind === "dev" && !this.state.excludedPickerSessionIds().has(session.id)));
   }
 
-  private openProjectPicker(): void {
-    // ruukoto-code（issue 05）：工作区（带根目录归属）在前、旧项目在后，角色与
-    // 群聊项目不进入普通列表；ruukoto 沿用旧行为（主会话等原样列出）
+  private async openProjectPicker(): Promise<void> {
+    // Managed chats share a display group while keeping their actual workspace identities.
     const devProduct = this.devProductPicker();
+    const generation = this.generation;
+    let managedSummaries: OpResult<"list_session_summaries"> = [];
+    if (devProduct && this.state.projects.some(project => project.managed)) {
+      try { managedSummaries = await this.connection.request("list_session_summaries", { scope: "workspace_chats" }); }
+      catch (error) { this.notify(`会话名称读取失败：${error instanceof Error ? error.message : String(error)}`); }
+      if (generation !== this.generation || this.exiting) return;
+    }
     const itemOf = (project: Project, tag: string | null) => {
       // issue 07 步骤 4：工作区计数按组织归属（已映射旧会话归入目标工作区）；ruukoto 用原身份
       const sessions = this.state.sessions.filter(
@@ -3766,7 +3933,14 @@ export class TuiApp {
             // SubAgent 内部工作会话并入排除集（issue 11）：只含内部会话的项目不进普通列表
             roleSessionIds: [...this.state.excludedPickerSessionIds()],
           });
-          return [...workspaces.map((p) => itemOf(p, "工作区")), ...legacy.map((p) => itemOf(p, "旧项目"))];
+          const managed = workspaces.filter(project => project.managed);
+          return [
+            { value: "$new-managed", label: "No workspace", description: this.managedChat.pending ? "恢复待发送的首条消息" : "开始新对话" },
+            ...managed.flatMap(project => this.state.sessions.filter(session => this.displayProjectIdOf(session) === project.id && this.isVisiblePickerSession(session.id) && session.archivedAt === null)
+              .map(session => ({ value: `$managed:${session.id}`, label: `No workspace · ${sanitizeForDisplay(managedSummaries.find(summary => summary.sessionId === session.id)?.name ?? session.name ?? "未命名会话").replace(/\s+/g, " ")}`, description: sanitizeForDisplay(project.rootDir!.cwdReal) }))),
+            ...workspaces.filter(project => !project.managed).map(project => itemOf(project, "工作区")),
+            ...legacy.map(project => itemOf(project, "旧项目")),
+          ];
         })()
       : this.state.projects.map((p) => itemOf(p, null));
     if (!items.length) {
@@ -3782,6 +3956,8 @@ export class TuiApp {
     list.onCancel = () => handle.hide();
     list.onSelect = (item) => {
       handle.hide();
+      if (item.value === "$new-managed") { void this.openManagedChat(); return; }
+      if (item.value.startsWith("$managed:")) { this.switchSession(item.value.slice("$managed:".length)); return; }
       if (this.state.sessions.some((session) => session.projectId === item.value && this.isVisiblePickerSession(session.id))) {
         void this.openSessionPicker(item.value);
         return;
@@ -3793,6 +3969,7 @@ export class TuiApp {
         prev.scrollTop = this.scroll.isFollowingEnd ? null : this.scroll.scrollTop;
       }
       if (session && !this.carriedSettings) this.carriedSettings = { mode: session.defaultAccessMode, model: session.modelSelection ? { ...session.modelSelection } : null };
+      this.managedChat.close();
       this.selectedProjectId = item.value;
       this.state.currentSessionId = null;
         this.clearToolExpansions();
@@ -3803,6 +3980,7 @@ export class TuiApp {
 
   private async openSessionPicker(projectId = this.currentDisplayProjectId() ?? this.selectedProjectId): Promise<void> {
     if (!projectId) {
+      if (this.devProductPicker()) { await this.openProjectPicker(); return; }
       this.notify("尚未选择项目：/project 选择项目");
       return;
     }
@@ -3834,7 +4012,7 @@ export class TuiApp {
     if (this.devProductPicker() && this.state.currentSessionId && items.some(item => item.value === this.state.currentSessionId)) items.push({ value: "$background", label: "本会话后台与日志", description: () => "查看当前会话后台，或选择结束本会话后台" });
     const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
     const body = new VStack([
-      { component: new Text(bold(`选择会话 · ${this.state.projectName(projectId)}`), 0, 0), grow: 0 },
+      { component: new Text(bold(`选择会话 · ${this.state.projects.find(project => project.id === projectId)?.managed ? "No workspace" : this.state.projectName(projectId)}`), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
     const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
@@ -3892,10 +4070,12 @@ export class TuiApp {
     this.tickTiming();
   }
 
-  /** 顶部连接信息与底栏的权限模式、工作区和模型选择。 */
+  /** Show the actual root while managed conversations use the No workspace display group. */
   private refreshChrome(): void {
     const view = this.currentView();
-    this.editor.workspaceName = view ? basename(view.cwd) || view.cwd : "";
+    const draft = this.managedChat.draft;
+    const workspace = this.state.projects.find(project => project.id === this.currentDisplayProjectId());
+    this.editor.workspaceName = draft || workspace?.managed ? "No workspace" : view ? basename(view.cwd) || view.cwd : "";
     const conn = this.state.connection;
     const connText =
       conn.state === "online"
@@ -3906,9 +4086,9 @@ export class TuiApp {
             ? `离线：${conn.detail ?? ""}`
             : "连接中…";
     if (!view) {
-      this.footer.set(dim(""), dim(this.modelInfoText()));
+      this.footer.set(draft ? accessModeStyle(draft.mode)(accessModeLabel(draft.mode)) : dim(""), dim(this.modelInfoText()));
       this.header.setText(
-        `${bold("ruukoto")} · 未选择会话 · 连接：${connText}\n` +
+        `${bold(this.devProductPicker() ? "ruukoto-code" : "ruukoto")} · ${draft ? "No workspace" : "未选择会话"} · 连接：${connText}\n` +
           dim(`执行后端：${this.state.execution.backend || "未知"}（${this.state.execution.note || "握手后显示"}）`),
       );
       this.tui.requestRender();
@@ -3930,17 +4110,16 @@ export class TuiApp {
     const usage = this.sessionUsage.get(view.sessionId);
     const usageText = usage ? `↑ ${formatTokenCount(usage.input)} ↓ ${formatTokenCount(usage.output)}` : "";
     this.footer.set(modeStyled, dim(this.modelInfoText()), usageText);
-    // issue 07 步骤 4：会话标题按组织展示归属显示「工作区」；已映射旧会话另标明
-    // 「配置与资料来源」项目（来源身份不随组织映射改变）。ruukoto 产品沿用原标题。
+    // Organizational attribution does not change the original data/configuration identity.
     const title = session ? sessionTitleAttribution(session, this.state.projects, this.devProductPicker()) : null;
-    const titleTag = title?.workspace ? "工作区 " : "";
-    const titleName = this.state.projectName(title?.projectId ?? view.projectId);
-    // 来源标注紧随工作区名（行尾是长 cwd，可能被截断）
+    const titleTag = title?.workspace && !workspace?.managed ? "工作区 " : "";
+    const titleName = workspace?.managed ? "No workspace" : this.state.projectName(title?.projectId ?? view.projectId);
+    // Keep the source beside its group name before a long cwd can truncate it.
     const sourceNote = title?.sourceProjectId ? dim(`（配置与资料来源：${this.state.projectName(title.sourceProjectId)}）`) : "";
     // issue 11：本会话的工作委托多出一行展示；没有委托不加行
     const worksText = this.state.worksSummaryForSession(view.sessionId);
     this.header.setText(
-      `${titleTag}${bold(titleName)}${sourceNote} · 会话 ${view.sessionId.slice(0, 14)}… · ${sanitizeForDisplay(view.cwd)}\n` +
+      `${titleTag}${bold(titleName)}${sourceNote} · ${workspace?.managed ? sanitizeForDisplay(session?.name ?? "对话") : `会话 ${view.sessionId.slice(0, 14)}…`} · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}` +
         (worksText ? `\n${dim(worksText)}` : "") +
         (this.state.ownerQuestions.some(question => question.sessionId === view.sessionId && question.status === "pending") ? "\n拥有者问题待回答：/questions 逐题回答或取消" : ""),
@@ -3953,7 +4132,7 @@ export class TuiApp {
     const view = this.currentView();
     const entries: FlowEntry[] = view ? view.flow.items : this.state.globalNotes.map((note) => ({ ...note, kind: "note", seq: 0 }));
     if (entries.length === 0) {
-      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : "ruukoto TUI\n使用 /project 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
+      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : this.managedChat.draft ? "发送消息开始对话。" : this.devProductPicker() ? "使用 /project 选择会话，或 /new 开始 No workspace 对话。\n/help 查看命令与终端操作。" : "ruukoto TUI\n使用 /project 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
     this.eventFlowView.setEntries(entries, view?.cwd);
     this.refreshSideChat();

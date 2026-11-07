@@ -1,10 +1,11 @@
-/** 会话分支的准备回执与限定来源；消息正文仍只存在 JSONL。
- * Note: 见 .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
+/** Branch preparation receipts and verified source references; message bodies remain in JSONL.
+ * Note: See .agents/notes/implemented/feature/2026-10-11-branch-session-snapshot.md
  */
 import { AccessDeniedError, type AccessScope } from "./access.ts";
 import type { HistorySnapshot } from "./history.ts";
 import { StoreConflictError, type Store } from "./store.ts";
 import type { Artifact, ContextCheckpoint, Session } from "./types.ts";
+import { getManagedWorkspaceRequest } from "./managed-workspaces.ts";
 
 export interface BranchRequest {
   requestId: string;
@@ -24,8 +25,9 @@ export function getBranchRequest(store: Store, requestId: string): BranchRequest
   return row ? { ...JSON.parse(row.payload) as BranchRequest, status: row.status, error: row.error } : null;
 }
 
-/** 调用方在事务内分配编号及固定元数据，同键异参不覆盖准备回执。 */
+/** The caller fixes the branch number and metadata in a transaction; changed parameters never replace the receipt. */
 export function reserveBranchRequest(store: Store, requestId: string, sourceId: string, digest: string, build: (number: number) => BranchRequest): BranchRequest {
+  if (getManagedWorkspaceRequest(store, requestId)) throw new StoreConflictError("请求键已用于自动工作区创建", "request_conflict");
   const existing = getBranchRequest(store, requestId);
   if (existing) {
     if (existing.paramsDigest !== digest) throw new StoreConflictError("分支请求键已用于不同参数", "request_conflict");

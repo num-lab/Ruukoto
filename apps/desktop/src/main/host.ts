@@ -15,9 +15,11 @@ import { loadPersonalConfig, savePersonalConfig, personalOrigin, legacyPersonalM
 import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 import { PersonalSettingsController } from "./personal-settings-controller.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
-import { pickAttachments, stageAttachments } from "./attachments.ts";
-import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
-import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import { pickAttachments, stageAttachments, type StagedAttachment } from "./attachments.ts";
+import { DesktopChatDrafts } from "./chat-drafts.ts";
+import type { DesktopAttachment, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import { verifyDirIdentitySync, type DirIdentity } from "@ruukoto/core/dir-identity.ts";
+import type { Project } from "@ruukoto/core/types.ts";
 import { spawn } from "node-pty";
 import { TerminalManager, type PtyFactory } from "./terminal.ts";
 import type { MyGoBrowserTransport } from "./browser-bridge.ts";
@@ -53,7 +55,10 @@ export class DesktopHost {
   private readonly navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
   private readonly attachmentConnections = new WeakMap<object, string>();
   /** Draft attachment tokens hold local paths until the conversation exists. */
-  private draftAttachments = new Map<string, string>();
+  private readonly draftAttachments = new Map<string, StagedAttachment>();
+  private readonly draftUploads = new Map<string, Promise<DesktopAttachment[]>>();
+  private chats: DesktopChatDrafts | null = null;
+  private readonly workspaces = new Map<string, Project>();
   private readonly notificationState: DesktopNotifications;
   private readonly browserDocuments: BrowserDocuments;
   private readonly terminals: TerminalManager;
@@ -83,11 +88,23 @@ export class DesktopHost {
       if (this.terminalInstance && (update.instanceChanged || this.terminalInstance !== instance)) this.resetTerminals();
       this.terminalInstance = instance;
       this.terminalRoots.clear();
-      for (const project of update.result.snapshot.projects) if (project.rootDir) this.terminalRoots.set(project.id, project.rootDir);
+      this.workspaces.clear();
+      for (const project of update.result.snapshot.projects) {
+        this.workspaces.set(project.id, project);
+        if (project.rootDir) this.terminalRoots.set(project.id, project.rootDir);
+      }
     }
     if (target === "code" && update.type === "event") {
       const body = update.event.body;
       if ((body.type === "project.created" || body.type === "project.root_attached") && body.rootDir) this.terminalRoots.set(body.projectId, body.rootDir);
+      if (body.type === "project.created" && !this.workspaces.has(body.projectId)) this.workspaces.set(body.projectId, { id: body.projectId, name: body.name, rootDir: body.rootDir ?? null, managed: body.managed, createRequestId: body.createRequestId, instructionFiles: [], settingsVersion: 1, createdAt: update.event.createdAt });
+      if (body.type === "project.root_attached") {
+        const project = this.workspaces.get(body.projectId);
+        if (project && !project.rootDir) project.rootDir = body.rootDir;
+      }
+    }
+    if (target === "code" && update.type === "state" && update.state === "online") {
+      void this.chats?.list().then(drafts => this.publish("code", { type: "chat_drafts", drafts })).catch(error => this.publish("code", { type: "chat_drafts", drafts: [], error: serializeFailure(error).message }));
     }
     this.notificationState.update(target, update);
     if (update.type === "state") this.lastState[target] = update;
@@ -112,6 +129,7 @@ export class DesktopHost {
     if (this.closing) return;
     const config = codeTargetConfig(this.repository, source);
     this.controller = new CodeController(config, update => this.publish("code", update), undefined, new PendingRequestStore(path.join(this.userData, "pending", "code", createHash("sha256").update(config.controlDir).digest("hex"))), this.browserTransport);
+    this.chats = new DesktopChatDrafts(new PendingRequestStore(path.join(this.userData, "pending", "chats", createHash("sha256").update(config.controlDir).digest("hex"))), () => this.controller, id => this.workspaces.get(id), this.draftAttachments);
   }
   reconnectPersonal(replace = false): Promise<void> {
     if (this.closing) return Promise.resolve();
@@ -184,6 +202,31 @@ export class DesktopHost {
       if (!this.controller) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
       return this.controller.dispatch(op, params);
     }, (op, params) => {
+      if (op === "desktop_workspace_path") {
+        if (Object.keys(params).length !== 2 || typeof params.workspace_id !== "string" || params.instance_id !== this.terminalInstance) throw new DesktopError("workspace_changed", "工作区已变化，请重新打开会话。");
+        const root = this.terminalRoots.get(params.workspace_id);
+        if (!root) throw new DesktopError("workspace_unavailable", "工作区尚未就绪，请恢复连接后重试。");
+        return { path: verifyDirIdentitySync(root).cwdReal };
+      }
+      if (op === "desktop_chat_start" || op === "desktop_chat_drafts" || op === "desktop_chat_finish" || op === "desktop_chat_prepare_submission") {
+        const chats = this.chats;
+        if (!chats) throw new DesktopError("connection_unavailable", "请等待连接恢复后再发送。");
+        if (op === "desktop_chat_drafts") return chats.list();
+        if (op === "desktop_chat_finish") return chats.finish(params.request_id).then(() => chats.list()).then(drafts => this.publish("code", { type: "chat_drafts", drafts }));
+        if (op === "desktop_chat_prepare_submission") {
+          const pending = this.controller?.submissions?.store.list(true);
+          if (pending?.corrupt.length || pending?.records.some(record => record.requestId === params.request_id && record.op === "submit")) throw new DesktopError("chat_submission_pending", "首条消息仍待核实，请恢复原提交后再修改。");
+          return chats.prepareSubmission(params).then(result => {
+            if (result.accepted) void chats.list().then(drafts => this.publish("code", { type: "chat_drafts", drafts })).catch(() => { /* The next reconnect rechecks the accepted first message. */ });
+            return result;
+          });
+        }
+        return chats.start(params).then(result => {
+          this.workspaces.set(result.project.id, result.project);
+          if (result.project.rootDir) this.terminalRoots.set(result.project.id, result.project.rootDir);
+          return result;
+        });
+      }
       if (op !== "desktop_pending_read" && op !== "desktop_pending_clear") return this.terminalRequest(op, params);
       const source = this.controller;
       if (!source?.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再处理原输入。");
@@ -333,7 +376,7 @@ export class DesktopHost {
     if (!id) { id = randomUUID(); this.attachmentConnections.set(connection, id); }
     return `${id}:${source.instanceId()}`;
   }
-  pickAttachments(sessionId: unknown, pick: () => Promise<string[]>, expectedSelection?: string, target: unknown = "code") {
+  pickAttachments(sessionId: unknown, pick: () => Promise<string[]>, expectedSelection?: string, target: unknown = "code", draftTokens?: string[]) {
     const source = this.attachmentSource(target);
     if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "请选择会话后附加文件。");
     if (expectedSelection !== undefined && this.attachmentInstance(target) !== expectedSelection) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
@@ -342,6 +385,7 @@ export class DesktopHost {
     return pickAttachments(sessionId, {
       instanceId: () => current() ? source.instanceId() : null,
       pick,
+      ...(draftTokens ? { attachmentId: (_file: string, index: number) => `att_${createHash("sha256").update(JSON.stringify([source.instanceId(), sessionId, draftTokens[index]])).digest("hex").slice(0, 32).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5")}` } : {}),
       upload: params => {
         if (!current()) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
         return source.request("put_attachment", params);
@@ -352,18 +396,32 @@ export class DesktopHost {
   pickDraftAttachments(pick: () => Promise<string[]>) {
     return pick().then(files => {
       const staged = stageAttachments(files);
-      for (const item of staged) this.draftAttachments.set(item.token, item.path);
+      for (const item of staged) this.draftAttachments.set(item.token, item);
       return staged.map(({ token, name, size }) => ({ id: token, name, size }));
     });
   }
   uploadDraftAttachments(sessionId: unknown, tokens: unknown, target: unknown = "code") {
     if (!Array.isArray(tokens) || tokens.some(token => typeof token !== "string")) throw new DesktopError("invalid_params", "附件引用无效，请重新选择。");
-    const files = tokens.map(token => this.draftAttachments.get(token));
+    const source = this.attachmentSource(target), instanceId = source.instanceId()!;
+    if (typeof sessionId !== "string" || !sessionId) throw new DesktopError("invalid_params", "请选择会话后附加文件。");
+    const cached = this.chats?.upload(instanceId, sessionId, tokens);
+    if (cached) return Promise.resolve(cached);
+    const uploadKey = JSON.stringify([instanceId, sessionId, tokens]);
+    const pending = this.draftUploads.get(uploadKey);
+    if (pending) return pending;
+    this.chats?.verifyUpload(instanceId, sessionId, tokens);
+    const files = tokens.map(token => this.draftAttachments.get(token)?.path);
     if (files.some(file => file === undefined)) throw new DesktopError("attachment_expired", "附件已失效，请重新选择。");
-    return this.pickAttachments(sessionId, async () => files as string[], undefined, target).then(attachments => {
-      for (const token of tokens) this.draftAttachments.delete(token);
+    for (const file of files) if (file && file.startsWith(`${this.userData}${path.sep}`) && fs.realpathSync(file) !== file) throw new DesktopError("chat_attachment_unavailable", "首条消息附件快照已变化，请检查原应用数据后重试。");
+    const uploading = this.pickAttachments(sessionId, async () => files as string[], undefined, target, tokens).then(attachments => {
+      this.chats?.uploaded(instanceId, sessionId, tokens, attachments);
       return attachments;
+    }).catch(error => {
+      this.draftUploads.delete(uploadKey);
+      throw error;
     });
+    this.draftUploads.set(uploadKey, uploading);
+    return uploading;
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;

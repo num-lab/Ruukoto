@@ -58,7 +58,7 @@ Ruukoto contains the development tool `ruukoto-code` and personal assistant `ruu
 
 **Long-term memory**: Sourced preferences, conventions, confirmed decisions and experience accumulated through use. Entries can be revised/revoked and are stored separately from history. Neither all history nor temporary progress is memory.
 
-**Workspace**: An owner-selected development root and its conversations, possibly containing several repositories. A SubAgent work copy is an execution copy within that workspace's work, always retained without a delete entry. It need not become a separately managed user workspace.
+**Workspace**: A registered development root and its conversations, possibly containing several repositories. The owner selects an ordinary root; a chat started without directory selection gets its own managed root under the current instance's `workspace/<workspace-id>` on first send. Independent managed chats have separate workspace/data identities; branches reuse their source workspace and files. Closing, restarting and archiving retain roots and history. A SubAgent work copy is an execution copy within that workspace's work, always retained without a delete entry. It need not become a separately managed user workspace.
 
 **Project (legacy)**: The pre-migration boundary grouping development work and history, possibly with conversations in different directories. Current products use workspace/conversation organization; legacy data and permissions need explicit mapping.
 

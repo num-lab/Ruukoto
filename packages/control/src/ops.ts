@@ -133,6 +133,9 @@ export interface TuiOps {
     params: { project_id?: string; project_name?: string; cwd: string; confirm_tools?: string[]; request_id?: string; mode?: SessionDefaultMode; model_selection?: ModelSelection };
     result: R<"createSession">;
   };
+  create_managed_session: { params: { request_id: string; mode?: SessionDefaultMode; model_selection?: ModelSelection }; result: R<"createManagedSession"> };
+  find_managed_session: { params: { request_id: string }; result: R<"findManagedSession"> };
+  find_created_session: { params: { request_id: string }; result: R<"findCreatedSession"> };
   /** 打开工作区（agent-direction issue 05）：按真实目录身份复用/创建工作区并新建会话。 */
   open_workspace: { params: { cwd: string; project_id?: string; request_id?: string; mode?: SessionDefaultMode; model_selection?: ModelSelection }; result: R<"openWorkspace"> };
   list_workspace_files: { params: { workspace_id: string; path?: string; cursor?: string }; result: R<"listWorkspaceFiles"> };

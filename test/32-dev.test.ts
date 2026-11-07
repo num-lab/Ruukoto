@@ -920,16 +920,23 @@ test("PTY：npm run code 默认 TUI，/quit 后退出、终端恢复、日志不
   try {
     const result = await runCodeInPty({
       env: { HOME: home },
-      inputs: [["连接：在线", "/quit\r"]],
-      expect: ["连接：在线", "已退出 TUI"],
+      inputs: [["开始新对话", "\r"], ["发送消息开始对话。", "/quit\r"]],
+      expect: ["No workspace", "发送消息开始对话。", "连接：在线", "已退出 TUI"],
     });
-    assert.equal(result.expectSeen, result.expectTotal, `未看到退出提示：${result.tail}`);
-    assert.equal(result.exitCode, 0, `code 应随前端退出（退出码 0）；tail：${result.tail}`);
-    assert.ok(result.all.includes("\x1b[?1049l"), "退出时离开 alt screen（终端恢复）");
-    assert.ok(!result.all.includes("后台已启动"), "后台日志不混入终端输出");
+    assert.equal(result.expectSeen, result.expectTotal, `Missing startup or exit prompt: ${result.tail}`);
+    assert.equal(result.exitCode, 0, `Code exits with its frontend; tail: ${result.tail}`);
+    assert.ok(result.all.includes("\x1b[?1049l"), "Exit restores the terminal from the alternate screen");
+    assert.ok(!result.all.includes("后台已启动"), "Backend logs stay out of terminal output");
     assertCodeBackendStopped(profile);
-    assert.ok(!fs.existsSync(devProfileFor(repoRoot, home).root), "code 不读写 dev 的既有档案");
-    assert.ok(!fs.existsSync(path.join(home, ".ruukoto-code")), "code 不读写日常 Coding Agent 档案");
+    assert.ok(!fs.existsSync(path.join(profile.root, "workspace")), "Abandoning the draft creates no workspace directory");
+    const db = new DatabaseSync(path.join(profile.dataDir, "ruukoto.db"), { readOnly: true });
+    try {
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM projects WHERE root_real IS NOT NULL").get()!.count, 0);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE id NOT IN (SELECT session_id FROM agent_roles)").get()!.count, 0);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM tasks").get()!.count, 0);
+    } finally { db.close(); }
+    assert.ok(!fs.existsSync(devProfileFor(repoRoot, home).root), "Code leaves the Personal development profile untouched");
+    assert.ok(!fs.existsSync(path.join(home, ".ruukoto-code")), "Code leaves the production Coding profile untouched");
   } finally {
     await server.close();
     fs.rmSync(home, { recursive: true, force: true });

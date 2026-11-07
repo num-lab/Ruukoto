@@ -215,6 +215,37 @@ async function runTuiInPty(opts: {
   });
 }
 
+test("PTY: fresh Coding selector, managed /new and branch retain workspace identity", { timeout: 60_000 }, async () => {
+  assert.equal(hasPython3(), true, "Python PTY support is required");
+  const t = await startTestRuntime("pty-managed", request => ({ kind: "text", text: "MANAGED-OK:" + lastUserText(request) }), { workDirs: 0, config: { product: codeProduct.runtime, socketPath: undefined } });
+  try {
+    const result = await runTuiInPty({
+      env: { RUUKOTO_PRODUCT: "ruukoto-code", RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+      inputs: [[['选择工作区', 'No workspace'], "\r"], [['No workspace', 'Ask for approval'], "第一条管理对话\r"],
+        [['MANAGED-OK:第一条管理对话'], "/new\r"], [['No workspace', 'Ask for approval'], "第二条管理对话\r"],
+        [['MANAGED-OK:第二条管理对话'], "/branch 管理分支\r"], [[' · 管理分支 · '], "分支后续\r"],
+        [['MANAGED-OK:分支后续'], "/quit\r"]],
+      expect: ["No workspace", "MANAGED-OK:第一条管理对话", "MANAGED-OK:第二条管理对话", "MANAGED-OK:分支后续", "已退出 TUI"], timeout: 40,
+    });
+    assert.equal(result.exitCode, 0, result.tail);
+    assert.equal(result.expectSeen, result.expectTotal, result.tail);
+    assert.ok(result.all.includes("\x1b[?1049l"));
+    const sessions = t.runtime.store.listSessions().filter(session => !t.runtime.store.listAgentRoles().some(role => role.sessionId === session.id));
+    assert.equal(sessions.length, 3);
+    const branch = sessions.find(session => session.branchSource)!;
+    assert.ok(branch);
+    const source = sessions.find(session => session.id === branch.branchSource!.sessionId)!;
+    assert.equal(branch.projectId, source.projectId);
+    assert.equal(branch.cwdReal, source.cwdReal);
+    const workspaces = t.runtime.store.listProjects().filter(project => project.rootDir);
+    assert.equal(workspaces.length, 2);
+    const roots = workspaces.map(project => project.rootDir!.cwdReal);
+    assert.equal(new Set(roots).size, 2);
+    assert.ok(workspaces.every(project => project.managed));
+    assert.equal(fs.readdirSync(path.join(t.dirs.root, "workspace")).length, 2);
+  } finally { await t.shutdown(); }
+});
+
 test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持久结果", { timeout: 60_000 }, async context => {
   if (!hasPython3()) { context.skip("python3 不可用"); return; }
   const t = await startTestRuntime("pty-compact", async request => {

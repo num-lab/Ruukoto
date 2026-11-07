@@ -34,7 +34,7 @@ export class DesktopSubmissions {
   refresh(): void {
     if (this.stopped) return;
     const { records, corrupt } = this.store.list();
-    this.publish({ type: "pending", entries: records.map(record => ({ record, result: this.results.get(record.requestId) })), corrupt, dir: this.store.dir });
+    this.publish({ type: "pending", entries: records.filter(record => record.op !== "desktop_start_chat" && record.op !== "create_managed_session").map(record => ({ record, result: this.results.get(record.requestId) })), corrupt, dir: this.store.dir });
   }
   async submit(op: "submit" | "owner_question_answer", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
     if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string")) throw new DesktopError("invalid_params", "请选择会话后再发送。");
@@ -104,6 +104,7 @@ export class DesktopSubmissions {
       for (const record of this.store.list().records) {
         if (this.stopped || this.connection() !== connection || connection?.instanceId !== instanceId) break;
         if (this.sending.has(record.requestId)) continue;
+        if (record.op === "desktop_start_chat" || record.op === "create_managed_session") continue;
         this.results.delete(record.requestId);
         let result: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome;
         if (record.op === "code_schedule_save" || record.op === "code_schedule_control") {

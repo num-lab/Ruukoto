@@ -166,7 +166,7 @@ export class DesktopInspector {
   openTerminal(workspaceId = this.workspace()?.id): void {
     const workspace = this.view.projects.find(project => project.id === workspaceId);
     if (this.target !== "code" || !workspace?.rootDir || !this.view.instanceId) return;
-    this.addTab({ id: crypto.randomUUID(), kind: "terminal", title: `终端 · ${workspace.name}`, workspaceId: workspace.id, cwd: workspace.rootDir.cwdReal, instanceId: this.view.instanceId });
+    this.addTab({ id: crypto.randomUUID(), kind: "terminal", title: `终端 · ${workspace.managed ? "No workspace" : workspace.name}`, workspaceId: workspace.id, cwd: workspace.rootDir.cwdReal, instanceId: this.view.instanceId });
   }
   listenTerminal(id: DesktopTerminalId, listener: (update: DesktopTerminalUpdate) => void): () => void {
     this.terminalListeners.set(id, listener);

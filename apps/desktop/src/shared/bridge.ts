@@ -3,7 +3,7 @@ import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import type { RequestOutcome } from "@ruukoto/control/client.ts";
 import type { ConnectionState } from "@ruukoto/control/connection.ts";
 import type { ConnectResult, DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
-import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import type { ModelSelection, PersistentEvent, Project, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome, OwnerQuestionAnswerOutcome } from "@ruukoto/control/submission.ts";
@@ -15,6 +15,20 @@ export type DesktopCancelQuestionResult = OwnerQuestionCancelOutcome | { kind: "
 export type DesktopSubmitResult = SubmitOutcome | OwnerQuestionAnswerOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome };
 export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
+export type DesktopChatOp = "desktop_chat_start" | "desktop_chat_drafts" | "desktop_chat_finish" | "desktop_chat_prepare_submission" | "desktop_workspace_path";
+export interface DesktopChatDraft {
+  requestId: string;
+  instanceId: string;
+  workspaceId: string;
+  text: string;
+  mode: SessionDefaultMode;
+  modelSelection: ModelSelection;
+  attachments: DesktopAttachment[];
+  submissionRequestId: string;
+  sessionId: string | null;
+  uploadedAttachments: DesktopAttachment[] | null;
+}
+export interface DesktopChatCreation { session: Session; project: Project; draft: DesktopChatDraft }
 
 export type BrowserDocumentId = string;
 export interface BrowserDocumentHandle { id: BrowserDocumentId; url: string }
@@ -44,13 +58,14 @@ export type DesktopUpdate =
   | { type: "schedule_submission"; record: PendingRequest; result: CodeScheduleReconcileOutcome }
   | { type: "question_cancel"; record: PendingRequest; result: OwnerQuestionCancelReconcileOutcome }
   | { type: "submission"; record: PendingRequest; result: ReconcileOutcome }
+  | { type: "chat_drafts"; drafts: DesktopChatDraft[]; error?: string }
   /** 原生浏览器页面事实（闸门/导航/标题/关闭）；经 Go→Node→前端转发。 */
   | { type: "browser_event"; event: DesktopBrowserEvent };
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;
   pickAttachments(sessionId: string, target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
-  /** 会话尚未创建时选择附件：只登记本机文件，建好会话后由 uploadDraftAttachments 上传。 */
+  /** Register local files until a conversation owns their upload. */
   pickDraftAttachments(): Promise<DesktopResult<DesktopAttachment[]>>;
   uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;

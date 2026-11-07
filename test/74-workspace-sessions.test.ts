@@ -539,8 +539,8 @@ test("ruukoto-code：选择面板列出工作区与旧项目，不出现角色�
       assert.ok(out.includes("legacy-proj"), "列出旧项目");
       assert.ok(!out.includes("agent-main"), "角色项目不进普通列表");
       assert.ok(!out.includes("qq-1-2"), "群聊项目不进普通列表");
-      // 选中工作区 → 会话选择面板只含该工作区会话
-      h.terminal.send("\r");
+      // No workspace precedes ordinary workspace choices.
+      h.terminal.send("\x1b[B\r");
       await waitFor("会话选择面板", () => h.terminal.output().includes("选择会话"));
       assert.ok(!h.terminal.output().includes("agent-main"), "会话面板只列工作区会话");
       h.app.quit(0);
@@ -570,8 +570,8 @@ test("ruukoto-code：已映射旧会话归入工作区计数与列表；恢复�
       await waitFor("选择面板出现", () => h.terminal.output().includes("选择工作区"));
       await waitFor("计数按组织归属", () => h.terminal.output().includes(`工作区 · ${wsName} · 2 个会话`));
       assert.ok(h.terminal.output().includes("旧项目 · legacy-src · 0 个会话"), "已映射会话不计入来源项目");
-      // 打开工作区会话列表：已映射旧会话在目标工作区名下（经 workspace_id 归属查询）
-      h.terminal.send("\r");
+      // Open the ordinary workspace after the No workspace action.
+      h.terminal.send("\x1b[B\r");
       // 面板标题与会话行可能分帧到达：以已映射会话行本身为准（不误判标题先行帧）
       await waitFor("会话选择面板含已映射旧会话", () => h.terminal.output().includes(mappedId.slice(0, 14)));
       assert.ok(h.terminal.output().includes("选择会话 · "), "面板在工作区名下打开");

@@ -452,6 +452,13 @@ export class ControlServer {
           mode: params["mode"] as SessionDefaultMode | undefined,
           modelSelection: params["model_selection"] as ModelSelection | undefined,
         });
+      case "create_managed_session":
+        if (Object.keys(params).some(key => !["request_id", "mode", "model_selection"].includes(key))) throw new RuntimeApiError("invalid_params", "自动工作区创建只接受请求键、模式和模型。");
+        return runtime.createManagedSession({ createRequestId: requireString("request_id"), mode: params["mode"] as SessionDefaultMode | undefined, modelSelection: params["model_selection"] as ModelSelection | undefined });
+      case "find_managed_session":
+        return runtime.findManagedSession(requireString("request_id"));
+      case "find_created_session":
+        return runtime.findCreatedSession(requireString("request_id"));
       case "open_workspace":
         return runtime.openWorkspace({
           cwd: requireString("cwd"),

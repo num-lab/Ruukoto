@@ -17,6 +17,7 @@ MyGo has one native browser WebView per main conversation. Go's `browser.Manager
 
 | UI entry | Behavior |
 | --- | --- |
+| New chat | Compose without selecting a directory; first send creates a persistent managed workspace, or uses the explicitly selected workspace |
 | Spotlight, `⌘K` / search icon | Search this instance's workspace conversation titles and message bodies; highlight and navigate |
 | Workspace sidebar | Add directories, select conversations, access mode and model |
 | Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces; the server-selected latest recallable owner message offers recall and restores text/attachments to this client's draft |
@@ -46,6 +47,10 @@ stateDiagram-v2
 ```
 
 Coding state binds to local `controlDir` and `ViewState`; drafts stay client-side. Queued retrieval saves its original request key before sending and restores text/attachments from that receipt independently of historical edit pause. It preserves the remaining queue and current execution. Original pending continue/old-answer requests remain inspectable under their original instance without conversion or replay.
+
+New chat starts with No workspace selected and accepts text or attachments. Before first send it creates no persistent workspace/session. Managed chats share the No workspace sidebar group while search, reopening, file inspection, Git, terminals and archive resolve each chat's actual registered workspace. The folder action reveals its real root. Branches reuse that root and files while history continues independently.
+
+Once first send begins, a private native journal retains original creation/submission keys, attachment snapshots and uploaded references. Creation, upload or submission retry reuses the same workspace/session. Resume first message restores an unfinished input after navigation or application restart, requiring explicit send. Verified nonacceptance permits correcting the submission to the visible composer settings; an unknown submission keeps its original parameters until verified. Closing or archiving preserves files and history.
 
 Coding question cards stay at their original `ask_user` operation, including repeated batches in one task. Answers return receipts for that task; closing a card window does not cancel it. The activity indicator shows pending-answer waiting. Interruption persists an owner pause; resume confirms retained stopping separately when required.
 
@@ -135,6 +140,7 @@ Acceptance requires every current image to be complete, hash verified and succes
 
 ## Design Rationale
 
+- [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Desktop client](../../.agents/notes/proposed/architecture/2026-10-15-desktop-client.md)
 - [Shared history recovery](../../.agents/notes/implemented/architecture/2026-10-23-shared-history-recovery.md)
 - [Desktop message actions](../../.agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md)

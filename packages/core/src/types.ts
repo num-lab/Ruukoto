@@ -96,6 +96,8 @@ export interface Project {
    * null = 旧架构项目（可能包含不同目录的会话），迁移见 issue 07。
    */
   rootDir: DirIdentity | null;
+  /** Host-created workspace for a chat started without an owner-selected directory. */
+  managed?: boolean;
   /**
    * 项目指令文件（工作区相对路径，拥有者显式配置；issue 05 §3）。
    * 任务开始时经受限路径读取并钉版本；空数组 = 无项目指令。
@@ -1034,7 +1036,7 @@ export type PersistentEventBody =
   | { type: "workflow.execution"; runId: string; taskId: string; kind: "agent" | "host"; status: "queued" | "running" | "finished"; stopVerified: boolean | null }
   /** 模型配置已在线应用（issue 21 §4）：载荷不含任何秘密，供前端刷新配置视图。 */
   | { type: "model.config_changed"; kind: "catalog" | "api_key" | "default_model" | "summary_model"; provider?: string }
-  | { type: "project.created"; projectId: string; name: string; createRequestId: string | null; rootDir?: DirIdentity | null }
+  | { type: "project.created"; projectId: string; name: string; createRequestId: string | null; rootDir?: DirIdentity | null; managed?: boolean }
   /** 旧项目认领工作区根目录（agent-direction issue 05）；认领后该项目即工作区。 */
   | { type: "project.root_attached"; projectId: string; rootDir: DirIdentity }
   | { type: "project.jev_changed"; projectId: string; configVersion: number; enabled: boolean }

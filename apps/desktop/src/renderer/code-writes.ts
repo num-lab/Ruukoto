@@ -47,6 +47,7 @@ export class CodeWrites {
   readonly unknown = new Map<string, UnknownControl>();
   private readonly savingSettings = new Set<string>();
   private readonly drafts = new Map<string, Draft>();
+  private readonly firstChats = new Map<string, { requestId: string; creationRequestId: string; mode: SessionDefaultMode; modelSelection: ModelSelection; attempted: boolean }>();
   private readonly restored = new Set<string>();
   private readonly notices = new Set<string>();
   private queueRevision = 0;
@@ -75,6 +76,14 @@ export class CodeWrites {
     const held = this.heldRecall.get(this.key(sessionId));
     if (held?.installed) this.forgetRecall(sessionId);
     this.draft(sessionId).text = text; this.changed();
+  }
+  installFirstChat(sessionId: string, text: string, attachments: DesktopAttachment[], requestId: string, creationRequestId: string, mode: SessionDefaultMode, modelSelection: ModelSelection, restored = false): void {
+    if (restored && this.firstChats.has(this.key(sessionId))) return;
+    const draft = this.draft(sessionId);
+    draft.text = text;
+    draft.attachments = attachments;
+    this.firstChats.set(this.key(sessionId), { requestId, creationRequestId, mode, modelSelection, attempted: restored });
+    this.changed();
   }
   recallPending(sessionId: string): boolean {
     const held = this.heldRecall.get(this.key(sessionId));
@@ -193,6 +202,7 @@ export class CodeWrites {
           if (result.kind === "rejected") { this.merge(record); this.report(`原请求被拒绝，输入已恢复：${result.reason}`); }
           else this.report("已关联原任务，输入没有重复提交。");
         }
+        if (result.kind !== "rejected" && typeof record.params.session_id === "string") this.finishFirstChat(record.params.session_id);
       } else this.entries.set(record.requestId, { record, result });
     } else if (update.type === "snapshot") {
       // After a cold start, verify the saved request key still owns the edit window before restoring its draft.
@@ -385,18 +395,30 @@ export class CodeWrites {
     const input = { ...draft, attachments: draft.attachments ? [...draft.attachments] : undefined };
     const instanceId = this.view.instanceId;
     const key = this.key(sessionId);
-    const held: HeldInput = { requestId: crypto.randomUUID(), draft, input, settled: false };
+    const firstChat = this.firstChats.get(key);
+    if (firstChat) { this.notices.delete(firstChat.requestId); this.restored.delete(firstChat.requestId); }
+    const held: HeldInput = { requestId: firstChat?.requestId ?? crypto.randomUUID(), draft, input, settled: false };
     this.submitting.set(key, held);
     this.busy.add(sessionId);
     this.changed();
     try {
-      const result = await this.request<DesktopSubmitResult>("submit", { session_id: sessionId, request_id: held.requestId, input: input.text, model_selection: session.modelSelection, ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(opts.guidance ? { guidance: true } : {}) });
+      const mode = firstChat?.attempted ? session.defaultAccessMode : firstChat?.mode;
+      const modelSelection = firstChat?.attempted ? session.modelSelection : firstChat?.modelSelection ?? session.modelSelection;
+      const params = { session_id: sessionId, request_id: held.requestId, input: input.text, model_selection: modelSelection, ...(mode ? { access_mode: mode } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(opts.guidance ? { guidance: true } : {}) };
+      if (firstChat) {
+        const prepared = await this.request<{ accepted: boolean }>("desktop_chat_prepare_submission", { ...params, creation_request_id: firstChat.creationRequestId });
+        if (instanceId !== this.view.instanceId) { this.settle(held, false); return; }
+        if (prepared?.accepted) { this.settle(held, true); this.firstChats.delete(key); return; }
+        firstChat.attempted = true;
+      }
+      const result = await this.request<DesktopSubmitResult>("submit", params);
       if (result.kind === "accepted") {
         this.settle(held, true);
         this.notices.add(result.requestId);
         this.entries.delete(result.requestId);
         this.held.delete(result.requestId);
         if (instanceId === this.view.instanceId && "task" in result) this.view.upsertTask(result.task);
+        this.finishFirstChat(sessionId);
       } else if (result.kind === "not_sent" || result.kind === "rejected" || result.kind === "conflict") {
         this.settle(held, false);
         this.restored.add(result.requestId);
@@ -409,6 +431,12 @@ export class CodeWrites {
       this.settle(held, false);
       if (instanceId === this.view.instanceId) this.report(error instanceof Error ? error.message : "发送失败，输入仍保留。");
     } finally { this.submitting.delete(key); this.busy.delete(sessionId); this.changed(); }
+  }
+  private finishFirstChat(sessionId: string): void {
+    const key = this.key(sessionId), first = this.firstChats.get(key);
+    if (!first) return;
+    this.firstChats.delete(key);
+    void this.request("desktop_chat_finish", { request_id: first.creationRequestId }).catch(() => { /* The native journal rechecks the accepted task on reconnect. */ });
   }
   async loadModels(): Promise<void> {
     if (!this.online() || !this.view.instanceId) return;

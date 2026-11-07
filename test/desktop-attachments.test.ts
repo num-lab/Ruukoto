@@ -207,7 +207,7 @@ test("附件引用错误用具名code跨上下文发送边界，消息不承载�
   } finally { await kit.close(); }
 });
 
-test("新对话草稿暂存附件只在建好会话后上传，token 用后失效", async () => {
+test("Draft attachment retries retain the original session and uploaded attachment IDs", async () => {
   const t = await startTestRuntime("desktop-draft-file", () => ({ kind: "text", text: "完成" }), { config: { product: codeProduct.runtime } });
   const previous = { ...process.env };
   const control = fs.mkdtempSync(path.join(path.dirname(t.dirs.root), "rdc-"));
@@ -229,6 +229,10 @@ test("新对话草稿暂存附件只在建好会话后上传，token 用后失�
     const uploaded = await host.uploadDraftAttachments(sessionId, staged.map(item => item.id));
     assert.deepEqual(uploaded.map(item => item.name), ["草稿附件.txt"]);
     assert.deepEqual(t.runtime.attachments.prepare(sessionId, uploaded)[0].bytes, Buffer.from("草稿正文"));
-    assert.throws(() => host.uploadDraftAttachments(sessionId, staged.map(item => item.id)), { code: "attachment_expired" }, "token 用后即失效");
+    assert.deepEqual(await host.uploadDraftAttachments(sessionId, staged.map(item => item.id)), uploaded);
+    const { sessionId: second } = await createProjectSession(t.client, t.work[0]);
+    const secondUpload = await host.uploadDraftAttachments(second, staged.map(item => item.id));
+    assert.notEqual(secondUpload[0].id, uploaded[0].id);
+    assert.deepEqual(t.runtime.attachments.prepare(second, secondUpload)[0].bytes, Buffer.from("草稿正文"));
   } finally { await host.close(); adoptEnvironment(previous); fs.rmSync(control, { recursive: true, force: true }); await t.shutdown(); }
 });

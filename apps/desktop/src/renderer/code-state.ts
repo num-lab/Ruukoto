@@ -5,7 +5,7 @@ import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/
 import { ViewState } from "@ruukoto/view/state.ts";
 import { HistoryRecovery } from "@ruukoto/view/history-recovery.ts";
 import type { DesktopOp } from "../main/ipc.ts";
-import type { DesktopAttachment, DesktopBridge, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
+import type { DesktopAttachment, DesktopBridge, DesktopChatCreation, DesktopChatDraft, DesktopFailure, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopApprovals } from "./approvals.ts";
 import { DesktopBackgroundProcesses } from "./background-processes.ts";
 import { DesktopQuestions } from "./owner-questions.ts";
@@ -50,6 +50,10 @@ export class CodeState {
   readError: string | null = null;
   pendingCreation: PendingCreation | null = null;
   pendingBranch: PendingBranch | null = null;
+  recoveredChats: DesktopChatDraft[] = [];
+  chatNotCreated = false;
+  private startingChat: { requestId: string; instanceId: string } | null = null;
+  private chatBusy = false;
   defaultModelKnown = false;
   private generation = 0;
   private questionRead = 0;
@@ -113,7 +117,13 @@ export class CodeState {
   update(update: DesktopUpdate): void {
     if (update.type === "terminal") { this.inspector.update(update); return; }
     if (update.type === "browser_event") { this.browser.update(update); this.mark(); return; }
-    if (update.type === "state") {
+    if (update.type === "chat_drafts") {
+      this.recoveredChats = update.drafts.filter(draft => draft.instanceId === this.view.instanceId);
+      for (const draft of this.recoveredChats) {
+        if (draft.sessionId && draft.uploadedAttachments && this.view.sessions.some(session => session.id === draft.sessionId) && !this.writes.checking(draft.sessionId)) this.writes.installFirstChat(draft.sessionId, draft.text, draft.uploadedAttachments, draft.submissionRequestId, draft.requestId, draft.mode, draft.modelSelection, true);
+      }
+      if (update.error) this.message = update.error;
+    } else if (update.type === "state") {
       this.status = update;
       if (update.state !== "online") { ++this.defaultModelRead; this.defaultModelKnown = false; }
       this.inspector.update(update);
@@ -134,6 +144,7 @@ export class CodeState {
         this.tabs = [];
         this.notificationSelection = null;
         this.creationSourceId = null;
+        this.recoveredChats = [];
         // 旧实例里的分支无法在新实例核实，不能继续按原键重发。
         if (this.pendingBranch) { this.pendingBranch = null; this.message = "分支结果未知：数据实例已改变，请查看原实例的会话列表。"; }
       }
@@ -199,6 +210,22 @@ export class CodeState {
   /** 工作区树只列未存档的普通会话；存档只影响这份列表，历史与任务仍按会话 id 读取。 */
   sessionsFor(workspaceId: string): Session[] {
     return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev" && session.archivedAt === null);
+  }
+  managedSessions(): Session[] {
+    return this.view.projects.filter(project => project.managed).flatMap(project => this.sessionsFor(project.id)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  workspaceName(workspaceId: string): string {
+    const workspace = this.view.projects.find(project => project.id === workspaceId);
+    return workspace?.managed ? "No workspace" : workspace?.name ?? "未知工作区";
+  }
+  async revealWorkspace(workspaceId: string): Promise<void> {
+    const result = await this.bridge.request(this.target, "desktop_workspace_path", { workspace_id: workspaceId, instance_id: this.view.instanceId });
+    if (!result.ok) { this.report(result.error.message); return; }
+    const folder = result.value as { path: string };
+    try {
+      const revealed = await window.ruukoto.reveal(folder.path);
+      if (!revealed.ok) this.report(revealed.error.message);
+    } catch { this.report("未能打开文件夹，请重新打开应用后重试。"); }
   }
   /** 设置页的已存档会话：同一批普通开发会话，只看存档状态。 */
   archivedSessions(): Session[] {
@@ -331,29 +358,68 @@ export class CodeState {
     return this.read(() => this.history.loadEntry(sessionId, entryId, generation, taskId));
   }
 
-  // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md
-  /** 新对话在首条消息落地时才建会话：按所选工作区与草稿设置建好后把草稿交给它发送。 */
-  async startChat(input: { workspaceId: string; text: string; attachments: DesktopAttachment[]; mode: SessionDefaultMode; modelSelection: ModelSelection | null }, upload: (sessionId: string, tokens: string[]) => Promise<DesktopAttachment[]>): Promise<string | null> {
+  // Note: See .agents/notes/implemented/feature/2026-10-20-desktop-new-chat.md
+  // Note: See .agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md
+  /** The native journal retains the first-send identity through creation and upload failures. */
+  async startChat(input: { requestId?: string; workspaceId: string; text: string; attachments: DesktopAttachment[]; mode: SessionDefaultMode; modelSelection: ModelSelection | null }, upload: (sessionId: string, tokens: string[]) => Promise<DesktopAttachment[]>, ownsDraft: () => boolean = () => true): Promise<string | null> {
     if (!input.text.trim() && !input.attachments.length) return null;
     if (!input.modelSelection) { this.report("请选择模型后再发送。"); return null; }
-    const workspace = this.view.projects.find(project => project.id === input.workspaceId && project.rootDir !== null);
-    if (!workspace?.rootDir) { this.report("所选工作区已不可用，请重新选择。"); return null; }
-    // create() 在途时不另发请求：先拒绝，免得把草稿交给正在核实的另一个会话。
+    const workspace = this.view.projects.find(project => project.id === input.workspaceId && project.rootDir !== null && !project.managed);
+    if (input.workspaceId && !workspace?.rootDir) { this.report("所选工作区已不可用，请重新选择。"); return null; }
     if (this.pendingCreation) { this.report("上一个创建仍在核实，请稍后再发送。"); return null; }
     if (this.pendingBranch) { this.report("正在建立分支，请稍后再发送。"); return null; }
-    if (!await this.create("create_session", { project_id: workspace.id, cwd: workspace.rootDir.cwdReal }, { mode: input.mode, modelSelection: input.modelSelection })) return null;
-    const sessionId = this.view.currentSessionId;
-    if (!sessionId) return null;
-    // 附件按草稿登记的 token 现在才上传：上传需要会话身份，失败时不发送。
-    let attachments: DesktopAttachment[] = [];
-    if (input.attachments.length) {
-      try { attachments = await upload(sessionId, input.attachments.map(item => item.id)); }
-      catch (error) { this.report(error instanceof Error ? error.message : "附件未能上传，请重新选择。"); return null; }
+    if (this.chatBusy || !this.view.instanceId || this.status.state !== "online") return null;
+    const requestId = input.requestId ?? this.startingChat?.requestId ?? crypto.randomUUID();
+    const instanceId = this.startingChat?.requestId === requestId ? this.startingChat.instanceId : this.view.instanceId;
+    if (instanceId !== this.view.instanceId) { this.report("首条消息属于原数据实例，请连回原实例后重试。"); return null; }
+    this.startingChat = { requestId, instanceId };
+    this.chatBusy = true;
+    this.chatNotCreated = false;
+    let created: DesktopChatCreation;
+    try {
+      const result = await this.bridge.request(this.target, "desktop_chat_start", { request_id: requestId, workspace_id: input.workspaceId, text: input.text, tokens: input.attachments.map(item => item.id), mode: input.mode, model_selection: input.modelSelection });
+      if (!result.ok) throw new DesktopRequestError(result.error);
+      created = result.value as DesktopChatCreation;
+    } catch (error) {
+      this.chatBusy = false;
+      this.chatNotCreated = error instanceof DesktopRequestError && error.code === "chat_not_created";
+      if (this.chatNotCreated) this.startingChat = null;
+      this.report(error instanceof Error ? error.message : "首条消息创建待核实，请恢复连接后重试。");
+      return null;
     }
-    this.writes.edit(sessionId, input.text);
-    if (attachments.length) this.writes.draft(sessionId).attachments = attachments;
-    void this.writes.send(sessionId);
-    return sessionId;
+    if (instanceId !== this.view.instanceId) { this.chatBusy = false; this.report("首条消息属于原数据实例，请连回原实例后重试。"); return null; }
+    const { session, project, draft } = created;
+    if (!this.view.projects.some(item => item.id === project.id)) this.view.projects.push(project);
+    if (!this.view.sessions.some(item => item.id === session.id)) this.view.sessions.push(session);
+    this.recoveredChats = [...this.recoveredChats.filter(item => item.requestId !== requestId), draft];
+    if (!ownsDraft()) { this.chatBusy = false; this.startingChat = null; this.mark(); return null; }
+    let attachments = draft.uploadedAttachments;
+    if (!attachments) {
+      try { attachments = await upload(session.id, input.attachments.map(item => item.id)); }
+      catch (error) { this.chatBusy = false; this.report(error instanceof Error ? error.message : "附件未能上传，请重试。"); return null; }
+    }
+    this.chatBusy = false;
+    if (instanceId !== this.view.instanceId) { this.report("首条消息属于原数据实例，请连回原实例后重试。"); return null; }
+    if (!ownsDraft()) { this.startingChat = null; this.mark(); return null; }
+    this.writes.installFirstChat(session.id, draft.text, attachments, draft.submissionRequestId, requestId, draft.mode, draft.modelSelection);
+    this.startingChat = null;
+    this.openSession(session.id);
+    void this.writes.send(session.id);
+    return session.id;
+  }
+  async pendingChat(sessionId: string): Promise<DesktopChatDraft | undefined> {
+    const existing = this.recoveredChats.find(draft => draft.sessionId === sessionId);
+    if (existing) return existing;
+    const response = await this.bridge.request(this.target, "desktop_chat_drafts", {});
+    if (!response.ok) { this.report(response.error.message); return; }
+    this.recoveredChats = (response.value as DesktopChatDraft[]).filter(draft => draft.instanceId === this.view.instanceId);
+    return this.recoveredChats.find(draft => draft.sessionId === sessionId);
+  }
+  resumePreparedChat(draft: DesktopChatDraft): boolean {
+    if (!draft.sessionId || !draft.uploadedAttachments || this.writes.checking(draft.sessionId)) return false;
+    this.writes.installFirstChat(draft.sessionId, draft.text, draft.uploadedAttachments, draft.submissionRequestId, draft.requestId, draft.mode, draft.modelSelection, true);
+    this.openSession(draft.sessionId);
+    return true;
   }
 
   // Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md

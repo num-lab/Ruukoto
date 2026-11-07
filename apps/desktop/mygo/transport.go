@@ -237,6 +237,9 @@ func (s *sidecar) call(ctx context.Context, method string, args ...any) json.Raw
 	s.mu.Unlock()
 	// Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
 	humanWait := method == "request" && len(args) == 3 && args[0] == "personal" && args[1] == "desktop_personal_output_save"
+	// Note: See .agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md
+	// PA uploads are finite; each authenticated chunk retains its own request deadline.
+	uploadWait := method == "attachments" && len(args) == 4 && args[3] == "personal"
 	written := make(chan struct{})
 	// Do not hold the state lock while writing; shutdown must still close a blocked pipe.
 	go func() {
@@ -271,7 +274,7 @@ wait:
 			return result
 		case <-written:
 			written = nil
-			if humanWait {
+			if humanWait || uploadWait {
 				// Pipe writes stay bounded; cancellation remains available while the owner chooses.
 				deadline.Stop()
 				deadlineC = nil
@@ -280,7 +283,7 @@ wait:
 			break wait
 		case <-deadlineC:
 			s.mu.Lock()
-			delivered := humanWait && waiting.sent
+			delivered := (humanWait || uploadWait) && waiting.sent
 			s.mu.Unlock()
 			if delivered {
 				deadlineC = nil

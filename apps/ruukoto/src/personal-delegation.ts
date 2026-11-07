@@ -9,6 +9,7 @@ import { personalServiceSourceBlocker, requirePersonalServiceSourceReady } from 
 import { refreshPersonalReportState, type PersonalReportFacts } from "./personal-report.ts";
 import { delegatePersonalWork, PersonalWorkDoc, PersonalWorkTask, PersonalWorkContinuation, personalWorkNoteSource, requirePersonalWorkContinuation, personalWorkRef, personalWorkStatus, personalWorkSummary, requestPersonalWorkCancel, type PersonalWorkRef } from "./personal-work.ts";
 import type { ToolQueryIdentity } from "./personal-tools.ts";
+import { personalAttachmentGrant } from "./personal-media.ts";
 
 export type PersonalDelegationRef = { entryId: EntryId };
 export type PersonalWorkSource = { requestId: string; submissionId: SubmissionId; entryId: EntryId };
@@ -91,13 +92,13 @@ export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: P
   const existing = await tx.doc(PersonalWorkDoc, input.requestId, null);
   if (existing.ref) {
     if (!isDeepStrictEqual(existing.instructionSource, instruction) || existing.delegation?.entryId !== selected.entryId || !value.members.some(ref => isDeepStrictEqual(ref, existing.ref))) throw new PersonalError("work_request_conflict", "原工作请求的说明或委托归属不同，请查询原记录，不要换键重试。");
-    return { ref: await delegatePersonalWork(tx, model, { ...input, sourceRequestId: value.source.requestId }), delegation: selected };
+    return { ref: await delegatePersonalWork(tx, model, { ...input, sourceRequestId: value.source.requestId, attachmentSourceRequestId: input.sourceRequestId }), delegation: selected };
   }
   await originalEntry(tx, value, input.sourceRequestId);
   await requirePersonalDelegationOpen(tx, selected);
   await requirePersonalDelegationReady(tx, selected);
   await requirePersonalServiceSourceReady(tx, instruction.requestId);
-  const member = await delegatePersonalWork(tx, model, { ...input, sourceRequestId: value.source.requestId });
+  const member = await delegatePersonalWork(tx, model, { ...input, sourceRequestId: value.source.requestId, attachmentSourceRequestId: input.sourceRequestId });
   const work = await tx.doc(PersonalWorkDoc, member.requestId, null);
   work.permission = { ...value.permission };
   work.delegation = selected;
@@ -107,7 +108,7 @@ export async function delegatePersonalAnalysis(tx: Tx, model: ModelRef, input: P
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md
-export async function continuePersonalAnalysis(tx: Tx, model: ModelRef, predecessor: PersonalWorkRef, input: { content: string; requestId: string; sourceRequestId: string; modelCall: TaskId }) {
+export async function continuePersonalAnalysis(tx: Tx, model: ModelRef, predecessor: PersonalWorkRef, input: { content: string; requestId: string; sourceRequestId: string; modelCall: TaskId; attachments?: string[] }) {
   const origin = await tx.doc(PersonalWorkDoc, predecessor.requestId, null);
   if (!isDeepStrictEqual(origin.ref, predecessor) || !origin.delegation) throw new PersonalError("work_continuation_unavailable", "此工作没有可续接的原委托，未接纳新操作；请查询原结果，拥有者明确交办独立新工作时再用 delegate 登记。");
   const instruction = await personalWorkNoteSource(tx, input.sourceRequestId, input.modelCall);
@@ -116,7 +117,7 @@ export async function continuePersonalAnalysis(tx: Tx, model: ModelRef, predeces
   const existing = await tx.doc(PersonalWorkDoc, input.requestId, null);
   if (!existing.ref) await requirePersonalWorkContinuation(tx, predecessor);
   else if (!isDeepStrictEqual(existing.continuation?.predecessor, predecessor) || existing.modelCall !== input.modelCall) throw new PersonalError("work_request_conflict", "后续工作的原请求或前项不同，未重做；请查询原记录。");
-  const continued = await delegatePersonalAnalysis(tx, model, { content: input.content, requestId: input.requestId, sourceRequestId: input.sourceRequestId, agentId: predecessor.agentId, ...(origin.appData === undefined ? {} : { appData: origin.appData }) }, origin.delegation);
+  const continued = await delegatePersonalAnalysis(tx, model, { content: input.content, requestId: input.requestId, sourceRequestId: input.sourceRequestId, agentId: predecessor.agentId, modelCall: input.modelCall, ...(input.attachments === undefined ? {} : { attachments: input.attachments }), ...(origin.appData === undefined ? {} : { appData: origin.appData }) }, origin.delegation);
   const work = await tx.doc(PersonalWorkDoc, continued.ref.requestId, null);
   if (!work.continuation) {
     const admission = await tx.appendEntry(PersonalWorkContinuation, ROOT_CONVERSATION_ID, { data: { version: 1, predecessor: { ...predecessor }, work: { ...continued.ref }, source: { requestId: instruction.requestId, submissionId: instruction.submissionId, entryId: instruction.entryId }, modelCall: input.modelCall, content: input.content } });
@@ -206,6 +207,7 @@ export async function verifyPersonalDelegations(tx: Tx, keys: string[], workKeys
       const part = assistant?.model?.flatMap(message => message.role === "assistant" ? message.content : []).find(part => part.type === "toolCall" && part.id === (input && typeof input === "object" && !Array.isArray(input) ? input.callId : undefined));
       const task = await tx.task(member.taskId);
       const content = task?.input && typeof task.input === "object" && !Array.isArray(task.input) ? task.input.content : undefined;
+      const attachments = work.attachments === undefined ? undefined : (await personalAttachmentGrant(tx, work.attachments)).attachments.map(ref => ref.artifact.id);
       if (!assistant || call?.kind !== "pi.tool" || call.conversationId !== ROOT_CONVERSATION_ID || assistant.byTaskId !== call.owner || admission.id <= assistant.id || assistant.id <= work.instructionSource.entryId || part?.type !== "toolCall" || part.name !== "background_work" || part.arguments.content !== content) throw new PersonalError("delegation_member_invalid", "委托成员缺少原模型委派说明，已停止恢复；请保留档案。");
       if (work.continuation) {
         const previous = work.continuation.predecessor;
@@ -213,8 +215,8 @@ export async function verifyPersonalDelegations(tx: Tx, keys: string[], workKeys
         const status = await personalWorkStatus(tx, previous);
         const continuation = await tx.entry(PersonalWorkContinuation, work.continuation.admission);
         const expected = { version: 1, predecessor: previous, work: member, source: work.instructionSource, modelCall: work.modelCall, content };
-        if (work.continuation.version !== 1 || !task || task.version < 3 || task.version > PersonalWorkTask.definition.version || !continuation || continuation.conversationId !== ROOT_CONVERSATION_ID || continuation.id <= assistant.id || continuation.id >= admission.id || !isDeepStrictEqual(continuation.data, expected) || !isDeepStrictEqual(predecessor.ref, previous) || previous.agentId !== member.agentId || previous.taskId >= member.taskId || predecessor.delegation?.entryId !== value.ref.entryId || !value.members.some(ref => isDeepStrictEqual(ref, previous)) || status.task.state.status !== "terminal" || status.task.state.outcome.status !== "completed" || !status.stopVerified || status.cancelRequested || part.arguments.action !== "append" || !isDeepStrictEqual(part.arguments, { action: "append", work: previous.taskId, content }) || work.appData !== predecessor.appData || createHash("sha256").update(JSON.stringify([content, value.source.requestId, previous.agentId, null, ...(work.appData === undefined ? [] : [work.appData])])).digest("hex") !== work.fingerprint) throw new PersonalError("delegation_member_invalid", "后续工作与已完成的原任务或拥有者追加来源不符，已停止恢复；请保留档案。");
-      } else if (part.arguments.action !== "delegate" || part.arguments.appData !== work.appData || Object.keys(part.arguments).some(key => !["action", "content", "agent", "label", "delegation", "appData"].includes(key)) || createHash("sha256").update(JSON.stringify([part.arguments.content, value.source.requestId, part.arguments.agent ?? null, part.arguments.label ?? null, ...(part.arguments.appData === undefined ? [] : [part.arguments.appData])])).digest("hex") !== work.fingerprint || (part.arguments.agent !== undefined && part.arguments.agent !== member.agentId) || (part.arguments.delegation === undefined ? value.source.entryId !== work.instructionSource.entryId : part.arguments.delegation !== value.ref.entryId)) throw new PersonalError("delegation_member_invalid", "委托成员缺少原模型委派说明，已停止恢复；请保留档案。");
+        if (work.continuation.version !== 1 || !task || task.version < 3 || task.version > PersonalWorkTask.definition.version || !continuation || continuation.conversationId !== ROOT_CONVERSATION_ID || continuation.id <= assistant.id || continuation.id >= admission.id || !isDeepStrictEqual(continuation.data, expected) || !isDeepStrictEqual(predecessor.ref, previous) || previous.agentId !== member.agentId || previous.taskId >= member.taskId || predecessor.delegation?.entryId !== value.ref.entryId || !value.members.some(ref => isDeepStrictEqual(ref, previous)) || status.task.state.status !== "terminal" || status.task.state.outcome.status !== "completed" || !status.stopVerified || status.cancelRequested || part.arguments.action !== "append" || !isDeepStrictEqual(part.arguments, { action: "append", work: previous.taskId, content, ...(attachments ? { attachments } : {}) }) || work.appData !== predecessor.appData || createHash("sha256").update(JSON.stringify([content, value.source.requestId, previous.agentId, null, ...(work.appData === undefined ? [] : [work.appData]), ...(attachments ? [attachments] : [])])).digest("hex") !== work.fingerprint) throw new PersonalError("delegation_member_invalid", "后续工作与已完成的原任务或拥有者追加来源不符，已停止恢复；请保留档案。");
+      } else if (part.arguments.action !== "delegate" || part.arguments.appData !== work.appData || !isDeepStrictEqual(part.arguments.attachments, attachments) || Object.keys(part.arguments).some(key => !["action", "content", "agent", "label", "delegation", "appData", "attachments"].includes(key)) || createHash("sha256").update(JSON.stringify([part.arguments.content, value.source.requestId, part.arguments.agent ?? null, part.arguments.label ?? null, ...(part.arguments.appData === undefined ? [] : [part.arguments.appData]), ...(attachments ? [attachments] : [])])).digest("hex") !== work.fingerprint || (part.arguments.agent !== undefined && part.arguments.agent !== member.agentId) || (part.arguments.delegation === undefined ? value.source.entryId !== work.instructionSource.entryId : part.arguments.delegation !== value.ref.entryId)) throw new PersonalError("delegation_member_invalid", "委托成员缺少原模型委派说明，已停止恢复；请保留档案。");
     }
   }
   for (const key of workKeys) {

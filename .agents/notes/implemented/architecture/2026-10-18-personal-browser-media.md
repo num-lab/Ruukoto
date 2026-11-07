@@ -6,6 +6,8 @@ Status: implemented
 
 [Cua](2026-10-23-cua-official-mcp.md) reuses image records/provider checks, with computer-execution ownership separate from BrowserManager. [MCP image results](2026-10-23-mcp-image-results.md) reuses this media chain, verifying Task before registering multiple images from one original tool; providers create no extra runtime state.
 
+[Inbound attachments](2026-11-07-personal-inbound-attachments.md) extends owner reception to complete ordinary files and assigns selected immutable references to exact child work. Only supported visual members require image capability; reused child history cannot restore unassigned attachment images. Host browser and Cua ownership remain separate.
+
 ## Problem
 
 Personal artifacts/permissions were durable, but old browser tools depended on legacy tasks/approvals/artifacts and image staging on SQLite inbound state. Reusing entire classes would restore a second runtime authority. Browser prelaunch facts, unknown webpage effects, and actual model images must be verifiable from the new profile.

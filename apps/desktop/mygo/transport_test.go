@@ -73,6 +73,12 @@ func TestSidecarProcess(t *testing.T) {
 			}
 			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true}}\n", request.ID)
 			continue
+		case "attachments":
+			go func(id uint64) {
+				time.Sleep(200 * time.Millisecond)
+				fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true,\"value\":[]}}\n", id)
+			}(request.ID)
+			continue
 		case "request":
 			if len(request.Args) != 3 {
 				os.Exit(8)
@@ -241,6 +247,31 @@ func TestSidecarNativeSaveWaitsAfterDelivery(t *testing.T) {
 	}
 }
 
+func TestSidecarPersonalUploadWaitsAfterDelivery(t *testing.T) {
+	child := testChild(t, func(json.RawMessage) {})
+	child.requestTimeout = 30 * time.Millisecond
+	result := make(chan json.RawMessage, 1)
+	go func() {
+		result <- child.call(context.Background(), "attachments", "draft", []string{"selected.bin"}, "identity", "personal")
+	}()
+	select {
+	case value := <-result:
+		t.Fatalf("finite upload ended at generic deadline: %s", value)
+	case <-time.After(90 * time.Millisecond):
+	}
+	if value := child.call(context.Background(), "focus", true); !strings.Contains(string(value), `"ok":true`) {
+		t.Fatalf("upload blocked unrelated request: %s", value)
+	}
+	select {
+	case value := <-result:
+		if !strings.Contains(string(value), `"ok":true`) {
+			t.Fatal(string(value))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("finite upload never completed")
+	}
+}
+
 func TestSidecarNativeSaveCancellationAndClose(t *testing.T) {
 	child := testChild(t, func(json.RawMessage) {})
 	child.requestTimeout = 30 * time.Millisecond
@@ -396,10 +427,30 @@ func TestSidecarBlockedWriteCanCancelAndClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(child.close)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	result := make(chan json.RawMessage, 1)
+	go func() { result <- child.call(ctx, "write", strings.Repeat("x", 1024*1024)) }()
+	deadline := time.After(2 * time.Second)
+	for {
+		child.mu.Lock()
+		started := false
+		for _, pending := range child.pending {
+			started = started || pending.started
+		}
+		child.mu.Unlock()
+		if started {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("fixture pipe write did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
 	started := time.Now()
-	if got := outcome(t, child.call(ctx, "write", strings.Repeat("x", 1024*1024))); got != "unknown" {
+	cancel()
+	if got := outcome(t, <-result); got != "unknown" {
 		t.Fatal(got)
 	}
 	if time.Since(started) > time.Second {

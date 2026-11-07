@@ -3,7 +3,8 @@ import * as http from "node:http";
 import { once } from "node:events";
 import { test, type TestContext } from "node:test";
 import { PersonalImApiError } from "../apps/ruukoto/src/personal-im-api.ts";
-import { personalTelegramApi, PersonalTelegramApiError, telegramCallback, type TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
+import { personalTelegramApi, PersonalTelegramApiError, telegramCallback, telegramMessage, telegramText, type TelegramUpdate } from "../apps/ruukoto/src/personal-telegram-api.ts";
+import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 
 const token = "123:transport-test-secret", owner = "456", signal = new AbortController().signal;
 const callback = (): TelegramUpdate => ({ update_id: 11, callback_query: { id: "opaque-query-identifier", data: "opaque-token", from: { id: 456, is_bot: false }, message: { message_id: 789, date: 1_800_000_000, from: { id: 123, is_bot: true }, chat: { id: 456, type: "private" } } } });
@@ -51,6 +52,72 @@ test("Telegram callback parsing requires an accessible bot card in its owner's p
     mutate(query, card); assert.equal(telegramCallback(update), undefined);
   }
   assert.equal(telegramCallback({ update_id: 12, message: {} }), undefined);
+});
+
+test("Telegram documents retain metadata and invalid media never falls back to caption text", () => {
+  const input: TelegramUpdate = { update_id: 10, message: { message_id: 10, from: { id: 456, is_bot: false }, chat: { id: 456, type: "private" }, caption: "完全访问", document: { file_id: "original-file", file_unique_id: "original-identity", file_name: "original.csv", mime_type: "text/csv", file_size: 0 }, media_group_id: "group-one" } };
+  assert.deepEqual(telegramMessage(input)?.media, [{ identity: "original-identity", fileId: "original-file", name: "original.csv", declaredMime: "text/csv", kind: "file", sizeBytes: 0 }]);
+  assert.equal(telegramMessage(input)?.text, "完全访问"); assert.equal(telegramMessage(input)?.mediaGroupId, "group-one"); assert.equal(telegramText(input), undefined);
+  const image = structuredClone(input); (image.message as { document: Record<string, unknown> }).document.mime_type = "image/png";
+  assert.equal(telegramMessage(image)?.media?.[0].kind, "image");
+  (image.message as { document: Record<string, unknown> }).document.mime_type = "IMAGE/PNG; charset=binary";
+  assert.equal(telegramMessage(image)?.media?.[0].kind, "image");
+  (image.message as { document: Record<string, unknown> }).document.mime_type = "image/gif";
+  assert.equal(telegramMessage(image)?.media?.[0].kind, "image");
+  const mutations: ((message: Record<string, unknown>) => void)[] = [
+    message => { message.document = {}; },
+    message => { message.document = "invalid"; },
+    message => { message.photo = []; },
+    message => { delete message.document; message.photo = []; },
+    message => { delete message.document; message.video = {}; },
+    message => { (message.document as Record<string, unknown>).file_name = "../escape.csv"; },
+    message => { (message.document as Record<string, unknown>).mime_type = "text/csv\r\nInjected:value"; },
+    message => { (message.document as Record<string, unknown>).file_size = "0"; },
+    message => { (message.document as Record<string, unknown>).file_unique_id = ""; },
+    message => { (message.document as Record<string, unknown>).file_id = ""; },
+    message => { message.media_group_id = {}; },
+    message => { delete message.document; message.paid_media = {}; message.text = "完全访问"; },
+  ];
+  for (const mutate of mutations) {
+    const value = structuredClone(input), message = value.message as Record<string, unknown>; mutate(message);
+    const parsed = telegramMessage(value); assert.ok(parsed?.media?.length); assert.equal(parsed.media[0].fileId, ""); assert.equal(telegramText(value), undefined);
+  }
+  const emptyCaption = structuredClone(input); delete (emptyCaption.message as Record<string, unknown>).caption;
+  assert.equal(telegramMessage(emptyCaption)?.text, "");
+});
+
+test("Telegram photo metadata failure blocks the entire media message", () => {
+  const input: TelegramUpdate = { update_id: 10, message: { message_id: 10, from: { id: 456, is_bot: false }, chat: { id: 456, type: "private" }, caption: "完全访问", photo: [{ file_id: "small", file_unique_id: "small-identity", width: 1, height: 1, file_size: 4 }, { file_id: "large", file_unique_id: "large-identity", width: 10, height: 10, file_size: 40 }] } };
+  assert.deepEqual(telegramMessage(input)?.media, [{ identity: "large-identity", fileId: "large", sizeBytes: 40 }]);
+  for (const field of ["file_id", "file_unique_id", "width", "height", "file_size"]) {
+    const invalid = structuredClone(input), photos = (invalid.message as { photo: Record<string, unknown>[] }).photo;
+    photos[0][field] = field.startsWith("file_") && field !== "file_size" ? "" : "invalid";
+    assert.equal(telegramMessage(invalid)?.media?.[0].fileId, ""); assert.equal(telegramText(invalid), undefined);
+  }
+});
+
+test("Telegram download preserves ordinary metadata and checks getFile size before body admission", async t => {
+  const f = await fixture(t), bytes = Buffer.from([0, 255, 1, 128, 13, 10]);
+  f.reply((call, response) => {
+    if (call.method === "getFile") { response.end(JSON.stringify({ ok: true, result: { file_path: "documents/original.bin", file_size: bytes.length } })); return; }
+    response.setHeader("content-type", "application/octet-stream"); response.end(bytes);
+  });
+  const file = f.api.photo({ identity: "file-identity", fileId: "file-id", kind: "file", name: "original.bin", declaredMime: "application/octet-stream", sizeBytes: bytes.length });
+  assert.equal(file.kind, "file"); assert.equal(file.name, "original.bin"); assert.equal(file.sizeBytes, bytes.length);
+  const response = await file.download(signal);
+  assert.equal(response.headers.get("content-length"), String(bytes.length)); assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+  assert.deepEqual(f.calls[0].json, { file_id: "file-id" });
+  f.reply((_call, response) => response.end(JSON.stringify({ ok: true, result: { file_path: "documents/original.bin", file_size: bytes.length - 1 } })));
+  await assert.rejects(file.download(signal), error => error instanceof PersonalError && error.code === "download_incomplete");
+  f.reply((_call, response) => response.end(JSON.stringify({ ok: true, result: { file_path: "documents/original.bin", file_size: 8 * 1024 * 1024 + 1 } })));
+  await assert.rejects(file.download(signal), error => error instanceof PersonalError && error.code === "file_too_large");
+  for (const file_size of [-1, 0.5, "6"]) {
+    f.reply((_call, response) => response.end(JSON.stringify({ ok: true, result: { file_path: "documents/original.bin", file_size } })));
+    await assert.rejects(file.download(signal), error => error instanceof PersonalError && error.code === "download_incomplete");
+  }
+  const calls = f.calls.length;
+  await assert.rejects(f.api.photo({ identity: "bad", fileId: "file-id", kind: "file", name: "../bad.bin" }).download(signal), error => error instanceof PersonalError && error.code === "attachment_invalid");
+  assert.equal(f.calls.length, calls);
 });
 
 test("Telegram polling includes callbacks and validates their bounded update batch", async t => {

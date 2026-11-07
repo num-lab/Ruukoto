@@ -10,7 +10,7 @@ import { PersonalError } from "./personal-error.ts";
 import { toolOperations, type PersonalToolOperation } from "./personal-tools.ts";
 import { browserOperations } from "./personal-browser.ts";
 import { mcpOperations } from "./personal-mcp.ts";
-import { mediaArtifacts } from "./personal-media.ts";
+import { mediaArtifacts, personalWorkAttachments } from "./personal-media.ts";
 import { capturePersonalToolInstructions, personalToolOrigin, requirePersonalChildBusinessTool, verifyPersonalToolInstructions, type PersonalToolOrigin } from "./personal-tool-source.ts";
 import { PersonalWorkDoc, personalWorkInspectionSource, personalWorkInstructionSources, type PersonalToolInstructions, type PersonalWorkRef } from "./personal-work.ts";
 import { personalDelegation } from "./personal-delegation.ts";
@@ -52,6 +52,8 @@ async function outputSource(tx: Tx, input: OutputInput, ref: PersonalWorkRef): P
     const operation = (await mcpOperations(tx)).find(value => value.operation === taskId);
     if (operation && sameWork(operation.origin, ref) && operation.effect === "returned" && operation.observation !== undefined && operation.remoteEnded) return { source: { kind: "artifact", artifact: input.artifact! } as const, artifact: image.artifact };
   }
+  const attachment = (await personalWorkAttachments(tx, ref)).find(value => value.artifact.id === input.artifact);
+  if (attachment) return { source: { kind: "artifact", artifact: attachment.artifact.id }, artifact: attachment.artifact };
   throw forbidden();
 }
 
@@ -72,7 +74,7 @@ async function requireOutputCapacity(tx: Tx, ref: PersonalWorkRef) {
 
 // Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
 export function personalOutputs(profile: string) {
-  const tool = defineTool({ name: "publish_output", description: "拥有者要求交付文件或截图时，登记当前后台工作的最终文件，每项委托最多8个。name须为不含路径的文件名，最多128字符；artifact与operation恰选一项。artifact用当前工作已返回的原产物，不能发布其他工作或中间截图；operation用当前工作成功write_file返回的operation，复用已写完整内容，不额外读取目标。登记后宿主等待当前要求和汇总核实，再发布到桌面；Telegram私聊工作还会发送文件到原私聊，QQ私聊只发送文字汇总；登记不代表已送达。partial或超过8MiB的捕获不能完整预览、下载或发送，须如实报告。发布或送达失败只核实原记录，不重做成功写入。", parameters: Type.Object({ name: Type.String({ minLength: 1, maxLength: 128, description: "最终文件名，不含目录、斜线或控制字符。" }), artifact: Type.Optional(Type.String({ minLength: 1, description: "当前工作返回的artifact；与operation互斥。" })), operation: Type.Optional(Type.Integer({ minimum: 1, description: "当前工作已成功写入且停止已核实的write_file操作；与artifact互斥。" })) }, { additionalProperties: false }), replay: "safe", executionMode: "sequential", async execute(input, api, context) {
+  const tool = defineTool({ name: "publish_output", description: "拥有者要求交付文件或截图时，登记当前后台工作的最终文件，每项委托最多8个。name须为不含路径的文件名，最多128字符；artifact与operation恰选一项。artifact用当前工作明确分配的拥有者原附件，或本工作已返回的最终产物；返回原文件可直接使用分配的artifact，无需重新读取、改写或转码，不能发布其他工作或中间截图；operation用当前工作成功write_file返回的operation，复用已写完整内容，不额外读取目标。登记后宿主等待当前要求和汇总核实，再发布到桌面；Telegram私聊工作还会发送文件到原私聊，QQ私聊只发送文字汇总；登记不代表已送达。partial或超过8MiB的捕获不能完整预览、下载或发送，须如实报告。发布或送达失败只核实原记录，不重做成功写入。", parameters: Type.Object({ name: Type.String({ minLength: 1, maxLength: 128, description: "最终文件名，不含目录、斜线或控制字符。" }), artifact: Type.Optional(Type.String({ minLength: 1, description: "当前工作明确分配的拥有者原附件或已返回的最终artifact；与operation互斥。" })), operation: Type.Optional(Type.Integer({ minimum: 1, description: "当前工作已成功写入且停止已核实的write_file操作；与artifact互斥。" })) }, { additionalProperties: false }), replay: "safe", executionMode: "sequential", async execute(input, api, context) {
     try {
       requirePersonalChildBusinessTool(api, "publish_output");
       const prepared = await api.commit(async tx => {

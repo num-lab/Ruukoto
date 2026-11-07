@@ -92,9 +92,7 @@ The file-I/O regression set exercises actual FIFO stalls, worker exits and SIGKI
 
 [External development acceptance](development-acceptance.md) owns the commands and prerequisites for native probes, real models, Coding questions/schedules and the Personal amendment/report loop. Use fresh isolated profiles and explicit credentials, preserving daily profiles and pending records. Report missing prerequisites as unverified; offline mocks do not establish real client or platform acceptance.
 
-After building workers, the optional-family model command is `RUN_MODEL_CHECK=1 RUN_PERSONAL_M2_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m2-model-acceptance.test.ts`; use `RUN_PERSONAL_M2_MODEL=provider/model` for multiple configured models. [M2 execution acceptance](development-acceptance.md#personal-m2-execution) also requires separate real Linux browser/computer/process and synchronous SQLite evidence.
-
-Work-question model acceptance uses `RUN_MODEL_CHECK=1 RUN_PERSONAL_M3_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m3-model-acceptance.test.ts`; select `RUN_PERSONAL_M3_MODEL=provider/model` for multiple models. It covers concurrent questions, original-work continuation, cancellation and retained permissions. Fixed recovery and both native hosts additionally require isolated Linux and signed-client interaction evidence.
+Model commands and separate Linux/native/IM requirements live in [M2 execution acceptance](development-acceptance.md#personal-m2-execution), [work questions](development-acceptance.md#personal-work-questions) and [inbound attachments](development-acceptance.md#personal-inbound-attachments).
 
 ### Telegram Verification
 

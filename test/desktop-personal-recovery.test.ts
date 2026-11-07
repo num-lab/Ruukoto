@@ -15,8 +15,117 @@ import { PersonalRemoteAuth } from "../apps/ruukoto/src/personal-remote-auth.ts"
 import { PersonalError } from "../apps/ruukoto/src/personal-error.ts";
 import { desktopRemoteFixture, waitFor } from "./helpers/personal-remote-desktop.ts";
 import { personalTestKey, personalTestCertificate } from "./helpers/personal-https.ts";
+import { createHash } from "node:crypto";
+import type { PersonalDesktopAttachmentUpload } from "@ruukoto/view/personal-protocol.ts";
 
 const expected = (code: string) => (error: unknown) => (error instanceof ControlClientError || error instanceof DesktopError) && error.code === code;
+
+function fixtureUploads(f: Awaited<ReturnType<typeof desktopRemoteFixture>>, failName?: string) {
+  const chunks = new Map<string, Buffer[]>(), calls: PersonalDesktopAttachmentUpload[] = [];
+  f.overrides.set("/desktop/attachment", (_req, res, body) => {
+    const value = body as PersonalDesktopAttachmentUpload; calls.push(value);
+    if (value.name === failName) { f.reject(res, "input_invalid", 400); return; }
+    const bytes = Buffer.from(value.base64, "base64"), saved = chunks.get(value.attachmentId) ?? [];
+    assert.ok(bytes.length <= 64 * 1024); assert.equal(Buffer.byteLength(JSON.stringify(value)) < 128 * 1024, true);
+    assert.equal(value.offset, Buffer.concat(saved).length); saved.push(bytes); chunks.set(value.attachmentId, saved);
+    const nextOffset = value.offset + bytes.length;
+    if (nextOffset === value.totalBytes) assert.equal(createHash("sha256").update(Buffer.concat(saved)).digest("hex"), value.sha256);
+    f.respond(res, { v: 1, attachmentId: value.attachmentId, nextOffset, complete: nextOffset === value.totalBytes });
+  });
+  return { chunks, calls };
+}
+
+test("PA attachment upload keeps exact binary and 8 MiB bytes; combined selections stop at four", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "test");
+  const saved = fixtureUploads(f), draft = controller.inputDraft();
+  const files = ["input.csv", "binary.bin", "image.png", "empty.bin"].map(name => path.join(f.directory, name));
+  const data = [Buffer.from("id,status\n17,pending\n"), Buffer.alloc(8 * 1024 * 1024, 91), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=", "base64"), Buffer.alloc(0)];
+  files.forEach((file, index) => fs.writeFileSync(file, data[index]));
+  await controller.pickAttachments(draft.id, async () => files.slice(0, 2));
+  const second = await controller.pickAttachments(draft.id, async () => files.slice(2));
+  const complete = controller.inputDraft(); assert.equal(complete.attachments.length, 4); assert.equal(complete.failed, false); assert.equal(second[0].mime, "image/png");
+  complete.attachments.forEach((ref, index) => assert.deepEqual(Buffer.concat(saved.chunks.get(ref.id)!), data[index]));
+  await assert.rejects(controller.pickAttachments(draft.id, async () => [files[0]]), expected("attachment_limit"));
+  assert.equal(controller.inputDraft().failed, true); assert.equal(f.state.inputCalls.length, 0);
+  await controller.removeAttachment(draft.id, complete.attachments[0].id); assert.equal(controller.inputDraft().failed, true);
+  controller.discardDraft(draft.id);
+});
+
+test("A failed member blocks text and previous refs across reload until explicit discard", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "test");
+  fixtureUploads(f, "bad.bin"); const a = path.join(f.directory, "a.csv"), bad = path.join(f.directory, "bad.bin"); fs.writeFileSync(a, "Original CSV"); fs.writeFileSync(bad, "Fails upload");
+  const draft = controller.inputDraft(); controller.saveDraft(draft.id, "Process every selected file");
+  await controller.pickAttachments(draft.id, async () => [a]); const prior = controller.inputDraft();
+  await assert.rejects(controller.pickAttachments(draft.id, async () => [bad]));
+  await assert.rejects(controller.submitInput(prior.input, prior.attachments, prior.id), expected("personal_attachment_failed"));
+  assert.equal(f.state.inputCalls.length, 0); await controller.close();
+  const reopened = f.create(); await reopened.reconnect(); const retained = reopened.inputDraft();
+  assert.equal(retained.input, prior.input); assert.deepEqual(retained.attachments, prior.attachments); assert.equal(retained.failed, true);
+  await assert.rejects(reopened.submitInput(retained.input, retained.attachments, retained.id), expected("personal_attachment_failed"));
+  assert.equal(f.state.inputCalls.length, 0); const discarded = reopened.discardDraft(retained.id); assert.equal(discarded.failed, false); assert.deepEqual(discarded.attachments, []); assert.equal(discarded.input, "");
+});
+
+test("Lost attachment-only submission retains original key and refs without downgrade text fallback", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "test"); fixtureUploads(f);
+  const file = path.join(f.directory, "original.bin"), bytes = Buffer.from([0, 255, 10, 128]); fs.writeFileSync(file, bytes);
+  const draft = controller.inputDraft(), refs = await controller.pickAttachments(draft.id, async () => [file]);
+  f.state.dropBeforeAdmission = true;
+  const result = await controller.submitInput("", refs, draft.id); assert.equal(result.kind, "pending");
+  const pending = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).input; assert.equal(pending.requestId, result.requestId); assert.deepEqual(pending.attachments, refs); assert.equal(pending.input, "");
+  await controller.close(); const reopened = f.create(); await reopened.reconnect(); assert.equal(f.state.inputCalls.length, 1);
+  assert.equal((await reopened.reconcileInput())?.kind, "missing");
+  assert.throws(() => reopened.discardDraft(draft.id), expected("personal_input_busy"));
+  assert.throws(() => reopened.removeAttachment(draft.id, refs[0].id), expected("personal_input_busy"));
+  assert.equal((await reopened.submitInput("A different text request")).requestId, result.requestId);
+  f.overrides.set("/desktop/inputs", (req) => { req.socket.destroy(); });
+  assert.equal((await reopened.restoreInput()).requestId, result.requestId); assert.equal(f.state.requestPaths.includes("/inputs"), false); assert.equal(f.state.inputCalls.length, 1);
+  f.overrides.delete("/desktop/inputs"); assert.equal((await reopened.restoreInput()).kind, "accepted");
+  assert.deepEqual(f.state.inputCalls[1], f.state.inputCalls[0]); assert.deepEqual(f.state.inputCalls[1].attachments, refs);
+  assert.equal(reopened.inputDraft().attachments.length, 0); assert.deepEqual(fs.readFileSync(file), bytes);
+});
+
+test("Known preadmission attachment rejection releases the request and retains a failed draft for correction", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "test"); fixtureUploads(f);
+  const file = path.join(f.directory, "image.png"); fs.writeFileSync(file, fs.readFileSync(new URL("./fixtures/personal-attachments/image.png", import.meta.url)));
+  const draft = controller.inputDraft(); controller.saveDraft(draft.id, "Describe this picture");
+  const refs = await controller.pickAttachments(draft.id, async () => [file]); let rejectedKey = "";
+  f.overrides.set("/desktop/inputs", (_req, res, body) => { rejectedKey = (body as { requestId: string }).requestId; f.reject(res, "image_input_unsupported", 400); });
+  await assert.rejects(controller.submitInput("Describe this picture", refs, draft.id), error => error instanceof ControlClientError && error.code === "image_input_unsupported" && error.outcome === "rejected");
+  const pending = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8"));
+  assert.equal(pending.input, null); assert.equal(pending.draft.id, draft.id); assert.equal(pending.draft.failed, true); assert.deepEqual(pending.draft.attachments, refs); assert.equal(pending.draft.input, "Describe this picture");
+  assert.equal(await controller.reconcileInput(), null); await controller.close();
+  const reopened = f.create(); await reopened.reconnect(); const retained = reopened.inputDraft(); assert.equal(retained.failed, true); assert.deepEqual(retained.attachments, refs);
+  await assert.rejects(reopened.submitInput("A different text request"), expected("personal_attachment_failed")); assert.equal(f.state.inputCalls.length, 0);
+  const removed = reopened.removeAttachment(retained.id, refs[0].id); assert.deepEqual(removed.attachments, []); assert.equal(removed.failed, true);
+  const discarded = reopened.discardDraft(retained.id); assert.equal(discarded.failed, false); assert.equal(discarded.input, "");
+  const corrected = reopened.saveDraft(discarded.id, "A new text request"); f.overrides.delete("/desktop/inputs");
+  const accepted = await reopened.submitInput(corrected.input, corrected.attachments, corrected.id); assert.equal(accepted.kind, "accepted"); assert.notEqual(accepted.requestId, rejectedKey); assert.equal(f.state.inputCalls.length, 1); assert.equal(f.state.inputCalls[0].input, "A new text request"); assert.equal(f.state.inputCalls[0].attachments, undefined);
+});
+
+test("Conflicting recovery replies preserve the original unknown attachment request", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "test"); fixtureUploads(f);
+  const file = path.join(f.directory, "original.bin"); fs.writeFileSync(file, Buffer.from([0, 255, 128]));
+  const draft = controller.inputDraft(), refs = await controller.pickAttachments(draft.id, async () => [file]); f.state.dropBeforeAdmission = true;
+  const result = await controller.submitInput("Original input", refs); assert.equal(result.kind, "pending");
+  const before = JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).input;
+  for (const code of ["input_conflict", "media_input_conflict", "attachment_conflict", "attachment_bound"]) {
+    f.overrides.set("/desktop/inputs", (_req, res) => { f.reject(res, code, 409); });
+    await assert.rejects(controller.restoreInput(), expected(code));
+    assert.deepEqual(JSON.parse(fs.readFileSync(personalPendingFile(f.directory, controller.config), "utf8")).input, before);
+    assert.throws(() => controller.discardDraft(draft.id), expected("personal_input_busy"));
+  }
+  f.overrides.delete("/desktop/inputs"); const restored = await controller.restoreInput(); assert.equal(restored.kind, "accepted"); assert.equal(restored.requestId, result.requestId); assert.deepEqual(f.state.inputCalls[1], f.state.inputCalls[0]);
+});
+
+test("Native picker reservation blocks simultaneous send and fences late selection after reconnect", async t => {
+  const f = await desktopRemoteFixture(t), controller = f.create(); await controller.pair("ABCDEFGHIJKL", "test"); fixtureUploads(f);
+  const draft = controller.inputDraft(); controller.saveDraft(draft.id, "Text cannot run while picker is open");
+  controller.beginAttachmentSelection(draft.id);
+  await assert.rejects(controller.submitInput(controller.inputDraft().input), expected("personal_input_busy"));
+  await controller.reconnect();
+  await assert.rejects(controller.pickAttachments(draft.id, async () => assert.fail("Late picker must not read files"), true), expected("attachment_instance_changed"));
+  assert.equal(controller.inputDraft().failed, true); assert.equal(f.state.inputCalls.length, 0);
+});
 test('A10：已有绑定重配，安全存储成功但本机绑定保存失败后应可用原候选恢复',async t=>{
  const f=await desktopRemoteFixture(t), original=f.create();
  await original.pair('ABCDEFGHIJKL','Original'); await original.close();

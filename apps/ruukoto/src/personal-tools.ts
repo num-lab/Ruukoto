@@ -1,5 +1,6 @@
 import { personalRecoveryEvidence, verifyPersonalOwnerClaim, type PersonalRecoveryEvidence } from "./personal-recovery-claims.ts";
-import { mediaArtifacts, type PersonalImageRegistrar } from "./personal-media.ts";
+import { mediaArtifacts, personalWorkAttachments, type PersonalImageRegistrar } from "./personal-media.ts";
+import { PersonalAgentsDoc } from "./personal-work.ts";
 import { imageMime } from "@ruukoto/agent/artifacts.ts";
 import { browserOperations } from "./personal-browser.ts";
 /** General operations retain exact admission and start facts; safe replay returns the original observation without execution.
@@ -554,11 +555,18 @@ export async function personalArtifactEntries(tx: Tx, conversationId = ROOT_CONV
 }
 
 export function personalArtifactReader(profile: string) {
-  return defineTool({ name: "read_artifact", description: "读取文件、网络、搜索、浏览器截图或入站图片返回的artifact，不重新外调。主会话可读本实例产物，子Agent只能读本子会话产物。offset从0开始，后续用nextOffset，每页3072原字节base64；按base64重组保真，文本预览不替代原字节。partial表示仅保存片段，不能当作完整结果。命令双流用read_command_output，MCP原响应用read_mcp_result，不复制正文。", parameters: Type.Object({ artifact: Type.String({ minLength: 1 }), offset: Type.Optional(Type.Integer({ minimum: 0 })) }, { additionalProperties: false }), replay: "safe", async execute({ artifact, offset = 0 }, api, context) {
+  return defineTool({ name: "read_artifact", description: "读取当前工作明确分配的拥有者附件，或本子会话文件、网络、搜索与浏览器返回的artifact，不重新外调。拥有者原附件只能按本工作及已接纳说明的明确分配读取；复用子Agent不继承上一工作附件。offset从0开始，后续用nextOffset，每页3072原字节base64；按base64重组保真，文本预览不替代原字节。partial表示仅保存片段，不能当作完整结果。命令双流用read_command_output，MCP原响应用read_mcp_result，不复制正文。", parameters: Type.Object({ artifact: Type.String({ minLength: 1 }), offset: Type.Optional(Type.Integer({ minimum: 0 })) }, { additionalProperties: false }), replay: "safe", async execute({ artifact, offset = 0 }, api, context) {
     try {
-      const ref = await api.commit(async tx => { await personalReadTool(tx, api, "read_artifact"); const value = (await personalArtifactEntries(tx, api.conversationId)).find(value => value.artifact.id === artifact); if (!value) throw new PersonalError("artifact_forbidden", "原产物不属于本会话可读范围，请使用本会话返回的artifact。"); return copyJson(value.artifact) as PersonalArtifact; }, context);
-      const page = await readPersonalArtifact(profile, ref, offset);
-      return { output: [{ type: "text", text: JSON.stringify({ ...page, text: Buffer.from(page.base64, "base64").toString("utf8") }) }] };
+      const selected = await api.commit(async tx => {
+        await personalReadTool(tx, api, "read_artifact");
+        const current = (await tx.doc(PersonalAgentsDoc)).agents.find(agent => agent.id === api.conversationId)?.work;
+        const assigned = current && (await personalWorkAttachments(tx, current)).find(value => value.artifact.id === artifact);
+        const value = assigned?.artifact ?? (await personalArtifactEntries(tx, api.conversationId)).find(value => value.artifact.id === artifact)?.artifact;
+        if (!value) throw new PersonalError("artifact_forbidden", "原产物不属于当前工作可读范围，请使用本工作分配或返回的artifact。");
+        return { ref: copyJson(value) as PersonalArtifact, ...(assigned ? { attachmentWork: { ...current! } } : {}) };
+      }, context);
+      const page = await readPersonalArtifact(profile, selected.ref, offset);
+      return { output: [{ type: "text", text: JSON.stringify({ ...page, text: Buffer.from(page.base64, "base64").toString("utf8"), ...(selected.attachmentWork ? { attachmentWork: selected.attachmentWork } : {}) }) }] };
     } catch (error) { if (!(error instanceof PersonalError)) throw error; return { isError: true, output: [{ type: "text", text: `${error.code}：${error.message}` }] }; }
   } });
 }

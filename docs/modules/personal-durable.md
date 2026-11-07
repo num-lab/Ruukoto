@@ -64,6 +64,7 @@ stateDiagram-v2
 | Interactive resources | Host work qualification, FIFO claims, acquisition and release entries with original stop evidence |
 | Published reports | Immutable publication references to original answers; drafts remain inspectable in conversation history |
 | Final outputs | Immutable instruction/source-bound intents and artifact bytes; report coverage/publication fixes at most eight file references |
+| Inbound attachments | Complete immutable originals with name, type, size, hash and original input/source; explicit grants bind selected references to a work and instruction |
 | Telegram displays and delivery | Original card occurrences and opaque actions; exact text/file parts, ordered claims and separate callback/edit receipts |
 | Native owner display | Data-only admission entry and reciprocal request/submission/history association; native model history remains unchanged |
 | Native choices and recovery | Original family records, `ruukoto.desktop-action` intent/outcome receipts, immutable owner claims and fixed checks |
@@ -94,6 +95,16 @@ sequenceDiagram
 
 Platform message identity deduplicates admission. Auto-review handles eligible read-only operations; sensitive actions follow the original platform's approval flow. Replies retain the original platform, account, owner and generation.
 
+### Owner Attachments
+
+Desktop Personal and Telegram receive up to four combined files or supported images per input, each at most 8 MiB. Ordinary files, including empty files, need no image-capable model. JPEG, PNG and WebP visual inputs retain their model eligibility checks. The host preserves complete bytes, name, type, integrity and original source before admission; one failed member rejects the complete input, including its text. An attachment-only input uses an unambiguous existing task or asks the owner how to use it.
+
+Desktop's native picker snapshots the selected files and uploads bounded authenticated chunks through `/desktop/attachment`. `/desktop/inputs` submits their exact references under the original request key. A lost response retains the key and references for inspection; it does not create a new input. Failed selections remain blocked across client reload. Telegram single files stage directly. Multi-message albums wait for a Send/Discard choice that fixes the collected files because the platform supplies no final-member marker. Stale choices and late members cannot enlarge a confirmed input.
+
+Main selects the attachment references for `background_work` delegate or append. The host verifies their admitted origin against the current owner entry and records the work's readable scope. Earlier files remain available after ordinary clarification or an answer to Main's saved question from the same native profile or original IM account and generation, under the answer's recorded permission. A SubAgent reads only its assigned attachments; reusing the identity does not grant another work's library or restore unassigned image bytes. Original files and unresolved staging remain retained. Requested originals and generated results use the existing final-output publication and original-entry delivery rules.
+
+Reopen validates complete ready and admitted originals before resuming input. Queued inputs retain the original submission and inbox content before user-message placement; withdrawn queued inputs retain their bytes without becoming readable by delegated work. A missing or corrupt original stops recovery before its caption can execute.
+
 ### Telegram Cards and Complete Results
 
 Telegram sends proactive cards from the same canonical operations and questions used by native clients. Each display fixes the original admission, occurrence, private entry and opaque action tokens. A choice requires the bound owner, current generation and confirmed bot-message identity, then rechecks the original action's eligibility. Callback acknowledgement and terminal editing have separate durable receipts; their failure cannot undo a committed choice or make a stale button eligible. An explicit redisplay retains the same decision and earlier send facts.
@@ -112,7 +123,7 @@ Published final files follow the text using complete original bytes, up to 8 MiB
 
 ### Final Files and Setup
 
-A child registers an owner-requested final file through `publish_output`, using an artifact returned by its current work or the original content of that work's successful stopped write. No extra read or business write is needed. An amendment excludes older unpublished selections; validated report coverage and publication freeze the current file IDs. Published history remains unchanged after later requirements or failed delivery.
+A child registers an owner-requested final file through `publish_output`, using an immutable attachment assigned to its current work, an artifact returned by that work, or the original content of its successful stopped write. No extra read or business write is needed. An amendment excludes older unpublished selections; validated report coverage and publication freeze the current file IDs. Published history remains unchanged after later requirements or failed delivery.
 
 Authenticated `/desktop/output` reads only members of that original publication in at most 128 KiB chunks. Every response rechecks the paired identity and profile. Complete output remains limited to 8 MiB; partial capture stays visible but cannot be downloaded as complete. Native clients verify metadata, full size and SHA-256. File publication, business success and delivery outcome remain distinct.
 
@@ -234,5 +245,6 @@ Canceling one scheduled occurrence records its original owner authority, cancels
 - [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
 - [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
 - [Personal final-file publication](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)
+- [Personal inbound attachments and work scope](../../.agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md)
 - [Personal Telegram cards and complete delivery](../../.agents/notes/implemented/architecture/2026-11-06-personal-telegram-delivery.md)
 - [Personal setup presets and administration](../../.agents/notes/implemented/feature/2026-11-05-personal-setup-presets.md)

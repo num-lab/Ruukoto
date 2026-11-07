@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type EntryId, type EntryRecord, type Harness, type TaskId, type Tx } from "@earendil-works/pi-durable";
+import { AssistantEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, type Cursor, type EntryId, type EntryRecord, type Harness, type TaskId, type Tx, type UserInput } from "@earendil-works/pi-durable";
 import { PersonalError } from "./personal-error.ts";
 import { personalTelegramApi, PersonalTelegramApiError, telegramOffset, telegramMessage, telegramCallback, telegramCallbackQueryId, telegramCallbackIdentity, type PersonalTelegramApi, type TelegramAck, type TelegramUpdate, type TelegramText } from "./personal-telegram-api.ts";
 import { personalEntryConfig, samePersonalEntry, PersonalTelegramDoc, PersonalTelegramReceiptDoc, type TelegramReceipt as Receipt, type TelegramResult as Result, type TelegramControlInput } from "./personal-telegram-records.ts";
@@ -10,7 +10,7 @@ import { telegramWorkControl, telegramDelegationControl } from "./personal-work-
 import { PERSONAL_MAIN_TOOL_ROUNDS, PersonalCoordinationDoc, personalCoordinationCutoffText, personalCoordinationRounds, type PersonalCoordinationCutoff, type PersonalMainAdmission } from "./personal-coordination.ts";
 import { personalWorkHandoff } from "./personal-work-tools.ts";
 export { PersonalTelegramDoc, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
-import { personalMediaRejection, type PersonalMedia, type PersonalMediaDownload } from "./personal-media.ts";
+import { personalMediaRejection, PersonalMediaMessageDoc, verifyPersonalMediaAdmission, type PersonalMedia, type PersonalMediaDownload } from "./personal-media.ts";
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
 
 import { personalQqApi, qqMessage, qqPhoto, type PersonalQqApi } from "./personal-qq-api.ts";
@@ -26,6 +26,7 @@ import { personalTelegramResultControl, verifyPersonalTelegramResultControl } fr
 import { personalTelegramCallbacks, PersonalTelegramCallbackDoc } from "./personal-telegram-callbacks.ts";
 import { personalImControlAccepted } from "./personal-recovery-claims.ts";
 import { personalTelegramCuaImageControl, verifyPersonalTelegramCuaImages } from "./personal-telegram-cua-images.ts";
+import { personalTelegramAttachments, personalTelegramAttachmentBody, verifyPersonalTelegramAttachments, verifyPersonalTelegramAttachmentReceipt, type PersonalTelegramAttachmentGroup } from "./personal-telegram-attachments.ts";
 
 type Input = Omit<TelegramText, "media"> & { media?: PersonalMediaDownload[] };
 const context = BACKGROUND_CONTEXT;
@@ -58,6 +59,7 @@ async function approvalReplyAction(tx: Tx, selected: Awaited<ReturnType<typeof t
 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-personal-telegram-entry.md
 // Note: See .agents/notes/implemented/architecture/2026-11-06-personal-telegram-delivery.md
+// Note: See .agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md
 export function personalTelegram(config?: PersonalTelegramConfig, api?: PersonalTelegramApi, control?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, media?: PersonalMedia, qqConfig?: PersonalQqConfig, qqApi?: PersonalQqApi, scheduledControl?: (tx: Tx, value: TelegramControlInput) => Promise<boolean>, isSuspended: (platform: "telegram" | "qq") => boolean = () => false, admitInput?: PersonalMainAdmission, cuaControl?: (tx: Tx, value: TelegramControlInput, selected: Awaited<ReturnType<typeof telegramSelection>>) => Promise<boolean>) {
   const locks = new Map<string, Promise<void>>(), switching = new Set<string>(), sends = new Map<PersonalQqApi, number>(), retired = new Set<PersonalQqApi>();
   const sending = new Set<Promise<unknown>>(), versions = new Map<string, string>();
@@ -93,6 +95,11 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
     }
     return { send: (ownerId, messageId, text, signal, keyboard) => tracked(ownerId === owner ? source.platform === "qq" ? selectedApi.send(ownerId, messageId, text, signal) : (selectedApi as PersonalTelegramApi).send(ownerId, messageId, text, signal, keyboard) : Promise.reject(new PersonalImApiError("im_target_changed", "发送目标与原入口不符，未发送；请查询原发送记录。", "not_sent"))), ...(source.platform === undefined ? { document: (ownerId: string, messageId: number, file: import("./personal-im-api.ts").PersonalImDocument, signal: AbortSignal) => tracked(ownerId === owner ? (selectedApi as PersonalTelegramApi).document(ownerId, messageId, file, signal) : Promise.reject(new PersonalImApiError("im_target_changed", "发送目标与原入口不符，未发送。", "not_sent"))) } : {}) };
   }
+  let admitAttachmentGroup: ((group: PersonalTelegramAttachmentGroup, signal: AbortSignal) => Promise<void>) | undefined;
+  const attachments = personalTelegramAttachments({ withEntry, sender, configurationVersion, isActive }, (group, signal) => {
+    if (!admitAttachmentGroup) throw new PersonalError("telegram_attachment_unavailable", "附件接收入口正在恢复，请保留原消息并查询附件。");
+    return admitAttachmentGroup(group, signal);
+  });
   const task = defineTask<{ requestId: string }, { phase: "run" } | { phase: "send"; retryAt?: number } | { phase: "verify" } | { phase: "deliver" }, Result>({
     name: TASK, version: 1, initial: () => ({ phase: "run" }),
     phases: {
@@ -110,7 +117,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
         if (value.receipt.media && !media) throw new PersonalError("media_config_missing", "原图片处理模块不可用，未发送缺图请求；请恢复对应程序。");
         const currentMedia = value.receipt.media ? await media!.message(value.receipt.media.key) : undefined;
         if (value.receipt.media && !currentMedia) throw new PersonalError("image_reference_invalid", "原图片接收记录缺失，已停止；请保留档案。");
-        if (value.receipt.mediaRejected || currentMedia && ["rejected", "expired"].includes(currentMedia.state) || value.receipt.media && !media!.supportsImages()) {
+        if (value.receipt.mediaRejected || currentMedia && ["rejected", "expired"].includes(currentMedia.state) || currentMedia && !media!.canProcess(currentMedia)) {
           const reason = currentMedia?.reason ?? "image_input_unsupported";
           if (value.receipt.media && currentMedia?.state === "ready") await media!.reject(value.receipt.media.key, reason);
           await runtime.commit(async tx => { const value = await receipt(tx, current.input.requestId, current.id); value.reply = personalMediaRejection(reason); value.mediaRejected = true; delete value.permission; value.delivery = "pending"; return { status: "running", checkpoint: { phase: "send" } }; }, context); return;
@@ -121,7 +128,22 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
         }
         const main = await runtime.conversation(ROOT_CONVERSATION_ID, context);
         if (!main) throw new PersonalError("telegram_main_missing", "IM 主会话缺失，已停止；请保留档案。");
-        const content = value.receipt.media ? await media!.input(value.receipt.media.key) : value.receipt.content;
+        let content: UserInput;
+        try { content = value.receipt.media ? await media!.input(value.receipt.media.key) : value.receipt.content; }
+        catch (error) {
+          if (!(error instanceof PersonalError) || error.code !== "artifact_unavailable" || !value.receipt.media) throw error;
+          await runtime.commit(async tx => {
+            const value = await receipt(tx, current.input.requestId, current.id), message = (await tx.doc(PersonalMediaMessageDoc, current.input.requestId, null)).message;
+            // A lost original is a whole-input rejection only before any native admission; existing
+            // submissions retain their original association and failure rather than being replayed.
+            if (!message || message.key !== current.input.requestId || message.state !== "ready" || value.submissionId !== undefined || await tx.submissionByRequest(ROOT_CONVERSATION_ID, current.input.requestId)) throw error;
+            await verifyPersonalMediaAdmission(tx, message);
+            message.state = "rejected"; message.reason = "download_failed";
+            value.reply = personalMediaRejection(message.reason); value.mediaRejected = true; delete value.permission; value.delivery = "pending";
+            return { status: "running", checkpoint: { phase: "send" } };
+          }, context);
+          return;
+        }
         const submission = await withEntry(value.receipt, async () => {
           let permitted = false;
           await runtime.commit(async tx => { const value = await receipt(tx, current.input.requestId, current.id); permitted = !!await tx.submissionByRequest(ROOT_CONVERSATION_ID, current.input.requestId) || isActive(value) && active(personalEntryConfig(await tx.doc(PersonalTelegramDoc), value), value); if (!permitted) { value.delivery = "canceled"; return { status: "terminal", outcome: { status: "completed", result: { delivery: value.delivery } } }; } return undefined; }, context);
@@ -271,7 +293,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
     },
   });
   const callbacks = personalTelegramCallbacks({ withEntry, sender, configurationVersion, isActive }, source => source.platform === undefined && isActive(source) ? api : undefined);
-  const extension = defineExtension({ name: "personal-telegram", tasks: [task] });
+  const extension = defineExtension({ name: "personal-telegram", tasks: [task, ...attachments.tasks] });
   return { extension, callbacks, withEntry, sender, configurationVersion, isActive, get delivery() { return delivery; }, setDelivery(value: ReturnType<typeof personalImDelivery>) { delivery = value; }, transport(source: PersonalEntryIdentity) { return source.platform === undefined && isActive(source) ? api : undefined; }, setVersion: (platform: "telegram" | "qq", version: string) => { versions.set(platform, version); },
     api(harness: Harness) {
       let receiving = false;
@@ -298,6 +320,7 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
       }
       presenceTimer = setInterval(() => { void pulse(); }, 4000); presenceTimer.unref();
       async function handleControl(tx: Tx, value: TelegramControlInput, prior: Awaited<ReturnType<typeof telegramSelection>>) {
+        if (await attachments.control(tx, value, prior)) return true;
         const normalized = value.platform === undefined && value.direct ? await approvalReplyAction(tx, prior, value.content) : undefined;
         if (normalized) { value.rawContent = value.content; value.content = normalized; }
         if (value.platform === undefined && !value.rawContent && (approveWords.has(value.content.trim()) || rejectWords.has(value.content.trim())) && !prior?.selection?.kind.startsWith("question-")) return false;
@@ -312,11 +335,15 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
         if (await cuaControl?.(tx, value, prior)) return true;
         return !!(await scheduledControl?.(tx, value) || await telegramPermissionControl(tx, value) || await telegramWorkControl(tx, value) || await telegramDelegationControl(tx, value) || await control?.(tx, value));
       }
-      const accept = async (message: Input | undefined, updateId: number, platform?: "qq", signal?: AbortSignal, expected?: PersonalTelegramConfig | PersonalQqConfig) => {
+      const accept = async (message: Input | undefined, updateId: number, platform?: "qq", signal?: AbortSignal, expected?: PersonalTelegramConfig | PersonalQqConfig, attachmentGroup?: NonNullable<Receipt["attachmentGroup"]>) => {
         const currentConfig = expected ?? (platform === "qq" ? qqConfig : config);
         const key = message && currentConfig ? `${platform ?? "telegram"}:${currentConfig.botId}:${message.ownerId}:${message.id}` : undefined;
         const acceptedConfig = currentConfig;
         let staged: Awaited<ReturnType<PersonalMedia["stage"]>> | undefined;
+        if (!platform && message && acceptedConfig && key) {
+          const allowed = await harness.commit(tx => attachments.accepts(tx, { botId: acceptedConfig.botId, ownerId: acceptedConfig.ownerId, generation: acceptedConfig.generation }, message.id, attachmentGroup), context);
+          if (!allowed) { await harness.commit(async tx => { const state = await tx.doc(PersonalTelegramDoc); state.rejected++; state.lastUpdateId = updateId; }, context); return; }
+        }
         if (message?.media && message.ownerId === acceptedConfig?.ownerId && key) {
           if (!media) throw new PersonalError("media_config_missing", "图片处理模块不可用，收件未确认；请检查程序配置。");
           await harness.commit(async tx => {
@@ -335,13 +362,16 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           if (switching.has(platform ?? "telegram") || receivePaused.has(platform ?? "telegram") || isSuspended(platform ?? "telegram") || !acceptedConfig?.enabled || !isDeepStrictEqual(personalEntryConfig(state, { platform }), acceptedConfig)) throw new PersonalError("telegram_target_changed", "拥有者入口配置已失效，已停止收件；请检查当前配置。");
           if (!platform) state.lastUpdateId = updateId;
           if (!message || message.ownerId !== acceptedConfig.ownerId || !key) { state.rejected++; return; }
+          if (!platform && !await attachments.accepts(tx, { botId: acceptedConfig.botId, ownerId: acceptedConfig.ownerId, generation: acceptedConfig.generation }, message.id, attachmentGroup)) { state.rejected++; return; }
           const record = await tx.doc(PersonalTelegramReceiptDoc, key, null);
           if (record.receipt) {
-            if ((record.receipt.rawContent ?? record.receipt.content) !== message.text || !isDeepStrictEqual(record.receipt.media?.identities, message.media?.map(value => value.identity)) || (record.receipt.direct !== undefined && (record.receipt.direct !== message.direct || record.receipt.replyTo !== message.replyTo || record.receipt.replyBotId !== message.replyBotId))) throw new PersonalError("telegram_input_conflict", "同一平台消息的正文不符，已停止接收；请保留档案并检查。");
+            if (record.receipt.generation !== acceptedConfig.generation) { state.rejected++; return; }
+            if ((record.receipt.rawContent ?? record.receipt.content) !== message.text || !isDeepStrictEqual(record.receipt.media?.identities, message.media?.map(value => value.identity)) || !isDeepStrictEqual(record.receipt.attachmentGroup, attachmentGroup) || (record.receipt.direct !== undefined && (record.receipt.direct !== message.direct || record.receipt.replyTo !== message.replyTo || record.receipt.replyBotId !== message.replyBotId))) throw new PersonalError("telegram_input_conflict", "同一平台消息的正文不符，已停止接收；请保留档案并检查。");
             return;
           }
           await personalPermissionFor(tx, { platform });
           const value: TelegramControlInput = { ...(platform ? { platform } : {}), requestId: key, generation: acceptedConfig.generation, botId: acceptedConfig.botId, ownerId: acceptedConfig.ownerId, messageId: message.id, updateId, content: message.text, direct: message.direct, ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }), ...(message.replyBotId === undefined ? {} : { replyBotId: message.replyBotId }), delivery: "waiting" };
+          if (attachmentGroup) value.attachmentGroup = { ...attachmentGroup };
           const prior = !staged ? await telegramSelection(tx, value) : undefined, prepared = !platform && !staged ? await preparePersonalTelegramReceiptDisplay(tx, value, prior) : undefined;
           if (staged) {
             value.media = { key, identities: staged.identities };
@@ -359,6 +389,12 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
         });
         harness.resume();
         void pulse();
+      };
+      admitAttachmentGroup = async (group, signal) => {
+        if (!isActive(group.source) || !config || !api || !group.choice) throw new PersonalError("telegram_target_changed", "原附件入口已变化，本条消息未接纳。请从当前入口重新发送。");
+        const selectedConfig = config, transport = api, first = group.members[0];
+        const message: Input = { ...first.message, text: personalTelegramAttachmentBody(group), direct: group.members.every(member => member.message.direct), media: group.members.flatMap(member => member.message.media!.map(file => transport.photo(file))) };
+        await accept(message, first.updateId, undefined, signal, selectedConfig, { key: group.key, revision: group.revision, choice: group.choice.entry });
       };
       const receiveTelegram = async (update: TelegramUpdate, selected: PersonalTelegramConfig | undefined, selectedApi: PersonalTelegramApi | undefined, signal?: AbortSignal) => {
         if (update.callback_query !== undefined) {
@@ -396,6 +432,16 @@ export function personalTelegram(config?: PersonalTelegramConfig, api?: Personal
           return;
         }
         const message = telegramMessage(update);
+        if (message?.mediaGroupId && message.media && message.ownerId === selected?.ownerId) {
+          await withEntry({}, () => harness.commit(async tx => {
+            const state = await tx.doc(PersonalTelegramDoc);
+            if (!selected.enabled || !isActive(selected) || !isDeepStrictEqual(state.config, selected)) throw new PersonalError("telegram_target_changed", "原附件入口已变化，本条消息未接纳。");
+            state.lastUpdateId = update.update_id;
+            if (!await attachments.collect(tx, { botId: selected.botId, ownerId: selected.ownerId, generation: selected.generation }, message, update.update_id)) state.rejected++;
+          }, context));
+          harness.resume();
+          return;
+        }
         await accept(message && { ...message, media: message.media?.map(value => selectedApi!.photo(value)) }, update.update_id, undefined, signal, selected);
       };
       const receive = (update: TelegramUpdate, signal?: AbortSignal) => receiveTelegram(update, config, api, signal);
@@ -560,6 +606,7 @@ async function acceptedOrigins(tx: Tx, keys: string[]) {
 
 export async function verifyPersonalTelegram(tx: Tx, keys: string[], config?: PersonalTelegramConfig, qqConfig?: PersonalQqConfig) {
   const state = await tx.doc(PersonalTelegramDoc);
+  await verifyPersonalTelegramAttachments(tx);
   if (keys.some(key => key.startsWith("telegram:")) && !state.config) throw new PersonalError("telegram_receipt_invalid", "Telegram 收件缺少原绑定记录，已停止恢复；请保留档案。");
   if (state.config && !config) throw new PersonalError("telegram_config_missing", "档案的 Telegram 配置缺失，已停止恢复；请恢复配置或通过向导停用入口。");
   if (state.config && config?.generation === state.config.generation && !isDeepStrictEqual(config, state.config)) throw new PersonalError("telegram_config_changed", "Telegram 配置代次与内容不符，已停止恢复；请重新配对。");
@@ -586,6 +633,7 @@ export async function verifyPersonalTelegram(tx: Tx, keys: string[], config?: Pe
       if (value.platform || !value.control || !value.direct || value.permission || value.submissionId !== undefined || value.replyTo !== value.messageId || value.replyBotId !== value.botId || accepted?.kind !== "ruukoto.telegram-callback" || !isDeepStrictEqual(accepted.data, { requestId: key, generation: value.generation, ...value.callback }) || !ack || ack.input.origin !== value.accepted || !samePersonalEntry(ack.input.source, value) || !(await telegramSelection(tx, value))) throw new PersonalError("telegram_receipt_invalid", "原按钮来源或卡片关系无法核实。");
     }
     if (value.cuaAction && !await personalImControlAccepted(tx, value)) throw new PersonalError("telegram_receipt_invalid", "原电脑选择缺少私聊受理事实。");
+    await verifyPersonalTelegramAttachmentReceipt(tx, value);
     if (value.rawContent !== undefined) {
       const prior = await telegramSelection(tx, value);
       if (!value.control || value.platform || await approvalReplyAction(tx, prior, value.rawContent) !== value.content) throw new PersonalError("telegram_receipt_invalid", "原审批用词与决定不符。");

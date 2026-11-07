@@ -4,6 +4,8 @@ Status: implemented
 
 [Complete Telegram delivery](2026-11-06-personal-telegram-delivery.md) adds original-byte document uploads for committed publication members, with separate text/file outcomes and the same 8 MiB completeness limit. Desktop authentication and preview/save rules remain here; QQ media stays in its later milestone.
 
+[Inbound attachments](2026-11-07-personal-inbound-attachments.md) adds exact-work granted originals to eligible publication sources. It reuses the publication and delivery rules here without granting another work's artifacts or replaying business effects.
+
 ## Problem
 
 Personal retains immutable operation artifacts, but an artifact alone does not mean the owner requested its delivery or that it satisfies current work requirements. Automatically displaying every screenshot would expose intermediate captures. Repeating a write after a failed transfer would repeat a completed business effect. [Issue #43](https://github.com/num-lab/Ruukoto/issues/43) requires explicit final-file publication, bounded authenticated delivery and native preview/download under the existing report and authority rules.

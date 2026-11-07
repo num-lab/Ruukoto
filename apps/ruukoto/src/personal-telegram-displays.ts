@@ -28,6 +28,7 @@ import { personalImEffectContent } from "./personal-recovery-claims.ts";
 import { personalTelegramDisplaySelection, type PersonalTelegramSelection } from "./personal-telegram-selection.ts";
 import type { PersonalTelegramApi } from "./personal-telegram-api.ts";
 import { personalTelegramCuaImagesDelivered } from "./personal-telegram-cua-images.ts";
+import { personalTelegramAttachmentActions, personalTelegramAttachmentSelectionActive } from "./personal-telegram-attachments.ts";
 
 const context = BACKGROUND_CONTEXT;
 const TASK = "ruukoto.telegram-card-edit";
@@ -245,6 +246,8 @@ export async function personalTelegramReceiptDisplay(tx: Tx, value: TelegramCont
     binding = json({ admission: question.admission, origin: question.origin, generation: question.generation });
     actions = question.status === "pending" ? questionActions(question, selection) : [];
     transition = hash(json({ admission: question.admission, version: question.version, status: question.status }));
+  } else if (selection.kind === "attachment-group" || selection.kind === "attachment-list") {
+    actions = await personalTelegramAttachmentActions(tx, value, selection);
   } else if (projection && !committedControl(value) && selection.kind === projection.selection.kind) {
     actions = projection.actions;
     continuation = projection.continuation; transition = projection.transition;
@@ -259,6 +262,7 @@ export async function validatePersonalTelegramDisplayAction(tx: Tx, value: Teleg
   if (!selected) return !value.callback;
   const saved = await display(tx, selected.requestId);
   if (!value.callback) return true;
+  if (!await personalTelegramAttachmentSelectionActive(tx, value, saved.selection)) return false;
   if (saved.target) {
     const current = await personalTelegramTarget(tx, saved.target, value);
     if (!current || !isDeepStrictEqual(current.binding, saved.binding)) return false;
@@ -273,6 +277,7 @@ export async function authorizePersonalTelegramDisplay(tx: Tx, input: PersonalIm
   const saved = (await tx.doc(PersonalTelegramDisplayDoc, input.key, null)).display;
   if (!saved) return true;
   if (saved.delivery.key !== input.key || !isDeepStrictEqual(saved.source, input.source) || saved.text !== input.text || saved.messageId !== input.messageId) throw invalid();
+  if (saved.buttons.length && !await personalTelegramAttachmentSelectionActive(tx, saved.source, saved.selection)) return false;
   if (!saved.target || !saved.buttons.length) return true;
   const current = await personalTelegramTarget(tx, saved.target, saved.source);
   if (!current || !isDeepStrictEqual(current.binding, saved.binding)) return false;

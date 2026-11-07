@@ -9,15 +9,17 @@ import { DesktopError } from "./environment.ts";
 import { savePersonalConfig, validatePersonalConfig, personalProfile, personalPendingFile, readPersonalRecord, writePersonalRecord, type PersonalTargetConfig } from "./personal-config.ts";
 import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 import { personalOutputMetadata, readPersonalOutput, verifyPersonalOutputAccess } from "./personal-outputs.ts";
+import { personalAttachments, uploadPersonalAttachments } from "./attachments.ts";
 import type { DesktopUpdate } from "../shared/bridge.ts";
 import type { PersonalDesktopApproval } from "@ruukoto/view/personal-protocol.ts";
-import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt, PersonalPendingDecision, PersonalDesktopAction, PersonalDesktopActionReceipt } from "../shared/personal-desktop.ts";
+import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputDraft, PersonalInputReceipt, PersonalPendingDecision, PersonalDesktopAction, PersonalDesktopActionReceipt } from "../shared/personal-desktop.ts";
+import type { PersonalDesktopAttachment } from "@ruukoto/view/personal-protocol.ts";
 
 type Secret = { id: string; secret: string; origin: string };
 type Active = Secret & { remoteId: string; profile: PersonalRemoteIdentity["profile"] };
 type Candidate = Secret & { request: { v: 1; code: string; label: string }; rejected?: true };
 type Credentials = { v: 1; active?: Active; candidate?: Candidate };
-type Pending = { v: 1; input: PersonalPendingInput | null; decisions?: PersonalPendingDecision[]; actions?: PersonalDesktopAction[]; maintenance?: { id: string; requestDigest: string }; settings?: { id: string; requestDigest: string; target: string; scope: string }[] };
+type Pending = { v: 1; input: PersonalPendingInput | null; draft?: PersonalInputDraft; decisions?: PersonalPendingDecision[]; actions?: PersonalDesktopAction[]; maintenance?: { id: string; requestDigest: string }; settings?: { id: string; requestDigest: string; target: string; scope: string }[] };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const failed = (code: string, message: string, outcome: "not_sent" | "unknown" | "rejected" = "not_sent") => new ControlClientError(code, message, outcome);
@@ -29,6 +31,7 @@ const ACTIONS = ["approve", "reject", "answer", "cancel_question", "check", "cle
 const DECISION_PATHS = new Map<string, PersonalPendingDecision["kind"]>([["/tools/decide", "tools"], ["/mcp/decide", "mcp"], ["/app-data/decide", "app-data"], ["/service/decide", "services"]]);
 const DETAIL_PATHS = new Map<string, PersonalPendingDecision["kind"]>([["/tools/operation", "tools"], ["/mcp/operation", "mcp"], ["/app-data/operation", "app-data"], ["/service", "services"]]);
 const KNOWN_REJECTIONS = new Set(["remote_request_invalid", "remote_maintenance_request_invalid", "remote_maintenance_pending", "settings_pending", "settings_revision_changed", "settings_revision_conflict", "settings_target_pending", "settings_request_conflict", "settings_request_invalid", "settings_upgrade_required", "settings_profile_changed", "settings_file_unverified", "skills_revision_conflict", "settings_stop_required", "profile_busy", "maintenance_read_only", "model_environment_unverified", "input_invalid", "input_conflict", "mcp_end_unavailable", "mcp_end_invalid", "mcp_missing", "mcp_original_entry", "desktop_action_invalid", "desktop_action_stale", "desktop_action_original_entry", "desktop_action_conflict", "desktop_action_unavailable"]);
+const ATTACHMENT_REJECTIONS = new Set(["attachment_invalid", "attachment_incomplete", "attachment_conflict", "attachment_offset", "attachment_hash", "attachment_bound", "media_input_conflict", "image_input_unsupported", "mime_mismatch", "mime_unsupported", "too_many_files", "file_too_large"]);
 const authorization = (value: Secret) => `Bearer ${value.id}.${value.secret}`;
 function parseCredentials(raw: string | null): Credentials {
   if (raw === null) return { v: 1 };
@@ -56,7 +59,7 @@ function desktopBlock(value: unknown): boolean {
 function desktopMessage(value: unknown): boolean {
   return object(value) && ["user", "assistant", "toolResult"].includes(String(value.role)) && typeof value.text === "string" && typeof value.partial === "boolean" && typeof value.truncated === "boolean" && timestamp(value.timestamp) && (value.thinking === undefined || typeof value.thinking === "string") && (value.toolCallId === undefined || typeof value.toolCallId === "string") && (value.toolName === undefined || typeof value.toolName === "string") && (value.isError === undefined || typeof value.isError === "boolean") && (value.blocks === undefined || Array.isArray(value.blocks) && value.blocks.every(block => object(block) && integer(block.index) && desktopBlock(block))) && (value.toolCalls === undefined || Array.isArray(value.toolCalls) && value.toolCalls.every(call => object(call) && typeof call.id === "string" && typeof call.name === "string" && typeof call.arguments === "string" && typeof call.truncated === "boolean"));
 }
-function desktopEntry(value: unknown): boolean { return object(value) && integer(value.entry) && integer(value.conversation) && typeof value.kind === "string" && desktopMessage(value) && (value.outputs === undefined || Array.isArray(value.outputs) && value.outputs.length <= 8 && value.outputs.every(output => personalOutputMetadata(output) && output.publication === value.entry)) && (value.input === undefined || object(value.input) && typeof value.input.requestId === "string" && integer(value.input.submission) && ["queued", "placed", "done", "unanswered"].includes(String(value.input.status)) && (value.input.historyEntry === undefined || integer(value.input.historyEntry))); }
+function desktopEntry(value: unknown): boolean { return object(value) && integer(value.entry) && integer(value.conversation) && typeof value.kind === "string" && desktopMessage(value) && (value.attachments === undefined || personalAttachments(value.attachments)) && (value.outputs === undefined || Array.isArray(value.outputs) && value.outputs.length <= 8 && value.outputs.every(output => personalOutputMetadata(output) && output.publication === value.entry)) && (value.input === undefined || object(value.input) && typeof value.input.requestId === "string" && integer(value.input.submission) && ["queued", "placed", "done", "unanswered"].includes(String(value.input.status)) && (value.input.historyEntry === undefined || integer(value.input.historyEntry))); }
 function desktopApproval(value: unknown): boolean {
   return object(value) && [value.operation, value.occurrence, value.admission].every(integer) && ["read_file", "write_file", "http_request", "web_search", "list_files", "search_files", "service_restart", "service_inspect", "app_data", "run_command", "browser", "cua", "process"].includes(String(value.kind)) && (value.family === undefined || FAMILIES.includes(String(value.family))) && typeof value.target === "string" && value.target.length <= 512 && ["pending", "approved", "rejected", "unneeded"].includes(String(value.approval)) && ["returned", "not_executed", "no_write", "effect_unknown", "committed", "not_committed"].includes(String(value.effect)) && typeof value.code === "string" && [value.observed, value.started, value.stopped, value.canDecide, value.targetTruncated].every(item => typeof item === "boolean") && (value.notice === undefined || typeof value.notice === "string") && (value.work === undefined || integer(value.work)) && (value.decisionEntry === undefined || integer(value.decisionEntry)) && (value.actions === undefined || Array.isArray(value.actions) && value.actions.length <= ACTIONS.length && value.actions.every(action => ACTIONS.includes(String(action)))) && (value.check === undefined || desktopCheck(value.check)) && (value.claim === undefined || object(value.claim) && integer(value.claim.entry) && ["applied", "not_applied"].includes(String(value.claim.effect)) && timestamp(value.claim.at)) && (value.observation === undefined || integer(value.observation)) && (value.images === undefined || Array.isArray(value.images) && value.images.length <= 8 && value.images.every(image => object(image) && typeof image.id === "string" && ["image/png", "image/jpeg", "image/webp"].includes(String(image.mime)) && typeof image.sha256 === "string" && /^[0-9a-f]{64}$/.test(image.sha256) && integer(image.bytes) && Number(image.bytes) <= 8 * 1024 * 1024 && typeof image.partial === "boolean"));
 }
@@ -125,6 +128,7 @@ function desktopSnapshot(value: Record<string, unknown>): boolean {
 // Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 // Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
 // Note: See .agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md
+// Note: See .agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md
 export class PersonalController {
   config: PersonalTargetConfig;
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "closed", detail: "尚未连接" };
@@ -143,6 +147,7 @@ export class PersonalController {
   private switching = false;
   private inspectingActions: Promise<void> | null = null;
   private inputOperation = false;
+  private attachmentSelection: { id: string; generation: number; identity: PersonalRemoteIdentity | null; draft: PersonalInputDraft } | null = null;
   constructor(config: PersonalTargetConfig, private readonly userData: string, private readonly publish: (update: DesktopUpdate) => void, private readonly storage: PersonalCredentialStorage | undefined, private readonly deps: { agent?: https.Agent } = {}) { this.config = validatePersonalConfig(config); }
   private current(generation: number): boolean { return !this.closed && generation === this.generation; }
   private state(value: Extract<DesktopUpdate, { type: "state" }>): void { this.status = value; this.publish(value); }
@@ -212,7 +217,10 @@ export class PersonalController {
           let value: unknown;
           try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { fail(failed("personal_protocol", "远端应答无法解析，请核实原请求与版本。", method === "POST" ? "unknown" : "not_sent")); return; }
           if (!object(value) || value.v !== 1 || value.product !== "ruukoto" || typeof value.ok !== "boolean") { fail(failed("personal_protocol", "远端产品或协议不匹配，连接已停止；请核实原请求与版本。", method === "POST" ? "unknown" : "not_sent")); return; }
-          if (value.ok === false && typeof value.code === "string" && typeof value.message === "string") { fail(failed(value.code, value.message, (res.statusCode ?? 0) >= 500 || method === "POST" && !KNOWN_REJECTIONS.has(value.code) || value.code.includes("unverified") || value.code.includes("response_lost") || value.code.includes("response_large") || value.code.includes("internal") ? "unknown" : "rejected")); return; }
+          if (value.ok === false && typeof value.code === "string" && typeof value.message === "string") {
+            const rejected = KNOWN_REJECTIONS.has(value.code) || ["/desktop/attachment", "/desktop/inputs"].includes(route) && ATTACHMENT_REJECTIONS.has(value.code);
+            fail(failed(value.code, value.message, (res.statusCode ?? 0) >= 500 || method === "POST" && !rejected || value.code.includes("unverified") || value.code.includes("response_lost") || value.code.includes("response_large") || value.code.includes("internal") ? "unknown" : "rejected")); return;
+          }
           if (!value.ok || !Object.hasOwn(value, "result") || ![200, 202].includes(res.statusCode ?? 0)) { fail(failed("personal_protocol", "远端应答状态无效，请核实原请求。", method === "POST" ? "unknown" : "not_sent")); return; }
           resolve(value.result);
         });
@@ -235,6 +243,7 @@ export class PersonalController {
     this.persistBinding(identity);
     this.identity = identity;
     this.publish({ type: "personal_identity", identity });
+    this.publish({ type: "personal_draft", draft: this.inputDraft() });
     this.publish({ type: "personal_decisions", items: this.pending().decisions ?? [] });
     this.publish({ type: "personal_actions", items: this.pending().actions ?? [] });
   }
@@ -491,9 +500,68 @@ export class PersonalController {
     if (value.settings !== undefined && (!Array.isArray(value.settings) || value.settings.some(item => !object(item) || Object.keys(item).sort().join(",") !== "id,requestDigest,scope,target" || typeof item.id !== "string" || !UUID.test(item.id) || typeof item.requestDigest !== "string" || !/^[0-9a-f]{64}$/.test(item.requestDigest) || !["model", "skills", "mcp", "web-search", "telegram", "qq", "commands", "services"].includes(String(item.target)) || typeof item.scope !== "string" || !item.scope || item.scope.length > 128) || new Set(value.settings.map(item => item.id)).size !== value.settings.length)) throw new DesktopError("personal_pending_invalid", "原配置请求关联无法核实，请保留记录并查询原档案。");
     if (value.decisions !== undefined && (!Array.isArray(value.decisions) || value.decisions.some(item => !object(item) || Object.keys(item).sort().join(",") !== "decision,kind,operation" || !["tools", "mcp", "app-data", "services"].includes(String(item.kind)) || !integer(item.operation) || Number(item.operation) < 1 || !["approved", "rejected"].includes(String(item.decision))) || new Set(value.decisions.map(item => `${item.kind}:${item.operation}`)).size !== value.decisions.length)) throw new DesktopError("personal_pending_invalid", "原决定记录无法核实，请保留记录并检查原操作。");
     if (value.actions !== undefined && (!Array.isArray(value.actions) || value.actions.some(item => !desktopAction(item)) || new Set(value.actions.map(item => `${item.family}:${item.operation}`)).size !== value.actions.length || new Set(value.actions.map(item => item.requestId)).size !== value.actions.length)) throw new DesktopError("personal_pending_invalid", "原卡片选择记录无法核实，请保留记录并查询原卡片。");
+    if (value.input !== null && object(value.input) && value.input.attachments !== undefined && !personalAttachments(value.input.attachments)) throw new DesktopError("personal_pending_invalid", "原输入附件无法核实，请保留原记录并检查档案。");
+    if (value.draft !== undefined && (!object(value.draft) || value.draft.v !== 1 || typeof value.draft.id !== "string" || !UUID.test(value.draft.id) || value.draft.origin !== this.config.origin || value.draft.remoteId !== this.config.binding?.remoteId || !isDeepStrictEqual(value.draft.profile, this.config.binding?.profile) || typeof value.draft.input !== "string" || Buffer.byteLength(value.draft.input) > 16 * 1024 || !personalAttachments(value.draft.attachments) || typeof value.draft.failed !== "boolean")) throw new DesktopError("personal_draft_invalid", "原草稿记录无法核实，发送已停止；请保留记录并检查原档案。");
     return value as Pending;
   }
   private record(value: Pending, result?: PersonalInputReceipt): void { writePersonalRecord(personalPendingFile(this.userData, this.config), value); this.publish({ type: "personal_pending", record: value.input, ...(result ? { result } : {}) }); this.publish({ type: "personal_decisions", items: value.decisions ?? [] }); this.publish({ type: "personal_actions", items: value.actions ?? [] }); }
+  inputDraft(): PersonalInputDraft {
+    const pending = this.pending();
+    if (!this.config.binding || !this.identity) throw failed("personal_identity_changed", "请连接原个人 Agent 后读取草稿。");
+    if (pending.draft) return structuredClone(pending.draft);
+    const draft: PersonalInputDraft = { v: 1, id: randomUUID(), origin: this.config.origin, remoteId: this.identity.remoteId, profile: this.identity.profile, input: "", attachments: [], failed: false };
+    this.record({ ...pending, draft });
+    return draft;
+  }
+  saveDraft(id: string, input: string): PersonalInputDraft {
+    if (this.closed || this.switching || this.inputOperation || typeof input !== "string" || Buffer.byteLength(input) > 16 * 1024) throw failed("personal_input_busy", "草稿仍在处理或超过 16 KiB，请等待后核实原输入。");
+    const draft = this.inputDraft();
+    if (draft.id !== id) throw failed("personal_draft_changed", "原草稿已变化，请重新读取。");
+    draft.input = input; this.record({ ...this.pending(), draft }); return draft;
+  }
+  discardDraft(id: string): PersonalInputDraft {
+    if (this.closed || this.switching || this.inputOperation || this.pending().input) throw failed("personal_input_busy", "原输入仍在处理，请先核实原请求。");
+    const draft = this.inputDraft();
+    if (draft.id !== id) throw failed("personal_draft_changed", "原草稿已变化，请重新读取。");
+    const next = { ...draft, id: randomUUID(), input: "", attachments: [], failed: false };
+    this.record({ ...this.pending(), draft: next }); this.publish({ type: "personal_draft", draft: next }); return next;
+  }
+  connectionIdentity(): object | null { return this.identity?.online && this.status.state === "online" ? this.identity : null; }
+  beginAttachmentSelection(id: string): void {
+    if (this.closed || this.switching || this.inputOperation || this.pending().input) throw failed("personal_input_busy", "原输入仍在处理，请先核实原请求。");
+    const draft = this.inputDraft();
+    if (draft.id !== id) throw failed("personal_draft_changed", "原草稿已变化，请重新读取。");
+    if (!this.identity?.online || this.status.state !== "online") throw failed("attachment_instance_changed", "请恢复原连接后选择附件。");
+    const blocked = { ...draft, failed: true };
+    this.record({ ...this.pending(), draft: blocked });
+    this.inputOperation = true;
+    this.attachmentSelection = { id, generation: this.generation, identity: this.identity, draft };
+    this.publish({ type: "personal_draft", draft: blocked });
+  }
+  async pickAttachments(id: string, pick: () => Promise<string[]>, reserved = false): Promise<PersonalDesktopAttachment[]> {
+    if (!reserved) this.beginAttachmentSelection(id);
+    const selection = this.attachmentSelection;
+    if (!selection || selection.id !== id) throw failed("attachment_instance_changed", "原附件选择已变化，本条输入未发送；请重新选择附件。");
+    const check = () => { if (!this.current(selection.generation) || this.identity !== selection.identity || this.status.state !== "online" || !selection.identity?.online || this.pending().draft?.id !== id) throw failed("attachment_instance_changed", "原附件连接已变化，本条输入未发送；请重新选择附件。"); };
+    try {
+      check();
+      const draft = selection.draft;
+      const files = await pick(); check();
+      if (files.length + draft.attachments.length > 4) throw failed("attachment_limit", "每条输入最多附加 4 个文件；请移除或重新选择附件。");
+      const uploaded = await uploadPersonalAttachments(files, check, value => this.request("POST", "/desktop/attachment", value));
+      check();
+      const next = { ...draft, attachments: [...draft.attachments, ...uploaded], failed: draft.failed && files.length === 0 };
+      this.record({ ...this.pending(), draft: next }); this.publish({ type: "personal_draft", draft: next });
+      return uploaded;
+    } finally { if (this.attachmentSelection === selection) { this.inputOperation = false; this.attachmentSelection = null; } }
+  }
+  removeAttachment(id: string, attachmentId: string): PersonalInputDraft {
+    if (this.closed || this.switching || this.inputOperation || this.pending().input) throw failed("personal_input_busy", "原输入仍在处理，请先核实原请求。");
+    const draft = this.inputDraft();
+    if (draft.id !== id || !draft.attachments.some(item => item.id === attachmentId)) throw failed("personal_draft_changed", "原附件已变化，请重新读取。");
+    draft.attachments = draft.attachments.filter(item => item.id !== attachmentId);
+    this.record({ ...this.pending(), draft }); this.publish({ type: "personal_draft", draft }); return draft;
+  }
   /** A successful check holds switching until the caller saves the address and closes this connection. */
   async assertSwitchable(): Promise<() => void> {
     if (this.closed || this.switching || this.credentialOperation) throw failed("personal_pending", "原连接已关闭、正在配对或切换，请等待后核实；未更改地址。");
@@ -520,22 +588,37 @@ export class PersonalController {
   }
   private async sendInput(record: PersonalPendingInput): Promise<PersonalInputReceipt> {
     try {
-      const result = this.inputReceipt(record.requestId, await this.request("POST", "/inputs", { requestId: record.requestId, input: record.input }));
+      const result = this.inputReceipt(record.requestId, await this.request("POST", record.attachments?.length ? "/desktop/inputs" : "/inputs", { requestId: record.requestId, input: record.input, ...(record.attachments?.length ? { attachments: record.attachments } : {}) }));
       const current = this.pending();
-      if (result.kind === "accepted" && current.input?.requestId === record.requestId) this.record({ ...current, input: null }, result);
+      if (result.kind === "accepted" && current.input?.requestId === record.requestId) this.finishInput(current, record, result);
       return result;
     } catch (error) {
       if (error instanceof ControlClientError && (error.outcome === "unknown" || error.outcome === "disconnected")) return { kind: "pending", requestId: record.requestId };
+      if (error instanceof ControlClientError && error.outcome === "rejected" && record.attachments?.length && ATTACHMENT_REJECTIONS.has(error.code) && !["attachment_conflict", "attachment_bound", "media_input_conflict"].includes(error.code)) {
+        const current = this.pending();
+        if (current.input?.requestId === record.requestId) {
+          const draft = current.draft?.input === record.input && isDeepStrictEqual(current.draft.attachments, record.attachments) ? { ...current.draft, failed: true } : current.draft;
+          this.record({ ...current, input: null, ...(draft ? { draft } : {}) });
+          if (draft) this.publish({ type: "personal_draft", draft });
+        }
+      }
       throw error;
     }
   }
-  async submitInput(input: string): Promise<PersonalInputReceipt> {
+  private finishInput(current: Pending, record: PersonalPendingInput, result: PersonalInputReceipt): void {
+    const draft = current.draft;
+    const cleared = draft && draft.input === record.input && isDeepStrictEqual(draft.attachments, record.attachments ?? []) ? { ...draft, id: randomUUID(), input: "", attachments: [], failed: false } : draft;
+    this.record({ ...current, input: null, ...(cleared ? { draft: cleared } : {}) }, result);
+    if (cleared) this.publish({ type: "personal_draft", draft: cleared });
+  }
+  async submitInput(input: string, attachments: PersonalDesktopAttachment[] = [], draftId?: string): Promise<PersonalInputReceipt> {
     if (this.closed || this.switching) throw failed("personal_pending", "个人连接已关闭或正在切换，未发送新输入。");
     if (this.inputOperation) throw failed("personal_input_busy", "原输入仍在发送，请等待后核实原请求。");
-    if (!input.trim() || Buffer.byteLength(input) > 16 * 1024 || !this.identity || !this.config.binding) throw failed("personal_input_invalid", "请连接个人 Agent 后输入非空文本，每条最多16 KiB。");
+    if (!personalAttachments(attachments) || !input.trim() && !attachments.length || Buffer.byteLength(input) > 16 * 1024 || !this.identity || !this.config.binding) throw failed("personal_input_invalid", "请连接个人 Agent 后输入消息或选择附件；正文最多 16 KiB，附件最多 4 个。");
     const pending = this.pending();
     if (pending.input) return { kind: "pending", requestId: pending.input.requestId };
-    const record: PersonalPendingInput = { v: 1, origin: this.config.origin, remoteId: this.identity.remoteId, profile: this.identity.profile, requestId: randomUUID(), input };
+    if (pending.draft?.failed || draftId !== undefined && (pending.draft?.id !== draftId || pending.draft.input !== input || !isDeepStrictEqual(pending.draft.attachments, attachments))) throw failed("personal_attachment_failed", "本条输入的附件未完整准备，请重新选择或放弃草稿后再发送。");
+    const record: PersonalPendingInput = { v: 1, origin: this.config.origin, remoteId: this.identity.remoteId, profile: this.identity.profile, requestId: randomUUID(), input, ...(attachments.length ? { attachments: structuredClone(attachments) } : {}) };
     this.record({ ...pending, input: record }); this.inputOperation = true;
     try { return await this.sendInput(record); } finally { this.inputOperation = false; }
   }
@@ -545,7 +628,7 @@ export class PersonalController {
     const record = pending.input, result = this.inputReceipt(record.requestId, await this.request("GET", `/input?requestId=${encodeURIComponent(record.requestId)}`));
     const current = this.pending();
     if (current.input?.requestId !== record.requestId) return null;
-    if (result.kind === "accepted") this.record({ ...current, input: null }, result);
+    if (result.kind === "accepted") this.finishInput(current, record, result);
     else this.publish({ type: "personal_pending", record, result });
     return result;
   }

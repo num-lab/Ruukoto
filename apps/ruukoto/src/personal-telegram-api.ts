@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { PersonalMediaError, type PersonalMediaDownload } from "./personal-media.ts";
 import { PersonalError } from "./personal-error.ts";
 import { PersonalImApiError } from "./personal-im-api.ts";
 
 export type TelegramUpdate = { update_id: number; message?: unknown; callback_query?: unknown };
-export type TelegramText = { id: number; ownerId: string; text: string; name: string; direct: boolean; media?: { identity: string; fileId: string; sizeBytes?: number }[]; replyTo?: number; replyBotId?: string };
+export type TelegramFile = { identity: string; fileId: string; sizeBytes?: number; name?: string; declaredMime?: string; kind?: "file" | "image" };
+export type TelegramText = { id: number; ownerId: string; text: string; name: string; direct: boolean; media?: TelegramFile[]; mediaGroupId?: string; replyTo?: number; replyBotId?: string };
 export type TelegramCallback = { queryId: string; data: string; ownerId: string; botId: string; chatId: string; messageId: number; date: number };
 export type TelegramKeyboard = { text: string; callback_data: string }[][];
 export type TelegramAck = { offset: number; receivedAt: number };
@@ -14,6 +16,10 @@ const indirect = (value: Record<string, unknown>) => ["forward_origin", "forward
 const callbackId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 256 && !/[\x00-\x1f\x7f]/.test(value);
 const validText = (value: string) => value.length > 0 && Array.from(value).length <= 4096;
 const invalidInput = () => new PersonalImApiError("telegram_input_invalid", "Telegram 发送内容或目标无效，未发送；请核实原记录。", "not_sent");
+const attachmentName = (value: string) => value.length > 0 && value.length <= 128 && value.trim().length > 0 && value !== "." && value !== ".." && !/[\x00-\x1f\x7f\\/]/.test(value);
+const attachmentMime = (value: string) => value.length > 0 && value.length <= 256 && /^[a-z0-9.+_-]+\/[a-z0-9.+_-]+(?:;[\x20-\x7e]+)?$/i.test(value);
+const fileIdentity = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 4096;
+const fileSize = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 export function telegramCallbackQueryId(update: TelegramUpdate): string | undefined { const query = update.callback_query; return object(query) && callbackId(query.id) ? query.id : undefined; }
 
@@ -53,20 +59,33 @@ async function readReply(response: Response): Promise<unknown> {
 
 export function telegramText(update: TelegramUpdate): TelegramText | undefined { return telegramMessage(update, false); }
 
-export function telegramMessage(update: TelegramUpdate, allowImages = true): TelegramText | undefined {
+export function telegramMessage(update: TelegramUpdate, allowMedia = true): TelegramText | undefined {
   const m = update.message;
   if (!object(m) || !id(m.message_id) || !object(m.chat) || m.chat.type !== "private" || !id(m.chat.id) || !object(m.from) || !id(m.from.id) || m.from.is_bot !== false || m.chat.id !== m.from.id) return;
-  const hasImages = allowImages && Array.isArray(m.photo) && m.photo.length > 0;
-  const text = hasImages ? typeof m.caption === "string" ? m.caption : "" : m.text;
-  if (typeof text !== "string" || !hasImages && !text.trim() || Buffer.byteLength(text) > 16384) return;
+  const mediaFields = ["photo", "document", "audio", "animation", "video", "video_note", "voice", "sticker", "paid_media"].filter(key => Object.hasOwn(m, key));
+  const hasMedia = mediaFields.length > 0;
+  if (hasMedia && !allowMedia) return;
+  const text = hasMedia ? typeof m.caption === "string" ? m.caption : "" : m.text;
+  if (typeof text !== "string" || !hasMedia && !text.trim() || Buffer.byteLength(text) > 16384) return;
   let media: TelegramText["media"];
-  if (hasImages) {
-    const photos = (m.photo as unknown[]).filter(object);
-    const photo = photos.reduce<Record<string, unknown> | undefined>((largest, candidate) => !largest || Number(candidate.width) * Number(candidate.height) > Number(largest.width) * Number(largest.height) ? candidate : largest, undefined);
-    media = [{ identity: typeof photo?.file_unique_id === "string" ? photo.file_unique_id : typeof photo?.file_id === "string" ? photo.file_id : "invalid-photo", fileId: typeof photo?.file_id === "string" ? photo.file_id : "", ...(typeof photo?.file_size === "number" ? { sizeBytes: photo.file_size } : {}) }];
+  const rejectedMedia = (): TelegramFile[] => [{ identity: `invalid-${createHash("sha256").update(JSON.stringify([mediaFields.map(key => [key, m[key]]), m.media_group_id ?? null])).digest("hex")}`, fileId: "", name: "attachment.bin", kind: "file" }];
+  if (mediaFields.length === 1 && mediaFields[0] === "photo" && Array.isArray(m.photo) && m.photo.length > 0) {
+    const photos = m.photo.filter(object);
+    const metadataValid = photos.length === m.photo.length && photos.every(photo => id(photo.width) && id(photo.height) && fileIdentity(photo.file_id) && (photo.file_unique_id === undefined || fileIdentity(photo.file_unique_id)) && (photo.file_size === undefined || fileSize(photo.file_size)));
+    const photo = metadataValid ? photos.reduce((largest, candidate) => Number(candidate.width) * Number(candidate.height) > Number(largest.width) * Number(largest.height) ? candidate : largest) : undefined;
+    media = photo ? [{ identity: typeof photo.file_unique_id === "string" ? photo.file_unique_id : String(photo.file_id), fileId: String(photo.file_id), ...(typeof photo.file_size === "number" ? { sizeBytes: photo.file_size } : {}) }] : rejectedMedia();
+  } else if (mediaFields.length === 1 && mediaFields[0] === "document" && object(m.document)) {
+    const file = m.document, declaredMime = typeof file.mime_type === "string" ? file.mime_type : "application/octet-stream";
+    const metadataValid = fileIdentity(file.file_id) && (file.file_unique_id === undefined || fileIdentity(file.file_unique_id)) && (file.file_size === undefined || fileSize(file.file_size)) && (file.file_name === undefined || typeof file.file_name === "string" && attachmentName(file.file_name)) && (file.mime_type === undefined || typeof file.mime_type === "string" && attachmentMime(file.mime_type));
+    media = metadataValid ? [{ identity: typeof file.file_unique_id === "string" ? file.file_unique_id : String(file.file_id), fileId: String(file.file_id), name: typeof file.file_name === "string" ? file.file_name : "attachment.bin", declaredMime, kind: declaredMime.toLowerCase().startsWith("image/") ? "image" : "file", ...(typeof file.file_size === "number" ? { sizeBytes: file.file_size } : {}) }] : rejectedMedia();
+  } else if (hasMedia) {
+    // Invalid media remains media-bearing, so its caption cannot enter chat or approval parsing.
+    media = rejectedMedia();
   }
+  const mediaGroupId = hasMedia && typeof m.media_group_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(m.media_group_id) ? m.media_group_id : undefined;
+  if (hasMedia && Object.hasOwn(m, "media_group_id") && mediaGroupId === undefined) media = rejectedMedia();
   const reply = object(m.reply_to_message) ? m.reply_to_message : undefined;
-  return { id: m.message_id, ownerId: String(m.from.id), text, ...(media ? { media } : {}), name: typeof m.from.first_name === "string" ? m.from.first_name.slice(0, 128) : "Telegram 用户", direct: !indirect(m), ...(reply && id(reply.message_id) ? { replyTo: reply.message_id } : {}), ...(reply && object(reply.from) && reply.from.is_bot === true && id(reply.from.id) ? { replyBotId: String(reply.from.id) } : {}) };
+  return { id: m.message_id, ownerId: String(m.from.id), text, ...(media ? { media } : {}), ...(mediaGroupId ? { mediaGroupId } : {}), name: typeof m.from.first_name === "string" ? m.from.first_name.slice(0, 128) : "Telegram 用户", direct: !indirect(m), ...(reply && id(reply.message_id) ? { replyTo: reply.message_id } : {}), ...(reply && object(reply.from) && reply.from.is_bot === true && id(reply.from.id) ? { replyBotId: String(reply.from.id) } : {}) };
 }
 
 export function telegramCallback(update: TelegramUpdate): TelegramCallback | undefined {
@@ -123,20 +142,30 @@ export function personalTelegramApi(apiBase: string, token: string) {
       if (!Array.isArray(result) || result.length > 16 || result.some((item, i) => !object(item) || typeof item.update_id !== "number" || !Number.isSafeInteger(item.update_id) || item.update_id < 0 || (i > 0 && item.update_id <= result[i - 1].update_id))) throw new PersonalTelegramApiError("effect_unknown");
       return result as TelegramUpdate[];
     },
-    photo(input: { identity: string; fileId: string; sizeBytes?: number }): PersonalMediaDownload {
-      return { identity: input.identity, ...(input.sizeBytes === undefined ? {} : { sizeBytes: input.sizeBytes }), async download(signal) {
-        if (!input.fileId || input.fileId.length > 4096) throw new PersonalMediaError("download_unavailable");
+    photo(input: TelegramFile): PersonalMediaDownload {
+      return { identity: input.identity, ...(input.sizeBytes === undefined ? {} : { sizeBytes: input.sizeBytes }), ...(input.name === undefined ? {} : { name: input.name }), ...(input.declaredMime === undefined ? {} : { declaredMime: input.declaredMime }), ...(input.kind === undefined ? {} : { kind: input.kind }), async download(signal) {
+        if (!fileIdentity(input.fileId)) throw new PersonalMediaError("download_unavailable");
+        if (input.name !== undefined && !attachmentName(input.name) || input.declaredMime !== undefined && !attachmentMime(input.declaredMime)) throw new PersonalMediaError("attachment_invalid");
         let result: unknown;
         try { result = await call("getFile", { file_id: input.fileId }, signal, 15_000); } catch (error) {
           if (error instanceof PersonalTelegramApiError && error.effect === "not_sent" && !error.retryAfterMs) throw new PersonalMediaError("download_unavailable");
-          throw new PersonalError("media_retry", "图片下载暂时不可用。");
+          throw new PersonalError("media_retry", "附件下载暂时不可用。");
         }
         const filename = object(result) ? result.file_path : undefined;
         if (typeof filename !== "string" || !/^[A-Za-z0-9_./-]+$/.test(filename) || filename.startsWith("/") || filename.split("/").some(part => !part || part === "." || part === "..")) throw new PersonalMediaError("download_unavailable");
+        const size = object(result) ? result.file_size : undefined;
+        if (size !== undefined && !fileSize(size)) throw new PersonalMediaError("download_incomplete");
+        if (typeof size === "number" && size > 8 * 1024 * 1024) throw new PersonalMediaError(input.kind === "file" ? "file_too_large" : "image_too_large");
+        if (typeof size === "number" && input.sizeBytes !== undefined && size !== input.sizeBytes) throw new PersonalMediaError("download_incomplete");
         let response: Response;
-        try { response = await fetch(`${apiBase}/file/bot${token}/${filename}`, { signal, redirect: "error" }); } catch { throw new PersonalError("media_retry", "图片下载暂时不可用。"); }
+        try { response = await fetch(`${apiBase}/file/bot${token}/${filename}`, { signal, redirect: "error" }); } catch { throw new PersonalError("media_retry", "附件下载暂时不可用。"); }
         const headers = new Headers(response.headers), returned = headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-        if (!returned || returned === "application/octet-stream") headers.set("content-type", ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" } as Record<string, string>)[filename.split(".").at(-1)!.toLowerCase()] ?? "application/octet-stream");
+        if (typeof size === "number") {
+          const length = headers.get("content-length");
+          if (length !== null && (!/^(0|[1-9][0-9]*)$/.test(length) || Number(length) !== size)) throw new PersonalMediaError("download_incomplete");
+          headers.set("content-length", String(size));
+        }
+        if (!returned || returned === "application/octet-stream") headers.set("content-type", input.declaredMime ?? (input.kind === "file" ? "application/octet-stream" : ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" } as Record<string, string>)[filename.split(".").at(-1)!.toLowerCase()] ?? "application/octet-stream"));
         return new Response(response.body, { status: response.status, headers });
       } };
     },

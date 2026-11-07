@@ -23,7 +23,7 @@ MyGo has one native browser WebView per main conversation. Go's `browser.Manager
 | Timeline | Stream input, thinking, tools and question cards; completed Agent messages offer copy/branch; branches restore source-task traces; the server-selected latest recallable owner message offers recall and restores text/attachments to this client's draft |
 | PA conversation | Request-keyed owner bubbles remain visible from acceptance; completed Agent messages use the same house bubbles, with one timestamp per role group and inline operation decisions, recovery and owner questions |
 | PA work and decisions | Commit events update child progress, canonical decisions across enabled families, independent work questions, superseded cards, whole-assignment cancellation and validated publication; partial prose, traces and OS notifications stay hidden |
-| PA composer | Starts at one line and grows to at most one third of window height; no mode selector; the attachment button is disabled while PA file upload remains unavailable |
+| PA composer | Starts at one line and grows to at most one third of window height; supports up to four files/images, attachments-only input and removal before submission |
 | Scheduled | Lists Active/Archived plans as cards with title, Instructions summary, repeat rule and next-trigger progress; details separate overview and run records; create/edit uses one centered four-step column with separate model and Effort selectors, and successful saves return to details without a success notice |
 | Composer | Grows to at most one third of window height; steering targets the running task's next boundary; post-interrupt input is an ordinary new task |
 | Queue above composer | Shares the composer surface; drag or use arrow keys to reorder, turn input into guidance, retrieve any eligible unstarted message and announce position |
@@ -58,6 +58,8 @@ Personal state binds to the remote HTTPS origin and WSS protocol, with pairing c
 
 Personal owner display commits with native input admission and associates one request/submission with eventual history. Identical text under different requests remains separate. The sending client retains complete text under either receipt/event ordering; paired clients read the same canonical body and queued state. Reconnect inspects cached inputs and decisions outside the newest page. Completed-only Assistant rendering excludes internal report inputs and unpublished drafts.
 
+Personal attachment drafts retain selected references, selection failure and draft identity. A failed selected member blocks the complete input across reload until the owner discards or replaces that selection. A proven attachment rejection before admission releases its pending submission for correction while retaining the failed draft. A lost response or request-association conflict preserves the original request and references for inspection; restoring it never invents another request key. Timeline attachments project the admitted name, type, size and hash without server paths. Telegram timeline, live events and complete-content pages show the original caption with attachment metadata.
+
 Settings drafts and original MCP calls are separate reads. Personal ordinary tools have owner-selected disallowed/read/write/unknown-effect states; new allowed tools and migrated ordinary tools default to unknown. The explicit v4 migration preserves service and credential references plus history; original computer recovery remains available.
 
 | Managed object | Behavior |
@@ -84,6 +86,8 @@ sequenceDiagram
 Startup discovers the local Coding backend and starts it on demand when absent. Conversation switching loads history in bounded segments. Approval cards expose operation details before approve/reject.
 
 ### PA Work and Decisions
+
+The native attachment picker snapshots ordinary files before upload, verifies complete bytes and the original file identity, and accepts at most four files/images of 8 MiB each. The host uploads 64 KiB chunks through the original authenticated profile. The renderer receives only immutable metadata references; it does not supply local paths or file bytes. Attachment-bearing input uses a dedicated route so an older backend rejects it. Main delegates processing through the attachment's recorded work scope, and final results use the existing preview/save path.
 
 Main delegates assignments and stays available for queries, amended requirements and whole-assignment cancellation. Decisions or recovery choices for ordinary tools, app-data, MCP/Cua, service restarts and inspections, commands, browsers and managed processes arrive through the authenticated event stream, including before main finishes its prose. Every redisplay retains the same decision. Amendments leave the old card visible with its original approval and a changed-requirements/not-executed reason; the same SubAgent prepares the current exact operation.
 
@@ -150,6 +154,7 @@ Acceptance requires every current image to be complete, hash verified and succes
 - [Personal work questions](../../.agents/notes/implemented/feature/2026-11-05-personal-work-questions.md)
 - [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
 - [Personal final-file delivery](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)
+- [Personal inbound attachment submission](../../.agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md)
 - [Personal setup presets and defaults](../../.agents/notes/implemented/feature/2026-11-05-personal-setup-presets.md)
 - [Desktop Scheduled interface](../../.agents/notes/implemented/feature/2026-11-01-desktop-scheduled-interface.md)
 - [Desktop spotlight search](../../.agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md)

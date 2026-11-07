@@ -133,7 +133,7 @@ test("durable 服务：模型真实调用 inspect，原始字节和两工具定�
   assert.equal(requests.length, 8);
   assert.deepEqual(requests[3].payload, f.server.calls[1].raw);
   const names = f.server.calls[1].tools?.map(tool => (tool.function as { name: string }).name);
-  assert.deepEqual(names, ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "ask_user"]);
+  assert.deepEqual(names, ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "read_artifact", "ask_user"]);
   assert.match(JSON.stringify(requests[2].input), /4096/);
   assert.ok((await personal.main.agent(context)).extensions.some(extension => extension.name === "personal-service-inspect"));
 });
@@ -453,7 +453,7 @@ test("子检查：三模式逐次固定原工作来源与权限，复用身份�
     assert.equal((await p.harness.waitForTask(ref.taskId, context)).state.outcome.status, "completed");
     if (previous) assert.equal(ref.agentId, previous.agentId);
     const child = (await p.harness.conversation(ref.agentId, context))!;
-    assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "ask_user"]);
+    assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "read_artifact", "ask_user"]);
     const entries = (await child.entries({ order: "ascending" }, 256, undefined, context)).items;
     const admission = entries.filter(ServiceInspectionAdmission.is).at(-1)!;
     const work = (await p.harness.snapshot(PersonalWorkDoc, ref.requestId, context))!;
@@ -463,7 +463,7 @@ test("子检查：三模式逐次固定原工作来源与权限，复用身份�
     assert.deepEqual(admission.data.sources, [work.source!.submissionId]);
     assert.deepEqual(admission.data.work?.inputs, [work.submissionId]);
     const request = f.server.calls.filter(childRequest).at(-1)!;
-    assert.deepEqual(request.tools?.map(tool => (tool.function as { name: string }).name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "ask_user"]);
+    assert.deepEqual(request.tools?.map(tool => (tool.function as { name: string }).name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "read_artifact", "ask_user"]);
     assert.deepEqual((entries.filter(entry => entry.kind === "ruukoto.model-request").at(-1)!.data as RequestEvidence).payload, request.raw);
     if (index === 0) t.diagnostic(JSON.stringify({ childSnapshot: request.raw, toolSchemas: Math.ceil(JSON.stringify(request.tools).length / 4), systemPrompt: Math.ceil((request.system?.length ?? 0) / 4) }));
     previous = ref;
@@ -696,7 +696,7 @@ test("子检查：旧空闲子配置同事务升级，未决旧工作拒绝且�
       await storage.close(context);
     } else {
       p = await f.open(); const child = (await p.harness.conversation(ref.agentId, context))!;
-      assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output"]);
+      assert.deepEqual((await child.agent(context)).tools.map(tool => tool.name), ["memory", "history_search", "history_read", "skill", "service_inspect", "read_service_inspection", "publish_output", "read_artifact"]);
       assert.ok((await p.main.agent(context)).extensions.some(extension => extension.name === "personal-subagent-service-inspect"));
       await p.close(); await f.open();
     }

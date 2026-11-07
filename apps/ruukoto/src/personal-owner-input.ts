@@ -2,6 +2,8 @@ import { defineDocFamily, defineEntry, ROOT_CONVERSATION_ID, type EntryId, type 
 import { LocalInputDoc, personalInputDigest } from "./personal-local-records.ts";
 import { PersonalError } from "./personal-error.ts";
 import type { PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
+import { nativeMetadata, personalMediaInput, PersonalMediaMessageDoc } from "./personal-media.ts";
+import { isDeepStrictEqual } from "node:util";
 
 // Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
 export const PersonalOwnerInput = defineEntry<{ version: 1; requestId: string; submission: number; text: string; receivedAt: number }>("ruukoto.owner-input-display");
@@ -10,13 +12,19 @@ const PersonalOwnerHistoryDoc = defineDocFamily<{ requestId?: string }, null>({ 
 const PersonalOwnerSubmissionDoc = defineDocFamily<{ requestId?: string }, null>({ kind: "ruukoto.owner-input-submission", scope: "session", version: 1, family: true, initial: () => ({}) });
 
 export async function recordPersonalOwnerInput(tx: Tx, draft: InputSubmissionDraft, submission: SubmissionRecord, receivedAt: number) {
-  if (draft.entry !== undefined || draft.requestId === undefined || typeof draft.content !== "string") return;
+  if (draft.entry !== undefined || draft.requestId === undefined) return;
   const authority = await tx.doc(LocalInputDoc, draft.requestId, "");
   if (authority.accepted === undefined || authority.work !== undefined) return;
-  if (authority.digest !== personalInputDigest(draft.content)) throw new PersonalError("input_conflict", "同一请求的正文不一致，请核实原消息。");
+  const text = typeof draft.content === "string" ? draft.content : authority.text;
+  if (text === undefined || authority.digest !== personalInputDigest(text, undefined, authority.attachments)) throw new PersonalError("input_conflict", "同一请求的正文或附件不一致，请核实原消息。");
+  if (authority.attachments?.length) {
+    const message = (await tx.doc(PersonalMediaMessageDoc, draft.requestId, null)).message;
+    if (!message || !["ready", "bound"].includes(message.state) || !isDeepStrictEqual(nativeMetadata(message), authority.attachments) || message.submissionId !== undefined && message.submissionId !== submission.id) throw new PersonalError("input_conflict", "附件与原输入提交关系不一致，请核实原消息。");
+    message.state = "bound"; message.submissionId = submission.id;
+  }
   const record = await tx.doc(PersonalOwnerInputDoc, draft.requestId, null);
   if (record.display !== undefined) return;
-  record.display = (await tx.appendEntry(PersonalOwnerInput, ROOT_CONVERSATION_ID, { data: { version: 1, requestId: draft.requestId, submission: submission.id, text: draft.content, receivedAt } })).id;
+  record.display = (await tx.appendEntry(PersonalOwnerInput, ROOT_CONVERSATION_ID, { data: { version: 1, requestId: draft.requestId, submission: submission.id, text, receivedAt } })).id;
   (await tx.doc(PersonalOwnerSubmissionDoc, String(submission.id), null)).requestId = draft.requestId;
   if (submission.entry !== undefined) await associatePersonalOwnerInput(tx, submission.id, submission.entry);
 }
@@ -37,12 +45,14 @@ export async function personalOwnerInputMessage(tx: Tx, entry: EntryRecord): Pro
   const invalid = () => new PersonalError("input_display_invalid", "原消息的接纳记录无法核实，请保留档案并检查原输入。");
   if (entry.conversationId !== ROOT_CONVERSATION_ID || data.version !== 1 || typeof data.requestId !== "string" || typeof data.text !== "string" || !Number.isFinite(data.receivedAt) || !Number.isSafeInteger(data.submission)) throw invalid();
   const native = await tx.submissionByRequest(ROOT_CONVERSATION_ID, data.requestId), record = await tx.doc(PersonalOwnerInputDoc, data.requestId, null), authority = await tx.doc(LocalInputDoc, data.requestId, "");
-  if (!native || native.type !== "input" || native.id !== data.submission || record.display !== entry.id || authority.accepted === undefined || authority.digest !== personalInputDigest(data.text) || record.historyEntry !== native.entry) throw invalid();
+  if (!native || native.type !== "input" || native.id !== data.submission || record.display !== entry.id || authority.accepted === undefined || authority.digest !== personalInputDigest(data.text, undefined, authority.attachments) || record.historyEntry !== native.entry) throw invalid();
   if (native.entry !== undefined) {
     const history = await tx.entry(native.entry), association = await tx.doc(PersonalOwnerHistoryDoc, String(native.entry), null), message = history?.model?.[0];
-    if (association.requestId !== data.requestId || message?.role !== "user" || message.content !== data.text) throw invalid();
+    const media = authority.attachments ? (await tx.doc(PersonalMediaMessageDoc, data.requestId, null)).message : undefined;
+    if (association.requestId !== data.requestId || message?.role !== "user" || (authority.attachments ? !media || !isDeepStrictEqual(message.content, personalMediaInput(media)) : message.content !== data.text)) throw invalid();
   }
-  return { entry: entry.id, conversation: entry.conversationId, kind: entry.kind, role: "user", text: data.text.slice(0, 4096), partial: false, truncated: data.text.length > 4096, timestamp: data.receivedAt, input: { requestId: data.requestId, submission: native.id, status: native.status, ...(native.entry === undefined ? {} : { historyEntry: native.entry }) } };
+  if (authority.attachments) { const media = (await tx.doc(PersonalMediaMessageDoc, data.requestId, null)).message; if (!media || !isDeepStrictEqual(nativeMetadata(media), authority.attachments)) throw invalid(); }
+  return { entry: entry.id, conversation: entry.conversationId, kind: entry.kind, role: "user", text: data.text.slice(0, 4096), partial: false, truncated: data.text.length > 4096, timestamp: data.receivedAt, ...(authority.attachments ? { attachments: authority.attachments.map(ref => ({ ...ref })) } : {}), input: { requestId: data.requestId, submission: native.id, status: native.status, ...(native.entry ===undefined ? {} : { historyEntry: native.entry }) } };
 }
 
 export async function personalOwnerHistoryAssociated(tx: Tx, entry: EntryRecord, through = Infinity) {

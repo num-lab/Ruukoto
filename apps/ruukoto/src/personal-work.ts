@@ -3,14 +3,14 @@ import { PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS } from "./personal-memory.ts";
 import { PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS } from "./personal-history.ts";
 import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS } from "./personal-skills.ts";
 import { PERSONAL_OUTPUTS } from "./personal-outputs.ts";
-import { PERSONAL_MEDIA } from "./personal-media.ts";
+import { PERSONAL_MEDIA, PERSONAL_ATTACHMENTS, preparePersonalAttachments, grantPersonalAttachments, personalAttachmentGrant, personalAttachmentInput } from "./personal-media.ts";
 import { PERSONAL_FILE_SEARCH } from "./personal-file-search.ts";
 import { PERSONAL_TOOLS, PERSONAL_TOOL_NAMES, requireWorkToolsStopped, supersedePersonalToolOperations, personalToolSummary, toolOperations, toolUnresolved, waitWorkTools, type ToolQueryIdentity } from "./personal-tools.ts";
 import { isDeepStrictEqual } from "node:util";
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { createHash } from "node:crypto";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationHandle, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type Submission, type SubmissionId, type SubmissionRecord, type TaskId, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
+import { AgentDoc, AssistantEntry, configure, defineDoc, defineDocFamily, defineEntry, defineExtension, defineTask, ROOT_CONVERSATION_ID, section, type ConversationHandle, type ConversationId, type Cursor, type EntryId, type Harness, type ModelRef, type Submission, type SubmissionId, type SubmissionRecord, type TaskId, type TaskRuntime, type Tx, type UserInput } from "@earendil-works/pi-durable";
 import { permissionSnapshot, telegramSelection, telegramSourceActive, type PersonalTelegramSource } from "./personal-permissions.ts";
 import { samePersonalEntry, type PersonalEntryIdentity, isPersonalImRequest, PersonalTelegramReceiptDoc } from "./personal-telegram-records.ts";
 import { PERSONAL_SERVICE_WORK, interruptedPersonalService, personalServiceOperationsIn, personalServiceResult, personalServiceUnresolved, personalWorkServices, requirePersonalWorkServicesStopped, requirePersonalServiceSourceReady, waitPersonalServiceEffect, supersedePersonalServices, type PersonalServiceOperationRef } from "./personal-service-operations.ts";
@@ -37,11 +37,11 @@ type WorkResult = { submissionId: SubmissionId };
 export type PersonalWorkRef = { requestId: string; taskId: TaskId<WorkResult>; agentId: ConversationId };
 type AgentIndex = { id: ConversationId; label: string; closed: boolean; work?: PersonalWorkRef };
 type NoteSource = { kind: "input"; requestId: string; submissionId: SubmissionId; entryId: EntryId; modelCall?: TaskId } | { kind: "local" } | { kind: "telegram" | "qq" };
-type WorkNote = { admission?: EntryId; requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
-type WorkFacts = { appData?: boolean; controlled?: PersonalControlledWork; delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; continuation?: { version: 1; predecessor: PersonalWorkRef; admission: EntryId }; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
+type WorkNote = { admission?: EntryId; attachments?: EntryId; requestId: string; content: string; source: NoteSource; submissionId?: SubmissionId };
+type WorkFacts = { attachments?: EntryId; appData?: boolean; controlled?: PersonalControlledWork; delegationAdmission?: EntryId; delegation?: PersonalDelegationRef; instructionSource?: PersonalWorkSource; continuation?: { version: 1; predecessor: PersonalWorkRef; admission: EntryId }; notes?: WorkNote[]; fingerprint: string; ref?: PersonalWorkRef; source?: PersonalWorkSource; submissionId?: SubmissionId; cancelRequested: boolean; permission?: { mode: PersonalTelegramSource["mode"]; version: number }; telegram?: PersonalTelegramSource; modelCall?: TaskId };
 type WorkInput = { requestId: string; agentId: ConversationId; content: string };
 const context = BACKGROUND_CONTEXT;
-export const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
+export const PersonalWorkNoteAdmission = defineEntry<{ ref: PersonalWorkRef; attachments?: EntryId; requestId: string; content: string; source: NoteSource }>("ruukoto.work-note-admission");
 export const PersonalWorkContinuation = defineEntry<{ version: 1; predecessor: PersonalWorkRef; work: PersonalWorkRef; source: PersonalWorkSource; modelCall: TaskId; content: string }>("ruukoto.work-continuation");
 export const PersonalAgentsDoc = defineDoc<{ agents: AgentIndex[] }>({ kind: "ruukoto.subagents", scope: "session", version: 1, initial: () => ({ agents: [] }) });
 export const PersonalWorkDoc = defineDocFamily<WorkFacts, null>({ kind: "ruukoto.work", scope: "session", version: 1, family: true, initial: () => ({ fingerprint: "", cancelRequested: false }) });
@@ -168,7 +168,9 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
       const tracked = new Map<number, Tracked>();
       const ORIGINAL = -1;
       const submit = async (index: number, note?: WorkNote) => {
-        const submission = await child.submit({ type: "input", content: note?.content ?? task.input.content, requestId: note ? noteSubmissionKey(ref, note) : `personal-work:${task.id}`, whenBusy: index === ORIGINAL ? "reject" : "steer" }, context);
+        let content: UserInput = note?.content ?? task.input.content;
+        await runtime.commit(async tx => { content = await personalAttachmentInput(tx, note?.content ?? task.input.content, note ? note.attachments : work.attachments); return undefined; }, context);
+        const submission = await child.submit({ type: "input", content, requestId: note ? noteSubmissionKey(ref, note) : `personal-work:${task.id}`, whenBusy: index === ORIGINAL ? "reject" : "steer" }, context);
         await runtime.commit(async tx => {
           const work = await facts(tx, ref);
           if (index === ORIGINAL) {
@@ -266,11 +268,11 @@ export const PersonalWorkTask = defineTask<WorkInput, { phase: "run" }, WorkResu
 export const personalBackgroundWork = defineExtension({ name: "personal-background-work", tasks: [PersonalWorkTask] });
 export const personalSubAgent = defineExtension({ name: "personal-subagent", sections: [section("subagent", () => "你是个人助手的子 Agent，只处理当前委派的工作并向主 Agent 返回结果。历史上下文可供参考，不代表新工作的授权。仅使用本轮提供的工具，无法再委派。业务信息不足时用 ask_user 登记原工作问题，等待本调用返回实际答案，再按答案与已保存的新要求继续；答案不批准操作、不扩大原权限，提问和回答都不表示工作完成。需要不可用的外部操作时在结果中说明。外部操作效果或停止未核实时，宿主暂停整项委托的后续操作并保留占用；由拥有者核实后收尾，不要换方式重试。", { tag: false })] });
 
-type DelegateInput = { content: string; requestId: string; sourceRequestId: string; agentId?: ConversationId; label?: string; appData?: boolean };
+type DelegateInput = { content: string; requestId: string; sourceRequestId: string; agentId?: ConversationId; label?: string; appData?: boolean; attachments?: string[]; attachmentSourceRequestId?: string; modelCall?: TaskId };
 
 export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: DelegateInput): Promise<PersonalWorkRef> {
   if (input.appData !== undefined && typeof input.appData !== "boolean" || !input.content.trim() || input.content.length > 16384 || !input.requestId || input.requestId.length > 256 || !input.sourceRequestId || input.sourceRequestId.length > 256 || (input.label !== undefined && (!input.label.trim() || input.label.length > 128))) throw new PersonalError("work_input_invalid", "工作说明、名称或请求引用无效，请缩短说明并使用原请求引用。");
-  const fingerprint = createHash("sha256").update(JSON.stringify([input.content, input.sourceRequestId, input.agentId ?? null, input.label ?? null, ...(input.appData === undefined ? [] : [input.appData])])).digest("hex");
+  const fingerprint = createHash("sha256").update(JSON.stringify([input.content, input.sourceRequestId, input.agentId ?? null, input.label ?? null, ...(input.appData === undefined ? [] : [input.appData]), ...(input.attachments?.length ? [input.attachments] : [])])).digest("hex");
   const work = await tx.doc(PersonalWorkDoc, input.requestId, null);
   if (work.ref) {
     if (work.fingerprint !== fingerprint) throw new PersonalError("work_request_conflict", "同一后台工作请求的内容不同，请查询原工作；不要换键自动重试。");
@@ -281,6 +283,7 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   // admission (host or model path) out of its cancelled set.
   if (await personalCoordinationCutoff(tx, input.sourceRequestId)) throw new PersonalError("work_source_invalid", "原工作输入已超出协调批次并停止，未接纳新子工作；请查询原工作。");
   const { submission: source, entry, telegram, permission } = origin;
+  const attachments = await preparePersonalAttachments(tx, input.attachments, input.attachmentSourceRequestId ?? input.sourceRequestId);
   if (origin.scheduled && origin.run.sealed) throw new PersonalError("work_source_sealed", "定时运行已封组收尾，未接纳新子工作；请查询本次运行并结束本轮。");
   await requirePersonalServiceSourceReady(tx, input.sourceRequestId);
   const index = await tx.doc(PersonalAgentsDoc);
@@ -327,6 +330,7 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
       const config = await tx.doc(AgentDoc, child.id);
       if (!Array.isArray(config.extensions)) throw new PersonalError("work_config_changed", "子会话扩展配置无法核实，请保留档案。");
       config.extensions.splice(2, 0, PERSONAL_MEDIA);
+      if (main.extensions.includes(PERSONAL_ATTACHMENTS)) { config.extensions.push(PERSONAL_ATTACHMENTS); if (!Array.isArray(config.tools)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实。"); if (!config.tools.includes("read_artifact")) config.tools.push("read_artifact"); }
     }
     for (const [extension, tools] of [[PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS], [PERSONAL_HISTORY, PERSONAL_HISTORY_TOOLS], [PERSONAL_MEMORY, PERSONAL_MEMORY_TOOLS]] as const) if (Array.isArray(main.extensions) && main.extensions.includes(extension)) {
       const config = await tx.doc(AgentDoc, child.id);
@@ -346,6 +350,8 @@ export async function delegatePersonalWork(tx: Tx, model: ModelRef, input: Deleg
   work.source = { requestId: input.sourceRequestId, submissionId: source.id, entryId: entry.id };
   work.permission = { mode: permission.mode, version: permission.version };
   if (telegram) work.telegram = telegram;
+  const grant = await grantPersonalAttachments(tx, ref, input.attachments, input.attachmentSourceRequestId ?? input.sourceRequestId, input.modelCall, attachments);
+  if (grant !== undefined) work.attachments = grant;
   await qualifyPersonalControlledWork(tx, ref, origin);
   const child = await tx.doc(AgentDoc, ref.agentId), main = await tx.doc(AgentDoc, ROOT_CONVERSATION_ID);
   if (!Array.isArray(child.extensions) || !Array.isArray(child.tools) || !Array.isArray(main.extensions)) throw new PersonalError("work_config_changed", "子会话工具配置无法核实，请保留档案。");
@@ -380,12 +386,13 @@ export type PersonalWorkAppendOutcome = { accepted: true } | { accepted: false; 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-personal-work-notes.md
 // Note: See .agents/notes/implemented/architecture/2026-11-02-personal-work-note-supervision.md
 // Note: See .agents/notes/implemented/architecture/2026-11-04-personal-work-amendments.md
-export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { requestId: string; content: string; source: NoteSource }): Promise<PersonalWorkAppendOutcome> {
+export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { requestId: string; content: string; source: NoteSource; attachments?: string[] }): Promise<PersonalWorkAppendOutcome> {
   if (!input.requestId || input.requestId.length > 256 || !input.content.trim() || Buffer.byteLength(input.content) > 16384) throw new PersonalError("work_input_invalid", "请输入非空追加说明，每条最多 16 KiB。说明只补充当前分析，不改变权限。");
   const work = await facts(tx, ref);
   const existing = work.notes?.find(note => note.requestId === input.requestId);
   if (existing) {
-    if (existing.content !== input.content || !isDeepStrictEqual(existing.source, input.source)) throw new PersonalError("work_request_conflict", "同一追加请求的内容或来源不同，请查询原工作；不要换键自动重试。");
+    const ids = existing.attachments === undefined ? undefined : (await personalAttachmentGrant(tx, existing.attachments)).attachments.map(ref => ref.artifact.id);
+    if (existing.content !== input.content || !isDeepStrictEqual(existing.source, input.source) || !isDeepStrictEqual(ids, input.attachments?.length ? input.attachments : undefined)) throw new PersonalError("work_request_conflict", "同一追加请求的内容、附件或来源不同，请查询原工作；不要换键自动重试。");
     return { accepted: true };
   }
   const task = await tx.task(ref.taskId);
@@ -400,8 +407,11 @@ export async function appendPersonalWork(tx: Tx, ref: PersonalWorkRef, input: { 
   if (work.telegram && !await telegramSourceActive(tx, work.telegram)) throw new PersonalError("work_source_inactive", "原拥有者入口已停用或变更，未接纳说明；请查询原工作。");
   work.notes ??= [];
   const commands = await personalWorkCommands(tx, ref.taskId), services = await personalWorkServices(tx, ref.taskId);
-  const admission = (await tx.appendEntry(PersonalWorkNoteAdmission, ROOT_CONVERSATION_ID, { data: { ref: { ...ref }, ...input } })).id;
-  work.notes.push({ ...input, admission });
+  if (input.attachments?.length && input.source.kind !== "input") throw new PersonalError("attachment_forbidden", "附件追加需要原拥有者输入。");
+  const attachments = input.source.kind === "input" ? await grantPersonalAttachments(tx, ref, input.attachments, input.source.requestId, input.source.modelCall) : undefined;
+  const note = { requestId: input.requestId, content: input.content, source: input.source, ...(attachments === undefined ? {} : { attachments }) };
+  const admission = (await tx.appendEntry(PersonalWorkNoteAdmission, ROOT_CONVERSATION_ID, { data: { ref: { ...ref }, ...note } })).id;
+  work.notes.push({ ...note, admission });
   await supersedePersonalToolOperations(tx, ref.taskId, admission);
   await supersedePersonalMcpOperations(tx, ref.taskId, admission);
   await supersedePersonalAppDataOperations(tx, ref.taskId, admission);
@@ -427,7 +437,7 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
   for (const note of work.notes) {
     if (supervised || work.delegation || note.admission !== undefined) {
       const admission = note.admission && await tx.entry(PersonalWorkNoteAdmission, note.admission);
-      if (!admission || admission.id <= previousAdmission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, { ref, requestId: note.requestId, content: note.content, source: note.source })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据不符，已停止恢复；请保留档案。");
+      if (!admission || admission.id <= previousAdmission || admission.conversationId !== ROOT_CONVERSATION_ID || !isDeepStrictEqual(admission.data, { ref, requestId: note.requestId, content: note.content, source: note.source, ...(note.attachments === undefined ? {} : { attachments: note.attachments }) })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据不符，已停止恢复；请保留档案。");
       previousAdmission = admission.id;
     }
     if (!note.requestId || note.requestId.length > 256 || !note.content?.trim() || Buffer.byteLength(note.content) > 16384) throw new PersonalError("work_note_invalid", "追加说明正文或请求缺失，已停止恢复；请保留档案。");
@@ -456,7 +466,7 @@ export async function verifyPersonalWorkNotes(tx: Tx, ref: PersonalWorkRef, enab
     if (supervised && submission && (gap || submission.id <= previous!.id)) throw new PersonalError("work_note_invalid", "追加说明越过了未接纳的原输入或原生键顺序不符，已停止恢复；请保留档案。");
     const entry = submission?.entry && await tx.entry(submission.entry);
     const message = entry && entry.model?.[0];
-    if ((note.submissionId !== undefined && note.submissionId !== submission?.id) || (submission && (submission.type !== "input" || (submission.entry && (entry?.kind !== "pi.user" || message?.role !== "user" || message.content !== note.content))))) throw new PersonalError("work_note_invalid", "追加说明的原生输入关系不符，已停止恢复；请保留档案。");
+    if ((note.submissionId !== undefined && note.submissionId !== submission?.id) || (submission && (submission.type !== "input" || (submission.entry && (entry?.kind !== "pi.user" || message?.role !== "user" || !isDeepStrictEqual(message.content, await personalAttachmentInput(tx, note.content, note.attachments))))))) throw new PersonalError("work_note_invalid", "追加说明的原生输入关系不符，已停止恢复；请保留档案。");
     if (submission === undefined) { if (supervised) gap = true; else previous = submission; }
     else { previous = submission; allDone &&= submission.status === "done"; }
   }
@@ -476,7 +486,7 @@ export async function verifyPersonalWorkNoteAdmissions(tx: Tx, workKeys: string[
       const data = entry.data;
       if (!enabled || !data || typeof data !== "object" || !data.ref || typeof data.ref !== "object" || typeof data.ref.requestId !== "string" || !workKeys.includes(data.ref.requestId)) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据缺少工作归属，已停止恢复；请保留档案。");
       const work = await tx.doc(PersonalWorkDoc, data.ref.requestId, null), note = work.notes?.find(note => note.admission === entry.id);
-      if (!isDeepStrictEqual(work.ref, data.ref) || !note || !isDeepStrictEqual(data, { ref: work.ref, requestId: note.requestId, content: note.content, source: note.source })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据缺少唯一说明关系，已停止恢复；请保留档案。");
+      if (!isDeepStrictEqual(work.ref, data.ref) || !note || !isDeepStrictEqual(data, { ref: work.ref, requestId: note.requestId, content: note.content, source: note.source, ...(note.attachments === undefined ? {} : { attachments: note.attachments }) })) throw new PersonalError("work_note_invalid", "追加说明的原接纳证据缺少唯一说明关系，已停止恢复；请保留档案。");
     }
     cursor = page.next;
   } while (cursor);
@@ -853,13 +863,13 @@ export async function verifyPersonalWorkInstructions(tx: Tx, conversationId: Con
   const original = await tx.submissionByRequest(snapshot.work.agentId, `personal-work:${snapshot.work.taskId}`);
   const taskInput = task.input, originalContent = taskInput && typeof taskInput === "object" && !Array.isArray(taskInput) && typeof taskInput.content === "string" ? taskInput.content : undefined;
   const originalEntry = original?.entry !== undefined ? await tx.entry(original.entry) : undefined, originalMessage = originalEntry?.model?.[0];
-  if (!original || snapshot.original.submissionId !== original.id || snapshot.original.entryId !== original.entry || original.entry === undefined || original.entry > snapshot.cutoff || originalContent === undefined || originalEntry?.kind !== "pi.user" || originalMessage?.role !== "user" || originalMessage.content !== originalContent) throw invalid();
+  if (!original || snapshot.original.submissionId !== original.id || snapshot.original.entryId !== original.entry || original.entry === undefined || original.entry > snapshot.cutoff || originalContent === undefined || originalEntry?.kind !== "pi.user" || originalMessage?.role !== "user" || !isDeepStrictEqual(originalMessage.content, await personalAttachmentInput(tx, originalContent, work.attachments))) throw invalid();
   const seen = new Set<EntryId>(); let position = -1;
   for (const captured of snapshot.notes) {
     const index = (work.notes ?? []).findIndex(note => note.requestId === captured.requestId && note.admission === captured.admission);
     const submission = index >= 0 ? await tx.submissionByRequest(snapshot.work.agentId, noteSubmissionKey(snapshot.work, work.notes![index])) : undefined;
     const entry = submission?.entry !== undefined ? await tx.entry(submission.entry) : undefined, message = entry?.model?.[0];
-    if (index <= position || !submission || !Number.isSafeInteger(captured.admission) || !Number.isSafeInteger(captured.submissionId) || !Number.isSafeInteger(captured.entryId) || typeof captured.requestId !== "string" || captured.submissionId !== submission.id || captured.entryId !== submission.entry || submission.entry === undefined || submission.entry > snapshot.cutoff || entry?.kind !== "pi.user" || message?.role !== "user" || message.content !== work.notes![index].content || seen.has(captured.admission)) throw invalid();
+    if (index <= position || !submission || !Number.isSafeInteger(captured.admission) || !Number.isSafeInteger(captured.submissionId) || !Number.isSafeInteger(captured.entryId) || typeof captured.requestId !== "string" || captured.submissionId !== submission.id || captured.entryId !== submission.entry || submission.entry === undefined || submission.entry > snapshot.cutoff || entry?.kind !== "pi.user" || message?.role !== "user" || !isDeepStrictEqual(message.content, await personalAttachmentInput(tx, work.notes![index].content, work.notes![index].attachments)) || seen.has(captured.admission)) throw invalid();
     seen.add(captured.admission); position = index;
   }
   const native = new Set<SubmissionId>([original.id, ...snapshot.notes.map(captured => captured.submissionId)]);

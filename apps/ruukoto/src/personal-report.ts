@@ -72,7 +72,7 @@ async function verifyTrigger(tx: Tx, ref: PersonalDelegationRef, trigger: EntryI
     const member = value.members.find(member => isDeepStrictEqual(member, entry.data.ref));
     const work = member && await tx.doc(PersonalWorkDoc, member.requestId, null);
     const note = work?.notes?.find(note => note.admission === trigger);
-    if (!note || !isDeepStrictEqual(entry.data, { ref: member, requestId: note.requestId, content: note.content, source: note.source })) throw invalid();
+    if (!note || !isDeepStrictEqual(entry.data, { ref: member, requestId: note.requestId, content: note.content, source: note.source, ...(note.attachments === undefined ? {} : { attachments: note.attachments }) })) throw invalid();
     const actor = note.source.kind === "input" ? { requestId: note.source.requestId, submissionId: note.source.submissionId, entryId: note.source.entryId } : value.source;
     if (!isDeepStrictEqual(source, actor) || note.source.kind === "input" && note.source.modelCall !== undefined && note.source.modelCall !== modelCall) throw invalid();
   } else if (ReportRequest.is(entry)) {

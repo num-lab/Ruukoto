@@ -7,7 +7,8 @@ import type { ModelSelection, PersistentEvent, Project, Session, SessionDefaultM
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome, OwnerQuestionAnswerOutcome } from "@ruukoto/control/submission.ts";
-import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputReceipt, PersonalPendingDecision, PersonalDesktopAction } from "./personal-desktop.ts";
+import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputDraft, PersonalInputReceipt, PersonalPendingDecision, PersonalDesktopAction } from "./personal-desktop.ts";
+import type { PersonalDesktopAttachment } from "@ruukoto/view/personal-protocol.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
 
@@ -47,6 +48,7 @@ export type DesktopUpdate =
   | DesktopTerminalUpdate
   | { type: "personal_frame"; frame: PersonalDesktopFrame }
   | { type: "personal_identity"; identity: PersonalRemoteIdentity }
+  | { type: "personal_draft"; draft: PersonalInputDraft }
   | { type: "personal_pending"; record: PersonalPendingInput | null; result?: PersonalInputReceipt }
   | { type: "personal_decisions"; items: PersonalPendingDecision[] }
   | { type: "personal_actions"; items: PersonalDesktopAction[] }
@@ -64,8 +66,8 @@ export type DesktopUpdate =
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;
-  pickAttachments(sessionId: string, target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
-  /** Register local files until a conversation owns their upload. */
+  pickAttachments<T extends DesktopTarget = "code">(sessionId: string, target?: T): Promise<DesktopResult<T extends "personal" ? PersonalDesktopAttachment[] : DesktopAttachment[]>>;
+  /** Register local selections until the new Coding conversation exists. */
   pickDraftAttachments(): Promise<DesktopResult<DesktopAttachment[]>>;
   uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   pickFolder(): Promise<DesktopResult<string | null>>;

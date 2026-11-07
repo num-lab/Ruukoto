@@ -38,6 +38,7 @@ export function personalWorkTools(getHarness: () => Harness) {
       action: Type.Union([Type.Literal("delegate"), Type.Literal("append"), Type.Literal("list"), Type.Literal("result"), Type.Literal("cancel"), Type.Literal("close"), Type.Literal("delegations"), Type.Literal("progress"), Type.Literal("cancel_delegation"), Type.Literal("report"), Type.Literal("report_result"), Type.Literal("operations"), Type.Literal("operation"), Type.Literal("redisplay")], { description: "delegate 必填 content，可选 agent 或 label、delegation、appData；append 必填 work/content；list/delegations 仅可选 offset；result 必填 work，可选 offset、factsOffset；progress/report_result 必填 delegation，可选 offset；report/cancel_delegation 必填 delegation；cancel 必填 work；close 必填 agent。operations 可选 work/offset；operation 必填 operation，可选 offset；redisplay 必填 operation，其他字段省略。查询进度和待决定事项不能使用 append。其余字段省略。report 须原入口有效且未取消；自动汇总已登记时返回原安排，仍可续派或追加。append 的已完成目标须安全空闲才能建立关联后续工作，不重做旧效果。" }),
       operation: Type.Optional(Type.Integer({ minimum: 1, description: "operations 返回的普通操作编号，用于 operation 或 redisplay；不是 work 或 agent 编号。" })),
       appData: Type.Optional(Type.Boolean({ description: "仅delegate：本次子工作确需应用数据时显式设true，默认无资格；复用身份不继承上次资格。" })),
+      attachments: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 4, description: "仅delegate/append：选择最多4个本入口已接纳附件的artifact引用。子工作只能读取明确分配的这些原文件，不能读取主聊天或另一工作附件。先问用途再收到文字任务时，可选择同一原入口早先接纳的附件。拥有者明确要求原样交付文件时，在content中要求子Agent用publish_output({name:要求的文件名,artifact:所选引用})直接登记最终文件；不额外读取/重写，不把交付改成base64正文或手算校验。" })),
       delegation: Type.Optional(Type.Integer({ minimum: 1, description: "delegate/delegations 返回的委托编号；progress/cancel_delegation/report/report_result 必填。delegate 继续未取消且原来源可执行的委托时提供；本轮独立新工作省略 delegation，即使同时用 agent 复用身份。不能用 work 或 agent 编号代替，不能为原未知效果换委托重试。" })),
       content: Type.Optional(Type.String({ minLength: 1, maxLength: 16384, description: "delegate/append 的完整要求，须含所需资料；子会话不读取主聊天。原样保留拥有者指定的目标、字面正文和限制，包括空白与末尾换行；不得擅自允许改写或添加换行，也不得增加读取或其他验证操作。只依据已获准操作的返回事实报告。追加已完成工作时只说明新增或修改的要求，不重复已完成的效果。" })),
       agent: Type.Optional(Type.Integer({ minimum: 1, description: "list 或 delegate 返回的长期子 Agent 身份编号，不是委托编号。delegate 复用空闲、未关闭且停止已核实的身份，省略则新建；独立新工作复用身份时省略 delegation。close 必填。" })),
@@ -50,8 +51,8 @@ export function personalWorkTools(getHarness: () => Harness) {
     executionMode: "sequential",
     async execute(input, api, context) {
       const execute = async () => {
-        const { action, content, agent, label, work, delegation, appData, offset = 0, factsOffset = 0, operation } = input;
-        const allowed = { delegate: ["content", "agent", "label", "delegation", "appData"], append: ["work", "content"], list: ["offset"], result: ["work", "offset", "factsOffset"], cancel: ["work"], close: ["agent"], delegations: ["offset"], progress: ["delegation", "offset"], cancel_delegation: ["delegation"], report: ["delegation"], report_result: ["delegation", "offset"], operations: ["work", "offset"], operation: ["operation", "offset"], redisplay: ["operation"] }[action];
+        const { action, content, agent, label, work, delegation, appData, attachments, offset = 0, factsOffset = 0, operation } = input;
+        const allowed = { delegate: ["content", "agent", "label", "delegation", "appData", "attachments"], append: ["work", "content", "attachments"], list: ["offset"], result: ["work", "offset", "factsOffset"], cancel: ["work"], close: ["agent"], delegations: ["offset"], progress: ["delegation", "offset"], cancel_delegation: ["delegation"], report: ["delegation"], report_result: ["delegation", "offset"], operations: ["work", "offset"], operation: ["operation", "offset"], redisplay: ["operation"] }[action];
         if (Object.keys(input).some(key => key !== "action" && !allowed.includes(key)) || (action === "delegate" && (!content?.trim() || (agent !== undefined && label !== undefined))) || ((action === "result" || action === "cancel" || action === "append") && work === undefined) || (action === "append" && !content?.trim()) || (action === "close" && agent === undefined) || (["progress", "cancel_delegation", "report", "report_result"].includes(action) && delegation === undefined) || ((action === "operation" || action === "redisplay") && operation === undefined)) throw new PersonalError("work_input_invalid", "参数组合无效，请按 action 描述仅提供该动作所需字段。");
         const live = await api.snapshot(LiveDoc, ROOT_CONVERSATION_ID, context);
         const candidate = live?.run?.inputs.length === 1 ? await getHarness().submission(live.run.inputs[0], context) : undefined;
@@ -89,7 +90,7 @@ export function personalWorkTools(getHarness: () => Harness) {
           if (action === "delegate") {
             const model = (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model;
             if (!model) throw new PersonalError("model_unavailable", "当前模型缺失，请结束本轮并报告拥有者。");
-            const { ref, delegation: group } = await delegatePersonalAnalysis(tx, model, { content: content!, requestId: `personal-tool:${api.taskId}`, sourceRequestId: source!, ...(agent === undefined ? {} : { agentId: agent as ConversationId }), ...(label === undefined ? {} : { label }), ...(appData === undefined ? {} : { appData }) }, delegation === undefined ? undefined : { entryId: delegation as EntryId });
+            const { ref, delegation: group } = await delegatePersonalAnalysis(tx, model, { content: content!, requestId: `personal-tool:${api.taskId}`, sourceRequestId: source!, modelCall: api.taskId, ...(attachments === undefined ? {} : { attachments }), ...(agent === undefined ? {} : { agentId: agent as ConversationId }), ...(label === undefined ? {} : { label }), ...(appData === undefined ? {} : { appData }) }, delegation === undefined ? undefined : { entryId: delegation as EntryId });
             const saved = await tx.doc(PersonalWorkDoc, ref.requestId, null);
             saved.modelCall = api.taskId;
             if (saved.delegationAdmission === undefined) saved.delegationAdmission = (await tx.appendEntry(PersonalAnalysisAdmission, ROOT_CONVERSATION_ID, { data: { work: ref, delegation: group, source: { ...saved.instructionSource! }, origin: { ...saved.source! }, permission: { ...saved.permission! }, ...(saved.telegram ? { telegram: { ...saved.telegram } } : {}), modelCall: api.taskId } })).id;
@@ -98,11 +99,11 @@ export function personalWorkTools(getHarness: () => Harness) {
           }
           if (action === "append") {
             const ref = await personalWorkRef(tx, work as TaskId);
-            const outcome = await appendPersonalWork(tx, ref, { requestId: `personal-note-tool:${api.taskId}`, content: content!, source: await personalWorkNoteSource(tx, source!, api.taskId) });
+            const outcome = await appendPersonalWork(tx, ref, { requestId: `personal-note-tool:${api.taskId}`, content: content!, source: await personalWorkNoteSource(tx, source!, api.taskId), ...(attachments === undefined ? {} : { attachments }) });
             if (!outcome.accepted && outcome.outcome === "completed") {
               const model = (await tx.doc(AgentDoc, ROOT_CONVERSATION_ID)).model;
               if (!model) throw new PersonalError("model_unavailable", "当前模型缺失，请结束本轮并报告拥有者。");
-              const continued = await continuePersonalAnalysis(tx, model, ref, { content: content!, requestId: `personal-continue-tool:${api.taskId}`, sourceRequestId: source!, modelCall: api.taskId });
+              const continued = await continuePersonalAnalysis(tx, model, ref, { content: content!, requestId: `personal-continue-tool:${api.taskId}`, sourceRequestId: source!, modelCall: api.taskId, ...(attachments === undefined ? {} : { attachments }) });
               const saved = await tx.doc(PersonalWorkDoc, continued.ref.requestId, null);
               saved.modelCall = api.taskId;
               if (saved.delegationAdmission === undefined) saved.delegationAdmission = (await tx.appendEntry(PersonalAnalysisAdmission, ROOT_CONVERSATION_ID, { data: { work: continued.ref, delegation: continued.delegation, source: { ...saved.instructionSource! }, origin: { ...saved.source! }, permission: { ...saved.permission! }, ...(saved.telegram ? { telegram: { ...saved.telegram } } : {}), modelCall: api.taskId } })).id;

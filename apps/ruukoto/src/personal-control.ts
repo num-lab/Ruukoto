@@ -3,10 +3,11 @@ import { listPersonalServiceGrants, revokePersonalServiceGrant } from "./persona
 import { appDataList, appDataDetail, appDataDecide, appDataRecheck } from "./personal-app-data.ts";
 import { parsePersonalMemoryControl, personalMemoryControl } from "./personal-memory-controls.ts";
 import { readPersonalMemory, searchPersonalMemory } from "./personal-memory.ts";
-import { readPersonalHistory, searchPersonalHistory, personalTimeline } from "./personal-history.ts";
+import { readPersonalDesktopHistory, searchPersonalHistory, personalTimeline } from "./personal-history.ts";
 import { personalDesktopEvents } from "./personal-desktop-events.ts";
 import { parsePersonalDesktopAction } from "./personal-desktop-actions.ts";
-import type { PersonalDesktopAction, PersonalDesktopFamily } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopAction, PersonalDesktopFamily, PersonalDesktopAttachment, PersonalDesktopAttachmentUpload } from "@ruukoto/view/personal-protocol.ts";
+import { validPersonalDesktopAttachment } from "./personal-media.ts";
 import { ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import { parsePersonalQq, readPersonalQq } from "./personal-qq-config.ts";
 import { exportPersonalArtifact, type PersonalArtifact } from "./personal-artifacts.ts";
@@ -59,7 +60,7 @@ const MAX_REQUEST = 128 * 1024;
 const MAX_RESPONSE = 256 * 1024;
 export const PERSONAL_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export type PersonalToolsControlBody = { mode: "auto-review" | "confirm" | "full_access"; scope?: "qq" } | { id: string; version: number } | { operation: TaskId; decision: "approved" | "rejected" } | { operation: TaskId; effect: "applied" | "not_applied"; evidence: string } | { operation: TaskId; evidence: string } | { path: string } | { id: string } | { artifact: string; destination: string };
-export type PersonalInput = { requestId: string; input: string; work?: TaskId };
+export type PersonalInput = { requestId: string; input: string; work?: TaskId; attachments?: PersonalDesktopAttachment[] };
 export type PersonalInputStatus = { status: "queued" | "placed" | "done" | "unanswered" | "missing"; answer?: string; truncated?: boolean };
 export type PersonalStatus = { model: string; tasks: number; inputs: number; services: boolean; capabilities: { commands: boolean; mcp: boolean; tools: boolean; browser: boolean; telegram: boolean; qq: boolean } };
 export type PersonalMessage = { role: "user" | "assistant"; text: string; partial: boolean; truncated: boolean };
@@ -84,12 +85,12 @@ async function readControlJSON(req: http.IncomingMessage): Promise<unknown> {
   }
 }
 
-export function parsePersonalInput(value: unknown): PersonalInput {
-  if (!value || typeof value !== "object" || !("requestId" in value) || typeof value.requestId !== "string" || !PERSONAL_REQUEST_ID.test(value.requestId)
-    || !("input" in value) || typeof value.input !== "string" || !value.input.trim() || Buffer.byteLength(value.input) > 16384 || ("work" in value && (typeof value.work !== "number" || !Number.isSafeInteger(value.work) || value.work < 1))) {
+export function parsePersonalInput(value: unknown, allowAttachments = false): PersonalInput {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["requestId", "input", "work", ...(allowAttachments ? ["attachments"] : [])].includes(key)) || !("requestId" in value) || typeof value.requestId !== "string" || !PERSONAL_REQUEST_ID.test(value.requestId)
+    || !("input" in value) || typeof value.input !== "string" || Buffer.byteLength(value.input) > 16384 || ("work" in value && (typeof value.work !== "number" || !Number.isSafeInteger(value.work) || value.work < 1)) || allowAttachments && (!("attachments" in value) || !Array.isArray(value.attachments) || !value.attachments.length || value.attachments.length > 4 || value.attachments.some(ref => !validPersonalDesktopAttachment(ref)) || new Set(value.attachments.map(ref => ref.id)).size !== value.attachments.length || "work" in value) || !allowAttachments && !value.input.trim()) {
     throw new PersonalError("input_invalid", "请输入非空消息，每条最多 16 KiB；请求标识由程序管理。");
   }
-  return { requestId: value.requestId, input: value.input, ...("work" in value ? { work: value.work as TaskId } : {}) };
+  return { requestId: value.requestId, input: value.input, ...("work" in value ? { work: value.work as TaskId } : {}), ...(allowAttachments && "attachments" in value ? { attachments: value.attachments as PersonalDesktopAttachment[] } : {}) };
 }
 
 export type PersonalQuestionWrite = { question: string; version: number; requestId: string; answers?: PersonalOwnerAnswer[] };
@@ -254,7 +255,7 @@ export async function startPersonalServer(directory: string, options: { developm
         } else if (req.method === "GET" && url.pathname === "/history") {
           result = await instance.harness.commit(tx => searchPersonalHistory(tx, ROOT_CONVERSATION_ID, { query: url.searchParams.get("query") ?? "", cursor: url.searchParams.get("cursor") ?? undefined }), context);
         } else if (req.method === "GET" && url.pathname === "/history/entry") {
-          result = await instance.harness.commit(tx => readPersonalHistory(tx, ROOT_CONVERSATION_ID, { entry: queryNumber(url, "entry") as EntryId, offset: queryNumber(url, "offset", 0) }), context);
+          result = await instance.harness.commit(tx => readPersonalDesktopHistory(tx, { entry: queryNumber(url, "entry") as EntryId, offset: queryNumber(url, "offset", 0) }), context);
         } else if (req.method === "GET" && url.pathname === "/qq") {
           result = await instance.qq.status();
         } else if (req.method === "GET" && url.pathname === "/telegram") {
@@ -514,11 +515,13 @@ export async function startPersonalServer(directory: string, options: { developm
             if (message.text === "") throw new PersonalError("answer_missing", "完整回答记录缺失，请保留档案并检查存储。");
             return { status: record.status, answer: message.text, truncated: message.truncated } satisfies PersonalInputStatus;
           }, context);
-        } else if (req.method === "POST" && ["/inputs", "/work/notes"].includes(url.pathname)) {
-          const input = parsePersonalInput(await readControlJSON(req));
+        } else if (req.method === "POST" && url.pathname === "/desktop/attachment") {
+          result = await instance.media.upload(await readControlJSON(req) as PersonalDesktopAttachmentUpload);
+        } else if (req.method === "POST" && ["/inputs", "/desktop/inputs", "/work/notes"].includes(url.pathname)) {
+          const input = parsePersonalInput(await readControlJSON(req), url.pathname === "/desktop/inputs");
           if ((url.pathname === "/work/notes") !== (input.work !== undefined)) throw new PersonalError("input_invalid", "追加说明须通过原工作入口提交，请重新打开向导。");
-          // JSON 字符串编码保留孤立 UTF-16 代理的区别，直接 UTF-8 哈希会统一替换它们。
-          const digest = personalInputDigest(input.input, input.work);
+          // JSON encoding distinguishes isolated UTF-16 surrogates that direct UTF-8 hashing would replace.
+          const digest = personalInputDigest(input.input, input.work, input.attachments);
           let appended = true;
           await instance.harness.commit(async tx => {
             const intent = await tx.doc(LocalInputDoc, input.requestId, digest);
@@ -529,7 +532,7 @@ export async function startPersonalServer(directory: string, options: { developm
             }
           }, context);
           if (input.work === undefined) {
-            const submission = await instance.submit(input.input, input.requestId);
+            const submission = await instance.submit(input.input, input.requestId, input.attachments);
             result = { status: (await submission.status(context)).status } satisfies PersonalInputStatus;
           } else result = { status: "done", answer: appended ? "原分析已接纳说明，同一子 Agent 将按接纳顺序继续处理。" : "原分析在此说明接纳前已结束，未接纳说明；请从后台分析查询原结果。" } satisfies PersonalInputStatus;
         } else if (req.method === "POST" && url.pathname === "/stop") {

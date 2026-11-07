@@ -12,10 +12,11 @@ import { PersonalController } from "../../apps/desktop/src/main/personal-control
 import { loadPersonalConfig, personalPendingFile, savePersonalConfig } from "../../apps/desktop/src/main/personal-config.ts";
 import type { PersonalCredentialStorage } from "../../apps/desktop/src/main/personal-credentials.ts";
 import type { DesktopUpdate } from "../../apps/desktop/src/shared/bridge.ts";
+import type { PersonalDesktopAttachment } from "@ruukoto/view/personal-protocol.ts";
 
 export async function desktopRemoteFixture(t: TestContext) {
   const directory = fs.realpathSync(fs.mkdtempSync("/tmp/rk-dh-")); fs.chmodSync(directory, 0o700);
-  const state = { raw: null as string | null, failWrite: false, failRead: false, mismatch: false, pairCalls: 0, pairCodes: [] as string[], rejectPair: false, dropPairBeforeAdmission: false, inputCalls: [] as { requestId: string; input: string }[], requestPaths: [] as string[], dropPair: false, dropInput: false, dropBeforeAdmission: false, backendOnline: true, revoked: false, handshakeProduct: "ruukoto", handshakeProfile: `sha256:${"a".repeat(64)}` };
+  const state = { raw: null as string | null, failWrite: false, failRead: false, mismatch: false, pairCalls: 0, pairCodes: [] as string[], rejectPair: false, dropPairBeforeAdmission: false, inputCalls: [] as { requestId: string; input: string; attachments?: PersonalDesktopAttachment[] }[], requestPaths: [] as string[], dropPair: false, dropInput: false, dropBeforeAdmission: false, backendOnline: true, revoked: false, handshakeProduct: "ruukoto", handshakeProfile: `sha256:${"a".repeat(64)}` };
   const storage: PersonalCredentialStorage = { read: async () => { if (state.failRead) throw new Error("fixture locked"); return state.mismatch && state.raw ? "bad readback" : state.raw; }, write: async raw => { if (state.failWrite) throw new Error("fixture denied"); state.raw = raw; }, remove: async () => { state.raw = null; } };
   const remoteId = randomUUID(), runId = randomUUID(), profile = { id: state.handshakeProfile, directory: "/var/lib/ruukoto/personal-durable" }, tokens = new Set<string>(), inputs = new Map<string, { status: string; input: string }>();
   let origin = "";
@@ -44,10 +45,11 @@ export async function desktopRemoteFixture(t: TestContext) {
     if (route.pathname === "/handshake") { respond(res, { v: 1, product: state.handshakeProduct, origin, remoteId, profile: { ...profile, id: state.handshakeProfile }, online: state.backendOnline, ...(state.backendOnline ? { runId } : {}) }); return; }
     assert.equal(req.headers["x-ruukoto-remote-id"], remoteId); assert.equal(req.headers["x-ruukoto-profile-id"], state.handshakeProfile);
     const custom = overrides.get(route.pathname); if (custom) { await custom(req, res, value); return; }
-    if (route.pathname === "/inputs") {
-      const input = value as { requestId: string; input: string }; state.inputCalls.push(input);
+    if (route.pathname === "/inputs" || route.pathname === "/desktop/inputs") {
+      const input = value as { requestId: string; input: string; attachments?: PersonalDesktopAttachment[] }; state.inputCalls.push(input);
       const pending = JSON.parse(fs.readFileSync(personalPendingFile(directory, loadPersonalConfig(directory)!), "utf8"));
       assert.equal(pending.input.requestId, input.requestId); assert.equal(pending.input.input, input.input);
+      assert.deepEqual(pending.input.attachments, input.attachments);
       if (state.dropBeforeAdmission) { state.dropBeforeAdmission = false; req.socket.destroy(); return; }
       const previous = inputs.get(input.requestId); if (previous) assert.equal(previous.input, input.input);
       inputs.set(input.requestId, { status: "queued", input: input.input });

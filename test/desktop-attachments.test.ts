@@ -4,7 +4,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { pickAttachments } from "../apps/desktop/src/main/attachments.ts";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { pickAttachments, readSelectedAttachment } from "../apps/desktop/src/main/attachments.ts";
 import { DesktopHost } from "../apps/desktop/src/main/host.ts";
 import { adoptEnvironment } from "../apps/desktop/src/main/environment.ts";
 import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
@@ -19,6 +21,16 @@ import { createProjectSession, realTools, startAssemblyKit, startTestRuntime, wa
 
 const selection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" as const };
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=", "base64");
+
+test("Native attachment snapshots reject FIFO, oversize and invalid names without blocking", t => {
+  const directory = fs.mkdtempSync("/tmp/desktop-attachment-validate-"); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const fifo = path.join(directory, "pipe"); const result = spawnSync("mkfifo", [fifo]); assert.equal(result.status, 0);
+  const module = pathToFileURL(path.resolve(import.meta.dirname, "../apps/desktop/src/main/attachments.ts")).href;
+  const fifoRead = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `import { readSelectedAttachment } from ${JSON.stringify(module)}; import assert from "node:assert/strict"; assert.throws(() => readSelectedAttachment(${JSON.stringify(fifo)}), { code: "attachment_limit" });`], { timeout: 5000 });
+  assert.equal(fifoRead.status, 0, "FIFO rejection must finish without waiting for a writer");
+  const large = path.join(directory, "large.bin"); fs.writeFileSync(large, ""); fs.truncateSync(large, 8 * 1024 * 1024 + 1); assert.throws(() => readSelectedAttachment(large), { code: "attachment_limit" });
+  const name = path.join(directory, "x".repeat(129)); fs.writeFileSync(name, "bytes"); assert.throws(() => readSelectedAttachment(name), { code: "attachment_name_invalid" });
+});
 function upload(sessionId: string, bytes: Buffer, name = "资料.txt", id = `att_${randomUUID()}`): AttachmentUpload {
   return { session_id: sessionId, attachment_id: id, name, offset: 0, total_bytes: bytes.length, content_hash: createHash("sha256").update(bytes).digest("hex"), data: bytes.toString("base64") };
 }

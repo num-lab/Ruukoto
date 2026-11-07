@@ -3,7 +3,7 @@ import { test, before, after } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer, type ViteDevServer } from "vite";
-import type { PersonalDesktopApproval, PersonalDesktopFrame, PersonalDesktopState } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopApproval, PersonalDesktopAttachment, PersonalDesktopFrame, PersonalDesktopState } from "@ruukoto/view/personal-protocol.ts";
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { PersonalState, personalCardKey } from "../apps/desktop/src/renderer/personal-state.ts";
 import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-connection-state.ts";
@@ -26,6 +26,19 @@ function projection(revision: number, cards: PersonalDesktopApproval[] = []): Pe
 let server: ViteDevServer, Chat: ComponentType<{ model: PersonalState; onConnect: () => void }>;
 before(async () => { server = await createServer({ configFile: false, root: "apps/desktop/src/renderer", server: { middlewareMode: true, hmr: false }, esbuild: { jsx: "automatic" } }); ({ PersonalChat: Chat } = await server.ssrLoadModule("/personal-chat.tsx")); });
 after(async () => { await server?.close(); });
+
+test("Attachment-only owner bubbles keep refs and names; persisted failure disables sending after reload", async t => {
+  const ref: PersonalDesktopAttachment = { id: "3b7a00d1-8815-41a2-b0e9-467b79d8521a", name: "original.csv", size: 909, mime: "text/csv", sha256: "a".repeat(64) };
+  const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? ok({ kind: "pending", requestId: "original" }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null)); t.after(() => f.state.dispose()); await settle();
+  const draft = { v: 1 as const, id: "draft", origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, input: "", attachments: [ref], failed: false };
+  f.state.update({ type: "personal_draft", draft }); assert.equal(f.state.canSend, true);
+  await f.state.send(); const submitted = f.calls.find(call => call.op === "desktop_personal_input_submit")!; assert.deepEqual(submitted.params, { text: "", attachments: [ref], draftId: draft.id });
+  f.state.update({ type: "personal_pending", record: { v: 1, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "original", input: "", attachments: [ref] } });
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /original.csv/); assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1); assert.deepEqual(f.state.timeline.find(entry => entry.requestKey === "original")!.attachments, [ref]);
+  const reloaded = fixture(); t.after(() => reloaded.state.dispose()); await settle(); reloaded.state.update({ type: "personal_draft", draft: { ...draft, input: "Keep text", failed: true } });
+  assert.equal(reloaded.state.draft, "Keep text"); assert.deepEqual(reloaded.state.attachments, [ref]); assert.equal(reloaded.state.canSend, false); await reloaded.state.send(); assert.equal(reloaded.calls.some(call => call.op === "desktop_personal_input_submit"), false);
+  const failedMarkup = renderToStaticMarkup(createElement(Chat, { model: reloaded.state, onConnect() {} })); assert.match(failedMarkup, /附件未完整准备/); assert.match(failedMarkup, /放弃草稿/);
+});
 
 test("PA原生状态：块替换不重复文字，原entry去重，旧订阅和断序不能推进当前投影", async t => {
   const { state, calls } = fixture(); t.after(() => state.dispose()); await settle();
@@ -149,7 +162,7 @@ test("PA视图：完整消息按角色气泡分组，流式片段与trace不显�
   f.state.live.generation = { attempt: 1, message: { role: "assistant", text: "流式片段", partial: true, truncated: false, timestamp: timestamp + 5000 } };
   f.state.live.tools = [{ callId: "tool", name: "read_file", status: "running", output: "片段", truncated: true }]; f.state.live.toolCount = 1;
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.match(markup, /原输入/); assert.match(markup, /完整回复一/); assert.match(markup, /完整回复二/); assert.match(markup, /发送个人消息/); assert.match(markup, /aria-label="添加附件"/); assert.match(markup, /aria-description="PA 暂不支持附件"/); assert.match(markup, /rows="1"/);
+  assert.match(markup, /原输入/); assert.match(markup, /完整回复一/); assert.match(markup, /完整回复二/); assert.match(markup, /发送个人消息/); assert.match(markup, /aria-label="添加附件"/); assert.doesNotMatch(markup, /PA 暂不支持附件/); assert.match(markup, /rows="1"/);
   assert.doesNotMatch(markup, /read_file|流式片段|隐藏思考|隐藏工具结果|空正文也不显示|新输入的默认权限|停止任务|发送并继续|Context|会话模型|Plan/);
   assert.equal([...markup.matchAll(/class="personal-message-group /g)].length, 2);
   assert.equal([...markup.matchAll(/class="personal-message-time"/g)].length, 2);

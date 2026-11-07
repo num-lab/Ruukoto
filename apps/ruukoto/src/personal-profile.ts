@@ -20,7 +20,7 @@ export function personalProfileFormatSupported(value: unknown): boolean {
 export type PersonalProfileLock = { directory: string; release(): void };
 export const PERSONAL_PENDING_FILE = /^pending-(?:work-)?([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
 export const PERSONAL_SCHEDULE_PENDING_FILE = /^pending-schedule-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
-const privateDirectories = new Set(["commands", "background", "file-search", "artifacts", "browser", "agent-data", "managed-skills"]);
+const privateDirectories = new Set(["commands", "background", "file-search", "artifacts", "attachment-staging", "browser", "agent-data", "managed-skills"]);
 
 export const PERSONAL_QUESTION_PENDING_FILE = /^pending-question-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.json$/;
 

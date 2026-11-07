@@ -32,7 +32,8 @@ test("双后台：HTTPS个人输入和Code附件独立，同实例重连拒绝�
   assert.equal((await host.request("personal", "get_session", { session_id: opened.session.id })).ok, false);
   assert.equal((await host.request("code", "desktop_personal_input_submit", { text: "不可投Code" })).ok, false);
   let picked = false;
-  assert.throws(() => host!.pickAttachments(opened.session.id, async () => { picked = true; return []; }, undefined, "personal"), { code: "op_not_allowed" }); assert.equal(picked, false);
+  const draft = await host.request("personal", "desktop_personal_draft_read", {}); assert.ok(draft.ok && draft.value && typeof draft.value === "object" && "id" in draft.value);
+  assert.deepEqual(await host.pickAttachments(String(draft.value.id), async () => { picked = true; return []; }, undefined, "personal"), []); assert.equal(picked, true);
   const selected = path.join(f.directory, "selected.txt"); fs.writeFileSync(selected, "只交给Code");
   const [attachment] = await host.pickAttachments(opened.session.id, async () => [selected]);
   assert.equal(code.runtime.attachments.prepare(opened.session.id, [attachment])[0].bytes.toString(), "只交给Code");

@@ -210,13 +210,13 @@ test("新连接配置与旧维护：旧文件字节保留，损坏journal阻止�
   fs.appendFileSync(oldPending, "新增事实"); assert.deepEqual(legacyPersonalMaintenance(f.directory, f.origin), [oldPending]);
 });
 
-test("Host目标隔离：PA旧control操作与附件被拒绝，Code无安全存储仍可处理本机入口", async t => {
+test("Host target isolation rejects legacy PA operations and waits for authenticated attachment connection", async t => {
   const f = await desktopRemoteFixture(t), host = new DesktopHost(process.cwd(), f.directory, { publish: () => {}, focused: () => true, notice: () => {}, badge: () => {} }, async () => ({ node: process.execPath, env: {} }));
   t.after(() => host.close());
   for (const op of ["submit", "continue", "set_session_model", "get_task", "respond_confirmation"]) {
     const result = await host.request("personal", op, {}); assert.equal(result.ok, false);
   }
-  assert.throws(() => host.attachmentInstance("personal"), code("op_not_allowed"));
+  assert.throws(() => host.attachmentInstance("personal"), code("connection_unavailable"));
   const config = await host.request("personal", "desktop_personal_config_read", {}); assert.equal(config.ok, true);
   const controller = new PersonalController({ v: 1, origin: f.origin }, f.directory, () => {}, undefined); await controller.reconnect();
   assert.equal(controller.status.error?.code, "personal_credentials_unavailable"); await controller.close();

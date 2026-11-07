@@ -23,7 +23,8 @@ import { PERSONAL_SKILLS, PERSONAL_SKILL_TOOLS, PersonalSkillsDoc, PersonalSkill
 import { personalQqApi } from "./personal-qq-api.ts";
 import { parsePersonalQq, qqToken, type PersonalQqConfig } from "./personal-qq-config.ts";
 import { isPersonalImRequest, personalEntryConfig } from "./personal-telegram-records.ts";
-import { personalMedia, PERSONAL_MEDIA, PersonalMediaDoc, PersonalMediaMessageDoc, PersonalImageDoc } from "./personal-media.ts";
+import { personalMedia, PERSONAL_MEDIA, PERSONAL_ATTACHMENTS, personalAttachments, personalWorkAttachments, PersonalMediaDoc, PersonalMediaMessageDoc, PersonalImageDoc } from "./personal-media.ts";
+import type { PersonalDesktopAttachment } from "@ruukoto/view/personal-protocol.ts";
 import { personalBrowser, PERSONAL_BROWSER, PersonalBrowserDoc, PersonalBrowserOperationDoc, PersonalBrowserSessionDoc, configureBrowser, verifyBrowser, browserRequestAllowed } from "./personal-browser.ts";
 import type { PersonalBrowserConfig } from "./personal-browser-config.ts";
 import { personalBrowserControl, verifyBrowserControls } from "./personal-browser-controls.ts";
@@ -50,6 +51,7 @@ import { personalWorkNotes, verifyPersonalWorkNotes, verifyPersonalWorkNoteAdmis
 import { PersonalServiceOperationDoc, PersonalServiceOperationsDoc, PersonalServiceGrantsDoc, personalServiceOperations, personalServiceConfigBlockers, personalServiceHasHistory, verifyServiceOperationRecords, verifyServiceGrants, type PersonalServiceOperationRef, PERSONAL_SERVICE_WORK } from "./personal-service-operations.ts";
 import { personalServiceWork } from "./personal-service-work.ts";
 import { personalTelegram, PersonalTelegramDoc, PersonalTelegramReceiptDoc, verifyPersonalTelegram } from "./personal-telegram.ts";
+import { verifyPersonalTelegramAttachmentStorage } from "./personal-telegram-attachments.ts";
 import { parsePersonalTelegram, telegramToken, type PersonalTelegramConfig } from "./personal-telegram-config.ts";
 import { PersonalPermissionsDoc, personalPermissions, permissionSnapshot, telegramSourceActive } from "./personal-permissions.ts";
 import { personalTelegramApi } from "./personal-telegram-api.ts";
@@ -302,6 +304,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     } })] });
     registry.install(personal); registry.install(appData.extension); registry.install(memory); registry.install(history); registry.install(skills.extension);
     registry.install(media.extension);
+    registry.install(personalAttachments);
     if (browser) registry.install(browser.extension);
     registry.install(personalPermissions);
     registry.install(personalOwnerControls);
@@ -572,6 +575,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       }
       telegramCursor = page.next;
     } while (telegramCursor);
+    await verifyPersonalTelegramAttachmentStorage(storage, context);
     const operationKeys: string[] = [];
     let operationCursor: Cursor | undefined;
     do {
@@ -857,6 +861,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (!isDeepStrictEqual(origin.permission, work.permission) || !isDeepStrictEqual(origin.telegram, work.telegram)) throw new PersonalError("work_record_missing", "后台工作的原拥有者权限或入口无法核实，已停止恢复；请保留档案。");
         if (work.submissionId !== undefined && (await tx.submissionByRequest(work.ref.agentId, `personal-work:${task.id}`))?.id !== work.submissionId) throw new PersonalError("work_record_missing", "后台工作引用的原输入缺失，已停止恢复；请保留档案并检查存储。");
         await verifyPersonalWorkNotes(tx, work.ref, workNotesEnabled);
+        if (work.attachments !== undefined || work.notes?.some(note => note.attachments !== undefined)) await personalWorkAttachments(tx, work.ref);
         if (task.state.status !== "terminal" && !index.agents.some(agent => agent.id === work.ref?.agentId && agent.work?.taskId === task.id)) throw new PersonalError("work_ownership", "未结束工作的占用记录缺失，已停止恢复；请检查档案。");
       }
       for (const { record } of inspection.tasks) if (record.kind === PersonalWorkTask.definition.name && !index.agents.some(agent => agent.work?.taskId === record.id)) throw new PersonalError("work_ownership", "后台执行缺少身份占用，已停止恢复；请检查档案。");
@@ -870,8 +875,9 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         if (hasOutputs && !outputsEnabled) throw new PersonalError("output_record_invalid", "原最终文件能力缺失，已停止恢复；请保留档案。");
         if (hasQuestions && !questionsEnabled) throw new PersonalError("work_config_changed", "原工作问题能力缺失，已停止恢复；请保留档案。");
         if (hasBrowser && !browser || hasBackground && !background) throw new PersonalError("work_config_changed", "子工作原浏览器或后台配置缺失，已停止恢复；请保留档案。");
-        const expectedTools = [...(referencesEnabled ? [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS] : []), ...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : []), ...(toolsEnabled ? (general?.extension.tools?.map(tool => tool.name) ?? PERSONAL_TOOL_NAMES).filter(name => fileSearchEnabled || !["list_files", "search_files"].includes(name)) : []), ...(hasOutputs ? ["publish_output"] : []), ...(hasQuestions ? ["ask_user"] : []), ...(hasBrowser ? ["browser"] : []), ...(hasBackground ? PERSONAL_BACKGROUND_TOOL_NAMES : []), ...(childAppData ? PERSONAL_APP_DATA_TOOLS : [])];
-        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(referencesEnabled ? [PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS] : []), ...(mediaEnabled ? [PERSONAL_MEDIA] : []), ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : []), ...(toolsEnabled ? [PERSONAL_TOOLS, ...(fileSearchEnabled ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasOutputs ? [PERSONAL_OUTPUTS] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(hasBrowser ? [PERSONAL_BROWSER] : []), ...(hasBackground ? [PERSONAL_BACKGROUND] : []), ...(childAppData ? [PERSONAL_APP_DATA] : [])];
+        const hasAttachments = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_ATTACHMENTS);
+        const expectedTools = [...(referencesEnabled ? [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS] : []), ...(childServicesEnabled ? ["service_inspect", "read_service_inspection"] : []), ...(childWritesEnabled ? ["service_restart", "read_service_operation"] : []), ...(childCommandsEnabled ? ["run_command", "read_command_output"] : []), ...(mcpEnabled ? PERSONAL_MCP_TOOLS : []), ...(toolsEnabled ? (general?.extension.tools?.map(tool => tool.name) ?? PERSONAL_TOOL_NAMES).filter(name => fileSearchEnabled || !["list_files", "search_files"].includes(name)) : []), ...(hasOutputs ? ["publish_output"] : []), ...(hasAttachments && !toolsEnabled ? ["read_artifact"] : []), ...(hasQuestions ? ["ask_user"] : []), ...(hasBrowser ? ["browser"] : []), ...(hasBackground ? PERSONAL_BACKGROUND_TOOL_NAMES : []), ...(childAppData ? PERSONAL_APP_DATA_TOOLS : [])];
+        const expectedExtensions = [personalSubAgent.name, personalBackgroundWork.name, ...(referencesEnabled ? [PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS] : []), ...(mediaEnabled ? [PERSONAL_MEDIA] : []), ...(hasAttachments ? [PERSONAL_ATTACHMENTS] : []), ...(childServicesEnabled ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(childWritesEnabled ? [PERSONAL_SERVICE_WORK] : []), ...(childCommandsEnabled ? [PERSONAL_COMMAND_WORK] : []), ...(mcpEnabled ? [PERSONAL_MCP] : []), ...(toolsEnabled ? [PERSONAL_TOOLS, ...(fileSearchEnabled ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasOutputs ? [PERSONAL_OUTPUTS] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(hasBrowser ? [PERSONAL_BROWSER] : []), ...(hasBackground ? [PERSONAL_BACKGROUND] : []), ...(childAppData ? PERSONAL_APP_DATA_TOOLS : [])];
         if (!isDeepStrictEqual(config.tools, expectedTools) || !Array.isArray(config.extensions) || !isDeepStrictEqual([...config.extensions].sort(), expectedExtensions.sort())) throw new PersonalError("work_config_changed", "子 Agent 的固定工具配置无法核实，已停止恢复；请检查档案。");
         if (!agent.work) continue;
         const work = await tx.doc(PersonalWorkDoc, agent.work.requestId, null);
@@ -890,7 +896,7 @@ export async function openPersonalHarness(options: ({ directory: string; profile
     await harness.commit(tx => verifyPersonalReports(tx, delegationKeys, reportsEnabled), context);
     await harness.commit(async tx => { for (const key of telegramKeys) await verifyDelegationMenu(tx, (await tx.doc(PersonalTelegramReceiptDoc, key, null)).receipt!, delegationsEnabled); }, context);
     await harness.commit(tx => tx.doc(PersonalFormatDoc), context);
-    const extensions = [questions, desktopActions.extension, outputs, delivery.extension, telegramDisplays.extension, telegram.callbacks.extension, appData.extension, memory, history, skills.extension, qqExtension, personal, media.extension, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(background ? [background.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension, ...(general.config ? [personalFileSearch] : [])] : [])];
+    const extensions = [questions, desktopActions.extension, outputs, delivery.extension, telegramDisplays.extension, telegram.callbacks.extension, appData.extension, memory, history, skills.extension, qqExtension, personal, media.extension, personalAttachments, ...(browser ? [browser.extension] : []), personalPermissions, personalOwnerControls, personalBackgroundWork, workTools, personalWorkControls, personalWorkNotes, personalAnalysisDelegations, reports, telegram.extension, inspectionControls.extension, serviceControls.extension, scheduler.extension, scheduleTools, personalSchedulerControls, ...(services ? [services, personalInspectionExtension, personalSubAgentServices] : []), ...(operations ? [operations.extension] : []), ...(serviceWork ? [serviceWork] : []), ...(commands ? [commands.extension] : []), ...(background ? [background.extension] : []), ...(mcp ? [mcp.extension] : []), ...(general ? [general.extension, ...(general.config ? [personalFileSearch] : [])] : [])];
     const tools = [...questions.tools!, ...outputs.tools!, ...appData.extension.tools!, ...memory.tools!, ...history.tools!, ...skills.extension.tools!, ...(media.extension.tools ?? []), ...(browser?.extension.tools ?? []), ...(services?.tools ?? []), ...workTools.tools!, ...(background?.extension.tools ?? []), ...(mcp?.extension.tools ?? []), ...(general?.extension.tools ?? []), ...scheduleTools.tools!];
     if (service) await harness.commit(async tx => { (await tx.doc(PersonalServiceDoc)).fingerprint = service!.fingerprint; }, context);
     const main = await harness.root(context, { agent: { model: { provider: currentModel.provider.id, modelId: currentModel.modelId }, thinkingLevel: "off", extensions, tools }, init: async tx => { (await tx.doc(PersonalConfigurationDoc)).initializedWithoutRoot = false; await initializeAppData(tx); await tx.doc(PersonalAgentsDoc); await tx.doc(PersonalPermissionsDoc); if (operations) { await tx.doc(PersonalServiceOperationsDoc); await tx.doc(PersonalServiceGrantsDoc); } } });
@@ -933,8 +939,8 @@ export async function openPersonalHarness(options: ({ directory: string; profile
       for (const child of (await tx.doc(PersonalAgentsDoc)).agents) {
         const config = await tx.doc(AgentDoc, child.id);
         const hasQuestions = Array.isArray(config.extensions) && config.extensions.includes(PERSONAL_QUESTIONS);
-        config.extensions = [personalSubAgent.name, personalBackgroundWork.name, PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS, PERSONAL_MEDIA, PERSONAL_OUTPUTS, ...(services ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(serviceWork ? [PERSONAL_SERVICE_WORK] : []), ...(commands ? [PERSONAL_COMMAND_WORK] : []), ...(mcp ? [PERSONAL_MCP] : []), ...(general ? [PERSONAL_TOOLS, ...(general.config ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(browser ? [PERSONAL_BROWSER] : []), ...(background ? [PERSONAL_BACKGROUND] : [])];
-        config.tools = [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS, ...(services ? ["service_inspect", "read_service_inspection"] : []), ...(serviceWork ? ["service_restart", "read_service_operation"] : []), ...(commands ? ["run_command", "read_command_output"] : []), ...(mcp ? PERSONAL_MCP_TOOLS : []), ...(general ? general.extension.tools!.map(tool => tool.name) : []), "publish_output", ...(hasQuestions ? ["ask_user"] : []), ...(browser ? ["browser"] : []), ...(background ? PERSONAL_BACKGROUND_TOOL_NAMES : [])];
+        config.extensions = [personalSubAgent.name, personalBackgroundWork.name, PERSONAL_MEMORY, PERSONAL_HISTORY, PERSONAL_SKILLS, PERSONAL_MEDIA, PERSONAL_ATTACHMENTS, PERSONAL_OUTPUTS, ...(services ? ["personal-service-inspect", personalSubAgentServices.name] : []), ...(serviceWork ? [PERSONAL_SERVICE_WORK] : []), ...(commands ? [PERSONAL_COMMAND_WORK] : []), ...(mcp ? [PERSONAL_MCP] : []), ...(general ? [PERSONAL_TOOLS, ...(general.config ? [PERSONAL_FILE_SEARCH] : [])] : []), ...(hasQuestions ? [PERSONAL_QUESTIONS] : []), ...(browser ? [PERSONAL_BROWSER] : []), ...(background ? [PERSONAL_BACKGROUND] : [])];
+        config.tools = [...PERSONAL_MEMORY_TOOLS, ...PERSONAL_HISTORY_TOOLS, ...PERSONAL_SKILL_TOOLS, ...(services ? ["service_inspect", "read_service_inspection"] : []), ...(serviceWork ? ["service_restart", "read_service_operation"] : []), ...(commands ? ["run_command", "read_command_output"] : []), ...(mcp ? PERSONAL_MCP_TOOLS : []), ...(general ? general.extension.tools!.map(tool => tool.name) : []), "publish_output", ...(!general ? ["read_artifact"] : []), ...(hasQuestions ? ["ask_user"] : []), ...(browser ? ["browser"] : []), ...(background ? PERSONAL_BACKGROUND_TOOL_NAMES : [])];
         await configureAppDataChild(tx, child.id, !!child.work && (await tx.doc(PersonalWorkDoc, child.work.requestId, null)).appData === true);
       }
     }, context);
@@ -1187,9 +1193,16 @@ export async function openPersonalHarness(options: ({ directory: string; profile
         try { const result = await entry.update(platform, config, version, revision); if (config.pairingId) await pairing.complete(config.pairingId); return result; }
         catch (error) { if (config.pairingId && error instanceof PersonalError) await pairing.complete(config.pairingId, true); throw error; }
       },
-      async submit(input: string, requestId: string) {
-        await instance.commit(tx => personalLocalInput(tx, requestId, input), context);
-        return admitInput({ type: "input", content: input, requestId, whenBusy: "followUp" }, context);
+      async submit(input: string, requestId: string, attachments?: PersonalDesktopAttachment[]) {
+        if (attachments?.length) {
+          const staged = await media.stageNative(requestId, input, attachments);
+          if (staged.state === "rejected" || staged.state === "expired") throw new PersonalError(staged.reason!, "附件未被接纳，本条文字未单独提交；请核实附件格式与模型能力。");
+        }
+        await instance.commit(tx => personalLocalInput(tx, requestId, input, attachments), context);
+        const content = attachments?.length ? await media.input(requestId) : input;
+        const submission = await admitInput({ type: "input", content, requestId, whenBusy: "followUp" }, context);
+        if (attachments?.length) await instance.commit(tx => media.bind(tx, requestId, submission.id), context);
+        return submission;
       },
       async answer(input: string, requestId: string) {
         await instance.commit(tx => personalLocalInput(tx, requestId, input), context);

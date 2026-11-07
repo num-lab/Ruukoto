@@ -1,11 +1,13 @@
 import { AgentDoc, defineExtension, defineTool, LiveDoc, ROOT_CONVERSATION_ID, type ConversationId, type EntryId, type EntryRecord, type ToolExecutionApi, type Tx } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { PersonalError } from "./personal-error.ts";
-import { PersonalAgentsDoc } from "./personal-work.ts";
+import { PersonalAgentsDoc, type PersonalWorkRef } from "./personal-work.ts";
 import { PersonalSchedulesDoc, PersonalScheduleRunDoc, PersonalScheduledConversationDoc } from "./personal-scheduler-records.ts";
 import { personalReportDraft, personalReportPublicationMessage, personalReportOutputs } from "./personal-report.ts";
 import { PersonalOwnerInput, personalOwnerHistoryAssociated, personalOwnerInputMessage } from "./personal-owner-input.ts";
 import type { PersonalDesktopMessage, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
+import { isDeepStrictEqual } from "node:util";
+import { PersonalMediaDoc, PersonalMediaMessageDoc, verifyPersonalMediaAdmission } from "./personal-media.ts";
 
 export const PERSONAL_HISTORY = "personal-history";
 export const PERSONAL_HISTORY_TOOLS = ["history_search", "history_read"];
@@ -40,6 +42,26 @@ function historyText(entry: EntryRecord) {
     return message.content.flatMap(part => part.type === "text" ? [part.text] : part.type === "toolCall" ? [JSON.stringify({ name: part.name, arguments: part.arguments })] : []);
   }).join("\n");
 }
+async function attachmentHistoryText(tx: Tx, reader: ConversationId, entry: EntryRecord) {
+  if (reader === ROOT_CONVERSATION_ID) return { text: historyText(entry) };
+  const current = (await tx.doc(PersonalAgentsDoc)).agents.find(agent => agent.id === reader)?.work;
+  let attachmentWork: PersonalWorkRef | undefined;
+  const model = entry.model?.map(message => {
+    if (message.role !== "toolResult" || !["read_artifact", "history_read", "history_search"].includes(message.toolName)) return message;
+    const content = message.content.map(part => {
+      if (part.type !== "text") return part;
+      let page: unknown;
+      try { page = JSON.parse(part.text); } catch { return part; }
+      if (page && typeof page === "object" && !Array.isArray(page) && "attachmentWork" in page) {
+        if (!isDeepStrictEqual(page.attachmentWork, current)) return { type: "text" as const, text: "原附件属于另一项工作，本轮未分配其字节。" };
+        attachmentWork = current && { ...current };
+      }
+      return part;
+    });
+    return { ...message, content };
+  });
+  return { text: historyText({ ...entry, model }), ...(attachmentWork ? { attachmentWork } : {}) };
+}
 
 export function personalDesktopMessage(message: NonNullable<EntryRecord["model"]>[number]): PersonalDesktopMessage | undefined {
   if (message.role === "system") return;
@@ -60,10 +82,25 @@ export function personalTimelineEntry(entry: EntryRecord): PersonalTimelineEntry
   return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind };
 }
 
+async function desktopMedia(tx: Tx, entry: EntryRecord) {
+  if (entry.kind === "pi.user" && entry.conversationId === ROOT_CONVERSATION_ID) for (const key of (await tx.doc(PersonalMediaDoc)).keys) {
+    const media = (await tx.doc(PersonalMediaMessageDoc, key, null)).message;
+    if (media?.version !== 2 || media.source.platform !== "telegram" || (await tx.submissionByRequest(ROOT_CONVERSATION_ID, key))?.entry !== entry.id) continue;
+    await verifyPersonalMediaAdmission(tx, media);
+    return media;
+  }
+}
+
 export async function personalDesktopTimelineEntry(tx: Tx, entry: EntryRecord, through?: number): Promise<PersonalTimelineEntry | undefined> {
   const owner = await personalOwnerInputMessage(tx, entry);
   if (owner) return owner;
   if (await personalOwnerHistoryAssociated(tx, entry, through)) return;
+  const media = await desktopMedia(tx, entry);
+  if (media) {
+    const attachments = media.artifacts.map((artifact, index) => ({ id: artifact.id, name: media.members![index].name, size: artifact.bytes, mime: artifact.mime, sha256: artifact.sha256 }));
+    const message = personalDesktopMessage({ role: "user", content: media.body, timestamp: entry.model![0].timestamp })!;
+    return { ...message, entry: entry.id, conversation: entry.conversationId, kind: entry.kind, attachments };
+  }
   const publication = await personalReportPublicationMessage(tx, entry);
   if (publication) {
     const message = personalDesktopMessage(publication)!;
@@ -105,6 +142,16 @@ function messageSummary(entry: EntryRecord, text: string, limit: number) {
   return { entry: entry.id, conversation: entry.conversationId, kind: entry.kind, text: text.slice(0, limit), partial: entry.model?.some(message => message.role === "assistant" && ["error", "aborted"].includes(message.stopReason)) === true, truncated: text.length > limit };
 }
 
+export async function readPersonalDesktopHistory(tx: Tx, input: { entry: EntryId; offset?: number }) {
+  const stored = await tx.entry(input.entry), media = stored && await desktopMedia(tx, stored);
+  if (!stored || !media) return readPersonalHistory(tx, ROOT_CONVERSATION_ID, input);
+  const text = media.body, offset = input.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) throw new PersonalError("history_offset_invalid", "原文 offset 无效；首次用0，后续使用上页 nextOffset。");
+  let end = Math.min(offset + PAGE_SIZE, text.length);
+  if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
+  return { ...messageSummary(stored, text.slice(offset, end), PAGE_SIZE), offset, total: text.length, truncated: end < text.length, ...(end < text.length ? { nextOffset: end } : {}) };
+}
+
 export async function readPersonalHistory(tx: Tx, reader: ConversationId, input: { entry: EntryId; offset?: number }) {
   const stored = await tx.entry(input.entry);
   if (stored && PersonalOwnerInput.is(stored) && await historyVisible(tx, reader, stored.conversationId)) {
@@ -117,14 +164,14 @@ export async function readPersonalHistory(tx: Tx, reader: ConversationId, input:
     return { ...messageSummary(stored, text.slice(offset, end), PAGE_SIZE), offset, total: text.length, truncated: end < text.length, ...(end < text.length ? { nextOffset: end } : {}) };
   }
   const publication = stored?.kind === "ruukoto.report-publication" && await historyVisible(tx, reader, stored.conversationId) ? await personalReportPublicationMessage(tx, stored) : undefined;
-  const entry = publication && stored ? { ...stored, model: [publication] } : await personalHistoryEntry(tx, reader, input.entry), text = historyText(entry), offset = input.offset ?? 0;
+  const entry = publication && stored ? { ...stored, model: [publication] } : await personalHistoryEntry(tx, reader, input.entry), projected = await attachmentHistoryText(tx, reader, entry), text = projected.text, offset = input.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > text.length) throw new PersonalError("history_offset_invalid", "原文 offset 无效；首次用0，后续使用上页 nextOffset。");
   if (publication) {
     let end = Math.min(offset + PAGE_SIZE, text.length);
     if (end < text.length && /[\ud800-\udbff]/.test(text[end - 1]) && /[\udc00-\udfff]/.test(text[end])) end--;
     return { ...messageSummary(entry, text.slice(offset, end), PAGE_SIZE), offset, total: text.length, truncated: end < text.length, ...(end < text.length ? { nextOffset: end } : {}) };
   }
-  return { ...messageSummary(entry, text.slice(offset), PAGE_SIZE), offset, total: text.length, ...(offset + PAGE_SIZE < text.length ? { nextOffset: offset + PAGE_SIZE } : {}) };
+  return { ...messageSummary(entry, text.slice(offset), PAGE_SIZE), offset, total: text.length, ...(offset + PAGE_SIZE < text.length ? { nextOffset: offset + PAGE_SIZE } : {}), ...(projected.attachmentWork ? { attachmentWork: projected.attachmentWork } : {}) };
 }
 
 async function historyConversations(tx: Tx, reader: ConversationId) {
@@ -154,6 +201,7 @@ export async function searchPersonalHistory(tx: Tx, reader: ConversationId, inpu
   let index = cursor ? targets.indexOf(cursor.conversation) : 0;
   if (index < 0) throw new PersonalError("history_cursor_invalid", "续页会话不在当前可读范围；请省略 cursor 重新检索。");
   let scanned = 0;
+  let attachmentWork: PersonalWorkRef | undefined;
   const items: ReturnType<typeof messageSummary>[] = [];
   for (; index < targets.length; index++) {
     const conversation = targets[index];
@@ -163,19 +211,20 @@ export async function searchPersonalHistory(tx: Tx, reader: ConversationId, inpu
     for (const [position, entry] of page.items.entries()) {
       scanned++;
       if (entry.id !== before) {
-        const text = historyText(entry);
+        const projected = await attachmentHistoryText(tx, reader, entry), text = projected.text;
         if (text.toLowerCase().includes(needle)) {
+          attachmentWork ??= projected.attachmentWork;
           const found = text.toLowerCase().indexOf(needle), start = Math.max(0, found - 80), excerpt = text.slice(start);
           items.push({ ...messageSummary(entry, excerpt, 512), truncated: start > 0 || excerpt.length > 512 });
         }
       }
       if (items.length >= 8 || scanned >= SCAN_LIMIT) {
         const next: SearchCursor | undefined = position < page.items.length - 1 || page.next ? { query: input.query, conversation, before: entry.id } : index + 1 < targets.length ? { query: input.query, conversation: targets[index + 1] } : undefined;
-        return { items, scanned, ...(next ? { nextCursor: JSON.stringify(next) } : {}) };
+        return { items, scanned, ...(next ? { nextCursor: JSON.stringify(next) } : {}), ...(attachmentWork ? { attachmentWork } : {}) };
       }
     }
   }
-  return { items, scanned };
+  return { items, scanned, ...(attachmentWork ? { attachmentWork } : {}) };
 }
 
 export async function activePersonalReferenceTool(tx: Tx, api: Pick<ToolExecutionApi, "conversationId" | "taskId">, name: string) {

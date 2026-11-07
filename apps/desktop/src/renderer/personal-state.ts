@@ -1,6 +1,7 @@
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../shared/bridge.ts";
 import type { PersonalSettingsSnapshot } from "../shared/personal-settings.ts";
-import type { PersonalDesktopAction, PersonalDesktopActionName, PersonalDesktopActionReceipt, PersonalDesktopApproval, PersonalDesktopDelegation, PersonalDesktopEvent, PersonalDesktopFamily, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopOperation, PersonalDesktopOutput, PersonalDesktopQuestion, PersonalDesktopState, PersonalDesktopWork, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopAction, PersonalDesktopActionName, PersonalDesktopActionReceipt, PersonalDesktopApproval, PersonalDesktopAttachment, PersonalDesktopDelegation, PersonalDesktopEvent, PersonalDesktopFamily, PersonalDesktopFrame, PersonalDesktopLive, PersonalDesktopOperation, PersonalDesktopOutput, PersonalDesktopQuestion, PersonalDesktopState, PersonalDesktopWork, PersonalTimelineEntry, PersonalTimelinePage } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalInputDraft } from "../shared/personal-desktop.ts";
 import { parseOwnerAnswers, parseOwnerQuestions, type OwnerAnswer, type OwnerQuestionItem } from "@ruukoto/core/owner-question-input.ts";
 import { loadPersonalCuaImage, type CuaImagePage } from "./personal-cua-image.ts";
 
@@ -27,6 +28,7 @@ const sameAction = (left: PersonalDesktopAction, right: PersonalDesktopAction) =
 // Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 // Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
 // Note: See .agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md
+// Note: See .agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md
 export class PersonalState {
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "connecting" };
   identity: Identity | null = null;
@@ -36,6 +38,11 @@ export class PersonalState {
   live = emptyLive();
   message: string | null = null;
   draft = "";
+  attachments: PersonalDesktopAttachment[] = [];
+  attachmentFailed = false;
+  attaching = false;
+  private draftId: string | undefined;
+  private draftWrites: Promise<void> = Promise.resolve();
   draftMismatch = false;
   sending = false;
   checking = false;
@@ -73,7 +80,7 @@ export class PersonalState {
   private detailLoading = new Map<string, Promise<boolean>>();
   readonly refreshingCards = new Set<string>();
   private projectionLoading = new Set<string>();
-  private sent = new Map<string, { text: string; timestamp: number; anchor: number; status?: string }>();
+  private sent = new Map<string, { text: string; attachments?: PersonalDesktopAttachment[]; timestamp: number; anchor: number; status?: string }>();
   private pendingDecisions = new Set<string>();
   readonly uncertainApprovals = new Set<string>();
   mode: PermissionMode = "auto-review";
@@ -94,16 +101,17 @@ export class PersonalState {
   private reading = false;
   private querying = new Set<QueryKind>();
   private disposed = false;
-  constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void) {}
+  constructor(private readonly bridge: Pick<DesktopBridge, "request"> & Partial<Pick<DesktopBridge, "pickAttachments">>, readonly changed: () => void) {}
   get online() { return this.status.state === "online" && this.identity?.online === true && this.ready; }
   get busy() { return !!this.live.run || this.live.inboxCount > 0; }
-  get canSend() { return this.online && !this.sending && !this.pending && !this.draftMismatch && !!this.draft.trim(); }
+  get canSend() { return this.online && !this.sending && !this.attaching && !this.attachmentFailed && !this.pending && !this.draftMismatch && (!!this.draft.trim() || this.attachments.length > 0); }
+  get canAttach() { return this.online && !this.sending && !this.attaching && !this.pending && !this.draftMismatch && this.attachments.length < 4; }
   get historyMore() { return !!this.cursor; }
   get timeline(): PersonalPresentedMessage[] {
     const associated = new Set([...this.entries.values()].flatMap(entry => entry.input?.historyEntry === undefined ? [] : [entry.input.historyEntry]));
     const entries = [...this.entries.values()].filter(entry => !associated.has(entry.entry)).map(entry => ({ ...entry, requestKey: entry.input?.requestId }));
     const received = new Set(entries.flatMap(entry => entry.requestKey ? [entry.requestKey] : []));
-    const pending: PersonalPresentedMessage[] = [...this.sent].filter(([key]) => !received.has(key)).map(([requestKey, value]) => ({ entry: value.anchor, conversation: 0, kind: "local-input", role: "user", text: value.text, timestamp: value.timestamp, partial: false, truncated: false, requestKey, pendingStatus: value.status }));
+    const pending: PersonalPresentedMessage[] = [...this.sent].filter(([key]) => !received.has(key)).map(([requestKey, value]) => ({ entry: value.anchor, conversation: 0, kind: "local-input", role: "user", text: value.text, ...(value.attachments?.length ? { attachments: value.attachments } : {}), timestamp: value.timestamp, partial: false, truncated: false, requestKey, pendingStatus: value.status }));
     return [...entries, ...pending].sort((a, b) => a.entry - b.entry);
   }
   get presence() {
@@ -133,7 +141,7 @@ export class PersonalState {
     } else if (update.type === "personal_identity") {
       const key = JSON.stringify([update.identity.remoteId, update.identity.origin, update.identity.profile.id, update.identity.profile.directory]);
       if (this.view.instanceId !== key) {
-        if (this.view.instanceId && this.draft) this.draftMismatch = true;
+        if (this.view.instanceId && (this.draft || this.attachments.length || this.attachmentFailed)) this.draftMismatch = true;
         ++this.generation; this.entries.clear(); this.bodies.clear(); this.live = emptyLive(); this.questions = []; this.approvals = []; this.works = []; this.pages = {}; this.next = {}; this.question = null; this.approval = null; this.work = null;
         this.cards.clear(); this.details.clear(); this.detailLoading.clear(); this.deciding.clear(); this.uncertainDecisions.clear(); this.pendingDecisions.clear(); this.uncertainApprovals.clear(); this.refreshingCards.clear(); this.sent.clear(); this.cardRevisions.clear(); this.projection = false; this.revision = -1; this.delegations = []; this.projectionNext = {};
         this.questionCards.clear(); this.questionDetails.clear(); this.questionDrafts.clear(); this.questionLoading.clear(); this.questionRevisions.clear(); this.acting.clear(); this.uncertainActions.clear(); this.actionRefreshing.clear(); this.hostActions.clear(); this.cuaImages.clear(); this.cuaImageLoading.clear(); this.invalidatedObservations.clear();
@@ -145,10 +153,11 @@ export class PersonalState {
       if (update.identity.runId) this.runId = update.identity.runId;
       this.timers();
     } else if (update.type === "personal_frame") this.frame(update.frame);
+    else if (update.type === "personal_draft") this.installDraft(update.draft);
     else if (update.type === "personal_pending") {
       const record = update.record ?? this.pending;
-      if (record) this.rememberInput(record.requestId, record.input, update.result?.kind === "accepted" ? update.result.status : "checking");
-      if (update.result?.kind === "accepted" && record?.input === this.draft) this.draft = "";
+      if (record) this.rememberInput(record.requestId, record.input, update.result?.kind === "accepted" ? update.result.status : "checking", record.attachments);
+      if (update.result?.kind === "accepted" && record?.input === this.draft && JSON.stringify(record.attachments ?? []) === JSON.stringify(this.attachments)) { this.draft = ""; this.attachments = []; }
       this.pending = update.record; this.pendingResult = update.result ?? null;
     }
     else if (update.type === "personal_decisions") {
@@ -237,24 +246,84 @@ export class PersonalState {
     else if (result.value.state === "saved") this.outputStatus.set(key, "文件已保存");
     this.changed();
   }
-  edit(value: string) { this.draft = value; this.changed(); }
-  discardDraft() { this.draft = ""; this.draftMismatch = false; this.changed(); }
+  private installDraft(value: PersonalInputDraft) {
+    if (this.draftMismatch || value.origin !== this.identity?.origin || value.remoteId !== this.identity.remoteId || value.profile.id !== this.identity.profile.id || value.profile.directory !== this.identity.profile.directory) return;
+    this.draftId = value.id; this.draft = value.input; this.attachments = structuredClone(value.attachments); this.attachmentFailed = value.failed;
+  }
+  edit(value: string) {
+    this.draft = value; this.changed();
+    const id = this.draftId, instance = this.view.instanceId;
+    if (!id || this.draftMismatch || new TextEncoder().encode(value).byteLength > 16384) return;
+    this.draftWrites = this.draftWrites.then(async () => {
+      if (instance !== this.view.instanceId || id !== this.draftId) return;
+      const result = await this.request<PersonalInputDraft>("desktop_personal_draft_save", { id, text: value });
+      if (!result.ok && instance === this.view.instanceId) { this.attachmentFailed = true; this.message = result.error.message; this.changed(); }
+    });
+  }
+  async discardDraft() {
+    if (this.sending || this.attaching || this.pending) return;
+    if (this.draftId) await this.draftWrites;
+    if (this.draftMismatch) { this.draft = ""; this.attachments = []; this.attachmentFailed = false; this.draftMismatch = false; this.draftId = undefined; }
+    const result = await this.request<PersonalInputDraft>("desktop_personal_draft_read", {});
+    const id = result.ok && result.value?.id || this.draftId;
+    if (id) {
+      const discarded = await this.request<PersonalInputDraft>("desktop_personal_draft_discard", { id });
+      if (!discarded.ok) { this.message = discarded.error.message; this.changed(); return; }
+      if (discarded.value) this.installDraft(discarded.value);
+    } else { this.draft = ""; this.attachments = []; this.attachmentFailed = false; this.draftMismatch = false; }
+    this.changed();
+  }
+  async attach() {
+    if (!this.canAttach || !this.bridge.pickAttachments) return;
+    const generation = this.generation; this.attaching = true; this.changed();
+    try {
+      await this.draftWrites;
+      if (!this.draftId) {
+        const result = await this.request<PersonalInputDraft>("desktop_personal_draft_read", {});
+        if (!result.ok || !result.value) { this.attachmentFailed = true; this.message = result.ok ? "原草稿不可用，请重新连接后选择附件。" : result.error.message; return; }
+        if (generation !== this.generation) return;
+        const text = this.draft; this.installDraft(result.value);
+        if (text !== this.draft) { this.draft = text; const saved = await this.request<PersonalInputDraft>("desktop_personal_draft_save", { id: this.draftId, text }); if (!saved.ok) { this.attachmentFailed = true; this.message = saved.error.message; return; } }
+      }
+      if (generation !== this.generation || !this.draftId) return;
+      const result = await this.bridge.pickAttachments(this.draftId, "personal");
+      if (generation !== this.generation) return;
+      if (!result.ok) { this.attachmentFailed = true; this.message = result.error.message; }
+      else {
+        const saved = await this.request<PersonalInputDraft>("desktop_personal_draft_read", {});
+        if (generation !== this.generation) return;
+        if (saved.ok && saved.value) this.installDraft(saved.value);
+        else { this.attachmentFailed = true; this.message = saved.ok ? "附件状态未能核实，请重新连接后读取原草稿。" : saved.error.message; }
+      }
+    } catch { if (generation === this.generation) { this.attachmentFailed = true; this.message = "附件准备中断，本条输入未发送；请重新选择附件。"; } }
+    finally { this.attaching = false; this.changed(); }
+  }
+  async removeAttachment(attachmentId: string) {
+    if (!this.online || this.draftMismatch || this.attaching || this.sending || this.pending || !this.draftId) return;
+    await this.draftWrites;
+    const generation = this.generation, result = await this.request<PersonalInputDraft>("desktop_personal_attachment_remove", { id: this.draftId, attachmentId });
+    if (generation !== this.generation) return;
+    if (result.ok) this.installDraft(result.value); else this.message = result.error.message;
+    this.changed();
+  }
   async send() {
     if (!this.canSend) return;
     if (new TextEncoder().encode(this.draft).byteLength > 16384) { this.message = "每条输入最多16 KiB，请缩短后再发送。"; this.changed(); return; }
-    const text = this.draft, generation = this.generation; this.sending = true; this.changed();
-    const result = await this.request<Receipt>("desktop_personal_input_submit", { text });
+    const text = this.draft, attachments = structuredClone(this.attachments), generation = this.generation; this.sending = true; this.changed();
+    if (this.draftId) await this.draftWrites;
+    if (generation !== this.generation || this.attachmentFailed) { this.sending = false; this.changed(); return; }
+    const result = await this.request<Receipt>("desktop_personal_input_submit", { text, ...(attachments.length ? { attachments } : {}), ...(this.draftId ? { draftId: this.draftId } : {}) });
     this.sending = false;
     if (generation !== this.generation) return;
     if (!result.ok) this.message = result.error.message;
-    else { this.pendingResult = result.value; if (result.value.kind === "accepted") { this.rememberInput(result.value.requestId, text, result.value.status); if (this.draft === text) this.draft = ""; } }
+    else { this.pendingResult = result.value; if (result.value.kind === "accepted") { this.rememberInput(result.value.requestId, text, result.value.status, attachments); if (this.draft === text && JSON.stringify(this.attachments) === JSON.stringify(attachments)) { this.draft = ""; this.attachments = []; } } }
     this.changed();
   }
-  private rememberInput(requestId: string, text: string, status?: string) {
+  private rememberInput(requestId: string, text: string, status?: string, attachments?: PersonalDesktopAttachment[]) {
     const canonical = [...this.entries.values()].find(entry => entry.input?.requestId === requestId);
     if (canonical) { this.bodies.set(canonical.entry, text); return; }
     const previous = this.sent.get(requestId), anchor = Math.max(0, ...this.entries.keys(), ...[...this.cards.values()].map(card => card.occurrence));
-    this.sent.set(requestId, { text, timestamp: previous?.timestamp ?? Date.now(), anchor: previous?.anchor ?? Math.max(anchor + .5, ...[...this.sent.values()].map(value => value.anchor + .001)), status });
+    this.sent.set(requestId, { text, ...(attachments?.length ? { attachments: structuredClone(attachments) } : {}), timestamp: previous?.timestamp ?? Date.now(), anchor: previous?.anchor ?? Math.max(anchor + .5, ...[...this.sent.values()].map(value => value.anchor + .001)), status });
   }
   async reconcile(restore = false) {
     if (this.checking || this.status.state !== "online") return;

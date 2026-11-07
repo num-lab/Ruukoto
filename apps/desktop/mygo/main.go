@@ -81,7 +81,7 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string)
 	if !d.trusted(ctx) {
 		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
 	}
-	prepared := d.call(ctx, "attachment_instance", target)
+	prepared := d.call(ctx, "attachment_instance", target, sessionID)
 	var selection struct {
 		OK       bool   `json:"ok"`
 		Instance string `json:"value"`
@@ -91,6 +91,9 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string)
 	}
 	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "选择附件"})
 	if err != nil {
+		if target == "personal" {
+			d.call(ctx, "attachments", sessionID, []string{}, selection.Instance, target)
+		}
 		return failure("dialog_failed", "not_sent", "无法打开附件选择器；请重新选择。")
 	}
 	if files == nil {

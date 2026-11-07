@@ -110,7 +110,7 @@ async function receive(line: string): Promise<void> {
       case "subscribe": return host.subscribe(args[0]);
       case "terminal_reset": return host.resetTerminals();
       case "request": return host.request(args[0], args[1], args[2]);
-      case "attachment_instance": return host.attachmentInstance(args[0] ?? "code");
+      case "attachment_instance": return host.attachmentInstance(args[0] ?? "code", args[1] as string | undefined);
       case "attachments": {
         const files: unknown = args[1];
         if (!Array.isArray(files) || files.some(file => typeof file !== "string") || typeof args[2] !== "string") throw new DesktopError("invalid_params", "所选附件无效；请重新选择。");

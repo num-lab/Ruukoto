@@ -37,6 +37,8 @@ Coding keeps ordinary messages in the user queue. Retrieve any unstarted message
 
 Desktop New chat and the TUI No workspace choice create a persistent managed workspace on first send. Independent chats get separate roots; branches share the source files. Close, archive and restart retain them. See [Coding usage](docs/usage.md#22-coding-agent).
 
+Personal accepts files and supported images through Desktop and Telegram, delegates their processing, and returns requested final files. Each input supports four attachments of at most 8 MiB each. [Attachment usage](docs/usage.md#4-channels-and-clients) explains selection and recovery; [development verification](docs/development.md#external-acceptance) includes the opted-in CSV/binary model check.
+
 ### Personal Agent
 
 Follow the [deployment guide](deploy/systemd/README.md) for the account, native execution, persistent user manager, systemd unit and optional service helper. Configure models and credential environment variables in a new profile, then pair dedicated IM entries.

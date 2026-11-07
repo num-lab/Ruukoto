@@ -27,7 +27,7 @@ function request(socketPath: string, route: string, headers: http.OutgoingHttpHe
     req.end(input);
   });
 }
-async function fixture(t: test.TestContext) {
+async function fixture(t: test.TestContext, beforeReturn?: (route: string, body: unknown) => Promise<void>) {
   const home = fs.realpathSync(fs.mkdtempSync("/tmp/pr-")), directory = path.join(home, "profile");
   fs.mkdirSync(directory, { mode: 0o700 });
   fs.writeFileSync(path.join(directory, "profile.json"), JSON.stringify(PERSONAL_FORMAT), { mode: 0o600 });
@@ -38,6 +38,7 @@ async function fixture(t: test.TestContext) {
   const remote = await startPersonalRemote({ home: () => home, backend: async <T>(method: string, route: string, body?: unknown, credential?: string) => {
     calls.push(`${method} ${route}`);
     if (route === "/desktop/action") nativeCalls.push({ body, credential });
+    await beforeReturn?.(route, body);
     return (route === "/desktop/identity" ? { v: 1, product: "ruukoto", profile, runId } : { accepted: true }) as T;
   } });
   t.after(async () => { await remote.stop(); fs.rmSync(home, { recursive: true, force: true }); });
@@ -86,6 +87,27 @@ test("remote HTTP：双重身份、Origin拒绝、私有admin与显式路由名�
   assert.equal(accepted.value.ok, true);
   assert.equal(f.calls.includes("POST /inputs"), true);
   assert.equal(JSON.stringify(accepted).includes(f.authorization), false);
+});
+
+test("Personal attachment routes retain paired authentication and reject a response revoked during upload", async t => {
+  let release!: () => void, received!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { received = resolve; });
+  t.after(() => release());
+  const upload = { v: 1, attachmentId: randomUUID(), name: "input.csv", mime: "text/csv", totalBytes: 3, sha256: "a".repeat(64), offset: 0, base64: "YWJj" };
+  const f = await fixture(t, async (route, body) => { if (route === "/desktop/attachment") { assert.deepEqual(body, upload); received(); await held; } });
+  const bound = await f.pair();
+  assert.equal((await request(f.socketPath, "/desktop/attachment", { ...bound, "x-ruukoto-profile-id": "other" }, upload)).value.code, "remote_profile_changed");
+  assert.equal((await request(f.socketPath, "/desktop/inputs", { ...bound, origin: "https://other.example" }, { requestId: randomUUID(), input: "", attachments: [] })).status, 403);
+  assert.equal(f.calls.filter(call => call.startsWith("POST")).length, 0);
+  assert.equal((await request(f.socketPath, "/desktop/inputs", bound, { requestId: randomUUID(), input: "", attachments: [{ id: upload.attachmentId, name: upload.name, mime: upload.mime, size: upload.totalBytes, sha256: upload.sha256 }] })).value.ok, true);
+  const response = request(f.socketPath, "/desktop/attachment", bound, upload);
+  const lost = assert.rejects(response);
+  await started;
+  await request(f.adminPath, "/credentials/revoke", {}, { id: f.authorization.slice(7).split(".")[0] });
+  release();
+  await lost;
+  assert.equal(f.calls.filter(call => call === "POST /desktop/attachment").length, 1);
+  assert.equal((await request(f.socketPath, "/desktop/attachment", bound, upload)).value.code, "remote_credential_revoked");
 });
 
 test("remote撤销：旧WSS关闭、未来HTTP拒绝，已接纳业务不变", async t => {

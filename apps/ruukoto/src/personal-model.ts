@@ -105,10 +105,11 @@ export function recordedModels(provider: Provider, record: (evidence: RequestEvi
     if (!options?.sessionId) throw new PersonalError("model_source_missing", "模型请求缺少持久会话来源，已停止请求。");
     const references = prepareInput ? await prepareInput(normalizeContext(original), options) : undefined;
     const input = references?.input ?? original;
-    const images = input.messages.some(message => message.role !== "assistant" && Array.isArray(message.content) && message.content.some(part => part.type === "image"));
-    if (images && !model.input.includes("image")) throw new PersonalError("image_input_unsupported", "当前模型不支持图片，未发送缺图请求；请由拥有者选择支持图片的模型。");
-    if (images && !media) throw new PersonalError("image_reference_invalid", "原图片的持久来源无法核实，已停止模型请求；请保留档案。");
+    const referencesImages = input.messages.some(message => message.role !== "assistant" && Array.isArray(message.content) && message.content.some(part => part.type === "image"));
+    if (referencesImages && !media) throw new PersonalError("image_reference_invalid", "原图片的持久来源无法核实，已停止模型请求；请保留档案。");
     const prepared = media ? await media.prepare(input, options.sessionId) : { input, snapshot: json, imageMappings: undefined };
+    const images = prepared.input.messages.some(message => message.role !== "assistant" && Array.isArray(message.content) && message.content.some(part => part.type === "image"));
+    if (images && !model.input.includes("image")) throw new PersonalError("image_input_unsupported", "当前模型不支持图片，未发送缺图请求；请由拥有者选择支持图片的模型。");
     const evidence: RequestEvidence = { requestId: randomUUID(), sessionId: options.sessionId, provider: model.provider, modelId: model.id, input: prepared.snapshot(input), ...(references ? { references: references.references } : {}), ...(prepared.imageMappings ? { imageMappings: prepared.imageMappings } : {}), reasoning: "reasoning" in options && typeof options.reasoning === "string" ? options.reasoning : "off" };
     await record(evidence);
     options.signal?.throwIfAborted();

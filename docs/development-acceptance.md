@@ -66,6 +66,27 @@ RUN_MODEL_CHECK=1 RUN_PERSONAL_M4_MODELS_FILE=/absolute/models.json npx tsx --te
 
 Set `RUN_PERSONAL_M4_MODEL=provider/model` when needed. Separately verify real isolated Linux file/browser output, exact 8 MiB across authenticated chunks, partial capture, cross-profile identifiers, revocation during reads, reconnect and old-source cutover with unchanged history. Both signed desktop hosts must visibly preview text/images and save through their native dialogs with matching bytes and hashes, including a chooser held beyond 60 seconds. Canceled saves and delivery failures must preserve the original business-write count. Earlier M1–M3 acceptance retains its unchanged scope; the integrated desktop gate requires these remaining paths.
 
+## Personal Work Questions
+
+Work-question model acceptance covers concurrent questions, original-work continuation, cancellation and retained permissions. Fixed recovery and both native hosts additionally require isolated Linux and signed-client interaction evidence.
+
+```bash
+RUN_MODEL_CHECK=1 RUN_PERSONAL_M3_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-m3-model-acceptance.test.ts
+```
+
+Select `RUN_PERSONAL_M3_MODEL=provider/model` for several configured models.
+
+## Personal Inbound Attachments
+
+Attachment model acceptance uses the maintained CSV and binary fixtures with a text-only model configuration. Main delegates the original CSV; the assigned work changes row17's `status` from `pending` to `done` and publishes `updated.csv` with all other bytes unchanged. Another work returns the binary original. The check verifies complete output bytes, immutable work/source associations, retained originals and reopen without another operation.
+
+```bash
+npm run build:worker
+RUN_MODEL_CHECK=1 RUN_PERSONAL_ATTACHMENT_MODELS_FILE=/absolute/models.json npx tsx --test test/personal-attachment-model-acceptance.test.ts
+```
+
+Select `RUN_PERSONAL_ATTACHMENT_MODEL=provider/model` for several models. Run the same known-input scenario through actual selection/upload/save in both signed native hosts and real Telegram reception/return on an isolated Linux profile. Telegram albums require a source-bound Send choice fixing the collected files before staging; polling timeouts cannot establish the final member. Keep actual payload, source, size and hash evidence outside the checkout. Missing real client or platform verification remains a gap.
+
 ## Evidence and Cleanup
 
 See [smoke instructions](../verification/smoke/README.md) for arguments, authentication, exit codes and cleanup. Keep credentials in protected files outside the checkout. [Release acceptance](release-acceptance.md#current-rerun-entry-points) defines upgrade baselines and old names. Missing `test:model` configuration is a skip, not a pass. Model execution and installation upgrades are separate checks; Docker history and simulated IM do not prove native isolation or real IM acceptance. [Archived privileged scripts](../verification/archive/README.md) require isolation of system writes before anyone restores execution.

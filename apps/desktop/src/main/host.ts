@@ -15,7 +15,7 @@ import { loadPersonalConfig, savePersonalConfig, personalOrigin, legacyPersonalM
 import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 import { PersonalSettingsController } from "./personal-settings-controller.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
-import { pickAttachments, stageAttachments, type StagedAttachment } from "./attachments.ts";
+import { personalAttachments, pickAttachments, stageAttachments, type StagedAttachment } from "./attachments.ts";
 import { DesktopChatDrafts } from "./chat-drafts.ts";
 import type { DesktopAttachment, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { verifyDirIdentitySync, type DirIdentity } from "@ruukoto/core/dir-identity.ts";
@@ -277,8 +277,18 @@ export class DesktopHost {
       } else if (op === "desktop_personal_pair_reconcile") { expect([]); result = await controller.reconcilePairing(); }
       else if (op === "desktop_personal_pair_restore") { expect([]); result = await controller.restorePairing(); }
       else if (op === "desktop_personal_input_submit") {
-        expect(["text"]); if (typeof input.text !== "string") throw new DesktopError("invalid_params", "请输入文本消息。");
-        result = await controller.submitInput(input.text);
+        expect(["text", ...(Object.hasOwn(input, "attachments") ? ["attachments"] : []), ...(Object.hasOwn(input, "draftId") ? ["draftId"] : [])]); if (typeof input.text !== "string" || input.attachments !== undefined && !personalAttachments(input.attachments) || input.draftId !== undefined && typeof input.draftId !== "string") throw new DesktopError("invalid_params", "请输入消息或选择原附件。");
+        result = await controller.submitInput(input.text, input.attachments ?? [], input.draftId);
+      } else if (op === "desktop_personal_draft_read") { expect([]); result = controller.inputDraft(); }
+      else if (op === "desktop_personal_draft_save") {
+        expect(["id", "text"]); if (typeof input.id !== "string" || typeof input.text !== "string") throw new DesktopError("invalid_params", "请保留原草稿再编辑正文。");
+        result = controller.saveDraft(input.id, input.text);
+      } else if (op === "desktop_personal_draft_discard") {
+        expect(["id"]); if (typeof input.id !== "string") throw new DesktopError("invalid_params", "请读取原草稿后放弃。");
+        result = controller.discardDraft(input.id);
+      } else if (op === "desktop_personal_attachment_remove") {
+        expect(["id", "attachmentId"]); if (typeof input.id !== "string" || typeof input.attachmentId !== "string") throw new DesktopError("invalid_params", "请选择原草稿中的附件。");
+        result = controller.removeAttachment(input.id, input.attachmentId);
       } else if (op === "desktop_personal_input_reconcile") { expect([]); result = await controller.reconcileInput(); }
       else if (op === "desktop_personal_input_restore") { expect([]); result = await controller.restoreInput(); }
       else if (op === "desktop_personal_output_preview" || op === "desktop_personal_output_save") {
@@ -364,21 +374,23 @@ export class DesktopHost {
     } finally { this.terminalOpening.delete(id); this.terminalCanceled.delete(id); }
   }
   private attachmentSource(target: unknown) {
-    if (target !== "code") throw new DesktopError("op_not_allowed", "个人 Agent 的附件功能尚未开放，请在 Code 会话中附加文件。");
-    const source = this.controller;
+    if (target !== "code" && target !== "personal") throw new DesktopError("op_not_allowed", "请选择 Code 或个人 Agent 后附加文件。");
+    const source = target === "personal" ? this.personal : this.controller;
     if (!source || source.status.state !== "online" || !source.instanceId() || !source.connectionIdentity()) throw new DesktopError("connection_unavailable", "请等待连接恢复后附加文件。");
     return source;
   }
-  attachmentInstance(target: unknown = "code"): string {
+  attachmentInstance(target: unknown = "code", draftId?: string): string {
     const source = this.attachmentSource(target);
     const connection = source.connectionIdentity()!;
     let id = this.attachmentConnections.get(connection);
     if (!id) { id = randomUUID(); this.attachmentConnections.set(connection, id); }
+    if (source instanceof PersonalController && draftId !== undefined) source.beginAttachmentSelection(draftId);
     return `${id}:${source.instanceId()}`;
   }
   pickAttachments(sessionId: unknown, pick: () => Promise<string[]>, expectedSelection?: string, target: unknown = "code", draftTokens?: string[]) {
     const source = this.attachmentSource(target);
     if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "请选择会话后附加文件。");
+    if (source instanceof PersonalController) return source.pickAttachments(sessionId, pick, expectedSelection !== undefined);
     if (expectedSelection !== undefined && this.attachmentInstance(target) !== expectedSelection) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。");
     const connection = source.connectionIdentity();
     const current = () => this.controller === source && source.status.state === "online" && source.connectionIdentity() === connection;

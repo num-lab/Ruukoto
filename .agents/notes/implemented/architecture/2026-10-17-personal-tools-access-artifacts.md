@@ -4,6 +4,8 @@ Status: implemented
 
 [Request configuration](2026-10-25-personal-request-configuration.md) owns independent Web Search configuration/selection without switching unrelated file/HTTP operations. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) removes unconditional material-directory checks: network/full-access operations check only actual dependencies. Original source, approval, permission revision and unknown-effect rules remain.
 
+[Inbound attachment scope](2026-11-07-personal-inbound-attachments.md) replaces the child-own-conversation rule for owner attachments with explicit grants to exact work and instructions, including reused children. Original-byte storage, ordinary operation authorization and unknown-effect rules remain.
+
 ## Problem
 
 Personal commands/MCP already recovered original work, while file, HTTP, search and artifacts still used old ToolRouter, approval ledger and ArtifactStore. Reusing those entries reintroduces old Db. Shell alone cannot preserve exact file grants/automatic review. Old HTTP converted/truncated responses upstream as text, unsuitable for original-byte evidence.

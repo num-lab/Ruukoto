@@ -411,8 +411,10 @@ test("durable 模型快照：主子三模式保留实际工具定义与启用前
     evidence.after[access] = { main: estimate(mainCall), child: estimate(childCall) };
   }
   for (const request of [beforeMain, beforeChild]) {
-    for (const name of ["read_file", "write_file", "http_request", "web_search", "read_artifact"]) assert.ok(!toolNames(request).includes(name));
+    for (const name of ["read_file", "write_file", "http_request", "web_search"]) assert.ok(!toolNames(request).includes(name));
   }
+  assert.ok(!toolNames(beforeMain).includes("read_artifact"));
+  assert.ok(toolNames(beforeChild).includes("read_artifact"));
   t.diagnostic(JSON.stringify({ estimatedTokens: evidence }));
 });
 

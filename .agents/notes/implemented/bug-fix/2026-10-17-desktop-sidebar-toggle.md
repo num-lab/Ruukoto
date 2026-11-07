@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Desktop visual alignment](../feature/2026-11-07-desktop-visual-alignment.md) supersedes the moving toggle position with a fixed button beside the native traffic lights. The permanent node, native hit-region order, focus and accessible state remain required.
+
 ## Problem
 
 The sidebar collapse button and title-bar expand button were separate nodes. Switching state mounted the title-bar button before the sidebar width transition finished. Demo frame measurements showed x jumping from 210 to 268 before moving to 36: a 58px jump to the right. Native chrome also reserves traffic-light space.
@@ -10,7 +12,7 @@ The sidebar collapse button and title-bar expand button were separate nodes. Swi
 
 `app-window` owns one permanent button outside the sidebar's inert area, retaining its ref, focus, click, and keyboard entry points. `aria-controls` and `aria-expanded` expose state. Expanded `left` is sidebar width minus 42px; collapsed endpoints are 16px in Demo and 114px in Desktop. Desktop reserves another 30px on the left for search, as defined by the [search decision](../feature/2026-10-21-desktop-spotlight-search.md).
 
-Button left and sidebar width use `200ms ease`. The button sits above the title bar and is explicitly `no-drag`. Collapsed title-bar padding is the button endpoint plus 30px, preserving tab endpoints; padding also transitions. Pointer and keyboard resizing disable the left transition. Reduced motion follows the global preference.
+Button left and sidebar width use `200ms ease`. The button sits above the title bar and is explicitly `no-drag`. It is the last permanent child of `app-window`, after both title-bar drag regions: Electron builds native hit regions in DOM order, so a later drag rectangle can swallow an earlier no-drag sibling despite its higher z-index. Both macOS hosts place the 14px native traffic-light buttons at (18, 17), giving them the same 24px vertical center as the 26px sidebar toggle in the 48px title bar. Collapsed title-bar padding is the button endpoint plus 30px, preserving tab endpoints; padding also transitions. Pointer and keyboard resizing disable the left transition. Reduced motion follows the global preference.
 
 The [Desktop migration](../architecture/2026-10-17-desktop-demo-v4.md) still owns native traffic-light and glass layers. [File-tree feedback](../feature/2026-10-17-desktop-file-tree-loading.md) remains independent.
 

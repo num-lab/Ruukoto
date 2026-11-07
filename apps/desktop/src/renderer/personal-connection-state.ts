@@ -1,6 +1,7 @@
 import type { PersonalTargetConfig } from "../main/personal-config.ts";
 import type { DesktopBridge, DesktopResult } from "../shared/bridge.ts";
 import type { SettingsForm, SettingsPhase } from "./settings-state.ts";
+import type { PersonalState } from "./personal-state.ts";
 
 const emptyConfig = (): PersonalTargetConfig => ({ v: 1, origin: "" });
 const equal = (a: PersonalTargetConfig, b: PersonalTargetConfig) => a.origin === b.origin;
@@ -34,6 +35,16 @@ export class PersonalConnectionState implements SettingsForm {
   get disabled() { return !this.loaded || this.reading || this.permissionsReading || this.phase === "saving" || this.phase === "unknown"; }
   get permissionsDisabled() { return this.disabled || this.dirty || !this.permissions || !this.current?.binding; }
   get confirming() { return this.permissionConfirmation !== null; }
+  connectionStatus(personal: Pick<PersonalState, "status" | "identity">): "loading" | "connecting" | "connected" | "unpaired" | "error" {
+    if (this.reading || this.phase === "loading" || this.phase === "saving") return "loading";
+    if (!this.loaded) return "error";
+    if (this.phase === "unknown") return "loading";
+    const binding = this.current?.binding;
+    if (!binding) return "unpaired";
+    if (personal.status.state === "connecting" || personal.status.state === "reconnecting") return "connecting";
+    const identity = personal.identity;
+    return personal.status.state === "online" && identity?.online && identity.origin === this.current?.origin && identity.remoteId === binding.remoteId && identity.profile.id === binding.profile.id && identity.profile.directory === binding.profile.directory ? "connected" : "error";
+  }
   edit(_key: "origin", value: string) { if (this.disabled) return; this.draft = { v: 1, origin: value }; this.code = ""; this.message = ""; this.fieldErrors = {}; this.changed(); }
   discard() { this.draft = { ...this.baseline }; this.fieldErrors = {}; this.changed(); }
   invalidate() { ++this.generation; this.reading = false; this.permissionsReading = false; this.permissions = null; this.permissionsConnection = null; this.permissionConfirmation = null; this.code = ""; if (this.phase === "saving") { this.phase = "unknown"; this.message = "原操作结果待核实，请读取连接或核实原配对。"; } }

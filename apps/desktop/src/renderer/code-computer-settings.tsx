@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { SettingsPageProps } from "./settings-dialog.tsx";
 import { CodeMcpState } from "./code-mcp-state.ts";
 import { SettingsButton, SettingsInput, SettingsNotice, SettingsSelect, SettingsTag } from "./components/controls.tsx";
-import { SettingsCard, SettingsGroup, SettingsList, SettingsListItem, SettingsPage, SettingsRow } from "./components/settings.tsx";
+import { SettingsCard, SettingsGroup, SettingsList, SettingsListItem, SettingsPage, SettingsRow, SettingsSubpage } from "./components/settings.tsx";
 import { Tools } from "./code-mcp-settings.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
@@ -12,21 +12,21 @@ type Confirmation = { kind: "enable" | "disable" | "remove" };
 
 function CuaRecovery({ state }: { state: CodeMcpState }) {
   const status = state.cuaStatus, observation = status?.observation;
-  const [recovering, setRecovering] = useState(false);
-  return <SettingsGroup title="本机电脑" action={<SettingsButton variant="icon" aria-label="刷新电脑状态" title="刷新电脑状态" disabled={state.reading || state.checking || !state.connected || state.phase === "saving"} onClick={() => void state.refreshCua()}><RefreshCw /></SettingsButton>}>
+  return <SettingsGroup title="本机电脑">
     <SettingsCard>
       {status && <SettingsRow title="运行状态" description={status.original ? `${status.original.toolName} · 结果待确认` : "没有正在等待恢复的电脑操作。"}><SettingsTag>{({ idle: "未连接", connecting: "连接中", active: "使用中", frozen: "待恢复", recovering: "恢复中" })[status.state]}</SettingsTag></SettingsRow>}
-      {status && <SettingsRow title="停止电脑操作" description="未保存的应用状态可能丢失，磁盘文件保留。" footer={recovering && <SettingsNotice>演示状态：操作已停止，可获取新截图并确认恢复。</SettingsNotice>}>
-        {(status.state === "frozen" && !status.stopped || status.state === "active" && !!state.service?.cua) && <SettingsButton disabled={state.disabled || state.dirty} onClick={() => { if (status.state === "active") void state.pauseCua(); else void state.cuaAction("stop"); setRecovering(true); }}>停止电脑操作</SettingsButton>}
+      {status && <SettingsRow title="停止电脑操作" description="未保存的应用状态可能丢失，磁盘文件保留。">
+        {(status.state === "frozen" && !status.stopped || status.state === "active" && !!state.service?.cua) && <SettingsButton disabled={state.disabled || state.dirty} onClick={() => { if (status.state === "active") void state.pauseCua(); else void state.cuaAction("stop"); }}>停止电脑操作</SettingsButton>}
         {status.stopped && !observation && <SettingsButton disabled={state.disabled || state.dirty} onClick={() => void state.cuaAction("observe")}>检查并恢复</SettingsButton>}
       </SettingsRow>}
-      {observation && <SettingsRow title="恢复现场" description="真实桌面截图未接入 demo；此处仅保留确认流程。">
+      {observation && <SettingsRow title="恢复现场" description="核对本次新截图后确认恢复。">
         <SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => void state.cuaAction("observe")}>重新截图</SettingsButton>
         <SettingsButton disabled={state.disabled || state.dirty || !state.canAcceptCua} onClick={() => void state.cuaAction("accept")}>确认恢复</SettingsButton>
       </SettingsRow>}
       {state.cuaImages.map((image, index) => <div className="file-image" key={`${observation!.id}:${image.id}`}><img src={image.source} alt={`恢复新截图 ${index + 1}`} onLoad={() => state.imageLoaded(observation!.id, image.id, true)} onError={() => state.imageLoaded(observation!.id, image.id, false)} /></div>)}
     </SettingsCard>
     {state.cuaError && <SettingsNotice>{state.cuaError}</SettingsNotice>}
+    {state.cuaError && <SettingsButton variant="ghost" disabled={state.reading || state.checking || !state.connected || state.phase === "saving"} onClick={() => void state.refreshCua()}>核实电脑状态</SettingsButton>}
   </SettingsGroup>;
 }
 
@@ -38,7 +38,7 @@ function ComputerDetails({ state, confirmation, setConfirmation }: { state: Code
       <SettingsRow title={state.service ? "编辑电脑" : "添加电脑"} description="配置本机 Cua Driver 与工具权限。"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={() => state.closeEditor()}>关闭编辑</SettingsButton></SettingsRow>
       <SettingsRow title="服务名称" htmlFor="computer-name" error={state.fieldErrors.name}><SettingsInput id="computer-name" value={state.draft.name} disabled={state.disabled || !!state.service} aria-invalid={!!state.fieldErrors.name} onChange={event => state.edit("name", event.target.value)} /></SettingsRow>
       <SettingsRow title="已安装的 Cua Driver" description="选择本机程序。" htmlFor="computer-cua-program" error={state.fieldErrors.cua ?? (state.cuaIssues.length ? state.cuaIssues.map(issue => issue.message).join("；") : !state.cuaTargets.length ? "未找到 Cua Driver，请先安装。" : undefined)}>
-        <SettingsSelect id="computer-cua-program" value={selectedProgram < 0 ? "" : String(selectedProgram)} disabled={state.disabled} onChange={event => state.selectCua(Number(event.target.value))} options={state.cuaTargets.map((target, index) => ({ value: String(index), label: target.label }))} />
+        <SettingsSelect id="computer-cua-program" value={selectedProgram < 0 ? "" : String(selectedProgram)} disabled={state.disabled} onValueChange={nextValue => state.selectCua(Number(nextValue))} options={state.cuaTargets.map((target, index) => ({ value: String(index), label: target.label }))} />
       </SettingsRow>
       {state.service?.cua && <SettingsRow title="程序路径" description={state.service.cua.executable} />}
       <Tools state={state} />
@@ -49,10 +49,10 @@ function ComputerDetails({ state, confirmation, setConfirmation }: { state: Code
       {state.phase === "conflict" && comparison && <SettingsRow title="后台当前值" description="草稿仍在上方，比较后决定。" footer={<pre className="settings-code-block">{JSON.stringify({ enabled: comparison.enabled, tools: comparison.toolAllowlist }, null, 2)}</pre>}>
         {!state.selectedId && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => state.useCurrentService()}>以当前同名服务继续编辑</SettingsButton>}
       </SettingsRow>}
-      <SettingsRow title="电脑操作" description="启停只更新演示状态。">
+      <SettingsRow title="电脑操作" >
         {state.service && <><SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => setConfirmation({ kind: "remove" })}>删除服务</SettingsButton><SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => { if (state.service!.enabled) void state.pauseCua(); else setConfirmation({ kind: "enable" }); }}>{state.service.enabled ? "暂停电脑" : "继续使用电脑"}</SettingsButton></>}
         <SettingsButton variant="ghost" disabled={state.disabled || !state.dirty} onClick={() => state.discard()}>放弃更改</SettingsButton>
-        <SettingsButton disabled={state.disabled || !state.dirty} onClick={() => void state.save()}>{state.service ? "保存" : "保存草稿"}</SettingsButton>
+        <SettingsButton variant="primary" disabled={state.disabled || !state.dirty} onClick={() => void state.save()}>保存</SettingsButton>
       </SettingsRow>
     </div>
   );
@@ -60,33 +60,35 @@ function ComputerDetails({ state, confirmation, setConfirmation }: { state: Code
 
 export function CodeComputerEditor({ state }: { state: CodeMcpState }) {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
+  const adding = state.editing && !state.selectedId;
   useEffect(() => { if (Object.keys(state.fieldErrors).length) document.querySelector<HTMLElement>('.settings-page [aria-invalid="true"]')?.focus(); }, [state.fieldErrors]);
   const confirm = async () => {
     const action = confirmation; setConfirmation(null);
     if (action?.kind === "enable" || action?.kind === "disable") await state.setEnabled(action.kind === "enable");
     else if (action?.kind === "remove") await state.remove();
   };
+  const recovery = (state.phase === "unknown" || state.phase === "error" || state.phase === "conflict") && <SettingsButton variant="ghost" disabled={state.reading || !state.connected} onClick={() => void state.read()}>核实原配置</SettingsButton>;
+  if (adding) return <SettingsSubpage title="添加电脑" description="配置电脑服务与工具权限。" onBack={() => state.closeEditor()}>
+    <SettingsGroup title="电脑">
+      <SettingsCard><ComputerDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /></SettingsCard>
+    </SettingsGroup>
+    {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
+    {recovery}
+  </SettingsSubpage>;
   return (
     <SettingsPage title="电脑" description="管理本机 Cua Driver 与电脑操作恢复。">
-      <SettingsGroup title="服务" action={<><SettingsButton variant="icon" aria-label="重新读取电脑配置" title="重新读取电脑配置" disabled={state.reading || state.phase === "saving"} onClick={() => void state.read()}><RefreshCw /></SettingsButton><SettingsButton onClick={() => setAdding(true)} disabled={state.disabled || state.dirty}><Plus />添加电脑</SettingsButton></>}>
-        {adding && <SettingsCard className="settings-import-preview">
-          <SettingsRow title="服务名称" htmlFor="new-computer-name"><SettingsInput id="new-computer-name" value={name} onChange={event => setName(event.target.value)} placeholder="新电脑" /></SettingsRow>
-          <SettingsRow title="Cua Driver" description="选择目标后展示工具与权限配置。"><SettingsButton onClick={() => { state.select(null); state.edit("name", name.trim() || "新电脑"); setAdding(false); }}>完成配置</SettingsButton></SettingsRow>
-        </SettingsCard>}
+      <SettingsGroup title="服务" action={<SettingsButton variant="primary" onClick={() => state.select(null)} disabled={state.disabled || state.dirty}><Plus />添加电脑</SettingsButton>}>
         {!state.connected && <SettingsNotice>Code 已离线，请恢复连接。</SettingsNotice>}
         {state.reading && <SettingsNotice>正在读取配置…</SettingsNotice>}
         <SettingsList label="电脑服务" empty="尚未配置本机电脑。">
-          {state.services.filter(service => service.cua).map(service => <SettingsListItem key={service.id} title={service.name} description={`本机 Cua Driver · ${service.toolAllowlist.length} 个允许工具`} details={state.editing && state.selectedId === service.id ? <ComputerDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /> : undefined}>
+          {state.services.filter(service => service.cua).map(service => <SettingsListItem key={service.id} title={service.name} description={`本机 Cua Driver · ${service.toolAllowlist.length} 个允许工具`} expanded={state.editing && state.selectedId === service.id} toggleLabel={`${state.editing && state.selectedId === service.id ? "收起" : "编辑"} ${service.name}`} onToggle={() => state.editing && state.selectedId === service.id ? state.closeEditor() : state.select(service.id)} details={state.editing && state.selectedId === service.id ? <ComputerDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /> : undefined}>
             <SettingsTag>{service.enabled ? "已启用" : "已暂停"}</SettingsTag>
-            <SettingsButton variant="ghost" onClick={() => state.editing && state.selectedId === service.id ? state.closeEditor() : state.select(service.id)} aria-expanded={state.editing && state.selectedId === service.id} aria-label={`${state.editing && state.selectedId === service.id ? "收起" : "编辑"} ${service.name}`}><ChevronRight /></SettingsButton>
           </SettingsListItem>)}
         </SettingsList>
-        {state.editing && !state.selectedId && <SettingsCard className="settings-import-preview"><ComputerDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /></SettingsCard>}
       </SettingsGroup>
       <CuaRecovery state={state} />
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
+      {recovery}
       <Dialog open={!!confirmation} onOpenChange={open => { if (!open) setConfirmation(null); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>{confirmation?.kind === "enable" ? "启用服务？" : confirmation?.kind === "disable" ? "停用服务？" : "删除服务？"}</DialogTitle><DialogDescription>本实例的全部工作区共用此配置。</DialogDescription></DialogHeader><p>{state.service?.name}</p><DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmation(null)}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => void confirm()}>确认</Button></DialogFooter></DialogContent></Dialog>
     </SettingsPage>
   );

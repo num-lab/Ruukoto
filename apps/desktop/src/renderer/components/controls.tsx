@@ -1,22 +1,37 @@
-import { ChevronDown, Search } from "lucide-react";
-import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { ChevronDown, ChevronUp, Search } from "lucide-react";
+import { Select as SelectPrimitive } from "radix-ui";
+import { useState, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 
 export function SettingsButton({ variant = "secondary", type = "button", className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "secondary" | "ghost" | "icon";
+  variant?: "secondary" | "primary" | "ghost" | "icon";
 }) {
   return <button type={type} className={`settings-button settings-button-${variant} ${className}`} {...props} />;
 }
 
-export function SettingsSelect({ options, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement> & {
+// Note: See .agents/notes/implemented/feature/2026-11-07-desktop-visual-alignment.md
+export function SettingsSelect({ options, className = "", value, defaultValue, onValueChange, disabled, ...props }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "value" | "defaultValue" | "onChange"> & {
   options: ReadonlyArray<{ value: string; label: string; disabled?: boolean }>;
+  value?: string;
+  defaultValue?: string;
+  onValueChange?: (value: string) => void;
 }) {
+  // Prefix every value so a selectable empty business value remains a valid Radix item.
+  const encode = (value: string) => `option:${value}`;
+  const [selected, setSelected] = useState(defaultValue ?? options[0]?.value ?? "");
+  const current = value ?? selected;
   return (
-    <span className={`settings-select ${className}`}>
-      <select {...props}>
-        {options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
-      </select>
-      <ChevronDown aria-hidden="true" />
-    </span>
+    <SelectPrimitive.Root value={encode(current)} onValueChange={value => { const next = value.slice(7); setSelected(next); onValueChange?.(next); }} disabled={disabled}>
+      <SelectPrimitive.Trigger {...props} className={`settings-select ${className}`}>
+        <SelectPrimitive.Value>{options.find(option => option.value === current)?.label ?? (current || "请选择")}</SelectPrimitive.Value><SelectPrimitive.Icon asChild><ChevronDown aria-hidden="true" /></SelectPrimitive.Icon>
+      </SelectPrimitive.Trigger>
+      <SelectPrimitive.Portal><SelectPrimitive.Content className="settings-select-content" position="popper" align="start" sideOffset={4}>
+        <SelectPrimitive.ScrollUpButton className="settings-select-scroll"><ChevronUp aria-hidden="true" /></SelectPrimitive.ScrollUpButton>
+        <SelectPrimitive.Viewport className="settings-select-viewport"><SelectPrimitive.Group>
+          {options.map(option => <SelectPrimitive.Item key={option.value} value={encode(option.value)} disabled={option.disabled} className="settings-select-item"><SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText></SelectPrimitive.Item>)}
+        </SelectPrimitive.Group></SelectPrimitive.Viewport>
+        <SelectPrimitive.ScrollDownButton className="settings-select-scroll"><ChevronDown aria-hidden="true" /></SelectPrimitive.ScrollDownButton>
+      </SelectPrimitive.Content></SelectPrimitive.Portal>
+    </SelectPrimitive.Root>
   );
 }
 

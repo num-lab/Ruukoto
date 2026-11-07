@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Visual alignment](2026-11-07-desktop-visual-alignment.md) supersedes the segmented menu items with a draggable range and explicit keyboard handling. Supported-level selection, unavailable-model restrictions and persistence remain.
+
 ## Problem
 
 A labeled vertical radio list consumed space and obscured Effort's ordered-intensity meaning. The owner requested a thick slider.

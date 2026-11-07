@@ -7,7 +7,7 @@ import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeMcpState } from "../apps/desktop/src/renderer/code-mcp-state.ts";
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
+// Note: See .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
 type Service = OpResult<"mcp_list">["services"][number];
 
 function deferred() {
@@ -139,7 +139,7 @@ test("Code Cua 关闭设置后的迟到图片不能恢复接受资格", async ()
 test("Code 电脑设置页展示程序选择、宿主权限与实际恢复图片", async t => {
   const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
   const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
-  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
+  const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
   t.after(() => server.close());
   const { CodeComputerEditor } = await server.ssrLoadModule("/code-computer-settings.tsx");
   const h = cuaSettingsFixture(); await h.state.read(); h.state.select(null); h.state.selectCua(0); await h.state.save(); await h.state.discover(); await h.state.refreshCua();
@@ -147,4 +147,23 @@ test("Code 电脑设置页展示程序选择、宿主权限与实际恢复图片
   assert.match(html, /本机 Cua Driver/); assert.match(html, /辅助功能：未授权/); assert.match(html, /屏幕录制：已授权/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,/); assert.match(html, /恢复新截图 1/); assert.match(html, /确认恢复/);
   assert.doesNotMatch(html, /HTTPS 端点|Bearer 令牌|恢复观察ID|进程代次/);
+  h.state.closeEditor(); h.state.select(null); h.state.phase = "unknown";
+  const adding = renderToStaticMarkup(createElement(CodeComputerEditor, { state: h.state }));
+  assert.match(adding, /settings-subpage/); assert.match(adding, /添加电脑/);
+  assert.doesNotMatch(adding, /重新读取配置/); assert.match(adding, /核实原配置/); assert.doesNotMatch(adding, /disabled=""[^>]*>核实原配置/);
+  assert.match(adding, /disabled=""[^>]*>保存/);
+  h.state.closeEditor(); assert.equal(h.state.editing, true); assert.equal(h.state.phase, "unknown");
+});
+
+
+test("new computer keeps its type through reread and discard before saving", async () => {
+  const h = cuaSettingsFixture(); await h.state.read(); h.state.select(null);
+  await h.state.read();
+  assert.equal(h.state.draft.kind, "cua-mac"); assert.equal(h.state.draft.auth, "anonymous");
+  h.state.selectCua(0); h.state.discard();
+  assert.equal(h.state.draft.kind, "cua-mac"); assert.equal(h.state.draft.auth, "anonymous");
+  h.state.selectCua(0); assert.equal(await h.state.save(), true);
+  const saved = h.calls.find(call => call.op === "mcp_configure")!;
+  assert.deepEqual(saved.params.cua, h.config);
+  assert.equal(Object.hasOwn(saved.params, "endpoint"), false);
 });

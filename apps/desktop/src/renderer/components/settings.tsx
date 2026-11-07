@@ -1,4 +1,4 @@
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Children, useEffect, useId, useRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 
 export function SettingsShell({ navigation, action, footer, children, className = "", ...props }: HTMLAttributes<HTMLDivElement> & {
@@ -38,9 +38,10 @@ export function SettingsNavItem({ selected, icon, children, className = "", ...p
   );
 }
 
-export function SettingsPage({ title, description, children }: {
+export function SettingsPage({ title, description, overview, children }: {
   title: string;
   description?: ReactNode;
+  overview?: ReactNode;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -50,6 +51,7 @@ export function SettingsPage({ title, description, children }: {
         <h1 id={titleId}>{title}</h1>
         {description && <p>{description}</p>}
       </header>
+      {overview}
       <div className="settings-groups">{children}</div>
     </div>
   );
@@ -111,8 +113,14 @@ export function SettingsList({ label, empty, children }: {
   );
 }
 
-export function SettingsListItem({ detailsId, details, ...props }: Parameters<typeof SettingsRow>[0] & { detailsId?: string; details?: ReactNode }) {
-  return <li className="settings-list-item"><SettingsRow {...props} />{details && <div id={detailsId} className="settings-list-item-details">{details}</div>}</li>;
+export function SettingsListItem({ detailsId, details, expanded, onToggle, toggleLabel, ...props }: Parameters<typeof SettingsRow>[0] & { detailsId?: string; details?: ReactNode; expanded?: boolean; onToggle?: () => void; toggleLabel?: string }) {
+  const id = useId();
+  const contentId = detailsId ?? id;
+  const row = <SettingsRow {...props}>{props.children}{onToggle && <ChevronRight aria-hidden="true" className={`settings-list-disclosure${expanded ? " is-expanded" : ""}`} />}</SettingsRow>;
+  return <li className="settings-list-item">
+    {onToggle ? <button type="button" className="settings-list-item-trigger" aria-label={toggleLabel} aria-expanded={expanded} aria-controls={contentId} onClick={onToggle}>{row}</button> : row}
+    {onToggle ? <div id={contentId} hidden={!expanded} className="settings-list-item-details">{details}</div> : details && <div id={contentId} className="settings-list-item-details">{details}</div>}
+  </li>;
 }
 
 export function SettingsLinkRow({ title, description, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & {

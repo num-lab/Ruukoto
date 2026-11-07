@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, RefreshCw, Server, Settings, Sun, X } from "lucide-react";
+import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun, X } from "lucide-react";
 import type { DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
+import type { PersonalState } from "./personal-state.ts";
 import { SettingsState, paCategory, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope } from "./settings-state.ts";
 import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
 import { CodeModelsSettings } from "./code-models-settings.tsx";
@@ -20,7 +21,7 @@ export interface SettingsPageProps {
   scope: SettingsScope;
   settings: SettingsState;
   code: CodeState;
-  personal: { view: { instanceId: string | null } };
+  personal: Pick<PersonalState, "view" | "status" | "identity">;
 }
 export interface PersonalSettingsPageProps extends Omit<SettingsPageProps, "category"> {
   category: ManagedSettingsCategory;
@@ -28,7 +29,7 @@ export interface PersonalSettingsPageProps extends Omit<SettingsPageProps, "cate
 export interface SettingsContentsProps {
   settings: SettingsState;
   code: CodeState;
-  personal: { view: { instanceId: string | null } };
+  personal: Pick<PersonalState, "view" | "status" | "identity">;
   dark: boolean;
   onDark: (dark: boolean) => void;
   pages?: Partial<Record<SettingsCategory, React.ComponentType<SettingsPageProps>>>;
@@ -39,20 +40,21 @@ type NavEntry =
   | { type: "item"; value: SettingsCategory; label: string; icon: typeof Sun };
 
 const navigation: ReadonlyArray<NavEntry> = [
+  { type: "section", label: "Desktop" },
   { type: "item", value: "appearance", label: "外观", icon: Sun },
+  { type: "item", value: "code-computer", label: "电脑", icon: Monitor },
+  { type: "item", value: "web-search", label: "Web 搜索", icon: Globe },
+  { type: "item", value: "personal", label: "PA 远程连接", icon: Server },
+  { type: "item", value: "archived", label: "已存档会话", icon: Archive },
   { type: "section", label: "Code" },
   { type: "item", value: "code-models", label: "模型", icon: Brain },
   { type: "item", value: "code-skills", label: "Skills", icon: Puzzle },
   { type: "item", value: "code-mcp", label: "MCP", icon: Blocks },
-  { type: "item", value: "code-computer", label: "电脑", icon: Monitor },
   { type: "section", label: "PA" },
   { type: "item", value: "pa-models", label: "模型", icon: Brain },
   { type: "item", value: "pa-skills", label: "Skills", icon: Puzzle },
   { type: "item", value: "pa-mcp", label: "MCP", icon: Blocks },
   { type: "item", value: "pa-computer", label: "电脑", icon: Monitor },
-  { type: "item", value: "web-search", label: "Web 搜索", icon: Globe },
-  { type: "item", value: "personal", label: "PA 远程连接", icon: Server },
-  { type: "item", value: "archived", label: "已存档会话", icon: Archive },
 ];
 
 const codePages: Record<`code-${ManagedSettingsCategory}`, React.ComponentType<SettingsPageProps>> = {
@@ -78,7 +80,7 @@ function ArchivedPage({ code }: { code: CodeState }) {
   const sessions = code.archivedSessions();
   return (
     <SettingsPage title="已存档会话" description="存档只把会话从左栏隐藏，历史与任务仍保留。">
-      <SettingsGroup title="存档列表" action={<SettingsButton variant="icon" aria-label="重新读取存档" title="重新读取存档"><RefreshCw /></SettingsButton>}>
+      <SettingsGroup title="存档列表">
         <SettingsList label="已存档会话" empty="没有已存档的会话。">
           {sessions.map(session => <SettingsListItem key={session.id} title={code.sessionName(session.id)} description={`${code.workspaceName(session.workspaceProjectId ?? session.projectId)} · ${session.archivedAt?.slice(0, 10)}`}>
             <SettingsButton variant="icon" aria-label={`取消存档 ${code.sessionName(session.id)}`} title="取消存档" disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><ArchiveRestore /></SettingsButton>
@@ -89,7 +91,8 @@ function ArchivedPage({ code }: { code: CodeState }) {
   );
 }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
+// Note: See .agents/notes/implemented/feature/2026-11-07-desktop-visual-alignment.md
 export function SettingsContents(props: SettingsContentsProps) {
   const { settings, code, personal, dark, onDark } = props;
   const scope = settings.scope(code, personal);
@@ -112,7 +115,7 @@ export function SettingsContents(props: SettingsContentsProps) {
       <div ref={contentRef} key={`${category}:${settings.pageKey}`} className="settings-content">
         {category === "appearance" && <AppearancePage dark={dark} onDark={onDark} />}
         {category === "web-search" && <CodeWebSearchSettings code={code} />}
-        {category === "personal" && <PersonalConnectionSettings settings={settings} />}
+        {category === "personal" && <PersonalConnectionSettings settings={settings} personal={personal} />}
         {category === "archived" && <ArchivedPage code={code} />}
         {category.startsWith("code-") && (() => { const Page = props.pages?.[category] ?? codePages[category as `code-${ManagedSettingsCategory}`]; return <Page category={category} scope={scope} settings={settings} code={code} personal={personal} />; })()}
         {category.startsWith("pa-") && (() => { const Page = PersonalSettingsPage; const mapped = paCategory(category); return mapped ? <Page key={scope.instanceId} category={mapped} scope={scope} settings={settings} code={code} personal={personal} /> : null; })()}

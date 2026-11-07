@@ -1,13 +1,13 @@
 import type { CSSProperties } from "react";
 import type { DesktopContextState } from "./context-state.ts";
 import { Button } from "./components/ui/button.tsx";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./components/ui/hover-card.tsx";
+import { Popover } from "radix-ui";
 import { Progress } from "./components/ui/progress.tsx";
 
 const compact = (tokens: number) => tokens.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const bounded = (percent: number) => Math.max(0, Math.min(100, percent));
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
+// Note: See .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
 export function ContextDetails({ context }: { context: DesktopContextState }) {
   const data = context.value?.display;
   const percent = data?.usedPercent ?? null;
@@ -29,5 +29,5 @@ export function ContextIndicator({ context, onOpen }: { context: DesktopContextS
   const data = context.value?.display;
   const percent = data?.usedPercent ?? null;
   const description = data ? `${data.usedTokens.toLocaleString("en-US")} / ${data.maxTokens === null ? "未知" : data.maxTokens.toLocaleString("en-US")} tokens` : context.loading ? "正在读取上下文使用量" : context.missing ? "暂无已记录的模型上下文" : "上下文使用量未知";
-  return <HoverCard openDelay={10} closeDelay={100} onOpenChange={open => { if (open) onOpen(); }}><HoverCardTrigger asChild><Button type="button" variant="ghost" size="icon" className="context-usage" aria-label="上下文使用量" aria-description={description} aria-busy={context.loading}><svg data-slot="context-ring" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="4" strokeOpacity="0.25" />{percent !== null && <circle data-slot="context-ring-value" cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="4" strokeLinecap="round" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - bounded(percent)} transform="rotate(-90 12 12)" opacity={percent === 0 ? 0 : 1} />}</svg></Button></HoverCardTrigger><HoverCardContent side="top" align="start" alignOffset={-16} sideOffset={8} className="context-details"><ContextDetails context={context} /></HoverCardContent></HoverCard>;
+  return <Popover.Root onOpenChange={open => { if (open) onOpen(); }}><Popover.Trigger asChild><Button type="button" variant="ghost" size="icon" className="context-usage" aria-label="上下文使用量" aria-description={description} aria-busy={context.loading}><svg data-slot="context-ring" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="4" strokeOpacity="0.25" />{percent !== null && <circle data-slot="context-ring-value" cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="4" strokeLinecap="round" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - bounded(percent)} transform="rotate(-90 12 12)" opacity={percent === 0 ? 0 : 1} />}</svg></Button></Popover.Trigger><Popover.Portal><Popover.Content aria-label="上下文详情" onOpenAutoFocus={event => event.preventDefault()} side="top" align="start" alignOffset={-16} sideOffset={8} className="context-details z-50 bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/5 outline-none"><ContextDetails context={context} /></Popover.Content></Popover.Portal></Popover.Root>;
 }

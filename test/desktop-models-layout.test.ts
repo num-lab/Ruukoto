@@ -85,7 +85,7 @@ test("同窗多个模型只标记实际无效字段，API 类型使用选择框"
   const html = renderProvider(model);
   assert.match(html, /id="catalog-model-0-id"[^>]*aria-invalid="false"/);
   assert.match(html, /id="catalog-model-1-id"[^>]*aria-invalid="true"/);
-  assert.match(html, /<select[^>]*id="model-api"/);
+  assert.match(html, /<button[^>]*role="combobox"[^>]*id="model-api"/);
   assert.doesNotMatch(html, /<input[^>]*id="model-api"/);
 });
 
@@ -109,4 +109,17 @@ test("重新读取淘汰在途测试，旧应答不会留下测试中状态或�
   await model.read(); assert.equal(model.testing, false);
   release(); await testing;
   assert.equal(model.connectionTest("reasoner"), null);
+});
+
+test("new provider fields use the guarded draft and show invalid API Key feedback", async () => {
+  const { AddProviderPage } = await server.ssrLoadModule("/code-models-settings.tsx");
+  const model = await state(); model.addProvider("custom");
+  model.editProvider("name", "Custom provider"); model.editProvider("baseUrl", "https://custom.example/v1"); model.editProvider("api", "anthropic-messages"); model.editStoredSecret(" invalid-key ");
+  assert.equal(await model.save(), false); assert.ok(model.fieldErrors.apiKey);
+  const html = renderToStaticMarkup(createElement(AddProviderPage, { state: model, onBack() {}, onAdd() {} }));
+  assert.match(html, /id="new-provider-name"[^>]*value="Custom provider"/);
+  assert.match(html, /id="new-provider-api"[^>]*><span[^>]*>anthropic-messages/);
+  assert.match(html, /id="new-provider-key"[^>]*aria-invalid="true"/);
+  assert.ok(html.includes(model.fieldErrors.apiKey));
+  assert.doesNotMatch(html, /重新读取配置/);
 });

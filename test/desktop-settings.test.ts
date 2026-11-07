@@ -17,7 +17,7 @@ type SettingsContentsProps = { settings: SettingsState; code: CodeState; persona
 let server: ViteDevServer;
 let SettingsContents: ComponentType<SettingsContentsProps>;
 before(async () => {
-  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
+  server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
   ({ SettingsContents } = await server.ssrLoadModule("/settings-dialog.tsx"));
 });
 after(async () => { await server?.close(); });
@@ -200,8 +200,53 @@ test("PA 聊天与设置共用一处地址，不再显示SSH字段", () => {
   try {
     const h = harness(); h.settings.chooseCategory("personal");
     const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {} }));
-    assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /aria-label="编辑地址"/); assert.doesNotMatch(html, /for="personal-origin"/);
+    assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /for="personal-origin"/); assert.match(html, /connection-diagram/); assert.match(html, /服务器配对/); assert.match(html, /核实原配对/); assert.match(html, /恢复原配对/);
     assert.doesNotMatch(html, /SSH|旧聊天连接|PA 连接用途|检测程序|management-/);
     assert.doesNotMatch(html, /name="token"|name="command"/);
   } finally { if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }
+});
+
+
+test("PA connection diagram requires a verified saved target and live backend identity", async () => {
+  const config = { ...initial, binding: { remoteId: "remote", profile: { id: "profile", directory: "/srv/personal" } } };
+  const state = new PersonalConnectionState({ request: async (_target, op) => ok(op === "desktop_personal_config_read" ? config : op === "desktop_personal_legacy_read" ? { paths: [] } : { default: { mode: "confirm" }, qq: { mode: "confirm" } }) }, () => {});
+  const personal = harness().personal;
+  personal.status = { type: "state", state: "online" };
+  personal.identity = { v: 1, product: "ruukoto", origin: config.origin, ...config.binding, online: true };
+  assert.equal(state.connectionStatus(personal), "loading");
+  await state.read(); assert.equal(state.connectionStatus(personal), "connected");
+  state.edit("origin", "https://unsaved.example"); assert.equal(state.connectionStatus(personal), "connected", "unsaved drafts do not replace the live target");
+  state.discard(); state.phase = "error"; assert.equal(state.connectionStatus(personal), "connected", "a rejected maintenance action does not disconnect the existing target");
+  state.phase = "unknown"; assert.equal(state.connectionStatus(personal), "loading"); state.phase = "ready";
+  for (const status of ["connecting", "reconnecting"] as const) { personal.status = { type: "state", state: status }; assert.equal(state.connectionStatus(personal), "connecting"); }
+  personal.status = { type: "state", state: "failed" }; assert.equal(state.connectionStatus(personal), "error");
+  personal.status = { type: "state", state: "online" };
+  const identity = personal.identity;
+  for (const changed of [{ online: false }, { origin: "https://other.example" }, { remoteId: "other" }, { profile: { ...identity.profile, id: "other" } }, { profile: { ...identity.profile, directory: "/other" } }]) {
+    personal.identity = { ...identity, ...changed }; assert.equal(state.connectionStatus(personal), "error");
+  }
+  personal.identity = identity;
+  state.current = { ...initial, v: 1 }; assert.equal(state.connectionStatus(personal), "unpaired", "an old live identity cannot replace a missing pairing");
+});
+
+test("PA connection maintenance stays available without a short code after an uncertain pair", async () => {
+  const { PersonalConnectionEditor } = await server.ssrLoadModule("/personal-connection-settings.tsx");
+  const calls: string[] = [];
+  const state = new PersonalConnectionState({ request: async (_target, op) => { calls.push(op); return ok(op === "desktop_personal_config_read" ? initial : { paths: [] }); } }, () => {});
+  await state.read(); state.phase = "unknown";
+  const html = renderToStaticMarkup(createElement(PersonalConnectionEditor, { state, personal: harness().personal }));
+  assert.match(html, /disabled=""[^>]*>配对并连接/);
+  assert.doesNotMatch(html, /disabled=""[^>]*>核实原配对/);
+  assert.doesNotMatch(html, /disabled=""[^>]*>恢复原配对/);
+  await state.pair("reconcile"); assert.equal(calls.filter(op => op === "desktop_personal_pair_reconcile").length, 1);
+});
+
+test("PA address outcome verification remains available with a dirty unknown submission", async () => {
+  const { PersonalConnectionEditor } = await server.ssrLoadModule("/personal-connection-settings.tsx");
+  const state = new PersonalConnectionState({ request: async (_target, op) => op === "desktop_personal_config_read" ? ok(initial) : op === "desktop_personal_legacy_read" ? ok({ paths: [] }) : fail("unknown") }, () => {});
+  await state.read(); state.edit("origin", "https://new.example");
+  await state.save(); assert.equal(state.phase, "unknown"); assert.equal(state.dirty, true);
+  const html = renderToStaticMarkup(createElement(PersonalConnectionEditor, { state, personal: harness().personal }));
+  assert.doesNotMatch(html, /aria-label="重新读取|刷新/);
+  assert.match(html, />核实原连接</); assert.doesNotMatch(html, /disabled=""[^>]*>核实原连接/);
 });

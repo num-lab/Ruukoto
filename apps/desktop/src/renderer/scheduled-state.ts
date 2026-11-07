@@ -81,8 +81,7 @@ export function scheduleProgress(plan: CodeSchedulePlan, now = Date.now()): numb
   return Math.min(100, Math.max(0, Math.round((now - previous) / (next - previous) * 100)));
 }
 
-export type ScheduleDraftStep = 1 | 2 | 3 | 4;
-// Note: 见 .agents/notes/implemented/feature/2026-10-25-code-scheduled.md
+// Note: See .agents/notes/implemented/feature/2026-10-25-code-scheduled.md
 export class DesktopScheduled {
   plans: CodeSchedulePlan[] = [];
   readonly latestRuns = new Map<string, CodeScheduleRun>();
@@ -90,7 +89,6 @@ export class DesktopScheduled {
   selectedId: string | null = null;
   draft: ScheduleDraft | null = null;
   draftVersion: number | null = null;
-  draftStep: ScheduleDraftStep = 1;
   needsReview = false;
   message: string | null = null;
   entries: PendingInput[] = [];
@@ -153,9 +151,8 @@ export class DesktopScheduled {
     const previous = this.latestRuns.get(run.scheduleId);
     if (!previous || previous.createdAt < run.createdAt || previous.id === run.id && previous.version <= run.version) this.latestRuns.set(run.scheduleId, run);
   }
-  setDraftStep(step: ScheduleDraftStep): void { this.draftStep = step; this.changed(); }
-  create(): void { if (this.blocked) return; this.selectedId = null; this.detail = null; this.draft = newScheduleDraft(this.model.newChatSelection(null)); this.draftVersion = null; this.draftStep = 1; this.needsReview = false; this.message = null; this.changed(); }
-  edit(): void { if (this.detail && !this.blocked) { this.draft = draftForSchedule(this.detail.plan.config); this.draftVersion = this.detail.plan.version; this.draftStep = 1; this.needsReview = false; this.changed(); } }
+  create(): void { if (this.blocked) return; this.selectedId = null; this.detail = null; this.draft = newScheduleDraft(this.model.newChatSelection(null)); this.draftVersion = null; this.needsReview = false; this.message = null; this.changed(); }
+  edit(): void { if (this.detail && !this.blocked) { this.draft = draftForSchedule(this.detail.plan.config); this.draftVersion = this.detail.plan.version; this.needsReview = false; this.changed(); } }
   private reviewConflict(code: string): void {
     if (code === "schedule_version_conflict" && this.draft && this.selectedId) { this.needsReview = true; this.detail = null; this.message = "计划已被其他操作修改；草稿仍保留，请核对当前已保存配置后继续。"; void this.open(this.selectedId, true); }
   }

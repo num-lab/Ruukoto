@@ -4,6 +4,8 @@ Status: implemented
 
 [The desktop file loop](2026-11-04-personal-desktop-file-loop.md) partially supersedes this note's completed-owner-message timing and existing approval-control placement. Assistant completion, house bubbles, reduced motion, composer sizing and target behavior remain governed here.
 
+[Desktop visual alignment](2026-11-07-desktop-visual-alignment.md) replaces mount-triggered bubble animation with one animation per visible live send or completed arrival. History, reconnect snapshots and reopening the page remain still.
+
 ## Problem
 
 Personal mixed unbubbled Agent text, streaming fragments, reasoning and tool traces with bubbled owner messages. Repeated timestamps would add noise, while the shared composer exposed a permission selector and a two-line minimum inconsistent with the approved Personal layout.

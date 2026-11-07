@@ -35,7 +35,7 @@ function ApprovalCard({ model, approval }: { model: CodeState; approval: Confirm
   const command = batch ? `批次动作（一次批准绑定全部步骤）：\n${batch.join("\n")}\n\n原始参数：\n${JSON.stringify(params, null, 2)}`
     : typeof params.command === "string" ? params.command : detail?.text || JSON.stringify(params, null, 2);
   const purpose = typeof params.description === "string" ? params.description : typeof params.purpose === "string" ? params.purpose : typeof params.reason === "string" ? params.reason : null;
-  return <MessageScrollerItem><Item asChild variant="muted" size="sm"><section aria-label="命令审批">
+  return <MessageScrollerItem><Item asChild variant="muted" size="sm" className="approval-card"><section aria-label="命令审批">
     <ItemHeader className="flex-wrap"><ItemTitle>{scopeSummary(approval)}</ItemTitle><ItemActions>
       <Button variant="ghost" size="sm" disabled={busy || !!paramsError || !detail?.complete || model.status.state !== "online"} onClick={() => void approvals.respond(approval, "reject")}>拒绝</Button>
       <Button size="sm" disabled={busy || !!paramsError || !detail?.complete || model.status.state !== "online"} onClick={() => void approvals.respond(approval, "approve")} aria-busy={busy}>批准</Button>

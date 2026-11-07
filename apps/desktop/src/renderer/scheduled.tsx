@@ -1,29 +1,22 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, Loader2, Pause, Pencil, Play, Plus, Repeat2 } from "lucide-react";
+import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Repeat2, Trash2 } from "lucide-react";
 import type { CodeSchedulePlan, CodeScheduleRun } from "@ruukoto/core/code-scheduler.ts";
-import type { ModelSelection } from "@ruukoto/core/types.ts";
 import type { CodeState } from "./code-state.ts";
-import { composerModes, selectionForModel } from "./composer.tsx";
+import { composerModes, ModeSelector, ModelSelector } from "./composer.tsx";
 import { WorkspacePicker } from "./workspace-picker.tsx";
-import { runStatus, scheduleProgress, scheduleReason, scheduleSummary, scheduleTime, type ScheduleDraft, type ScheduleDraftStep } from "./scheduled-state.ts";
+import { configForSchedule, runStatus, scheduleProgress, scheduleReason, scheduleSummary, scheduleTime, type ScheduleDraft } from "./scheduled-state.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
+import { Switch } from "./components/ui/switch.tsx";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 import { cn } from "./lib/utils.ts";
 
 const planStatus = (plan: CodeSchedulePlan) => ({ active: "已启用", paused: "已暂停", canceled: "已取消", completed: "已结束" })[plan.status];
 const permissionModes = composerModes.filter(mode => mode.value !== "plan");
-const formSteps: { step: ScheduleDraftStep; label: string; question: string }[] = [
-  { step: 1, label: "任务", question: "要做什么？" },
-  { step: 2, label: "时间", question: "什么时候执行？" },
-  { step: 3, label: "执行", question: "在哪里执行？" },
-  { step: 4, label: "确认", question: "确认计划" },
-];
 const permissionLabel = (value: string) => permissionModes.find(mode => mode.value === value)?.label ?? value;
 const effortLabel = (value: string) => value[0].toUpperCase() + value.slice(1);
-const modelKey = (selection: Pick<ModelSelection, "provider" | "modelId">) => JSON.stringify([selection.provider, selection.modelId]);
 
 export function scheduledWaiting(model: CodeState, run: CodeScheduleRun): string {
   if (run.closedAt) return runStatus(run);
@@ -55,7 +48,7 @@ function ScheduleCard({ model, plan }: { model: CodeState; plan: CodeSchedulePla
 
 function ScheduleList({ model }: { model: CodeState }) {
   const state = model.scheduled;
-  return <><div className="scheduled-list-controls"><Tabs value={state.history ? "history" : "current"} onValueChange={value => { state.history = value === "history"; void state.load(); }}><TabsList aria-label="计划范围" className="scheduled-scope-tabs"><TabsTrigger value="current">Active</TabsTrigger><TabsTrigger value="history">Archived</TabsTrigger></TabsList></Tabs>{state.plans.length > 0 && <span className="scheduled-count">{state.plans.length} 个计划</span>}</div>
+  return <><div className="scheduled-list-controls"><Tabs value={state.history ? "history" : "current"} onValueChange={value => { state.history = value === "history"; void state.load(); }}><TabsList aria-label="计划范围" className="scheduled-scope-tabs"><TabsTrigger value="current">Active</TabsTrigger><TabsTrigger value="history">Archived</TabsTrigger></TabsList></Tabs></div>
     {!state.plans.length && <div className="scheduled-empty"><CalendarClock /><p>{state.loading ? "正在读取计划…" : model.status.state !== "online" ? "连接恢复后可管理计划" : state.history ? "尚无历史计划" : "还没有定时计划"}</p></div>}
     {state.plans.length > 0 && <div className="scheduled-list">{state.plans.map(item => <ScheduleCard key={item.id} model={model} plan={item} />)}</div>}
     {state.nextOffset !== null && <Button variant="ghost" disabled={state.loading} onClick={() => void state.load(true)}>更多计划</Button>}
@@ -76,33 +69,32 @@ function ScheduleDetail({ model, onOpenSession }: { model: CodeState; onOpenSess
 }
 
 function ScheduleForm({ model }: { model: CodeState }) {
-  const state = model.scheduled, draft = state.draft!, disabled = state.blocked, step = state.draftStep;
+  const state = model.scheduled, draft = state.draft!, disabled = state.blocked;
   function change(patch: Partial<ScheduleDraft>) { state.draft = { ...draft, ...patch }; state.message = null; model.refresh(); }
   const workspaces = model.view.projects.filter(project => project.rootDir !== null);
   const fallback = model.newChatSelection(null);
-  const availableModels = model.writes.models.filter(option => option.available && option.thinkingLevels.length > 0);
-  const selectedModel = availableModels.find(option => draft.modelSelection && modelKey(option) === modelKey(draft.modelSelection));
   useEffect(() => { if (!draft.modelSelection && fallback) { state.draft = { ...draft, modelSelection: fallback }; model.refresh(); } }, [state, draft, model, fallback?.provider, fallback?.modelId, fallback?.thinkingLevel]);
-  const stepReady = step === 1 ? !!draft.title.trim() && !!draft.instructions.trim()
-    : step === 2 ? /^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time) && (draft.repeat !== "once" || !!draft.date) && (draft.repeat !== "weekly" || draft.weekdays.length > 0)
-    : step === 3 ? !!draft.workspaceId && !!draft.modelSelection
-    : true;
-  function next() { if (step < 4 && stepReady && !disabled) state.setDraftStep((step + 1) as ScheduleDraftStep); }
-  return <form className="scheduled-form" onSubmit={event => { event.preventDefault(); if (step === 4) void state.save(); }}>
+  const validation = configForSchedule(draft);
+  const ready = !("error" in validation);
+  return <form className="scheduled-form" onSubmit={event => { event.preventDefault(); if (ready) void state.save(); }}>
     {state.needsReview && state.detail && <section className="scheduled-conflict" role="alert"><h2>当前已保存配置</h2><p>{state.detail.plan.config.title} · {scheduleSummary(state.detail.plan.config)}</p><p>{state.detail.plan.config.rule.timeZone} · {model.view.projects.find(project => project.id === state.detail!.plan.config.workspaceId)?.name ?? "工作区不可用"}</p><p>{permissionLabel(state.detail.plan.config.permission)} · {state.detail.plan.config.modelSelection.modelId} · {effortLabel(state.detail.plan.config.modelSelection.thinkingLevel)}</p><pre>{state.detail.plan.config.instructions}</pre><Button type="button" variant="ghost" disabled={disabled} onClick={() => state.reviewed()}>已核对当前配置，继续编辑</Button></section>}
-    <div className="scheduled-steps" aria-label="计划步骤">{formSteps.map(item => <div key={item.step} className={cn("scheduled-step", item.step === step && "is-active", item.step < step && "is-done")} aria-current={item.step === step ? "step" : undefined}><span>{item.step < step ? <Check aria-hidden="true" /> : item.step}</span><span className="scheduled-step-label">{item.label}</span></div>)}</div>
-    <section className="scheduled-form-panel"><h2>{formSteps[step - 1].question}</h2>
-      {step === 1 && <><label className="scheduled-field"><span>计划名称</span><Input autoFocus value={draft.title} maxLength={120} disabled={disabled} onChange={event => change({ title: event.target.value })} placeholder="例如：每日产品简报" /></label><label className="scheduled-field"><span>任务内容</span><Textarea rows={6} value={draft.instructions} maxLength={64 * 1024} disabled={disabled} onChange={event => change({ instructions: event.target.value })} placeholder="描述要完成的任务" /></label></>}
-      {step === 2 && <><div className="scheduled-field"><span>重复</span><div className="scheduled-choice-grid" role="group" aria-label="重复">{[{ value: "daily", label: "每天", icon: <Repeat2 /> }, { value: "weekly", label: "每周", icon: <CalendarDays /> }, { value: "once", label: "一次性", icon: <CalendarClock /> }].map(item => <Button key={item.value} type="button" variant="ghost" aria-pressed={draft.repeat === item.value} className={cn("scheduled-choice", draft.repeat === item.value && "is-active")} disabled={disabled} onClick={() => change({ repeat: item.value as ScheduleDraft["repeat"] })}>{item.icon}<span>{item.label}</span></Button>)}</div></div>
-        {draft.repeat === "weekly" && <div className="scheduled-field"><span>星期</span><div className="scheduled-weekdays" role="group" aria-label="星期">{[1, 2, 3, 4, 5, 6, 7].map(day => <Button key={day} type="button" variant="ghost" aria-pressed={draft.weekdays.includes(day)} className={cn("scheduled-weekday", draft.weekdays.includes(day) && "is-active")} disabled={disabled} onClick={() => change({ weekdays: draft.weekdays.includes(day) ? draft.weekdays.filter(value => value !== day) : [...draft.weekdays, day].sort() })}>{"一二三四五六日"[day - 1]}</Button>)}</div></div>}
-        <div className="scheduled-date-row">{draft.repeat === "once" && <label className="scheduled-field"><span>日期</span><Input type="date" value={draft.date} disabled={disabled} onChange={event => change({ date: event.target.value })} /></label>}<label className="scheduled-field"><span>时间</span><Input type="time" value={draft.time} disabled={disabled} onChange={event => change({ time: event.target.value })} /></label></div><p className="scheduled-timezone">{draft.timeZone}</p></>}
-      {step === 3 && <><label className="scheduled-field"><span>工作区</span><WorkspacePicker workspaces={workspaces} value={draft.workspaceId} disabled={disabled} onChange={workspaceId => change({ workspaceId })} /></label>
-        <label className="scheduled-field"><span>权限</span><select className="scheduled-select" value={draft.permission} disabled={disabled} onChange={event => change({ permission: event.target.value as ScheduleDraft["permission"] })}>{permissionModes.map(mode => <option key={mode.value} value={mode.value}>{mode.label}</option>)}</select></label>
-        <label className="scheduled-field"><span>模型</span><select className="scheduled-select" value={draft.modelSelection ? modelKey(draft.modelSelection) : ""} disabled={disabled || !availableModels.length} onChange={event => { const option = availableModels.find(item => modelKey(item) === event.target.value); const modelSelection = option && selectionForModel(option, draft.modelSelection); if (modelSelection) change({ modelSelection }); }}>{!draft.modelSelection && <option value="">选择模型</option>}{draft.modelSelection && !selectedModel && <option value={modelKey(draft.modelSelection)}>{draft.modelSelection.modelId}</option>}{availableModels.map(option => <option key={modelKey(option)} value={modelKey(option)}>{option.name}</option>)}</select></label>
-        <label className="scheduled-field"><span>Effort</span><select className="scheduled-select" value={draft.modelSelection?.thinkingLevel ?? ""} disabled={disabled || !selectedModel} onChange={event => { if (draft.modelSelection) change({ modelSelection: { ...draft.modelSelection, thinkingLevel: event.target.value as ModelSelection["thinkingLevel"] } }); }}>{!draft.modelSelection && <option value="">选择 Effort</option>}{(selectedModel?.thinkingLevels ?? (draft.modelSelection ? [draft.modelSelection.thinkingLevel] : [])).map(level => <option key={level} value={level}>{effortLabel(level)}</option>)}</select></label></>}
-      {step === 4 && <div className="scheduled-review"><div className="scheduled-review-title"><strong>{draft.title}</strong><p>{draft.instructions}</p></div><div className="scheduled-review-grid"><div><span>时间</span><strong>{draft.repeat === "daily" ? `每天 ${draft.time}` : draft.repeat === "weekly" ? `每周${draft.weekdays.map(day => "一二三四五六日"[day - 1]).join("、")} · ${draft.time}` : `一次性 · ${draft.date} ${draft.time}`}</strong></div><div><span>工作区</span><strong>{workspaces.find(project => project.id === draft.workspaceId)?.name ?? "工作区不可用"}</strong></div><div><span>执行</span><strong>{draft.modelSelection ? `${draft.modelSelection.modelId} · ${effortLabel(draft.modelSelection.thinkingLevel)}` : "—"}<br />{permissionLabel(draft.permission)}</strong></div></div></div>}
+    <section className="scheduled-form-section"><h2>任务</h2>
+      <label className="scheduled-field"><span>计划名称</span><Input autoFocus value={draft.title} maxLength={120} disabled={disabled} onChange={event => change({ title: event.target.value })} placeholder="例如：每日产品简报" /></label>
+      <div className="composer surface-composer scheduled-composer">
+        <Textarea aria-label="任务内容" rows={5} value={draft.instructions} maxLength={64 * 1024} disabled={disabled} onChange={event => change({ instructions: event.target.value })} placeholder="描述要完成的任务…" />
+        <div className="composer-actions"><div className="composer-left">
+          <WorkspacePicker workspaces={workspaces} value={draft.workspaceId} disabled={disabled} onChange={workspaceId => change({ workspaceId })} />
+          <ModeSelector value={draft.permission} modes={permissionModes} disabled={disabled} label="计划权限" onChange={permission => { if (permission !== "plan") change({ permission }); }} />
+        </div><div className="composer-right"><ModelSelector models={model.writes.models} selected={draft.modelSelection} loading={() => void model.writes.loadModels()} disabled={disabled} onChange={modelSelection => change({ modelSelection })} /></div></div>
+      </div>
     </section>
-    <div className="scheduled-form-actions"><Button type="button" variant="ghost" disabled={disabled} onClick={() => { if (step === 1) { state.draft = null; model.refresh(); } else state.setDraftStep((step - 1) as ScheduleDraftStep); }}>{step === 1 ? "取消" : "上一步"}</Button><Button type={step === 4 ? "submit" : "button"} disabled={disabled || !stepReady || step === 4 && state.needsReview} onClick={step === 4 ? undefined : next}>{state.busy && <Loader2 data-icon="inline-start" className="animate-spin" />}{step === 4 ? "保存计划" : <>继续<ChevronRight data-icon="inline-end" /></>}</Button></div>
+    <section className="scheduled-form-section"><h2>时间</h2>
+      <div className="scheduled-field"><span>重复</span><div className="scheduled-choice-grid" role="group" aria-label="重复">{[{ value: "daily", label: "每天", icon: <Repeat2 /> }, { value: "weekly", label: "每周", icon: <CalendarDays /> }, { value: "once", label: "一次性", icon: <CalendarClock /> }].map(item => <Button key={item.value} type="button" variant="ghost" aria-pressed={draft.repeat === item.value} className={cn("scheduled-choice", draft.repeat === item.value && "is-active")} disabled={disabled} onClick={() => change({ repeat: item.value as ScheduleDraft["repeat"] })}>{item.icon}<span>{item.label}</span></Button>)}</div></div>
+      {draft.repeat === "weekly" && <div className="scheduled-field"><span>星期</span><div className="scheduled-weekdays" role="group" aria-label="星期">{[1, 2, 3, 4, 5, 6, 7].map(day => <Button key={day} type="button" variant="ghost" aria-pressed={draft.weekdays.includes(day)} className={cn("scheduled-weekday", draft.weekdays.includes(day) && "is-active")} disabled={disabled} onClick={() => change({ weekdays: draft.weekdays.includes(day) ? draft.weekdays.filter(value => value !== day) : [...draft.weekdays, day].sort() })}>{"一二三四五六日"[day - 1]}</Button>)}</div></div>}
+      <div className="scheduled-date-row">{draft.repeat === "once" && <label className="scheduled-field"><span>日期</span><Input type="date" value={draft.date} disabled={disabled} onChange={event => change({ date: event.target.value })} /></label>}<label className="scheduled-field"><span>时间</span><Input type="time" value={draft.time} disabled={disabled} onChange={event => change({ time: event.target.value })} /></label></div><p className="scheduled-timezone">{draft.timeZone}</p>
+    </section>
+    {"error" in validation && draft.title.trim() && draft.instructions.trim() && <p className="scheduled-message" role="alert">{validation.error}</p>}
+    <div className="scheduled-form-actions"><Button type="button" variant="ghost" disabled={disabled} onClick={() => { state.draft = null; model.refresh(); }}>取消</Button><Button type="submit" disabled={disabled || !ready || state.needsReview}>{state.busy && <Loader2 data-icon="inline-start" className="animate-spin" />}保存计划</Button></div>
   </form>;
 }
 
@@ -116,9 +108,9 @@ export function Scheduled({ model, onOpenSession }: { model: CodeState; onOpenSe
   useEffect(() => { const timer = window.setInterval(() => refreshProgress(value => value + 1), 60_000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { void state.load(); void model.writes.loadModels(); }, [state, model, model.view.instanceId, model.status.state]);
   function resume() { if (unknown && active) { setConfirmRun(active); setConfirmation("unknown"); } else void state.control("resume"); }
-  function closeDetail() { state.selectedId = null; state.detail = null; state.draft = null; state.draftStep = 1; model.refresh(); }
+  function closeDetail() { state.selectedId = null; state.detail = null; state.draft = null; model.refresh(); }
   const hasDetail = !!state.draft || !!state.selectedId;
-  return <div className={cn("scheduled-page", state.draft && "is-form")}><header className="scheduled-header"><div>{hasDetail && <Button type="button" variant="ghost" size="icon" className="scheduled-back" aria-label="返回计划列表" disabled={state.busy || state.entries.some(entry => entry.record.instanceId === model.view.instanceId)} onClick={closeDetail}><ChevronLeft /></Button>}<h1>{state.draft ? state.selectedId ? "编辑计划" : "新建计划" : plan?.config.title ?? "Scheduled"}</h1></div>{!state.draft && !hasDetail && <Button type="button" disabled={state.blocked} onClick={() => state.create()}><Plus data-icon="inline-start" />新建计划</Button>}{!state.draft && plan && <div className="scheduled-header-actions"><Button variant="secondary" disabled={state.blocked || plan.status === "canceled"} onClick={() => state.edit()}><Pencil data-icon="inline-start" />编辑</Button>{plan.status === "active" ? <Button variant="secondary" disabled={state.blocked} onClick={() => void state.control("pause")}><Pause data-icon="inline-start" />暂停</Button> : plan.status === "paused" && <Button variant="secondary" disabled={state.blocked} onClick={resume}><Play data-icon="inline-start" />恢复</Button>}<Button variant="destructive" disabled={state.blocked || plan.status === "canceled"} onClick={() => setConfirmation("cancel")}>取消计划</Button></div>}</header>
+  return <div className={cn("scheduled-page", state.draft && "is-form")}><header className="scheduled-header"><div>{hasDetail && <Button type="button" variant="ghost" size="icon" className="scheduled-back" aria-label="返回计划列表" disabled={state.busy || state.entries.some(entry => entry.record.instanceId === model.view.instanceId)} onClick={closeDetail}><ChevronLeft /></Button>}<h1>{state.draft ? state.selectedId ? "编辑计划" : "新建计划" : plan?.config.title ?? "Scheduled"}</h1></div>{!state.draft && !hasDetail && <Button type="button" disabled={state.blocked} onClick={() => state.create()}><Plus data-icon="inline-start" />新建计划</Button>}{!state.draft && plan && <div className="scheduled-header-actions"><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="编辑计划" title="编辑计划" disabled={state.blocked || plan.status === "canceled"} onClick={() => state.edit()}><Pencil /></Button><Switch className="schedule-switch" aria-label={plan.status === "active" ? "暂停计划" : "启用计划"} title={plan.status === "active" ? "暂停计划" : "启用计划"} checked={plan.status === "active"} disabled={state.blocked || plan.status !== "active" && plan.status !== "paused"} onCheckedChange={enabled => { if (enabled) resume(); else void state.control("pause"); }} /><Button type="button" variant="ghost" size="icon" className="quiet-icon is-danger" aria-label="取消计划" title="取消计划" disabled={state.blocked || plan.status === "canceled"} onClick={() => setConfirmation("cancel")}><Trash2 /></Button></div>}</header>
     {state.message && <p className="scheduled-message" role="status">{state.message}</p>}
     {state.entries.some(entry => entry.record.instanceId !== model.view.instanceId) && <p className="scheduled-message" role="status">其他实例的原保存记录仍保留，请连回原实例核实。</p>}
     {state.entries.some(entry => entry.record.instanceId === model.view.instanceId) && <p className="scheduled-message" role="status">原保存结果待核实，连接恢复后将按原请求查询。</p>}

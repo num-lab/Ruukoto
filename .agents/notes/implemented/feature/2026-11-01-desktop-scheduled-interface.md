@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Visual alignment](2026-11-07-desktop-visual-alignment.md) supersedes the four-step form with a single form and shared composer selectors. The schedule lifecycle, validation and recovery contracts remain.
+
 ## Problem
 
 The original Desktop Scheduled page mixed title, rule, workspace, Instructions, actions and run records in one long view, and its list exposed a manual refresh. New and existing plans used one dense form, while the model and Effort choice stayed merged even though a saved plan pins them independently.

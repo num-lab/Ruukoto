@@ -1,17 +1,15 @@
-import { Activity } from "lucide-react";
+import { ScrollText, Square } from "lucide-react";
 import { backgroundProcessStatus } from "@ruukoto/view/background-processes.ts";
 import type { CodeState } from "./code-state.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-24-desktop-background-tab.md
-/** 右栏后台进程标签：清单、单进程日志与整会话结束后台共用 DesktopBackgroundProcesses 状态，不再有独立弹窗。 */
+// Note: See .agents/notes/implemented/feature/2026-10-24-desktop-background-tab.md
 export function BackgroundPanel({ model }: { model: CodeState }) {
   const state = model.background;
   const blocked = state.busy || !state.online();
   const selected = state.selected, output = state.output;
   return <section className="background-panel" aria-label="后台进程">
-    <div className="file-panel-heading"><Activity aria-hidden="true" /><span>后台进程</span></div>
     {state.message && <p className="background-note" role="status">{state.message}</p>}
     {state.endConfirm ? <div className="background-section">
       <p className="background-meta">停止并核实本次结束请求涉及的后台；保留会话和历史。</p>
@@ -31,9 +29,11 @@ export function BackgroundPanel({ model }: { model: CodeState }) {
       <div className="background-actions"><Button variant="ghost" size="sm" onClick={() => { state.selected = null; model.refresh(); }}>返回后台列表</Button></div>
     </>
     : <>
-      <ul className="background-list">{state.processes.map(process => <li key={process.id} className="background-section">
-        <p className="background-process-line"><b>{backgroundProcessStatus(process)}</b><code>{process.command}</code></p>
-        <div className="background-actions"><Button variant="outline" size="sm" onClick={() => state.select(process)}>查看日志</Button><Button variant="ghost" size="sm" disabled={blocked || process.stopVerified} onClick={() => void state.stop(process)}>请求停止</Button></div>
+      <ul className="background-list">{state.processes.map(process => <li key={process.id} className="background-card">
+        <div className="background-card-head">
+          <div className="background-card-info"><span className="background-state" data-state={process.state}><i aria-hidden="true" />{backgroundProcessStatus(process)}</span><code className="background-command" title={process.command}>{process.command}</code></div>
+          <div className="background-card-actions"><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label={`查看日志 ${process.command}`} title="查看日志" onClick={() => state.select(process)}><ScrollText /></Button><Button type="button" variant="ghost" size="icon" className="quiet-icon background-stop" aria-label={`请求停止 ${process.command}`} title="请求停止" disabled={blocked || process.stopVerified} onClick={() => void state.stop(process)}><Square /></Button></div>
+        </div>
       </li>)}</ul>
       {!state.processes.length && <div className="file-panel-empty" role={state.reading ? "status" : undefined}>{state.reading ? "正在读取后台…" : "本会话没有后台记录。"}</div>}
       <div className="background-actions"><Button variant="outline" size="sm" disabled={state.reading || !state.previousPages.length} onClick={() => state.previousPage()}>上一页</Button><span className="background-meta">{state.totalCount} 条记录</span><Button variant="outline" size="sm" disabled={state.reading || state.nextOffset === null} onClick={() => state.nextPage()}>下一页</Button><Button variant="ghost" size="sm" disabled={state.reading || !state.online()} onClick={() => void state.load()}>刷新状态</Button></div>

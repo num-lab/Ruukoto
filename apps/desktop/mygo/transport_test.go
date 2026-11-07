@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"ruukoto-desktop-mygo/browser"
 )
 
 func TestSidecarProcess(t *testing.T) {
@@ -78,6 +80,11 @@ func TestSidecarProcess(t *testing.T) {
 				time.Sleep(200 * time.Millisecond)
 				fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true,\"value\":[]}}\n", id)
 			}(request.ID)
+			continue
+		case "browser_event":
+			// Echo receipt order before acknowledging each event.
+			fmt.Printf("{\"kind\":\"update\",\"value\":%s}\n", request.Args[0])
+			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true}}\n", request.ID)
 			continue
 		case "request":
 			if len(request.Args) != 3 {
@@ -156,6 +163,34 @@ func testChild(t *testing.T, event func(json.RawMessage)) *sidecar {
 	}
 	t.Cleanup(child.close)
 	return child
+}
+
+func TestBrowserEventsKeepTakeoverAndReturnOrder(t *testing.T) {
+	seen := make(chan uint64, 20)
+	child := testChild(t, func(raw json.RawMessage) {
+		var event struct {
+			Value browser.Event `json:"value"`
+		}
+		if json.Unmarshal(raw, &event) == nil {
+			seen <- event.Value.Generation
+		}
+	})
+	desktop := &Desktop{child: child}
+	for generation := uint64(1); generation <= 20; generation++ {
+		owned := generation%2 == 0
+		desktop.browserEvent(browser.Event{Session: "current", Kind: "gate", Source: "owner", Owned: &owned, Generation: generation})
+	}
+	for generation := uint64(1); generation <= 20; generation++ {
+		select {
+		case got := <-seen:
+			if got != generation {
+				t.Fatalf("event order: got %d, want %d", got, generation)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("browser event did not arrive")
+		}
+	}
+	<-desktop.browserTail
 }
 
 func outcome(t *testing.T, result json.RawMessage) string {
@@ -349,10 +384,12 @@ func TestSidecarShutdownFinishesOnlyOriginalPreviewCleanup(t *testing.T) {
 	cmd.Env = append(os.Environ(), "RUUKOTO_MYGO_TEST_CHILD=1", "RUUKOTO_MYGO_TEST_PREVIEW="+directory)
 	invoked := make(chan string, 4)
 	var child *sidecar
-	child, err = startSidecar(cmd, func(json.RawMessage) {}, func(method string, _ json.RawMessage) json.RawMessage {
-		invoked <- method
-		child.writePrivate(map[string]any{"kind": "credential_result", "id": 99})
-		return json.RawMessage(`{"ok":true,"value":null}`)
+	child, err = startSidecar(cmd, func(json.RawMessage) {}, func(method string, _ json.RawMessage) func() json.RawMessage {
+		return func() json.RawMessage {
+			invoked <- method
+			child.writePrivate(map[string]any{"kind": "credential_result", "id": 99})
+			return json.RawMessage(`{"ok":true,"value":null}`)
+		}
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -390,10 +427,10 @@ func TestSidecarBrowserRequest(t *testing.T) {
 	var gotMethod string
 	var gotArgs json.RawMessage
 	child.mu.Lock()
-	child.onRequest = func(method string, args json.RawMessage) json.RawMessage {
+	child.onRequest = func(method string, args json.RawMessage) func() json.RawMessage {
 		gotMethod = method
 		gotArgs = append(json.RawMessage(nil), args...)
-		return json.RawMessage(`{"ok":true,"value":{"generation":3}}`)
+		return func() json.RawMessage { return json.RawMessage(`{"ok":true,"value":{"generation":3}}`) }
 	}
 	child.mu.Unlock()
 	result := child.call(context.Background(), "ask_browser")

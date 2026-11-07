@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { HistoryReadError, type HistoryEntryView } from "@ruukoto/core/history.ts";
 import type { PersistentEvent, Session, SubAgent } from "@ruukoto/core/types.ts";
-import type { TaskView } from "@ruukoto/core/views.ts";
+import type { ConfirmationRequestView, TaskView } from "@ruukoto/core/views.ts";
+import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import type { OpParams } from "@ruukoto/control/ops.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
@@ -26,6 +27,37 @@ function harness(handlers: FakeHandlers, changed: () => void = () => {}) {
   model.update({ type: "state", state: "online" });
   return { model, transport, snapshot };
 }
+
+test("Desktop session attention follows pending decisions rather than task activity", () => {
+  const { model } = harness({});
+  const source: TaskView = { ...task(), status: "running" };
+  model.view.tasks.set(source.id, source);
+  assert.equal(model.sessionNeedsDecision(session.id), false);
+  source.status = "awaiting_confirmation";
+  assert.equal(model.sessionNeedsDecision(session.id), false);
+  const approval: ConfirmationRequestView = { id: "approval", taskId: source.id, sessionId: session.id, toolOpId: "op", toolName: "bash", params: {}, paramsBytes: 2, paramsTruncated: false, scope: { kind: "tool", workspaceOnly: false }, cwdDev: 1, cwdIno: 1, permissionVersion: 1, status: "pending", createdAt: at(1), respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null, reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, standingPermissionId: null, standingPermissionVersion: null };
+  model.view.confirmations = [approval];
+  assert.equal(model.sessionNeedsDecision(session.id), true);
+  assert.equal(model.sessionNeedsDecision("other"), false);
+  for (const status of ["approved", "rejected", "stale"] as const) {
+    approval.status = status;
+    assert.equal(model.sessionNeedsDecision(session.id), false, status);
+  }
+  approval.status = "pending";
+  approval.permissionVersion++;
+  assert.equal(model.sessionNeedsDecision(session.id), false, "Obsolete permission versions do not need a decision");
+  approval.permissionVersion--;
+  model.view.tasks.set(source.id, { ...source, status: "completed" });
+  assert.equal(model.sessionNeedsDecision(session.id), false, "Ended tasks do not need approval");
+  const question: OwnerQuestionView = { id: "question", sessionId: session.id, taskId: source.id, hostOpId: "ask", version: 1, status: "pending", questions: [{ question: "Which approach?", options: ["A", "B"] }], createdAt: at(2) };
+  model.view.ownerQuestions = [question];
+  assert.equal(model.sessionNeedsDecision(session.id), true);
+  assert.equal(model.sessionNeedsDecision("other"), false);
+  for (const status of ["answered", "canceled", "stale"] as const) {
+    question.status = status;
+    assert.equal(model.sessionNeedsDecision(session.id), false, status);
+  }
+});
 
 test("桌面冷启动与重连恢复思考、工具身份及多页 UTF-8 正文，翻页不丢已有条目", async () => {
   const text = "中文👩‍💻正文\n".repeat(10_000);

@@ -75,7 +75,7 @@ async function createWindow(): Promise<void> {
       callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] } });
     });
   }
-  window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "Ruukoto", titleBarStyle: "hiddenInset", vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false } });
+  window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "Ruukoto", titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 17 }, vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false } });
   const contents = window.webContents;
   contents.on("render-process-gone", () => host.resetTerminals());
   contents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) host.resetTerminals(); });

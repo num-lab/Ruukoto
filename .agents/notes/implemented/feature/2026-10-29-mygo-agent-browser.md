@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Idle desktop browser input](../simplification/2026-11-07-idle-desktop-browser.md) supersedes the persistent input lock: actual browser use claims a page for its task, cleanup releases it, and idle pages need no takeover. Explicit takeover and recorded return observations remain.
+
 ## Problem
 
 Coding browser tools operated Runtime's Chrome while MyGo's right panel showed an isolated iframe. The Agent could not inspect or control the page the owner saw. The owner needs local frontend acceptance in that desktop page with explicit takeover/return.

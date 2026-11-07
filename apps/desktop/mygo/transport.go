@@ -32,9 +32,8 @@ type sidecar struct {
 	done     chan struct{}
 	onEvent  func(json.RawMessage)
 	onFail   func()
-	// onRequest 处理 Node→Go 窄请求（浏览器命令）：返回值作为 result 应答，
-	// 在独立协程执行，不阻塞读循环；命令自身的串行由 browser.Manager 保证。
-	onRequest         func(method string, args json.RawMessage) json.RawMessage
+	// Capture request identity in receipt order, then run the prepared work asynchronously.
+	onRequest         func(method string, args json.RawMessage) func() json.RawMessage
 	credentials       credentialStore
 	generation        string
 	credentialLast    uint64
@@ -64,7 +63,7 @@ func disconnected() json.RawMessage {
 	return failure("bridge_disconnected", "disconnected", "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。")
 }
 
-func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(method string, args json.RawMessage) json.RawMessage, stores ...credentialStore) (*sidecar, error) {
+func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(method string, args json.RawMessage) func() json.RawMessage, stores ...credentialStore) (*sidecar, error) {
 	var credentials credentialStore
 	var generation string
 	if len(stores) != 0 {
@@ -136,8 +135,9 @@ func (s *sidecar) read(output io.Reader) {
 				continue
 			}
 			id := message.ID
+			run := handler(request.Method, request.Args)
 			go func() {
-				result := handler(request.Method, request.Args)
+				result := run()
 				// Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
 				s.writeFrame(map[string]any{"kind": "response", "id": id, "result": result}, request.Method == "output_close_preview")
 			}()

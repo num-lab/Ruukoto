@@ -12,12 +12,12 @@ type CuaStatus = OpResult<"mcp_cua_status">;
 type CuaTargets = OpResult<"mcp_cua_targets">;
 type CuaImage = { id: string; source: string; loaded: boolean };
 type Write = "mcp_configure" | "mcp_set_enabled" | "mcp_remove" | "mcp_save_credential" | "mcp_remove_credential";
-const fresh = (): McpDraft => ({ kind: "http", name: "", endpoint: "", auth: "", credential: "", toolAllowlist: [] });
+const fresh = (mode: "mcp" | "computer" = "mcp"): McpDraft => ({ kind: mode === "computer" ? "cua-mac" : "http", name: mode === "computer" ? "computer" : "", endpoint: "", auth: mode === "computer" ? "anonymous" : "", credential: "", toolAllowlist: [] });
 const draftFor = (service: Service): McpDraft => ({ kind: service.cua ? "cua-mac" : "http", ...(service.cua ? { cua: service.cua } : {}), name: service.name, endpoint: service.endpoint ?? "", auth: "keep", credential: service.credential ?? "", toolAllowlist: service.toolAllowlist.map(entry => typeof entry === "string" ? { name: entry, effect: "read" } : { ...entry }) });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md
-// Note: 见 .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-code-mcp-settings.md
+// Note: See .agents/notes/implemented/architecture/2026-10-23-cua-official-mcp.md
 export class CodeMcpState implements SettingsForm {
   phase: SettingsPhase = "loading";
   reading = false;
@@ -62,11 +62,11 @@ export class CodeMcpState implements SettingsForm {
     ++this.generation; this.secret = ""; this.reading = false; this.checking = false; this.check = null; this.cuaImages = [];
     if (this.pending) { this.phase = "unknown"; this.message = "原实例的操作结果待核实，请恢复原 Code 实例后重新读取。"; }
   }
-  discard(): void { this.secret = ""; this.draft = this.service ? draftFor(this.service) : fresh(); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; if (this.phase === "conflict") this.phase = "ready"; this.changed(); }
+  discard(): void { this.secret = ""; this.draft = this.service ? draftFor(this.service) : fresh(this.mode); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; if (this.phase === "conflict") this.phase = "ready"; this.changed(); }
   select(id: string | null): void {
     if (this.disabled || this.dirty) return;
     this.selectedId = id; this.editing = true; this.check = null; this.secret = ""; this.message = "";
-    this.draft = id && this.service ? draftFor(this.service) : this.mode === "computer" ? { ...fresh(), name: "computer", kind: "cua-mac", auth: "anonymous" } : fresh(); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; this.changed();
+    this.draft = id && this.service ? draftFor(this.service) : fresh(this.mode); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; this.changed();
   }
   closeEditor(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.discard(); this.editing = false; this.selectedId = null; this.check = null; this.changed(); }
   edit<K extends keyof McpDraft>(field: K, value: McpDraft[K]): void {
@@ -106,7 +106,7 @@ export class CodeMcpState implements SettingsForm {
       this.draft = { ...this.draft, auth: "existing", credential: pending.name! };
     }
     if (committed && this.editing && !this.selectedId) this.selectedId = this.services.find(service => service.name === this.draft.name)?.id ?? null;
-    if (this.editing && (!preserveDraft || committed)) { this.draft = this.service ? draftFor(this.service) : fresh(); this.baseline = structuredClone(this.draft); }
+    if (this.editing && (!preserveDraft || committed)) { this.draft = this.service ? draftFor(this.service) : fresh(this.mode); this.baseline = structuredClone(this.draft); }
     this.secret = ""; this.pending = null;
     this.phase = preserveDraft && !committed && this.dirty ? "conflict" : "ready";
     if (this.selectedId && !this.service && !committed && pending?.op !== "mcp_remove") { this.phase = "conflict"; this.message = "原服务已删除或替换，草稿仍保留。请放弃草稿后重新选择服务，原编辑不会自动新增服务。"; }

@@ -16,7 +16,8 @@ type Work = Omit<PersonalDesktopWork, "progress"> & { progress?: PersonalDesktop
 export type PersonalApprovalDetail = { text: string; nextOffset?: number; complete: boolean; admission: number; family?: PersonalDesktopFamily; error?: string };
 type PersonalCardRef = Pick<PersonalDesktopApproval, "family" | "operation"> & { admission?: number };
 export function personalCardKey(value: PersonalCardRef) { return `${value.family ?? "tools"}:${value.operation}`; }
-export type PersonalPresentedMessage = PersonalTimelineEntry & { requestKey?: string; pendingStatus?: string };
+export type PersonalPresentedMessage = PersonalTimelineEntry & { requestKey?: string; pendingStatus?: string; displayKey?: number };
+type LocalInput = { text: string; attachments?: PersonalDesktopAttachment[]; timestamp: number; anchor: number; status?: string; requestId?: string };
 type List<T> = { items: T[]; nextOffset?: number };
 type QueryKind = ApprovalKind | "questions" | "works";
 type PermissionMode = "confirm" | "auto-review" | "full_access";
@@ -27,13 +28,16 @@ const sameAction = (left: PersonalDesktopAction, right: PersonalDesktopAction) =
 
 // Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 // Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
+// Note: See .agents/notes/implemented/simplification/2026-11-07-personal-send-feedback.md
 // Note: See .agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md
 // Note: See .agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md
 export class PersonalState {
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "connecting" };
   identity: Identity | null = null;
   readonly view = { instanceId: null as string | null };
-  entries = new Map<number, PersonalTimelineEntry>();
+  entries = new Map<number, PersonalPresentedMessage>();
+  private readonly messageAnimations = new Set<number>();
+  private messagesVisible = false;
   bodies = new Map<number, string>();
   live = emptyLive();
   message: string | null = null;
@@ -80,7 +84,8 @@ export class PersonalState {
   private detailLoading = new Map<string, Promise<boolean>>();
   readonly refreshingCards = new Set<string>();
   private projectionLoading = new Set<string>();
-  private sent = new Map<string, { text: string; attachments?: PersonalDesktopAttachment[]; timestamp: number; anchor: number; status?: string }>();
+  private sent = new Map<string, LocalInput>();
+  private submitting: LocalInput | null = null;
   private pendingDecisions = new Set<string>();
   readonly uncertainApprovals = new Set<string>();
   mode: PermissionMode = "auto-review";
@@ -110,25 +115,24 @@ export class PersonalState {
   get timeline(): PersonalPresentedMessage[] {
     const associated = new Set([...this.entries.values()].flatMap(entry => entry.input?.historyEntry === undefined ? [] : [entry.input.historyEntry]));
     const entries = [...this.entries.values()].filter(entry => !associated.has(entry.entry)).map(entry => ({ ...entry, requestKey: entry.input?.requestId }));
+    // Legacy history has no request keys for merging local message placeholders.
+    if (!this.projection) return entries.sort((a, b) => a.entry - b.entry);
     const received = new Set(entries.flatMap(entry => entry.requestKey ? [entry.requestKey] : []));
-    const pending: PersonalPresentedMessage[] = [...this.sent].filter(([key]) => !received.has(key)).map(([requestKey, value]) => ({ entry: value.anchor, conversation: 0, kind: "local-input", role: "user", text: value.text, ...(value.attachments?.length ? { attachments: value.attachments } : {}), timestamp: value.timestamp, partial: false, truncated: false, requestKey, pendingStatus: value.status }));
+    const local = [...this.sent];
+    if (this.submitting && !this.submitting.requestId) local.push(["", this.submitting]);
+    const pending: PersonalPresentedMessage[] = local.filter(([key]) => !received.has(key)).map(([requestKey, value]) => ({ entry: value.anchor, displayKey: value.anchor, conversation: 0, kind: "local-input", role: "user", text: value.text, ...(value.attachments?.length ? { attachments: value.attachments } : {}), timestamp: value.timestamp, partial: false, truncated: false, requestKey: requestKey || undefined, pendingStatus: value.status }));
     return [...entries, ...pending].sort((a, b) => a.entry - b.entry);
-  }
-  get presence() {
-    if (this.live.inboxCount) return "消息已接纳，等待处理";
-    if (this.live.run) return "正在处理";
-    if ([...this.questionCards.values()].some(value => value.status === "pending")) return "等待你的回答";
-    if ([...this.cards.values()].some(value => value.canDecide)) return "等待你的决定";
-    if (this.works.some(value => value.cancelRequested && !value.stopVerified) || this.delegations.some(value => value.cancelRequested && (value.active > 0 || value.unverified > 0))) return "已请求取消，正在核实停止";
-    if (this.works.some(value => !["completed", "failed", "aborted", "faulted", "orphaned"].includes(value.state)) || this.delegations.some(value => value.active > 0)) return "工作进行中";
-    if (this.delegations.some(value => value.state === "reporting" && value.active === 0)) return "正在准备结果";
-    return null;
   }
   get activeMessage() { return this.live.generation?.message; }
   refresh() { this.changed(); }
   start() { this.disposed = false; this.timers(); }
-  dispose() { this.disposed = true; ++this.generation; clearInterval(this.polling); this.polling = undefined; }
-  visible() { if (this.online) { void this.refreshQueries(); void this.reconcile(); } }
+  dispose() { this.hidden(); this.disposed = true; ++this.generation; clearInterval(this.polling); this.polling = undefined; }
+  visible() { this.messagesVisible = true; if (this.online) { void this.refreshQueries(); void this.reconcile(); } }
+  hidden() { this.messagesVisible = false; this.messageAnimations.clear(); }
+  takeMessageAnimation(key: number) {
+    if (this.submitting && !this.submitting.requestId && this.entries.get(key)?.input) return false;
+    return this.messageAnimations.delete(key);
+  }
   private timers() {
     clearInterval(this.polling); this.polling = undefined;
     if (this.online && !this.disposed) this.polling = setInterval(() => { if (this.pending) void this.reconcile(); for (const action of this.uncertainActions.values()) void this.inspectAction(action); if (!this.projection && (this.busy || this.questions.some(value => value.status === "pending") || this.approvals.some(value => value.canDecide) || this.works.some(value => !["completed", "failed", "aborted", "faulted", "orphaned"].includes(value.state)))) void this.refreshQueries(); }, 5000);
@@ -136,19 +140,19 @@ export class PersonalState {
   update(update: DesktopUpdate) {
     if (update.type === "state") {
       this.status = update;
-      if (update.state !== "online") { ++this.generation; this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); this.ready = false; this.reading = false; this.querying.clear(); this.loadingHistory = false; this.loadingBody.clear(); }
+      if (update.state !== "online") { ++this.generation; this.messageAnimations.clear(); this.submitting = null; this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); this.ready = false; this.reading = false; this.querying.clear(); this.loadingHistory = false; this.loadingBody.clear(); }
       this.timers();
     } else if (update.type === "personal_identity") {
       const key = JSON.stringify([update.identity.remoteId, update.identity.origin, update.identity.profile.id, update.identity.profile.directory]);
       if (this.view.instanceId !== key) {
         if (this.view.instanceId && (this.draft || this.attachments.length || this.attachmentFailed)) this.draftMismatch = true;
-        ++this.generation; this.entries.clear(); this.bodies.clear(); this.live = emptyLive(); this.questions = []; this.approvals = []; this.works = []; this.pages = {}; this.next = {}; this.question = null; this.approval = null; this.work = null;
-        this.cards.clear(); this.details.clear(); this.detailLoading.clear(); this.deciding.clear(); this.uncertainDecisions.clear(); this.pendingDecisions.clear(); this.uncertainApprovals.clear(); this.refreshingCards.clear(); this.sent.clear(); this.cardRevisions.clear(); this.projection = false; this.revision = -1; this.delegations = []; this.projectionNext = {};
+        ++this.generation; this.entries.clear(); this.messageAnimations.clear(); this.bodies.clear(); this.live = emptyLive(); this.questions = []; this.approvals = []; this.works = []; this.pages = {}; this.next = {}; this.question = null; this.approval = null; this.work = null;
+        this.cards.clear(); this.details.clear(); this.detailLoading.clear(); this.deciding.clear(); this.uncertainDecisions.clear(); this.pendingDecisions.clear(); this.uncertainApprovals.clear(); this.refreshingCards.clear(); this.sent.clear(); this.submitting = null; this.cardRevisions.clear(); this.projection = false; this.revision = -1; this.delegations = []; this.projectionNext = {};
         this.questionCards.clear(); this.questionDetails.clear(); this.questionDrafts.clear(); this.questionLoading.clear(); this.questionRevisions.clear(); this.acting.clear(); this.uncertainActions.clear(); this.actionRefreshing.clear(); this.hostActions.clear(); this.cuaImages.clear(); this.cuaImageLoading.clear(); this.invalidatedObservations.clear();
         this.outputStatus.clear();
         this.view.instanceId = key; this.ready = false;
       }
-      if (!update.identity.online || this.identity?.runId !== update.identity.runId) { ++this.generation; this.ready = false; this.reading = false; this.querying.clear(); this.revision = -1; this.cardRevisions.clear(); this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); }
+      if (!update.identity.online || this.identity?.runId !== update.identity.runId) { ++this.generation; this.messageAnimations.clear(); this.submitting = null; this.ready = false; this.reading = false; this.querying.clear(); this.revision = -1; this.cardRevisions.clear(); this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); }
       this.identity = update.identity;
       if (update.identity.runId) this.runId = update.identity.runId;
       this.timers();
@@ -181,9 +185,11 @@ export class PersonalState {
   frame(frame: PersonalDesktopFrame) {
     if (this.status.state !== "online" || !this.identity || frame.runId !== this.identity.runId) return;
     if (frame.type === "snapshot") {
-      ++this.generation; this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); this.runId = frame.runId; this.subscription = frame.subscription; this.seq = frame.seq; this.through = frame.timeline.through; this.cursor = frame.timeline.nextCursor;
+      this.messageAnimations.clear();
+      ++this.generation; this.submitting = null; this.detailLoading.clear(); this.questionLoading.clear(); this.actionRefreshing.clear(); this.projectionLoading.clear(); this.runId = frame.runId; this.subscription = frame.subscription; this.seq = frame.seq; this.through = frame.timeline.through; this.cursor = frame.timeline.nextCursor;
       for (const entry of frame.timeline.items) this.installEntry(entry);
       this.live = structuredClone(frame.live); this.ready = true; this.reading = false; this.querying.clear(); this.loadingHistory = false; this.loadingBody.clear();
+      this.projection = frame.state !== undefined;
       if (frame.state) this.installProjection(frame.state);
       void this.inspectSnapshot(frame);
       this.timers(); void this.refreshQueries(); void this.reconcile();
@@ -199,7 +205,7 @@ export class PersonalState {
   }
   private event(event: PersonalDesktopEvent) {
     if (event.type === "personal_state") this.installProjection(event.state);
-    else if (event.type === "message_end" || event.type === "entry_appended") { this.installEntry(event.entry); if (event.entry.role === "assistant" && this.live.generation) delete this.live.generation.message; }
+    else if (event.type === "message_end" || event.type === "entry_appended") { this.installEntry(event.entry, true); if (event.entry.role === "assistant" && this.live.generation) delete this.live.generation.message; }
     else if (event.type === "run_start") this.live.run = { inputs: event.inputs, total: event.total };
     else if (event.type === "run_end") { delete this.live.run; delete this.live.generation; this.live.tools = []; this.live.toolCount = 0; }
     else if (event.type === "inbox_update") { this.live.inbox = event.items; this.live.inboxCount = event.total; }
@@ -309,21 +315,36 @@ export class PersonalState {
   async send() {
     if (!this.canSend) return;
     if (new TextEncoder().encode(this.draft).byteLength > 16384) { this.message = "每条输入最多16 KiB，请缩短后再发送。"; this.changed(); return; }
-    const text = this.draft, attachments = structuredClone(this.attachments), generation = this.generation; this.sending = true; this.changed();
+    const text = this.draft, attachments = structuredClone(this.attachments), generation = this.generation;
+    const submitting: LocalInput = { text, attachments, timestamp: Date.now(), anchor: this.inputAnchor(), status: "checking" };
+    if (this.messagesVisible && this.projection) this.messageAnimations.add(submitting.anchor);
+    this.submitting = submitting; this.sending = true; this.changed();
     if (this.draftId) await this.draftWrites;
-    if (generation !== this.generation || this.attachmentFailed) { this.sending = false; this.changed(); return; }
+    if (generation !== this.generation || this.attachmentFailed) { this.messageAnimations.delete(submitting.anchor); if (this.submitting === submitting) this.submitting = null; this.sending = false; this.changed(); return; }
     const result = await this.request<Receipt>("desktop_personal_input_submit", { text, ...(attachments.length ? { attachments } : {}), ...(this.draftId ? { draftId: this.draftId } : {}) });
     this.sending = false;
-    if (generation !== this.generation) return;
-    if (!result.ok) this.message = result.error.message;
+    if (generation !== this.generation) { if (this.submitting === submitting) this.submitting = null; return; }
+    if (!result.ok) { this.messageAnimations.delete(submitting.anchor); this.message = result.error.message; if (submitting.requestId && this.pending?.requestId !== submitting.requestId && ["not_sent", "rejected"].includes(result.error.outcome)) this.sent.delete(submitting.requestId); }
     else { this.pendingResult = result.value; if (result.value.kind === "accepted") { this.rememberInput(result.value.requestId, text, result.value.status, attachments); if (this.draft === text && JSON.stringify(this.attachments) === JSON.stringify(attachments)) { this.draft = ""; this.attachments = []; } } }
+    if (this.submitting === submitting) this.submitting = null;
     this.changed();
   }
+  private inputAnchor() {
+    const anchor = Math.max(0, ...this.entries.keys(), ...[...this.cards.values()].map(card => card.occurrence));
+    return Math.max(anchor + .5, ...[...this.sent.values()].map(value => value.anchor + .001));
+  }
   private rememberInput(requestId: string, text: string, status?: string, attachments?: PersonalDesktopAttachment[]) {
+    if (this.submitting && !this.submitting.requestId) this.submitting.requestId = requestId;
     const canonical = [...this.entries.values()].find(entry => entry.input?.requestId === requestId);
-    if (canonical) { this.bodies.set(canonical.entry, text); return; }
-    const previous = this.sent.get(requestId), anchor = Math.max(0, ...this.entries.keys(), ...[...this.cards.values()].map(card => card.occurrence));
-    this.sent.set(requestId, { text, ...(attachments?.length ? { attachments: structuredClone(attachments) } : {}), timestamp: previous?.timestamp ?? Date.now(), anchor: previous?.anchor ?? Math.max(anchor + .5, ...[...this.sent.values()].map(value => value.anchor + .001)), status });
+    if (canonical) {
+      if (this.submitting?.requestId === requestId) {
+        if (canonical.displayKey !== this.submitting.anchor) this.messageAnimations.delete(canonical.displayKey ?? canonical.entry);
+        canonical.displayKey = this.submitting.anchor;
+      }
+      this.bodies.set(canonical.entry, text); return;
+    }
+    const previous = this.sent.get(requestId) ?? (this.submitting?.requestId === requestId ? this.submitting : null);
+    this.sent.set(requestId, { text, ...(attachments?.length ? { attachments: structuredClone(attachments) } : {}), timestamp: previous?.timestamp ?? Date.now(), anchor: previous?.anchor ?? this.inputAnchor(), status });
   }
   async reconcile(restore = false) {
     if (this.checking || this.status.state !== "online") return;
@@ -332,7 +353,7 @@ export class PersonalState {
     if (generation !== this.generation) { this.checking = false; if (this.online && !this.disposed) void this.reconcile(); return; }
     this.checking = false;
     if (!result.ok) this.message = result.error.message;
-    else { this.pendingResult = result.value; if (result.value?.kind === "accepted") { if (this.pending?.input === this.draft) this.draft = ""; this.pending = null; } }
+    else { this.pendingResult = result.value; if (result.value?.kind === "accepted") { const local = this.sent.get(result.value.requestId); if (local) local.status = result.value.status; if (this.pending?.input === this.draft) this.draft = ""; this.pending = null; } }
     this.changed();
   }
   async older() {
@@ -434,11 +455,19 @@ export class PersonalState {
     this.refreshingCards.delete(key);
     if (!value.canDecide) { this.uncertainApprovals.delete(key); if (family === "tools") this.uncertainDecisions.delete(value.operation); }
   }
-  private installEntry(entry: PersonalTimelineEntry) {
+  private installEntry(entry: PersonalTimelineEntry, live = false) {
     const old = this.entries.get(entry.entry), status = (value: string) => value === "queued" ? 0 : value === "placed" ? 1 : 2;
     if (old?.input && entry.input && status(old.input.status) > status(entry.input.status)) return;
-    this.entries.set(entry.entry, entry);
-    if (entry.input) { const local = this.sent.get(entry.input.requestId); if (local) this.bodies.set(entry.entry, local.text); this.sent.delete(entry.input.requestId); }
+    const local = entry.input ? this.sent.get(entry.input.requestId) : undefined;
+    const displayKey = old?.displayKey ?? local?.anchor ?? entry.entry;
+    this.entries.set(entry.entry, { ...entry, displayKey });
+    const visible = (value: PersonalTimelineEntry) => !value.partial && (value.role === "user" || value.role === "assistant") && (!!value.text.trim() || value.truncated || !!value.outputs?.length || !!value.attachments?.length);
+    if (live && this.messagesVisible && !local && visible(entry) && (!old || !visible(old))) this.messageAnimations.add(displayKey);
+    if (entry.input) {
+      if (local) this.bodies.set(entry.entry, local.text);
+      this.sent.delete(entry.input.requestId);
+      if (entry.input.historyEntry !== undefined) this.messageAnimations.delete(entry.input.historyEntry);
+    }
   }
   private async inspectSnapshot(frame: Extract<PersonalDesktopFrame, { type: "snapshot" }>) {
     const generation = this.generation;

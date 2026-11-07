@@ -28,6 +28,7 @@ type Desktop struct {
 	window         *mygo.Window
 	frontend       *mygo.WebView
 	browser        *browser.Manager
+	browserTail    <-chan struct{} // Main-thread event order, including rapid takeover/return.
 	child          *sidecar
 	error          json.RawMessage
 	instanceLock   *os.File
@@ -146,9 +147,30 @@ func (d *Desktop) OpenExternal(ctx context.Context, value string) json.RawMessag
 	return json.RawMessage(`{"ok":true}`)
 }
 
-// browserRequest 处理子进程→Go 的窄请求；参数形为 [{op, session, generation, ...}]。
-// 命令在独立协程执行（读循环不阻塞），页面串行与代次校验由 browser.Manager 保证。
-func (d *Desktop) browserRequest(method string, args json.RawMessage) json.RawMessage {
+// browserRequest captures the browser transport before asynchronous dispatch.
+func (d *Desktop) browserRequest(method string, args json.RawMessage) func() json.RawMessage {
+	if strings.HasPrefix(method, "output_") {
+		return func() json.RawMessage { return d.outputRequest(method, args) }
+	}
+	if method != "browser_command" || d.browser == nil {
+		return func() json.RawMessage { return failure("unknown_method", "not_sent", "未知的子进程请求。") }
+	}
+	var raw []json.RawMessage
+	var call struct {
+		Op string `json:"op"`
+		browser.CommandIn
+	}
+	if json.Unmarshal(args, &raw) != nil || len(raw) != 1 || json.Unmarshal(raw[0], &call) != nil || call.Op == "" {
+		return func() json.RawMessage {
+			return failure("invalid_params", "not_sent", "浏览器命令缺少操作或输入。")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
+	run := d.browser.Prepare(ctx, call.Op, call.CommandIn)
+	return func() json.RawMessage { defer cancel(); return run() }
+}
+
+func (d *Desktop) outputRequest(method string, args json.RawMessage) json.RawMessage {
 	if strings.HasPrefix(method, "output_") {
 		var raw []json.RawMessage
 		if json.Unmarshal(args, &raw) != nil {
@@ -191,20 +213,7 @@ func (d *Desktop) browserRequest(method string, args json.RawMessage) json.RawMe
 			return failure("unknown_method", "not_sent", "未知的文件窗口操作。")
 		}
 	}
-	if method != "browser_command" || d.browser == nil {
-		return failure("unknown_method", "not_sent", "未知的子进程请求。")
-	}
-	var raw []json.RawMessage
-	var call struct {
-		Op string `json:"op"`
-		browser.CommandIn
-	}
-	if json.Unmarshal(args, &raw) != nil || len(raw) != 1 || json.Unmarshal(raw[0], &call) != nil || call.Op == "" {
-		return failure("invalid_params", "not_sent", "浏览器命令缺少操作或输入。")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
-	defer cancel()
-	return d.browser.Command(ctx, call.Op, call.CommandIn)
+	return failure("unknown_method", "not_sent", "未知的文件窗口操作。")
 }
 
 // browserEvent 把页面事实上报子进程；闸门在原生侧已生效，送达失败只记诊断。
@@ -212,7 +221,13 @@ func (d *Desktop) browserEvent(e browser.Event) {
 	if d.child == nil {
 		return
 	}
+	previous, done := d.browserTail, make(chan struct{})
+	d.browserTail = done
 	go func() {
+		defer close(done)
+		if previous != nil {
+			<-previous
+		}
 		res := d.child.call(context.Background(), "browser_event", e)
 		var v struct {
 			OK bool `json:"ok"`
@@ -225,7 +240,12 @@ func (d *Desktop) browserEvent(e browser.Event) {
 
 func (d *Desktop) event(data json.RawMessage) {
 	var event struct {
-		Kind   string          `json:"kind"`
+		Kind   string `json:"kind"`
+		Target string `json:"target"`
+		Update struct {
+			Type  string `json:"type"`
+			State string `json:"state"`
+		} `json:"update"`
 		Notice json.RawMessage `json:"notice"`
 		Count  int             `json:"count"`
 	}
@@ -234,6 +254,9 @@ func (d *Desktop) event(data json.RawMessage) {
 	}
 	switch event.Kind {
 	case "update":
+		if event.Target == "code" && event.Update.Type == "state" && event.Update.State != "online" && d.browser != nil {
+			d.browser.ReleaseAll()
+		}
 		if d.frontend == nil {
 			return
 		}
@@ -261,8 +284,11 @@ func (d *Desktop) event(data json.RawMessage) {
 	}
 }
 
-// view 构建原生布局：前端页占满窗口，浏览器页按前端上报矩形覆盖其上。
+// The frontend fills the window; browser pages overlay their reported rectangles.
 func (d *Desktop) view(c *ui.Context) {
+	if c.Vibrancy() {
+		c.Root().Background(ui.Transparent)
+	}
 	ui.Column(c).Fill().Children(func() {
 		if d.frontend != nil {
 			ui.WebView(c, d.frontend).Fill()
@@ -274,8 +300,8 @@ func (d *Desktop) view(c *ui.Context) {
 }
 
 func (d *Desktop) ready() {
-	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
-	frontend, err := d.window.NewWebView(mygo.WebViewOptions{URL: "/", Page: mygo.PageOptions{PreloadScript: preload}})
+	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, TrafficLightPosition: &mygo.Point{X: 18, Y: 17}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
+	frontend, err := d.window.NewWebView(mygo.WebViewOptions{URL: "/", Transparent: true, Page: mygo.PageOptions{PreloadScript: preload}})
 	if err != nil {
 		os.Stderr.WriteString("[ruukoto:desktop] MyGo 前端视图创建失败；请重新构建应用。\n")
 		d.failed = true

@@ -1,44 +1,43 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Save, SquarePen, Trash2, X } from "lucide-react";
 import type { CodeState } from "./code-state.ts";
 import { CodeWebSearchState } from "./code-web-search-state.ts";
-import { SettingsButton, SettingsInput, SettingsNotice, SettingsSwitch, SettingsTag } from "./components/controls.tsx";
+import { SettingsButton, SettingsNotice, SettingsSwitch } from "./components/controls.tsx";
 import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow } from "./components/settings.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
 
-// 与 code-web-search-state 的固定绑定名一致：该名称的凭据由本页管理。
+// Only the fixed binding owned by this page can be replaced or removed.
 const WEB_SEARCH_CREDENTIAL_NAME = "web-search";
 
 function WebSearchForm({ code }: { code: CodeState }) {
   const [, bump] = useState(0);
   const [state] = useState(() => new CodeWebSearchState({ request: (...args) => window.ruukoto.request(...args) }, () => bump(value => value + 1), code.view.instanceId!, () => ({ instanceId: code.view.instanceId, online: code.status.state === "online" })));
+  useEffect(() => { void state.read(); return () => { state.invalidate(); }; }, [state]);
+  return <CodeWebSearchEditor state={state} code={code} />;
+}
+
+export function CodeWebSearchEditor({ state, code }: { state: CodeWebSearchState; code: CodeState }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [replacing, setReplacing] = useState(false);
-  useEffect(() => { void state.read(); return () => { state.invalidate(); }; }, [state]);
   const effective = state.effective;
-  const secretField = !effective || replacing;
+  const secretField = state.phase === "ready" && (!effective || replacing);
+  const editable = state.phase === "ready" && (!effective || effective.name === WEB_SEARCH_CREDENTIAL_NAME);
+  const save = () => void state.saveSecret().then(saved => { if (saved) setReplacing(false); });
   const webSearch = code.view.webSearch;
   return (
     <SettingsPage title="Web 搜索" description="管理 Code 的 Tavily 凭据与实例开关。">
-      <SettingsGroup title="Tavily 凭据" action={<SettingsButton variant="icon" aria-label="重新读取凭据" title="重新读取凭据" disabled={state.reading || state.writing} onClick={() => void state.read()}><RefreshCw /></SettingsButton>}>
-        <SettingsCard>
-          {state.reading && <SettingsRow title="" description="正在读取…" />}
-          {state.phase === "ready" && effective && <SettingsRow title="当前凭据" description={`${effective.name} · ${effective.host}`}>
-            <SettingsTag>{effective.name === WEB_SEARCH_CREDENTIAL_NAME ? "生效中" : "未配置"}</SettingsTag>
-          </SettingsRow>}
-          {state.phase === "ready" && effective && effective.name === WEB_SEARCH_CREDENTIAL_NAME && <SettingsRow title="凭据操作" description="更换或移除只改变演示状态。">
-            {!replacing && <SettingsButton disabled={state.disabled} onClick={() => { setReplacing(true); state.editSecret(""); }}>更换密钥</SettingsButton>}
-            <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => setConfirmRemove(true)}>移除</SettingsButton>
-          </SettingsRow>}
-          {state.phase === "ready" && effective && effective.name !== WEB_SEARCH_CREDENTIAL_NAME && <SettingsRow title="" description="由 CLI 创建，请用 ruukoto credentials 命令管理。" />}
-          {state.credentials.length > 1 && <SettingsRow title="" description={`共 ${state.credentials.length} 条绑定，取名称排序第一个生效。`} />}
-          {state.phase === "ready" && !effective && <SettingsRow title="" description="未配置 Tavily 凭据。" />}
-          {secretField && <SettingsRow title="Tavily API Key" description="只显示新秘密输入，不回显已有值。" htmlFor="web-search-secret" error={state.fieldErrors.secret}><SettingsInput id="web-search-secret" type="password" autoComplete="off" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} /></SettingsRow>}
-          {secretField && <SettingsRow title="密钥操作" description="保存后生效。">
-            {replacing && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => setReplacing(false)}>取消更换</SettingsButton>}
-            <SettingsButton disabled={state.disabled} onClick={() => void state.saveSecret().then(saved => { if (saved) setReplacing(false); })}>保存密钥</SettingsButton>
-          </SettingsRow>}
+      <SettingsGroup title="Tavily 凭据">
+        <SettingsCard className="web-search-credential-card">
+          <SettingsRow title={secretField
+            ? <input className="settings-plain-input web-search-key-input" id="web-search-secret" type="password" aria-label="Tavily API Key" autoComplete="new-password" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); save(); } }} placeholder="输入新的 Tavily API Key" />
+            : <code className="web-search-credential">{state.reading ? "正在读取…" : state.phase !== "ready" ? "尚未核实" : effective ? "已配置 · ••••••••••••" : "未配置"}</code>}
+            error={state.fieldErrors.secret} description={effective && effective.name !== WEB_SEARCH_CREDENTIAL_NAME ? "由 CLI 创建，请用 ruukoto credentials 命令管理。" : undefined}>
+            <SettingsButton variant="icon" aria-label={secretField ? "保存密钥" : "修改密钥"} title={secretField ? "保存密钥" : "修改密钥"} disabled={state.disabled || !editable || secretField && !state.secret} onClick={() => { if (secretField) save(); else { setReplacing(true); state.editSecret(""); } }}>{secretField ? <Save /> : <SquarePen />}</SettingsButton>
+            {replacing && <SettingsButton variant="icon" aria-label="取消更换" title="取消更换" disabled={state.disabled} onClick={() => { setReplacing(false); state.editSecret(""); }}><X /></SettingsButton>}
+            <SettingsButton className="settings-danger-icon" variant="icon" aria-label="移除密钥" title="移除密钥" disabled={state.disabled || !editable || !effective} onClick={() => setConfirmRemove(true)}><Trash2 /></SettingsButton>
+          </SettingsRow>
+          {state.credentials.length > 1 && <SettingsRow title="凭据绑定" description={`共 ${state.credentials.length} 条绑定，取名称排序第一个生效。`} />}
         </SettingsCard>
       </SettingsGroup>
       <SettingsGroup title="实例开关">
@@ -47,6 +46,7 @@ function WebSearchForm({ code }: { code: CodeState }) {
         </SettingsCard>
       </SettingsGroup>
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
+      {state.phase === "error" && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.read()}>重试读取凭据</SettingsButton>}
       <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>移除 Tavily 凭据？</DialogTitle><DialogDescription>移除后 web_search 调用会直接返回未配置错误。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => { setConfirmRemove(false); void state.removeCredential(); }}>移除</Button></DialogFooter></DialogContent></Dialog>
     </SettingsPage>
   );

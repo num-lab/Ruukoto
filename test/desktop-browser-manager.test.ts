@@ -251,3 +251,86 @@ test("open 闸门：接管中 open 等交还不夺页；closed 后 open 重开�
     assert.equal(calls.length, 4);
   } finally { await t.close(); }
 });
+
+test("Idle pages allow ordinary work and are claimed only by actual browser use", async () => {
+  const t = await kit();
+  try {
+    const { session } = t.project(), task = fullTask(t.store, session.id);
+    t.store.withTx(() => t.store.bindTaskBrowser(task.id, CONN));
+    const calls: { op: string; params: Record<string, unknown> }[] = [];
+    const m = managerWith(t.store, { log: calls, impl: async params => ({ ok: true, value: { exists: true, generation: params.op === "status" ? 1 : 2, owned: params.op !== "status", ownerHeld: false, gone: false, url: "https://owner.test" } }) });
+    const status = await m.command(task, "status", {});
+    assert.equal(status.value.owned, false); assert.equal(m.state(task)?.heldSeen, false);
+    assert.equal(await m.awaitGate(task, () => true), "released");
+    assert.equal(m.takePendingReturn(task), null);
+    await m.command(task, "eval", { script: "document.title" });
+    assert.deepEqual(calls.map(call => call.op), ["status", "open", "eval"]);
+    assert.equal(calls.at(-1)?.params.generation, 2);
+    m.onEvent(CONN, ev(session.id, { kind: "gate", generation: 3, owned: false, ownerHeld: false, source: "host" }));
+    await m.command(task, "close", {});
+    assert.deepEqual(calls.slice(-2).map(call => call.op), ["open", "close"]);
+  } finally { await t.close(); }
+});
+
+test("Browser command responses cannot overwrite a newer owner takeover", async () => {
+  const t = await kit();
+  try {
+    const { session } = t.project(), task = fullTask(t.store, session.id);
+    t.store.withTx(() => t.store.bindTaskBrowser(task.id, CONN));
+    const m = new DesktopBrowserManager({ store: t.store, call: () => async () => {
+      m.onEvent(CONN, ev(session.id, { kind: "gate", owned: true, source: "host", generation: 1 }));
+      m.onEvent(CONN, ev(session.id, { kind: "gate", owned: false, ownerHeld: true, source: "owner", generation: 2 }));
+      return { ok: true, value: { exists: true, owned: true, ownerHeld: false, gone: false, generation: 1 } };
+    } });
+    await m.command(task, "open", {});
+    assert.equal(m.state(task)?.generation, 2); assert.equal(m.state(task)?.owned, false); assert.equal(m.state(task)?.heldSeen, true);
+  } finally { await t.close(); }
+});
+
+test("A return observed through status before its gate events is consumed exactly once", async () => {
+  const t = await kit();
+  try {
+    const { session } = t.project(), task = fullTask(t.store, session.id);
+    t.store.withTx(() => t.store.bindTaskBrowser(task.id, CONN));
+    const m = managerWith(t.store, { log: [], impl: async () => ({ ok: true, value: { exists: true, owned: true, ownerHeld: false, generation: 6, returnGeneration: 6 } }) });
+    m.onEvent(CONN, ev(session.id, { kind: "gate", owned: true, source: "host", generation: 4, returnGeneration: 0 }));
+    await m.command(task, "status", {});
+    assert.deepEqual(m.takePendingReturn(task), { generation: 6 });
+    m.onEvent(CONN, ev(session.id, { kind: "gate", owned: false, source: "owner", generation: 5, returnGeneration: 0 }));
+    m.onEvent(CONN, ev(session.id, { kind: "gate", owned: true, source: "owner", generation: 6, returnGeneration: 6 }));
+    assert.equal(m.takePendingReturn(task), null);
+    m.onEvent(CONN, ev(session.id, { kind: "gate", owned: false, source: "host", generation: 7, returnGeneration: 0 }));
+    m.onEvent(CONN, ev(session.id, { kind: "gate", owned: true, source: "owner", generation: 6, returnGeneration: 6 }));
+    assert.equal(m.state(task)?.owned, false); assert.equal(m.takePendingReturn(task), null);
+  } finally { await t.close(); }
+});
+
+test("Task release follows in-flight browser work and leaves other pages and later tasks alone", async () => {
+  const t = await kit();
+  try {
+    const { session } = t.project(), task = fullTask(t.store, session.id), next = fullTask(t.store, session.id);
+    t.store.withTx(() => { t.store.bindTaskBrowser(task.id, CONN); t.store.bindTaskBrowser(next.id, CONN); });
+    let finish!: () => void;
+    const calls: { op: string; params: Record<string, unknown> }[] = [];
+    const m = managerWith(t.store, { log: calls, impl: async params => {
+      if (params.op === "eval") await new Promise<void>(resolve => { finish = resolve; });
+      return { ok: true, value: { exists: true, generation: calls.length, owned: params.op !== "release", ownerHeld: false, gone: false } };
+    } });
+    await m.command(task, "open", {});
+    const running = m.command(task, "eval", { script: "1" });
+    await new Promise(resolve => setImmediate(resolve));
+    const releasing = m.release(task);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls.map(call => call.op), ["open", "eval"]);
+    finish(); await running; await releasing;
+    assert.deepEqual(calls.map(call => call.op), ["open", "eval", "release"]);
+    assert.equal(m.state(task)?.owned, false); assert.equal(m.state(task)?.heldSeen, false); assert.equal(m.takePendingReturn(task), null);
+    await m.command(next, "open", {});
+    await m.release(task);
+    assert.equal(m.state(next)?.owned, true); assert.equal(calls.length, 4);
+    m.onEvent(CONN, ev(session.id, { kind: "gate", owned: false, source: "owner", generation: 5 }));
+    await m.release(next);
+    assert.equal(m.state(next)?.heldSeen, false);
+    assert.equal(await m.awaitGate(next, () => true), "released");
+  } finally { await t.close(); }
+});

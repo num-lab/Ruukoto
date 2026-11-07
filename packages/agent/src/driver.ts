@@ -839,10 +839,7 @@ export class Driver {
       const task = this.currentTask;
       if (task && !this.stopRequested && !signal?.aborted) {
         await this.browserGate(task);
-        // 发送前复核：交还后的新观察未进入本请求上下文时不得按旧上下文发送。
-        if (this.mustRejudge && this.assembly?.browserObservationDelivered !== this.mustRejudge) {
-          throw new ContextSendBlocked("browser_context_stale:浏览器交还后的新观察未进入上下文，拒绝发送旧请求");
-        }
+        // Context assembly follows prepareRequest; checkBeforeSend verifies the delivered observation.
       }
       this.settleGuidanceBatch();
       return next || undefined;
@@ -1082,7 +1079,7 @@ export class Driver {
     if (!db?.eligible(task)) return "clear";
     const st = db.state(task);
     if (!st) return "clear";
-    if (!st.owned && !st.gone) {
+    if (st.heldSeen && !st.gone) {
       this.deps.store.withTx(() => {
         this.deps.store.appendEvent({ type: "task.browser_wait", taskId: task.id, sessionId: task.sessionId, waiting: true }, { sessionId: task.sessionId });
       });
@@ -1106,8 +1103,8 @@ export class Driver {
     const observationId = randomId("obs");
     let data: Record<string, unknown>;
     try {
-      const obs = await db.observe(task);
-      data = { taskId: task.id, observationId: obs.observationId, generation: obs.generation, url: obs.url ?? null, title: obs.title ?? null, text: obs.text, unavailable: null };
+      const obs = await db.observe(task, () => this.stopRequested);
+      data = { taskId: task.id, observationId, generation: obs.generation, url: obs.url ?? null, title: obs.title ?? null, text: obs.text, unavailable: null };
     } catch (error) {
       data = {
         taskId: task.id, observationId, generation: db.state(task)?.generation ?? 0, url: null, title: null, text: null,
@@ -1237,7 +1234,11 @@ export class Driver {
     try {
       await this.runPromise;
     } finally {
-      await this.stopPromise;
+      try { await this.stopPromise; }
+      finally {
+        try { await this.deps.desktopBrowser?.release(task); }
+        catch (error) { process.stderr.write(`[ruukoto:driver] Browser input release failed; use the page's takeover control: ${error instanceof Error ? error.message : String(error)}\n`); }
+      }
       this.assembly?.abort();
       this.assembly = null;
       // 引导收尾：解除仍在等待的源取消；已移交却未核实落盘或停止时移交过输入的

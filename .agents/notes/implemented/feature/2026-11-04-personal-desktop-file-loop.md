@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Personal send feedback](../simplification/2026-11-07-personal-send-feedback.md) supersedes routine presence/admission wording and establishes the immediate local presentation before the host returns a request key.
+
 ## Problem
 
 Personal's main conversation can delegate waiting operations and accept amendments, but its desktop previously discovered child decisions through periodic queries and opened them outside the conversation. Native input text appeared only after history placement; queued inputs and lost responses could leave the owner without a visible message. A reconnect or application restart must preserve the original message and decision while work, stopping and publication advance independently.
@@ -14,7 +16,7 @@ Desktop derives ordinary-tool cards, work progress and report publication from t
 
 An accepted native input commits a versioned, data-only `ruukoto.owner-input-display` entry with its request, submission, body and receive time inside the main admission transaction. It contributes no model messages and leaves native history placement unchanged. Request, submission and history indices associate that display with the original user entry. Projection verifies reciprocal identities and body authority before suppressing the associated raw history row; a contradictory or missing referenced record fails explicitly. Historical cuts before the display still retain their native row.
 
-Only native local-owner text receives this display record. Custom report, question, schedule and IM entries keep their original provenance. Same-key admission returns the existing submission; identical bodies with different keys remain distinct. Queued withdrawal preserves body and anchor as an unanswered input. Existing committed history is not rewritten or retrofitted. The sending desktop keeps a request-keyed local body at a fixed provisional occurrence and replaces its association once the canonical display arrives, under either receipt/stream order.
+Only native local-owner text receives this display record. Custom report, question, schedule and IM entries keep their original provenance. Same-key admission returns the existing submission; identical bodies with different keys remain distinct. Queued withdrawal preserves body and anchor as an unanswered input. Existing committed history is not rewritten or retrofitted. The sending desktop keeps a request-keyed local body at a fixed provisional occurrence and replaces its association once the canonical display arrives, under either receipt/stream order. Provisional bubbles require the canonical projection advertised by the current snapshot; older backends use their history-only fallback because their raw user entries have no request key. Each snapshot renews this capability, including reconnect to an older backend. Admission uncertainty is shown only while checking; accepted queued input shows waiting, while placed or completed receipts do not claim uncertain admission. Identical bodies are never used as message identity.
 
 ### Observation and exact decisions
 

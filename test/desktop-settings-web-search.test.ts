@@ -113,7 +113,7 @@ test("Web 搜索页 SSR 呈现凭据状态与项目开关", async t => {
     code.view.applySnapshot({ snapshot: fakeSnapshot({}), replay: [], seq: 0 }, false);
     code.status = { type: "state", state: "online" };
     let html = renderToStaticMarkup(createElement(CodeWebSearchSettings, { code }));
-    assert.match(html, /Tavily 凭据/); assert.match(html, /Tavily API Key/); assert.match(html, /保存密钥/);
+    assert.match(html, /Tavily 凭据/); assert.match(html, /尚未核实/); assert.match(html, /aria-label="修改密钥"[^>]*disabled/);
     assert.match(html, /所有项目共用/); assert.match(html, /role="switch"/); assert.match(html, /从下一任务生效/);
     code.view.instanceId = null;
     html = renderToStaticMarkup(createElement(CodeWebSearchSettings, { code }));

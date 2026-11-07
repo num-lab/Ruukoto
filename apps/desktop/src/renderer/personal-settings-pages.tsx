@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Plus, Puzzle, RefreshCw } from "lucide-react";
+import { Plus, Puzzle } from "lucide-react";
 import type { PersonalSettingsPageProps } from "./settings-dialog.tsx";
 import { PersonalSettingsPageState } from "./personal-settings-state.ts";
 import { SettingsButton, SettingsInput, SettingsNotice, SettingsSearch, SettingsSelect, SettingsSwitch, SettingsTag } from "./components/controls.tsx";
@@ -29,10 +29,10 @@ const apiOptions = [
 
 function ModelEditor({ state }: { state: PersonalSettingsPageState }) {
   const [tested, setTested] = useState(false);
-  return <SettingsGroup title="当前模型" action={<SettingsButton variant="icon" aria-label="重新读取远端配置" title="重新读取远端配置" disabled={state.reading || state.phase === "saving"} onClick={() => void state.read()}><RefreshCw className={state.reading ? "animate-spin" : undefined} /></SettingsButton>}>
+  return <SettingsGroup title="当前模型">
     <SettingsCard>
-      {!!state.modelPresets.length && <SettingsRow title="模型预设" htmlFor="pa-model-preset"><SettingsSelect id="pa-model-preset" value={state.modelPreset} disabled={state.disabled} onChange={event => state.selectModelPreset(event.target.value)} options={[{ value: "", label: "自定义" }, ...state.modelPresets.map(preset => ({ value: preset.id, label: `${preset.provider} · ${preset.name}` }))]} /></SettingsRow>}
-      <SettingsRow title="API 类型" htmlFor="pa-api"><SettingsSelect id="pa-api" value={state.model.api} disabled={state.disabled} onChange={event => state.editModel("api", event.target.value as typeof state.model.api)} options={apiOptions} /></SettingsRow>
+      {!!state.modelPresets.length && <SettingsRow title="模型预设" htmlFor="pa-model-preset"><SettingsSelect id="pa-model-preset" value={state.modelPreset} disabled={state.disabled} onValueChange={nextValue => state.selectModelPreset(nextValue)} options={[{ value: "", label: "自定义" }, ...state.modelPresets.map(preset => ({ value: preset.id, label: `${preset.provider} · ${preset.name}` }))]} /></SettingsRow>}
+      <SettingsRow title="API 类型" htmlFor="pa-api"><SettingsSelect id="pa-api" value={state.model.api} disabled={state.disabled} onValueChange={nextValue => state.editModel("api", nextValue as typeof state.model.api)} options={apiOptions} /></SettingsRow>
       {([["baseUrl", "服务地址"], ["modelId", "模型标识"], ["contextWindow", "上下文上限"], ["maxTokens", "输出上限"], ["apiKeyEnv", "凭据环境变量引用"]] as const).map(([key, label]) => <TextSetting key={key} id={`pa-${key}`} title={label} value={state.model[key]} type={key === "contextWindow" || key === "maxTokens" ? "number" : "text"} disabled={state.disabled} invalid={!!state.fieldErrors[key]} description={key === "apiKeyEnv" ? "只存引用名，凭据由原后台环境提供。" : undefined} onChange={value => state.editModel(key, value)} />)}
       <SettingsRow title="图片输入" htmlFor="pa-image"><SettingsSwitch id="pa-image" checked={state.model.imageInput} disabled={state.disabled} onChange={event => state.editModel("imageInput", event.target.checked)} /></SettingsRow>
       <SettingsRow title="凭据状态" description="原后台环境状态。"><SettingsTag>{({ available: "原后台环境可用", missing: "原后台环境缺失", unverified: "原服务环境未核实" })[state.view?.settings.model?.credential.state ?? "unverified"]}</SettingsTag></SettingsRow>
@@ -59,7 +59,7 @@ function SkillsEditor({ state }: { state: PersonalSettingsPageState }) {
 
 function CuaControls({ state }: { state: PersonalSettingsPageState }) {
   if (!state.cua?.available && !state.cua?.operations.length && !state.services.some(service => service.cua)) return null;
-  return <SettingsGroup title="电脑" action={<SettingsButton variant="icon" aria-label="刷新电脑状态" title="刷新电脑状态" disabled={state.disabled} onClick={() => void state.readCua()}><RefreshCw /></SettingsButton>}>
+  return <SettingsGroup title="电脑">
     <SettingsCard>
       {state.cua?.available && <SettingsRow title="运行状态" description={state.cua.paused ? state.cua.busy ? "正在暂停" : "已暂停" : "可用"}>
         <SettingsButton disabled={state.disabled || state.cua.paused && state.cua.busy} onClick={() => void state.controlCua(state.cua!.paused ? "resume" : "pause")}>{state.cua.paused ? "继续" : "暂停"}</SettingsButton>
@@ -91,14 +91,14 @@ function ServiceTools({ state }: { state: PersonalSettingsPageState }) {
         const selection = allowed ? state.service.toolEffects[tool.name] ?? "unknown" : "blocked";
         return state.service.cua
           ? <SettingsRow key={tool.name} title={tool.name} description={tool.description} htmlFor={`pa-tool-${index}`}><SettingsSwitch id={`pa-tool-${index}`} checked={allowed} disabled={state.disabled} onChange={event => state.allowTool(tool, event.target.checked)} /></SettingsRow>
-          : <SettingsRow key={tool.name} title={tool.name} description={tool.description} htmlFor={`pa-tool-${index}`}><SettingsSelect id={`pa-tool-${index}`} value={selection} disabled={state.disabled || state.mcpNeedsMigration} onChange={event => { const value = event.target.value; if (value === "blocked") state.allowTool(tool, false); else { if (!allowed) state.allowTool(tool, true); state.toolEffect(tool.name, value as keyof typeof effects); } }} options={effectOptions} /></SettingsRow>;
+          : <SettingsRow key={tool.name} title={tool.name} description={tool.description} htmlFor={`pa-tool-${index}`}><SettingsSelect id={`pa-tool-${index}`} value={selection} disabled={state.disabled || state.mcpNeedsMigration} onValueChange={nextValue => { const value = nextValue; if (value === "blocked") state.allowTool(tool, false); else { if (!allowed) state.allowTool(tool, true); state.toolEffect(tool.name, value as keyof typeof effects); } }} options={effectOptions} /></SettingsRow>;
       })}
     </SettingsCard>
   </SettingsGroup>;
 }
 
 function McpOperations({ state }: { state: PersonalSettingsPageState }) {
-  return <SettingsGroup title="调用" action={<SettingsButton variant="icon" aria-label={state.mcpEndPending === null ? "刷新 MCP 调用" : "核实原调用收尾"} disabled={state.disabled} onClick={() => void state.readMcpOperations()}><RefreshCw /></SettingsButton>}>
+  return <SettingsGroup title="调用">
     <SettingsCard>
       {state.mcpOperations.filter(item => !item.cuaRecovery && (item.effect === "effect_unknown" || item.ended)).map(item => <SettingsRow key={item.operation} title={`${item.service} · ${item.tool}`} description={item.ended ? "已人工收尾，结果仍未知" : "结果未知"}><SettingsButton disabled={state.disabled} onClick={() => void state.readMcpOperation(item.operation)}>查看原调用</SettingsButton></SettingsRow>)}
       {state.mcpNextOffset !== undefined && <SettingsRow title="更多调用"><SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.readMcpOperations(true)}>加载更多调用</SettingsButton></SettingsRow>}
@@ -106,6 +106,7 @@ function McpOperations({ state }: { state: PersonalSettingsPageState }) {
         {state.mcpDetail.nextOffset !== undefined && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.readMcpOperation(state.mcpDetail!.summary.operation, true)}>下一页原调用</SettingsButton>}
         {state.mcpDetail.summary.canEnd && !state.mcpDetail.summary.ended && !state.mcpDetail.summary.cuaRecovery && <SettingsButton disabled={state.disabled || state.mcpEndPending !== null} onClick={() => state.prepareMcpEnd(state.mcpDetail!.summary.operation)}>结束此工作，保留结果未知</SettingsButton>}
       </SettingsRow>}
+      {state.mcpEndPending !== null && <SettingsRow title="原调用收尾待核实"><SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.readMcpOperations()}>核实原调用收尾</SettingsButton></SettingsRow>}
     </SettingsCard>
     <Dialog open={state.mcpEndConfirmation !== null} onOpenChange={open => { if (!open) state.cancelMcpEnd(); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>结束此工作？</DialogTitle><DialogDescription>保留原调用结果未知；本地执行停止核实后，原工作将发送最终报告。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelMcpEnd()}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => void state.confirmMcpEnd()}>结束此工作，保留结果未知</Button></DialogFooter></DialogContent></Dialog>
   </SettingsGroup>;
@@ -117,11 +118,10 @@ function McpEditor({ state }: { state: PersonalSettingsPageState }) {
     {state.mcpNeedsMigration && <SettingsGroup title="配置迁移" description="保留服务、凭据与旧调用；旧普通工具的副作用默认为不明。">
       <SettingsCard><SettingsRow title="旧版配置"><SettingsButton disabled={state.disabled || state.dirty} onClick={() => void state.changeService("migrate")}>更新 MCP 配置</SettingsButton></SettingsRow></SettingsCard>
     </SettingsGroup>}
-    <SettingsGroup title="服务" action={<SettingsButton onClick={() => void state.selectService(null)} disabled={state.disabled || state.dirty || state.mcpNeedsMigration}><Plus />添加服务</SettingsButton>}>
+    <SettingsGroup title="服务" action={<SettingsButton variant="primary" onClick={() => void state.selectService(null)} disabled={state.disabled || state.dirty || state.mcpNeedsMigration}><Plus />添加服务</SettingsButton>}>
       <SettingsList label="MCP 服务" empty="尚未配置 HTTP 服务。">
-        {state.services.filter(service => !service.cua).map(service => <SettingsListItem key={service.id} title={service.label} description={`${service.endpoint} · ${({ anonymous: "匿名", valid: "已配置凭据", missing: "凭据缺失", invalid: "凭据无效", "not-applicable": "本地" })[service.credentialStatus ?? "anonymous"]} · ${service.tools.length} 个允许工具`} details={editing && state.service.id === service.id ? <ServiceDetails state={state} /> : undefined}>
+        {state.services.filter(service => !service.cua).map(service => <SettingsListItem key={service.id} title={service.label} description={`${service.endpoint} · ${({ anonymous: "匿名", valid: "已配置凭据", missing: "凭据缺失", invalid: "凭据无效", "not-applicable": "本地" })[service.credentialStatus ?? "anonymous"]} · ${service.tools.length} 个允许工具`} expanded={editing && state.service.id === service.id} toggleLabel={`${editing && state.service.id === service.id ? "收起" : "编辑"} ${service.label}`} onToggle={() => { if (editing && state.service.id === service.id) { if (!state.dirty) state.discard(); } else void state.selectService(service.id); }} details={editing && state.service.id === service.id ? <ServiceDetails state={state} /> : undefined}>
           <SettingsTag>{service.enabled === false ? "已停用" : "已启用"}</SettingsTag>
-          <SettingsButton variant="ghost" onClick={() => void state.selectService(service.id)} aria-expanded={editing && state.service.id === service.id} aria-label={`编辑 ${service.label}`}><ChevronRight /></SettingsButton>
         </SettingsListItem>)}
       </SettingsList>
       {editing && !state.services.some(service => service.id === state.service.id) && <SettingsCard className="settings-import-preview"><ServiceDetails state={state} /></SettingsCard>}
@@ -137,10 +137,10 @@ function ServiceDetails({ state }: { state: PersonalSettingsPageState }) {
       <SettingsRow title="编辑服务" description="配置 MCP HTTP 服务与允许的工具。" />
       <SettingsRow title="服务名称" htmlFor="pa-mcp-label" error={state.fieldErrors.label}><SettingsInput id="pa-mcp-label" autoComplete="off" value={state.service.label} disabled={state.disabled} aria-invalid={!!state.fieldErrors.label} onChange={event => state.editService("label", event.target.value)} /></SettingsRow>
       <SettingsRow title="HTTPS 端点" htmlFor="pa-mcp-endpoint" error={state.fieldErrors.endpoint}><SettingsInput id="pa-mcp-endpoint" autoComplete="off" value={state.service.endpoint} disabled={state.disabled} aria-invalid={!!state.fieldErrors.endpoint} onChange={event => state.editService("endpoint", event.target.value)} /></SettingsRow>
-      <SettingsRow title="认证方式" htmlFor="pa-mcp-auth" error={state.fieldErrors.authentication}><SettingsSelect id="pa-mcp-auth" value={state.service.authentication} disabled={state.disabled} aria-invalid={!!state.fieldErrors.authentication} onChange={event => state.editService("authentication", event.target.value as typeof state.service.authentication)} options={[{ value: "anonymous", label: "显式匿名" }, { value: "credential", label: "远端私有凭据文件" }]} /></SettingsRow>
+      <SettingsRow title="认证方式" htmlFor="pa-mcp-auth" error={state.fieldErrors.authentication}><SettingsSelect id="pa-mcp-auth" value={state.service.authentication} disabled={state.disabled} aria-invalid={!!state.fieldErrors.authentication} onValueChange={nextValue => state.editService("authentication", nextValue as typeof state.service.authentication)} options={[{ value: "anonymous", label: "显式匿名" }, { value: "credential", label: "远端私有凭据文件" }]} /></SettingsRow>
       {state.service.authentication === "credential" && <SettingsRow title="远端私有凭据文件" description="引用无效不降级匿名，保存时可重新绑定。" htmlFor="pa-mcp-credential" error={state.fieldErrors.credentialPath}><SettingsInput id="pa-mcp-credential" value={state.service.credentialPath} disabled={state.disabled} autoComplete="off" aria-invalid={!!state.fieldErrors.credentialPath} onChange={event => state.editService("credentialPath", event.target.value)} /></SettingsRow>}
       {state.service.authentication === "credential" && state.services.some(item => item.id === state.service.id) && !state.mcpNeedsMigration && <SettingsRow title="凭据绑定"><SettingsButton variant="ghost" disabled={state.disabled || state.service.credentialRebind} onClick={() => state.rebindCredential()}>{state.service.credentialRebind ? "保存时重新绑定" : "重新绑定凭据"}</SettingsButton></SettingsRow>}
-      <SettingsRow title="连接与工具发现" description="检查不执行业务工具，远端只读标注不自动成为本地授权。" footer={state.discovered && <SettingsNotice>发现 {state.discovered.length} 个工具，未发起真实连接。</SettingsNotice>}>
+      <SettingsRow title="连接与工具发现" description="检查不执行业务工具，远端只读标注不自动成为本地授权。" footer={state.discovered && <SettingsNotice>发现 {state.discovered.length} 个工具。</SettingsNotice>}>
         <SettingsButton disabled={state.disabled} onClick={() => void state.discover()}>检查连接</SettingsButton>
       </SettingsRow>
       <ServiceTools state={state} />
@@ -157,11 +157,10 @@ function ComputerEditor({ state }: { state: PersonalSettingsPageState }) {
     {state.mcpNeedsMigration && <SettingsGroup title="配置迁移" description="保留原服务、凭据与调用记录，电脑恢复仍可继续。">
       <SettingsCard><SettingsRow title="旧版配置"><SettingsButton disabled={state.disabled || state.dirty} onClick={() => void state.changeService("migrate")}>更新 MCP 配置</SettingsButton></SettingsRow></SettingsCard>
     </SettingsGroup>}
-    <SettingsGroup title="服务" action={<SettingsButton onClick={() => void state.addCua()} disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1}><Plus />添加 Linux 桌面沙箱</SettingsButton>}>
+    <SettingsGroup title="服务" action={<SettingsButton variant="primary" onClick={() => void state.addCua()} disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1}><Plus />添加 Linux 桌面沙箱</SettingsButton>}>
       <SettingsList label="电脑服务" empty="尚未配置 Linux 桌面沙箱。">
-        {state.services.filter(service => service.cua).map(service => <SettingsListItem key={service.id} title={service.label} description={`Linux 电脑 · ${service.cua!.sandbox} · ${service.tools.length} 个允许工具`} details={state.editingService && state.service.id === service.id ? <ComputerDetails state={state} /> : undefined}>
+        {state.services.filter(service => service.cua).map(service => <SettingsListItem key={service.id} title={service.label} description={`Linux 电脑 · ${service.cua!.sandbox} · ${service.tools.length} 个允许工具`} expanded={state.editingService && state.service.id === service.id} toggleLabel={`${state.editingService && state.service.id === service.id ? "收起" : "编辑"} ${service.label}`} onToggle={() => { if (state.editingService && state.service.id === service.id) { if (!state.dirty) state.discard(); } else void state.selectService(service.id); }} details={state.editingService && state.service.id === service.id ? <ComputerDetails state={state} /> : undefined}>
           <SettingsTag>{service.enabled === false ? "已停用" : "已启用"}</SettingsTag>
-          <SettingsButton variant="ghost" onClick={() => void state.selectService(service.id)} aria-expanded={state.editingService && state.service.id === service.id} aria-label={`编辑 ${service.label}`}><ChevronRight /></SettingsButton>
         </SettingsListItem>)}
       </SettingsList>
       {state.editingService && !state.services.some(service => service.id === state.service.id) && <SettingsCard className="settings-import-preview"><ComputerDetails state={state} /></SettingsCard>}
@@ -186,7 +185,7 @@ function ComputerDetails({ state }: { state: PersonalSettingsPageState }) {
         </SettingsRow>
         <ServiceTools state={state} />
       </>}
-      {state.services.some(item => item.id === state.service.id) && <SettingsRow title="电脑操作" description="启停只更新演示状态。">
+      {state.services.some(item => item.id === state.service.id) && <SettingsRow title="电脑操作" >
         <SettingsButton variant="ghost" disabled={state.disabled || state.dirty} onClick={() => void state.changeService("remove")}>删除服务</SettingsButton>
         <SettingsButton variant="ghost" disabled={state.disabled || state.dirty || state.view!.settings.mcp?.version === 1} onClick={() => void state.changeService(state.service.enabled ? "disable" : "enable")}>{state.service.enabled ? "停用" : "启用"}</SettingsButton>
       </SettingsRow>}
@@ -196,14 +195,15 @@ function ComputerDetails({ state }: { state: PersonalSettingsPageState }) {
 
 const stages = { stopping: "停止待核实", stopped: "已停止，尚未保存", saving: "保存待核实", saved: "已保存", starting: "启动待核实", complete: "已完成" };
 
-export function PersonalSettingsEditor({ state, onConnection }: { state: PersonalSettingsPageState; onConnection: () => void }) {
+export function PersonalSettingsEditor({ state }: { state: PersonalSettingsPageState }) {
   const view = state.view;
   useEffect(() => { if (Object.keys(state.fieldErrors).length) document.querySelector<HTMLElement>('.settings-page [aria-invalid="true"]')?.focus(); }, [state.fieldErrors]);
   const title = state.category === "models" ? "模型" : state.category === "skills" ? "Skills" : state.category === "computer" ? "电脑" : "MCP";
   const description = state.category === "models" ? "管理 Personal Agent 的当前模型与凭据引用。" : state.category === "skills" ? "从 PA 后台账户的 $HOME/.agents/skills/ 读取技能。" : state.category === "computer" ? "管理远端 Linux 桌面沙箱与电脑操作恢复。" : "管理 Personal Agent 的远端 MCP 服务与凭据引用。";
+  const adding = (state.category === "mcp" || state.category === "computer") && state.editingService && !state.services.some(service => service.id === state.service.id);
+  const Page = adding ? SettingsSubpage : SettingsPage;
   return (
-    <SettingsPage title={title} description={description}>
-      <div className="settings-row-control"><SettingsButton variant="ghost" disabled={state.phase === "saving" || state.phase === "unknown"} onClick={onConnection}>PA 远程连接</SettingsButton></div>
+    <Page title={adding ? state.category === "computer" ? "添加 Linux 桌面沙箱" : "添加服务" : title} description={description} onBack={() => state.discard()}>
       {state.reading && <SettingsNotice>正在读取远端档案与原服务状态…</SettingsNotice>}
       {view && <>
         {!view.settings.online && <SettingsNotice>PA 后台离线，更改保存后将在后台启动时应用。</SettingsNotice>}
@@ -224,7 +224,7 @@ export function PersonalSettingsEditor({ state, onConnection }: { state: Persona
             </SettingsRow>
           </SettingsCard>
         </SettingsGroup>)}
-        {state.category === "models" ? <ModelEditor state={state} /> : state.category === "skills" ? <SkillsEditor state={state} /> : state.category === "computer" ? <ComputerEditor state={state} /> : <McpEditor state={state} />}
+        {adding ? <SettingsGroup title="服务"><SettingsCard>{state.category === "computer" ? <ComputerDetails state={state} /> : <ServiceDetails state={state} />}</SettingsCard></SettingsGroup> : state.category === "models" ? <ModelEditor state={state} /> : state.category === "skills" ? <SkillsEditor state={state} /> : state.category === "computer" ? <ComputerEditor state={state} /> : <McpEditor state={state} />}
         {state.category !== "skills" && <SettingsGroup title="操作">
           <SettingsCard>
             <SettingsRow title="未保存的更改" description="保存或放弃当前草稿。">
@@ -235,7 +235,8 @@ export function PersonalSettingsEditor({ state, onConnection }: { state: Persona
         </SettingsGroup>}
       </>}
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
-    </SettingsPage>
+      {(state.phase === "unknown" || state.phase === "error" || state.phase === "conflict" || state.fileIssues.length > 0) && <SettingsButton variant="ghost" disabled={state.reading || state.phase === "saving"} onClick={() => void state.read().then(read => { if (read && state.category === "computer") void state.readCua(); else if (read && state.category === "mcp") void state.readMcpOperations(); })}>核实原配置</SettingsButton>}
+    </Page>
   );
 }
 
@@ -243,7 +244,7 @@ export function PersonalSettingsPage({ settings, category, scope }: PersonalSett
   const key = `${scope.instanceId}:${category}`;
   const [state] = useState(() => settings.personalPages.get(key) ?? new PersonalSettingsPageState({ request: (...args) => window.ruukoto.request(...args) }, settings.changed, category));
   useEffect(() => {
-    settings.form = state; void state.read();
+    settings.form = state; void state.read().then(read => { if (read && category === "computer") void state.readCua(); else if (read && category === "mcp") void state.readMcpOperations(); });
     return () => settings.releasePersonalPage(key, state);
   }, [settings, state, key]);
   useEffect(() => {
@@ -251,5 +252,5 @@ export function PersonalSettingsPage({ settings, category, scope }: PersonalSett
     const timer = setTimeout(() => void state.read(), 2000);
     return () => clearTimeout(timer);
   });
-  return <PersonalSettingsEditor state={state} onConnection={() => settings.chooseCategory("personal")} />;
+  return <PersonalSettingsEditor state={state} />;
 }

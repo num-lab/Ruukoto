@@ -4,6 +4,8 @@ Status: implemented
 
 This supersedes in-page Code/Personal tabs and shadcn Field layout in [the settings shell](2026-10-21-desktop-settings-shell.md). Form protection, tickets, and request ownership remain.
 
+[Visual alignment](2026-11-07-desktop-visual-alignment.md) supersedes navigation grouping, native Select controls and dialog dimensions while preserving the shared settings composition and state contracts.
+
 ## Problem
 
 The old dialog had eight vertical categories, with separate horizontal Code/Personal tabs in Models, Skills, MCP, and Computer. Target/category decisions were split and tab semantics repeated. Each category owned model-settings-* classes and Field layout, creating inconsistent density, widths, and group headings. The independent settings prototype, now under `verification/desktop-settings`, verified a single navigation level grouped by Code/Personal plus shared headings, cards, rows, and controls.

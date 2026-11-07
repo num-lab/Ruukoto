@@ -150,21 +150,21 @@ func math32Inf() float32 { return float32(math.Inf(1)) }
 func TestCheck(t *testing.T) {
 	p := &page{}
 	p.gen.Store(3)
-	if code, _ := check(nil, 0, true); code != "no_page" {
+	if code, _ := check(nil, 0, true, ""); code != "no_page" {
 		t.Fatalf("nil 页应 no_page: %s", code)
 	}
-	if code, _ := check(p, 0, true); code != "not_owned" {
+	if code, _ := check(p, 0, true, ""); code != "not_owned" {
 		t.Fatalf("未持有应 not_owned: %s", code)
 	}
 	p.owned.Store(true)
-	if code, _ := check(p, 2, true); code != "stale_generation" {
+	if code, _ := check(p, 2, true, ""); code != "stale_generation" {
 		t.Fatalf("旧代次应 stale_generation: %s", code)
 	}
-	if code, _ := check(p, 3, true); code != "" {
+	if code, _ := check(p, 3, true, ""); code != "" {
 		t.Fatalf("当前代次应放行: %s", code)
 	}
 	p.gone.Store(true)
-	if code, _ := check(p, 0, false); code != "page_gone" {
+	if code, _ := check(p, 0, false, ""); code != "page_gone" {
 		t.Fatalf("失效页应 page_gone: %s", code)
 	}
 }
@@ -262,6 +262,143 @@ func TestNavigateCreatesPageForOwner(t *testing.T) {
 	}
 	if fx.m.pageOf("s1").owned.Load() {
 		t.Fatal("拥有者建页不应置 owned")
+	}
+}
+
+func TestIdlePageDoesNotNeedTakeover(t *testing.T) {
+	fx := newFixture(t)
+	fe := fx.m.Frontend()
+	requireOK(t, fe.Navigate(context.Background(), "s1", "https://a.dev"))
+	requireCode(t, fe.Takeover(context.Background(), "s1"), "not_owned")
+	requireCode(t, fe.Return(context.Background(), "s1"), "not_held")
+	requireOK(t, fe.Back(context.Background(), "s1"))
+	requireOK(t, fe.Forward(context.Background(), "s1"))
+	requireOK(t, fe.Reload(context.Background(), "s1"))
+}
+
+func TestTaskReleaseRestoresOwnerControlWithoutAffectingAnotherPage(t *testing.T) {
+	for _, takeover := range []bool{false, true} {
+		fx := newFixture(t)
+		fe := fx.m.Frontend()
+		requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "first"}))
+		requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s2", Task: "other"}))
+		if takeover {
+			requireOK(t, fe.Takeover(context.Background(), "s1"))
+		}
+		requireOK(t, fx.m.Command(context.Background(), "release", CommandIn{Session: "s1", Task: "first"}))
+		p := fx.m.pageOf("s1")
+		if p.owned.Load() || p.ownerHeld.Load() || !fx.m.pageOf("s2").owned.Load() {
+			t.Fatal("release must make only the original page idle")
+		}
+		last := fx.events[len(fx.events)-1]
+		if last.Kind != "gate" || last.Source != "host" || last.Owned == nil || *last.Owned {
+			t.Fatalf("idle transition must reach both clients: %+v", last)
+		}
+		requireOK(t, fe.Navigate(context.Background(), "s1", "https://owner.dev"))
+		requireCode(t, fe.Return(context.Background(), "s1"), "not_held")
+		requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "next"}))
+		requireOK(t, fx.m.Command(context.Background(), "release", CommandIn{Session: "s1", Task: "first"}))
+		if !p.owned.Load() {
+			t.Fatal("a late release must not unlock the next task's page")
+		}
+	}
+}
+
+func TestEndedTaskCannotClaimAfterItsResponseWasLost(t *testing.T) {
+	fx := newFixture(t)
+	requireOK(t, fx.m.Command(context.Background(), "release", CommandIn{Session: "s1", Task: "ended"}))
+	requireCode(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "ended"}), "stale_task")
+	if fx.m.pageOf("s1") != nil {
+		t.Fatal("late open must not create a page")
+	}
+	requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "next"}))
+}
+
+func TestCanceledMainThreadCommandDoesNotExecuteLater(t *testing.T) {
+	fx := newFixture(t)
+	updates := make(chan func(), 1)
+	fx.m.deps.Update = func(fn func()) { updates <- fn }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan json.RawMessage, 1)
+	go func() { done <- fx.m.Command(ctx, "open", CommandIn{Session: "s1", Task: "ended"}) }()
+	late := <-updates
+	cancel()
+	requireCode(t, <-done, "window_busy")
+	late()
+	if fx.m.pageOf("s1") != nil {
+		t.Fatal("canceled open must not claim a page")
+	}
+}
+
+func TestDisconnectFencesAnOpenBeforePageCreation(t *testing.T) {
+	fx := newFixture(t)
+	updates := make(chan func(), 1)
+	fx.m.deps.Update = func(fn func()) { updates <- fn }
+	done := make(chan json.RawMessage, 1)
+	go func() { done <- fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "ended"}) }()
+	late := <-updates
+	fx.m.ReleaseAll()
+	late()
+	cleanup := <-updates
+	cleanup()
+	requireCode(t, <-done, "canceled")
+	if fx.m.pageOf("s1") != nil {
+		t.Fatal("disconnect must invalidate queued page creation")
+	}
+}
+
+func TestDisconnectFencesARequestBeforeItsGoroutineStarts(t *testing.T) {
+	fx := newFixture(t)
+	run := fx.m.Prepare(context.Background(), "open", CommandIn{Session: "s1", Task: "ended"})
+	fx.m.ReleaseAll()
+	requireCode(t, run(), "canceled")
+	if fx.m.pageOf("s1") != nil {
+		t.Fatal("a request from the disconnected transport created a page")
+	}
+}
+
+func TestDisconnectAlsoReleasesAPageBeingCreated(t *testing.T) {
+	fx := newFixture(t)
+	var cleanup func()
+	fx.m.deps.NewView = func(mygo.WebViewOptions) (*mygo.WebView, error) {
+		fx.m.deps.Update = func(fn func()) { cleanup = fn }
+		fx.m.ReleaseAll()
+		return nil, nil
+	}
+	requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "ended"}))
+	cleanup()
+	if fx.m.pageOf("s1").owned.Load() {
+		t.Fatal("disconnect left a page being created locked")
+	}
+}
+
+func TestReopenedPageHasANewerGeneration(t *testing.T) {
+	fx := newFixture(t)
+	fx.m.Command(context.Background(), "open", CommandIn{Session: "s1"})
+	old := fx.m.pageOf("s1")
+	before := old.gen.Load()
+	fx.m.Frontend().Close(context.Background(), "s1")
+	fx.m.Command(context.Background(), "open", CommandIn{Session: "s1"})
+	if fx.m.pageOf("s1").gen.Load() <= before {
+		t.Fatal("reopen must invalidate earlier page events and references")
+	}
+	count := len(fx.events)
+	fx.m.didNavigate(old, "https://stale.test")
+	fx.m.titleUpdated(old, "Old page")
+	fx.m.renderGone(old)
+	if len(fx.events) != count {
+		t.Fatal("retired page callbacks must not publish new generations")
+	}
+}
+
+func TestLateTaskCloseCannotDestroyTheNextPage(t *testing.T) {
+	fx := newFixture(t)
+	requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "first"}))
+	requireOK(t, fx.m.Command(context.Background(), "release", CommandIn{Session: "s1", Task: "first"}))
+	requireOK(t, fx.m.Command(context.Background(), "open", CommandIn{Session: "s1", Task: "next"}))
+	requireCode(t, fx.m.Command(context.Background(), "close", CommandIn{Session: "s1", Task: "first"}), "stale_task")
+	if fx.m.pageOf("s1") == nil {
+		t.Fatal("late close destroyed the next page")
 	}
 }
 

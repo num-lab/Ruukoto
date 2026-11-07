@@ -3,7 +3,7 @@ import { test, before, after } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer, type ViteDevServer } from "vite";
-import type { PersonalDesktopApproval, PersonalDesktopAttachment, PersonalDesktopFrame, PersonalDesktopState } from "@ruukoto/view/personal-protocol.ts";
+import type { PersonalDesktopApproval, PersonalDesktopAttachment, PersonalDesktopFrame, PersonalDesktopState, PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { PersonalState, personalCardKey } from "../apps/desktop/src/renderer/personal-state.ts";
 import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-connection-state.ts";
@@ -27,9 +27,26 @@ let server: ViteDevServer, Chat: ComponentType<{ model: PersonalState; onConnect
 before(async () => { server = await createServer({ configFile: false, root: "apps/desktop/src/renderer", server: { middlewareMode: true, hmr: false }, esbuild: { jsx: "automatic" } }); ({ PersonalChat: Chat } = await server.ssrLoadModule("/personal-chat.tsx")); });
 after(async () => { await server?.close(); });
 
+test("Personal composer retains text, attachment actions and native draft guards in its compact layout", async t => {
+  const { state } = fixture(); t.after(() => state.dispose()); await settle();
+  const render = () => renderToStaticMarkup(createElement(Chat, { model: state, onConnect() {} }));
+  for (const text of ["", "短消息", "first\nsecond", "long input ".repeat(4), "较长的中文消息".repeat(3)]) {
+    state.edit(text);
+    const markup = render();
+    assert.match(markup, /aria-label="输入个人消息"/); assert.equal(state.draft, text);
+    assert.match(markup, /class="[^"]*personal-attach[^"]*"/); assert.match(markup, /class="[^"]*personal-send[^"]*"/);
+  }
+  const attachment: PersonalDesktopAttachment = { id: "3b7a00d1-8815-41a2-b0e9-467b79d8521a", name: "report.txt", size: 9, mime: "text/plain", sha256: "a".repeat(64) };
+  state.update({ type: "personal_draft", draft: { v: 1, id: "draft", origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, input: "", attachments: [attachment], failed: false } });
+  assert.match(render(), /personal-composer is-expanded/); assert.match(render(), /移除附件 report.txt/); assert.equal(state.canSend, true);
+  state.update({ type: "personal_identity", identity: { ...identity, profile: { ...identity.profile, id: "other" } } });
+  assert.equal(state.canSend, false); assert.match(render(), /草稿属于原连接/);
+});
+
 test("Attachment-only owner bubbles keep refs and names; persisted failure disables sending after reload", async t => {
   const ref: PersonalDesktopAttachment = { id: "3b7a00d1-8815-41a2-b0e9-467b79d8521a", name: "original.csv", size: 909, mime: "text/csv", sha256: "a".repeat(64) };
   const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? ok({ kind: "pending", requestId: "original" }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null)); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(0) });
   const draft = { v: 1 as const, id: "draft", origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, input: "", attachments: [ref], failed: false };
   f.state.update({ type: "personal_draft", draft }); assert.equal(f.state.canSend, true);
   await f.state.send(); const submitted = f.calls.find(call => call.op === "desktop_personal_input_submit")!; assert.deepEqual(submitted.params, { text: "", attachments: [ref], draftId: draft.id });
@@ -37,7 +54,7 @@ test("Attachment-only owner bubbles keep refs and names; persisted failure disab
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /original.csv/); assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1); assert.deepEqual(f.state.timeline.find(entry => entry.requestKey === "original")!.attachments, [ref]);
   const reloaded = fixture(); t.after(() => reloaded.state.dispose()); await settle(); reloaded.state.update({ type: "personal_draft", draft: { ...draft, input: "Keep text", failed: true } });
   assert.equal(reloaded.state.draft, "Keep text"); assert.deepEqual(reloaded.state.attachments, [ref]); assert.equal(reloaded.state.canSend, false); await reloaded.state.send(); assert.equal(reloaded.calls.some(call => call.op === "desktop_personal_input_submit"), false);
-  const failedMarkup = renderToStaticMarkup(createElement(Chat, { model: reloaded.state, onConnect() {} })); assert.match(failedMarkup, /附件未完整准备/); assert.match(failedMarkup, /放弃草稿/);
+  const failedMarkup = renderToStaticMarkup(createElement(Chat, { model: reloaded.state, onConnect() {} })); assert.doesNotMatch(failedMarkup, /附件未完整准备|重新选择附件|放弃草稿/); assert.match(failedMarkup, /添加附件/); assert.match(failedMarkup, /移除附件 original.csv/); assert.equal(reloaded.state.canAttach, true);
 });
 
 test("PA原生状态：块替换不重复文字，原entry去重，旧订阅和断序不能推进当前投影", async t => {
@@ -53,6 +70,53 @@ test("PA原生状态：块替换不重复文字，原entry去重，旧订阅和�
   assert.equal(state.timeline.length, 2); assert.equal(state.activeMessage, undefined);
   state.frame({ ...completed, subscription: "old", seq: 3 }); assert.equal(state.ready, true);
   state.frame({ ...completed, seq: 4 }); assert.equal(state.ready, false); assert.ok(calls.some(value => value.op === "reconnect"));
+});
+
+test("Personal bubble motion belongs to live visible arrivals, not history or reopening", async t => {
+  const f = fixture(async (_target, op, params) => op === "desktop_personal_request" && String(params.path).startsWith("/timeline") ? ok({ through: 1, items: [{ entry: 0, conversation: 0, kind: "pi.user", role: "user", text: "Older message", partial: false, truncated: false, timestamp: 0 }] }) : op === "desktop_personal_request" && params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }));
+  t.after(() => f.state.dispose()); await settle(); f.state.visible();
+  const take = (entry: number) => f.state.takeMessageAnimation(f.state.entries.get(entry)?.displayKey ?? entry);
+  assert.equal(take(1), false, "Initial history stays still");
+  await f.state.older(); assert.equal(f.state.entries.has(0), true); assert.equal(take(0), false);
+  let seq = 0;
+  const append = (entry: PersonalTimelineEntry) => f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: ++seq, type: "events", events: [{ type: "entry_appended", entry }] });
+  const incoming: PersonalTimelineEntry = { entry: 10, conversation: 0, kind: "pi.assistant", role: "assistant", text: "New reply", partial: false, truncated: false, timestamp: 10 };
+  append(incoming); assert.equal(take(10), true); assert.equal(take(10), false, "One arrival has one opportunity");
+  append(incoming); assert.equal(take(10), false, "Repeated entry events stay still");
+  append({ ...incoming, entry: 11, partial: true }); assert.equal(take(11), false);
+  append({ ...incoming, entry: 11 }); assert.equal(take(11), true, "Completion first makes the reply visible");
+  append({ ...incoming, entry: 12, text: "" }); assert.equal(take(12), false);
+  append({ ...incoming, entry: 13, role: "toolResult" }); assert.equal(take(13), false);
+  append({ ...incoming, entry: 14 }); f.state.hidden(); f.state.visible(); assert.equal(take(14), false, "Reopening does not replay an unconsumed arrival");
+  f.state.hidden(); append({ ...incoming, entry: 15 }); f.state.visible(); assert.equal(take(15), false, "Hidden arrivals become history on entry");
+  append({ ...incoming, entry: 16 }); f.state.frame({ ...snapshot(seq), timeline: { through: 16, items: [...f.state.entries.values()] } });
+  assert.equal(take(16), false, "Resynchronization does not replay arrivals");
+});
+
+for (const streamFirst of [false, true]) test(`Personal local bubble keeps one motion through admission (stream first: ${streamFirst})`, async t => {
+  let receipt!: (result: DesktopResult<unknown>) => void;
+  const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? new Promise(resolve => { receipt = resolve; }) : op === "desktop_personal_request" && params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }));
+  t.after(() => f.state.dispose()); await settle(); f.state.frame({ ...snapshot(), state: projection(0) }); f.state.visible();
+  f.state.edit("ping"); const sending = f.state.send();
+  const key = f.state.timeline.at(-1)!.displayKey!;
+  assert.equal(f.state.takeMessageAnimation(key), true);
+  const record = { v: 1 as const, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "original", input: "ping" };
+  const canonical: PersonalTimelineEntry = { entry: 10, conversation: 0, kind: "ruukoto.owner-input-display", role: "user", text: "ping", partial: false, truncated: false, timestamp: 10, input: { requestId: "original", submission: 11, status: "queued" } };
+  let seq = 0;
+  if (streamFirst) {
+    f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: ++seq, type: "events", events: [{ type: "entry_appended", entry: canonical }] });
+    assert.equal(f.state.takeMessageAnimation(10), false, "Defer owner-display motion until the original request is known");
+  }
+  f.state.update({ type: "personal_pending", record });
+  assert.equal(f.state.timeline.at(-1)!.displayKey, key);
+  assert.equal(f.state.takeMessageAnimation(key), false);
+  for (const status of ["queued", "placed", "done"] as const) {
+    f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: ++seq, type: "events", events: [{ type: "entry_appended", entry: { ...canonical, input: { ...canonical.input!, status } } }] });
+    assert.equal(f.state.timeline.at(-1)!.displayKey, key);
+    assert.equal(f.state.takeMessageAnimation(key), false, status);
+  }
+  receipt(ok({ kind: "accepted", requestId: "original", status: "done" })); await sending;
+  assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1);
 });
 
 test("Published files stay with completed timeline entries and use only native identity-bound output actions", async t => {
@@ -99,11 +163,13 @@ test("PA原生输入：发出后丢答只核实，明确恢复仍由宿主持有
     if (op === "desktop_personal_input_restore") return ok({ kind: "accepted", requestId: "original", status: "queued" });
     return op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null);
   }); t.after(() => f.state.dispose());
-  await settle(); f.state.edit("原正文"); await f.state.send();
+  await settle(); f.state.frame({ ...snapshot(), state: projection(0) }); f.state.edit("原正文"); await f.state.send();
   f.state.update({ type: "personal_pending", record: { ...identity, requestId: "original", input: "原正文" } });
+  assert.match(renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })), /personal-input-loading/);
   await f.state.reconcile(); assert.equal(f.state.pendingResult?.kind, "missing"); assert.equal(f.state.canSend, false);
   await f.state.send(); assert.equal(f.calls.filter(value => value.op === "desktop_personal_input_submit").length, 1);
   await f.state.reconcile(true); assert.equal(f.state.pending, null); assert.equal(f.state.draft, "");
+  assert.doesNotMatch(renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })), /personal-input-loading/);
   assert.deepEqual(f.calls.find(value => value.op === "desktop_personal_input_restore")?.params, {});
 });
 
@@ -191,19 +257,62 @@ test("Native cards arrive in the timeline before prose and retain superseded exa
   f.state.edit("Amend or query while external work waits"); assert.equal(f.state.canSend, true);
 });
 
-test("Presence distinguishes main processing, decisions, work and reporting with independently paged members", async t => {
+test("Personal processing and admission do not add composer status notices", async t => {
   const f = fixture(); t.after(() => f.state.dispose()); await settle();
   const value = card(), work = { ref: { taskId: 20, agentId: 2, requestId: "assignment" }, label: "File work", content: "Original owner request", state: "running", cancelRequested: false, stopVerified: false, closed: false, delegation: 7, progress: { accepted: 2, modelRead: 2, completed: 0, accounted: 0 } };
   const group = { ref: { entryId: 7 }, content: work.content, state: "reporting", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false };
   f.state.works = [work]; f.state.delegations = [group]; f.state.cards.set(value.occurrence, value);
-  assert.equal(f.state.presence, "等待你的决定");
-  f.state.live.run = { inputs: [1], total: 1 }; assert.equal(f.state.presence, "正在处理");
-  f.state.live.inboxCount = 1; assert.equal(f.state.presence, "消息已接纳，等待处理");
-  f.state.live.inboxCount = 0; delete f.state.live.run; f.state.cards.clear(); assert.equal(f.state.presence, "工作进行中");
-  f.state.works = []; assert.equal(f.state.presence, "工作进行中");
-  group.active = 0; assert.equal(f.state.presence, "正在准备结果");
-  group.cancelRequested = true; group.unverified = 1; group.state = "stop_unverified"; assert.equal(f.state.presence, "已请求取消，正在核实停止");
-  group.unverified = 0; group.state = "canceled"; assert.equal(f.state.presence, null);
+  f.state.live.run = { inputs: [1], total: 1 }; f.state.live.inboxCount = 1;
+  f.state.update({ type: "personal_pending", record: { ...identity, requestId: "original", input: "ping" } });
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  const composer = markup.slice(markup.indexOf('class="composer-wrap'));
+  assert.doesNotMatch(composer, /task-notice|正在处理|工作进行中|正在准备结果|结果待核实|核实原输入/);
+});
+
+test("Personal send shows its bubble before the host responds and removes only the loader on acceptance", async t => {
+  for (const streamFirst of [false, true]) {
+    let receipt!: (value: DesktopResult<unknown>) => void;
+    const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? new Promise(resolve => { receipt = resolve; }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
+    t.after(() => f.state.dispose()); await settle(); f.state.frame({ ...snapshot(), state: projection(0) });
+    const render = () => renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+    f.state.edit("ping"); const sending = f.state.send();
+    assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1, "bubble exists before host pending or RPC receipt");
+    assert.match(render(), /class="[^"]*personal-input-loading/); assert.doesNotMatch(render(), /正在核实接纳|结果待核实/);
+    const anchor = f.state.timeline.at(-1)!.entry;
+    f.state.update({ type: "personal_pending", record: { ...identity, requestId: "original", input: "ping" } });
+    assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1); assert.equal(f.state.timeline.at(-1)!.entry, anchor);
+    const history = { entry: 10, conversation: 0, kind: "ruukoto.owner-input-display", role: "user" as const, text: "ping", partial: false, truncated: false, timestamp: 100, input: { requestId: "original", submission: 11, status: "queued" as const } };
+    if (streamFirst) { f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry: history }] }); assert.doesNotMatch(render(), /personal-input-loading/); }
+    f.state.update({ type: "personal_pending", record: null, result: { kind: "accepted", requestId: "original", status: "queued" } });
+    receipt(ok({ kind: "accepted", requestId: "original", status: "queued" })); await sending;
+    assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1); assert.doesNotMatch(render(), /personal-input-loading|正在核实接纳|等待处理/);
+    if (!streamFirst) f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry: history }] });
+    assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1);
+    assert.equal(f.calls.filter(call => call.op === "desktop_personal_input_submit").length, 1);
+  }
+});
+
+test("Provisional Personal bubbles retain attachment-only input and clear on rejection or connection change", async t => {
+  for (const changeConnection of [false, true]) {
+    let receipt!: (value: DesktopResult<unknown>) => void;
+    const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? new Promise(resolve => { receipt = resolve; }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
+    t.after(() => f.state.dispose()); await settle(); f.state.frame({ ...snapshot(), state: projection(0) });
+    const attachment: PersonalDesktopAttachment = { id: "3b7a00d1-8815-41a2-b0e9-467b79d8521a", name: "report.txt", size: 9, mime: "text/plain", sha256: "a".repeat(64) };
+    f.state.update({ type: "personal_draft", draft: { v: 1, id: "draft", origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, input: "", attachments: [attachment], failed: false } });
+    const sending = f.state.send();
+    assert.deepEqual(f.state.timeline.find(entry => entry.kind === "local-input")?.attachments, [attachment], "attachment bubble exists before draft writes settle");
+    await settle();
+    if (changeConnection) {
+      f.state.update({ type: "personal_identity", identity: { ...identity, remoteId: "other" } });
+      assert.equal(f.state.timeline.length, 0);
+    } else {
+      f.state.update({ type: "personal_pending", record: { ...identity, requestId: "original", input: "", attachments: [attachment] } });
+      f.state.update({ type: "personal_pending", record: null });
+    }
+    receipt({ ok: false, error: { code: "rejected", outcome: "rejected", message: "Submission rejected" } }); await sending;
+    assert.equal(f.state.timeline.some(entry => entry.kind === "local-input"), false);
+    assert.deepEqual(f.state.attachments, [attachment]);
+  }
 });
 
 test("Delegation layout shows each member once and retains off-page work and whole-assignment cancellation", async t => {
@@ -287,7 +396,7 @@ test("An accepted receipt preserves the complete owner bubble under both RPC and
   for (const streamFirst of [false, true]) {
     let receipt!: (value: DesktopResult<unknown>) => void;
     const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? new Promise(resolve => { receipt = resolve; }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
-    t.after(() => f.state.dispose()); await settle(); const text = "Owner text 🙂 ".repeat(550);
+    t.after(() => f.state.dispose()); await settle(); f.state.frame({ ...snapshot(), state: projection(0) }); const text = "Owner text 🙂 ".repeat(550);
     f.state.edit(text); const sending = f.state.send();
     const entry = { entry: 10, conversation: 0, kind: "ruukoto.owner-input-display", role: "user" as const, text: text.slice(0, 4096), partial: false, truncated: true, timestamp: 1, input: { requestId: "original", submission: 11, status: "queued" as const } };
     if (streamFirst) f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry }] });
@@ -298,10 +407,51 @@ test("An accepted receipt preserves the complete owner bubble under both RPC and
   }
 });
 
+test("Legacy Personal history renders one owner bubble after a successful native submission", async t => {
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  const record = { v: 1 as const, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "original", input: "ping" };
+  f.state.update({ type: "personal_pending", record });
+  f.state.update({ type: "personal_pending", record: null, result: { kind: "accepted", requestId: record.requestId, status: "placed" } });
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry: { entry: 10, conversation: 0, kind: "pi.user", role: "user", text: "ping", partial: false, truncated: false, timestamp: 100 } }] });
+  assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1);
+  assert.equal(f.state.timeline.some(entry => entry.kind === "local-input"), false);
+  const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+  assert.doesNotMatch(markup, /正在核实接纳/);
+  f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 2, type: "events", events: [{ type: "entry_appended", entry: { entry: 11, conversation: 0, kind: "pi.user", role: "user", text: "ping", partial: false, truncated: false, timestamp: 101 } }] });
+  assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 2, "identical real submissions remain distinct");
+});
+
+test("Accepted Personal input status is never presented as uncertain admission", async t => {
+  for (const status of ["queued", "placed", "done", "unanswered"] as const) {
+    const f = fixture(async (_target, op, params) => op === "desktop_personal_input_submit" ? ok({ kind: "accepted", requestId: "original", status }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
+    t.after(() => f.state.dispose());
+    f.state.frame({ ...snapshot(), state: projection(0) }); await settle();
+    f.state.edit("ping"); await f.state.send();
+    assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1);
+    const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
+    assert.doesNotMatch(markup, /正在核实接纳/, status);
+    assert.doesNotMatch(markup, /personal-input-loading|等待处理/);
+    if (status === "unanswered") assert.match(markup, /未完成处理/);
+  }
+});
+
+test("A legacy reconnect resets owner display capability without merging identical messages", async t => {
+  const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(0) });
+  f.state.update({ type: "personal_pending", record: { v: 1, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "original", input: "ping" } });
+  assert.equal(f.state.timeline.filter(entry => entry.kind === "local-input").length, 1);
+  const history = { entry: 10, conversation: 0, kind: "pi.user", role: "user" as const, text: "ping", partial: false, truncated: false, timestamp: 100 };
+  f.state.frame({ ...snapshot(), timeline: { through: history.entry, items: [history] } });
+  assert.equal(f.state.projection, false);
+  assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1);
+  assert.equal(f.state.timeline.some(entry => entry.kind === "local-input"), false);
+});
+
 test("A pending owner message stays before later child cards and late legacy work queries cannot replace grouped state", async t => {
   let release!: (value: DesktopResult<unknown>) => void;
   const f = fixture(async (_target, op, params) => String(params.path).startsWith("/works") ? new Promise(resolve => { release = resolve; }) : op === "desktop_personal_request" ? params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] }) : ok(null));
   t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(0) });
   f.state.update({ type: "personal_pending", record: { v: 1, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "owner", input: "New requirement" } });
   const anchor = f.state.timeline.find(entry => entry.requestKey === "owner")!.entry, value = card(3);
   const work = { ref: { taskId: 20, agentId: 2, requestId: "assignment" }, label: "Current work", content: "One assignment", state: "running", cancelRequested: false, stopVerified: false, closed: false, delegation: 7, progress: { accepted: 2, modelRead: 1, completed: 0, accounted: 0 } };
@@ -340,6 +490,7 @@ test("Restored host decisions lock cards and legacy modal decisions inspect cano
 
 test("Identical queued owner messages keep distinct request keys and full local bodies through history association", async t => {
   const f = fixture(); t.after(() => f.state.dispose()); await settle();
+  f.state.frame({ ...snapshot(), state: projection(0) });
   const text = "Same full owner body".repeat(500), owner = (id: number, key: string, status: "queued" | "done", historyEntry?: number) => ({ entry: id, conversation: 0, kind: "ruukoto.owner-input-display", role: "user" as const, text: text.slice(0, 4096), partial: false, truncated: true, timestamp: 100, input: { requestId: key, submission: id + 1, status, historyEntry } });
   f.state.update({ type: "personal_pending", record: { v: 1, origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, requestId: "one", input: text } });
   assert.equal(f.state.timeline.at(-1)?.requestKey, "one");

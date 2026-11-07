@@ -13,7 +13,7 @@ import type { PersonalService } from "../apps/desktop/src/renderer/personal-sett
 import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
 
 // Note: See .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
-let server: ViteDevServer, PersonalSettingsEditor: ComponentType<{ state: PersonalSettingsPageState; onConnection: () => void }>;
+let server: ViteDevServer, PersonalSettingsEditor: ComponentType<{ state: PersonalSettingsPageState }>;
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
   ({ PersonalSettingsEditor } = await server.ssrLoadModule("/personal-settings-pages.tsx"));
@@ -388,19 +388,19 @@ test("Personal 三页 SSR 展示真实字段、远端来源、维护恢复与安
       const summary = { operation: 12, service: "远端服务", tool: "lookup", effect: "effect_unknown", code: "timeout", canEnd: true, ended: false };
       h.state.mcpOperations = [summary]; h.state.mcpDetail = { summary, text: "原调用参数与未知结果" };
     }
-    const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
+    const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state }));
     assert.doesNotMatch(html, /remote\/profile|档案状态|维护原因|查看保存影响|保存更改？/);
     assert.doesNotMatch(html, /摘要模型|默认模型|配置来源|选择工作区|Bearer 令牌|存储 API Key/);
-    if (category === "models") { assert.match(html, /模型预设/); assert.match(html, /Installed preset/); assert.match(html, /自定义/); assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
+    if (category === "models") { assert.match(html, /模型预设/); assert.match(html, /Installed preset/); assert.match(html, /role="combobox"[^>]*id="pa-model-preset"/); assert.match(html, /API 类型/); assert.match(html, /上下文上限/); assert.match(html, /凭据环境变量引用/); assert.match(html, /图片输入/); assert.match(html, /role="switch"/); }
     if (category === "skills") {
       assert.match(html, /home\/ruukoto\/\.agents\/skills/); assert.match(html, /远端技能/);
       assert.doesNotMatch(html, /选择技能库|导入|托管副本|未保存的更改|查看保存影响|保存更改/);
     }
-    if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.match(html, /副作用不明/); assert.match(html, /重新绑定凭据/); assert.match(html, /刷新 MCP 调用/); assert.match(html, /结束此工作，保留结果未知/); assert.match(html, /原调用参数与未知结果/); assert.doesNotMatch(html, /副作用类别/); }
+    if (category === "mcp") { assert.match(html, /远端私有凭据文件/); assert.match(html, /允许的工具/); assert.match(html, /副作用不明/); assert.match(html, /重新绑定凭据/); assert.doesNotMatch(html, /刷新 MCP 调用|PA 远程连接/); assert.match(html, /结束此工作，保留结果未知/); assert.match(html, /原调用参数与未知结果/); assert.doesNotMatch(html, /副作用类别/); }
   }
   const h = harness("models"); h.view.pending = { v: 1, id: "pending", profile, op: "config.save", target: "model", expectedRevision: modelRevision, requestDigest: "1".repeat(64), saveAttempted: true, stage: "starting", savedRevision: contentRevision }; h.view.saved = true; h.view.settings.online = false; h.view.settings.model.credential.state = "unverified";
   await h.state.read();
-  const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
+  const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state }));
   assert.doesNotMatch(html, /原后台模型凭据缺失或尚未核实，当前只读/); assert.match(html, /配置已保存，后台尚未启动/); assert.match(html, /恢复原服务/); assert.match(html, /结束维护/);
 });
 
@@ -484,7 +484,7 @@ test("Personal Cua connection-stop verification uses the original control withou
 test("Personal Cua offers connection-stop verification after an accepted takeover", async () => {
   const h = harness("computer"); await h.state.read();
   h.state.cua = { available: true, paused: false, busy: false, operations: [{ operation: 12, service: "电脑", tool: "computer_screenshot", effect: "returned", code: "returned", cuaStopUnverified: true, cuaRecovery: "accepted", images: [] }] };
-  const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state, onConnection() {} }));
+  const html = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state }));
   assert.match(html, /核实连接停止/); assert.doesNotMatch(html, /停止沙箱/);
 });
 
@@ -523,11 +523,11 @@ test("Personal 电脑页共用 MCP 修订与保存入口，只编辑 CUA 服务"
 
 test("Personal 电脑页 SSR 只呈现 Linux 沙箱与恢复控制，MCP 页不再显示 Cua", async () => {
   const computer = harness("computer"); computer.view.settings.mcp.services.push(structuredClone(cuaService)); await computer.state.read();
-  const computerHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: computer.state, onConnection() {} }));
+  const computerHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: computer.state }));
   assert.match(computerHtml, /Linux 桌面沙箱/); assert.match(computerHtml, /Linux 电脑/); assert.match(computerHtml, /local:desktop/);
   assert.doesNotMatch(computerHtml, /添加 HTTP 服务|远端私有凭据文件|HTTPS 端点|远端服务/);
   const mcp = harness("mcp"); mcp.view.settings.mcp.services.push(structuredClone(cuaService)); await mcp.state.read();
-  const mcpHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: mcp.state, onConnection() {} }));
+  const mcpHtml = renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: mcp.state }));
   assert.match(mcpHtml, /添加服务/); assert.match(mcpHtml, /远端服务/);
   assert.doesNotMatch(mcpHtml, /Linux 桌面沙箱|Linux 电脑|远端电脑/);
 });
@@ -578,4 +578,20 @@ test("旧后台显示升级要求并保留可编辑草稿，不回退停存启",
   const h = harness("models"); delete (h.view.settings as { settingsProtocol?: number }).settingsProtocol;
   await h.state.read(); h.state.editModel("modelId", "saved-draft"); await h.state.save();
   assert.equal(h.state.writable, false); assert.match(h.state.message, /原更改|升级/); assert.equal(h.writes().length, 0); assert.equal(h.state.model.modelId, "saved-draft");
+});
+
+test("PA settings remove refresh and connection shortcuts while retaining unknown-outcome verification", async () => {
+  for (const category of ["models", "skills", "mcp", "computer"] as const) {
+    const h = harness(category); await h.state.read();
+    const render = () => renderToStaticMarkup(createElement(PersonalSettingsEditor, { state: h.state }));
+    assert.doesNotMatch(render(), /刷新|重新读取配置|PA 远程连接/);
+    assert.doesNotMatch(render(), />核实原配置</);
+    h.state.phase = "unknown";
+    const unknown = render();
+    assert.match(unknown, />核实原配置</); assert.doesNotMatch(unknown, /disabled=""[^>]*>核实原配置/);
+    if (category === "mcp") {
+      h.state.phase = "ready"; h.state.mcpEndPending = 12;
+      assert.match(render(), /核实原调用收尾/);
+    }
+  }
 });

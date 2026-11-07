@@ -23,6 +23,8 @@ export interface DesktopBrowserEvent {
   url?: string;
   title?: string;
   owned?: boolean;
+  ownerHeld?: boolean;
+  returnGeneration?: number;
   generation?: number;
   source?: string;
 }
@@ -35,6 +37,7 @@ export interface DesktopBrowserState {
   pendingReturn?: boolean;
   /** 是否真见过拥有者持有闸门（gate owned:false 事件），区别于状态缺省值。 */
   heldSeen?: boolean;
+  returnGeneration?: number;
   url?: string;
   title?: string;
 }
@@ -51,7 +54,7 @@ type CallFn = (connectionId: string, params: Record<string, unknown>, timeoutMs?
 
 interface WireResult {
   ok: boolean;
-  value?: { value?: Record<string, unknown>; generation?: number; transfer?: { kind: string; data: Buffer } };
+  value?: { value?: Record<string, unknown>; generation?: number; exists?: boolean; owned?: boolean; ownerHeld?: boolean; returnGeneration?: number; gone?: boolean; url?: string; title?: string; transfer?: { kind: string; data: Buffer } };
   error?: { code: string; outcome?: string; message: string };
 }
 
@@ -75,6 +78,7 @@ export class DesktopBrowserManager {
   private readonly states = new Map<string, DesktopBrowserState>();
   private readonly waiters = new Map<string, Set<(s: DesktopBrowserState) => void>>();
   private readonly tails = new Map<string, Promise<void>>();
+  private readonly claims = new Map<string, { taskId: string; connectionId: string }>();
   /** 会话内最近一次模型快照的引用集合，按 (任务绑定键) 与页面代次绑定。 */
   private readonly snapshots = new Map<string, { taskId: string; generation: number; refs: Set<string> }>();
 
@@ -111,24 +115,30 @@ export class DesktopBrowserManager {
   onEvent(connectionId: string, event: DesktopBrowserEvent): void {
     const k = `${connectionId}|${event.session}`;
     const prev = this.states.get(k);
+    if (prev && event.generation !== undefined && event.generation < prev.generation) return;
     const next: DesktopBrowserState = {
       generation: event.generation ?? prev?.generation ?? 0,
       owned: prev?.owned ?? false,
       gone: prev?.gone ?? false,
       pendingReturn: prev?.pendingReturn,
       heldSeen: prev?.heldSeen,
+      returnGeneration: prev?.returnGeneration,
       url: event.url ?? prev?.url,
       title: event.title ?? prev?.title,
     };
-    if (event.kind === "gate") {
+    if (event.owned !== undefined) {
       next.owned = event.owned === true;
-      if (!next.owned) next.heldSeen = true;
-      else { if (prev?.heldSeen === true) next.pendingReturn = true; next.heldSeen = false; }
+      if (!next.owned) { next.heldSeen = event.ownerHeld ?? (event.kind === "gate" && event.source !== "host"); if (!next.heldSeen) next.pendingReturn = false; }
+      else { if (prev?.heldSeen === true) next.pendingReturn = true; next.heldSeen = false; next.gone = false; }
     }
-    if (event.kind === "gone" || event.kind === "closed") { next.gone = true; next.owned = false; }
+    if (event.kind === "gone" || event.kind === "closed") { next.gone = true; next.owned = false; next.heldSeen = false; next.pendingReturn = false; }
+    if (event.returnGeneration !== undefined) {
+      if (event.returnGeneration > (prev?.returnGeneration ?? 0)) next.pendingReturn = true;
+      next.returnGeneration = event.returnGeneration;
+    }
     if (prev && prev.generation !== next.generation) this.snapshots.delete(k);
     this.states.set(k, next);
-    if (next.owned || next.gone) {
+    if (next.owned || next.gone || !next.heldSeen) {
       const ws = this.waiters.get(k);
       if (ws) { this.waiters.delete(k); for (const w of ws) w(next); }
     }
@@ -139,7 +149,8 @@ export class DesktopBrowserManager {
     const prefix = `${connectionId}|`;
     for (const [k, s] of this.states) {
       if (!k.startsWith(prefix) || s.gone) continue;
-      s.gone = true; s.owned = false;
+      s.gone = true; s.owned = false; s.heldSeen = false; s.pendingReturn = false;
+      this.claims.delete(k);
       const ws = this.waiters.get(k);
       if (ws) { this.waiters.delete(k); for (const w of ws) w(s); }
     }
@@ -160,6 +171,7 @@ export class DesktopBrowserManager {
       const ws = this.waiters.get(k);
       if (ws) { this.waiters.delete(k); for (const w of ws) w(s); }
       this.states.delete(k);
+      this.claims.delete(k);
     }
     for (const k of [...this.snapshots.keys()]) if (k.endsWith(`|${sessionId}`)) this.snapshots.delete(k);
   }
@@ -173,7 +185,7 @@ export class DesktopBrowserManager {
     if (!k) return Promise.resolve("stopped");
     const st = this.states.get(k);
     if (!st || st.gone) return Promise.resolve("gone");
-    if (st.owned) return Promise.resolve("released");
+    if (st.owned || !st.heldSeen) return Promise.resolve("released");
     return new Promise(resolve => {
       const waiter = (s: DesktopBrowserState) => {
         clearInterval(iv);
@@ -190,7 +202,7 @@ export class DesktopBrowserManager {
       set.add(waiter);
       // 事件可能落在 owned 检查与登记之间：登记后复查，避免永久等待。
       const cur = this.states.get(k);
-      if (cur && (cur.owned || cur.gone)) { this.waiters.get(k)?.delete(waiter); clearInterval(iv); resolve(cur.gone ? "gone" : "released"); }
+      if (cur && (cur.owned || cur.gone || !cur.heldSeen)) { this.waiters.get(k)?.delete(waiter); clearInterval(iv); resolve(cur.gone ? "gone" : "released"); }
     });
   }
 
@@ -216,29 +228,50 @@ export class DesktopBrowserManager {
     if (!binding) throw new DesktopBrowserError("not_bound", "任务没有 MyGo 浏览器来源");
     const k = `${binding.connectionId}|${task.sessionId}`;
     const stopped = opts.stopped ?? (() => false);
-    const run = (this.tails.get(k) ?? Promise.resolve()).then(() => this.execute(k, binding.connectionId, task, op, input, opts.timeoutMs ?? 55_000, stopped));
-    this.tails.set(k, run.then(() => undefined, () => undefined));
+    return this.enqueue(k, () => this.execute(k, binding.connectionId, task, op, input, opts.timeoutMs ?? 55_000, stopped));
+  }
+
+  private enqueue<T>(key: string, action: () => Promise<T>): Promise<T> {
+    const run = (this.tails.get(key) ?? Promise.resolve()).then(action);
+    this.tails.set(key, run.then(() => undefined, () => undefined));
     return run;
+  }
+
+  // Cleanup uses the original claim even if task eligibility or its binding changed.
+  async release(task: Task): Promise<void> {
+    for (const [key, claim] of this.claims) {
+      if (claim.taskId !== task.id) continue;
+      await this.enqueue(key, async () => {
+        if (this.claims.get(key) !== claim) return;
+        await this.execute(key, claim.connectionId, task, "release", {}, 5_000, () => false);
+        this.claims.delete(key);
+      });
+    }
   }
 
   private async execute(k: string, connectionId: string, task: Task, op: string, input: Record<string, unknown>, timeoutMs: number, stopped: () => boolean): Promise<DesktopBrowserCommandResult> {
     let st = this.states.get(k);
-    // status 不过闸门：它是探针本身，如实回传 owned:false 的接管态；open 只在
-    // 页面不存在或已消亡时直放，页面存在且被接管时同样等交还，不得夺页。
-    if (op !== "status") {
+    // Idle pages are claimable; only an explicit owner takeover waits for return.
+    if (op !== "status" && op !== "release") {
       if (!st || st.gone) {
         if (op !== "open") throw new DesktopBrowserError("disconnected", "页面已关闭或连接断开");
-      } else if (!st.owned) {
+      } else if (st.heldSeen) {
         const outcome = await this.awaitGate(task, stopped);
         if (outcome === "stopped") throw new DesktopBrowserError("canceled", "任务已停止，浏览器动作未发送");
         st = this.states.get(k);
         if (!st || st.gone) throw new DesktopBrowserError("disconnected", "等待交还期间页面已关闭或连接断开");
       }
+      if (st && !st.gone && !st.owned && op !== "open") {
+        await this.execute(k, connectionId, task, "open", {}, timeoutMs, stopped);
+        st = this.states.get(k);
+      }
     }
     if (stopped()) throw new DesktopBrowserError("canceled", "任务已停止，浏览器动作未发送");
     const call = this.deps.call();
     if (!call) throw new DesktopBrowserError("unavailable", "桌面浏览器连接不可用");
-    const wire = await call(connectionId, { op, session: task.sessionId, generation: input.generation ?? st?.generation ?? 0, ...input }, timeoutMs).catch(error => {
+    if (op !== "status" && op !== "release" && this.claims.get(k)?.taskId !== task.id) this.claims.set(k, { taskId: task.id, connectionId });
+    const sentState = this.states.get(k);
+    const wire = await call(connectionId, { op, session: task.sessionId, task: task.id, generation: input.generation ?? st?.generation ?? 0, ...input }, timeoutMs).catch(error => {
       throw new DesktopBrowserError("outcome_unknown", `命令效果未知：${(error as Error).message}`, true);
     }) as WireResult;
     if (!wire || typeof wire !== "object") throw new DesktopBrowserError("outcome_unknown", "命令效果未知：响应缺失", true);
@@ -250,23 +283,28 @@ export class DesktopBrowserManager {
     }
     const value = wire.value ?? {};
     const latest = this.states.get(k);
-    if (typeof value.generation === "number" && latest && value.generation !== latest.generation) {
+    if (typeof value.generation === "number" && latest && latest === sentState && value.generation !== latest.generation) {
       latest.generation = value.generation;
       this.snapshots.delete(k);
     }
-    if (op === "open") {
-      // 新开页清除消亡投影并恢复 Agent 持有；随后到达的页面事件再核对。
-      const cur = latest ?? { generation: 0, owned: true, gone: false };
-      cur.gone = false;
-      cur.owned = true;
+    if (["status", "open", "release"].includes(op) && latest === sentState) {
+      const cur = { ...(latest ?? { generation: value.generation ?? 0, owned: false, gone: false }) };
+      cur.gone = value.exists === false || value.gone === true;
+      cur.owned = !cur.gone && (value.owned ?? op === "open");
+      cur.heldSeen = !cur.gone && value.ownerHeld === true;
+      if ((value.returnGeneration ?? 0) > (cur.returnGeneration ?? 0)) cur.pendingReturn = true;
+      cur.returnGeneration = value.returnGeneration ?? cur.returnGeneration;
+      cur.url = value.url ?? cur.url; cur.title = value.title ?? cur.title;
+      if (op === "release") cur.pendingReturn = false;
       this.states.set(k, cur);
+      if (!cur.heldSeen) { const ws = this.waiters.get(k); this.waiters.delete(k); for (const wake of ws ?? []) wake(cur); }
     }
-    return { value: value.value ?? {}, generation: value.generation, transfer: value.transfer as DesktopBrowserCommandResult["transfer"] };
+    return { value: value.value ?? value, generation: value.generation, transfer: value.transfer as DesktopBrowserCommandResult["transfer"] };
   }
 
   /** 交还后的宿主自动观察：DOM 正文摘要，供会话 marker 与参考块投影。 */
-  async observe(task: Task): Promise<DesktopBrowserObservation> {
-    const data = await this.command(task, "eval", { script: OBSERVE_SCRIPT });
+  async observe(task: Task, stopped: () => boolean = () => false): Promise<DesktopBrowserObservation> {
+    const data = await this.command(task, "eval", { script: OBSERVE_SCRIPT }, { stopped });
     let parsed: { url?: string; title?: string; text?: string; truncated?: boolean };
     try { parsed = JSON.parse(String(data.value ?? "")); }
     catch { throw new DesktopBrowserError("invalid_response", "观察脚本未返回可解析结果"); }

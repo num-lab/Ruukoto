@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ToggleGroup } from "radix-ui";
-import { ArrowUp, File, Loader2, Paperclip, Sparkles, X } from "lucide-react";
+import { ArrowUp, File, Loader2, Plus, Sparkles, X } from "lucide-react";
 import type { PersonalDesktopActionName, PersonalDesktopApproval, PersonalDesktopOutput, PersonalDesktopQuestion } from "@ruukoto/view/personal-protocol.ts";
 import { personalCardKey, type PersonalPresentedMessage, type PersonalState } from "./personal-state.ts";
 import { MarkdownText } from "./markdown.tsx";
@@ -20,9 +20,11 @@ function OutputFile({ model, value }: { model: PersonalState; value: PersonalDes
   return <Item variant="outline" size="sm"><ItemContent><ItemTitle className="break-all">{value.name}</ItemTitle><ItemDescription>{incomplete ? "文件不完整或超过 8 MiB，无法预览或下载" : `${value.bytes < 1024 ? `${value.bytes} B` : value.bytes < 1024 * 1024 ? `${(value.bytes / 1024).toFixed(1)} KiB` : `${(value.bytes / (1024 * 1024)).toFixed(1)} MiB`}`}</ItemDescription>{status && <p role="status">{status}</p>}</ItemContent>{!incomplete && <ItemActions><Button variant="ghost" size="sm" disabled={!model.online || model.outputBusy} onClick={() => void model.output(value, "preview")}>预览</Button><Button variant="ghost" size="sm" disabled={!model.online || model.outputBusy} onClick={() => void model.output(value, "save")}>下载</Button></ItemActions>}</Item>;
 }
 function PersonalMessage({ model, message }: { model: PersonalState; message: PersonalPresentedMessage }) {
+  const [animate, setAnimate] = useState(false);
+  useLayoutEffect(() => { if (!animate && model.takeMessageAnimation(message.displayKey ?? message.entry)) setAnimate(true); });
   const body = model.bodies.get(message.entry);
-  const content = <><Text>{body ?? message.text}</Text>{message.attachments?.map(attachment => <div key={attachment.id} className="attachment-chip"><File /><span title={attachment.name}>{attachment.name}</span></div>)}{message.pendingStatus && <p role="status">{message.pendingStatus === "queued" ? "等待处理" : "正在核实接纳"}</p>}{message.input?.status === "queued" && <p role="status">等待处理</p>}{message.input?.status === "unanswered" && <p role="status">未完成处理</p>}{message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(message.entry)} onClick={() => void model.body(message.entry)}>读取完整内容</Button>}</>;
-  return <Message className="personal-message" align={message.role === "user" ? "end" : "start"}><MessageContent><Bubble variant="muted" align={message.role === "user" ? "end" : "start"}><BubbleContent>{content}{message.outputs?.map(value => <OutputFile key={value.output} model={model} value={value} />)}</BubbleContent></Bubble></MessageContent></Message>;
+  const content = <><Text>{body ?? message.text}</Text>{message.attachments?.map(attachment => <div key={attachment.id} className="attachment-chip"><File /><span title={attachment.name}>{attachment.name}</span></div>)}{(message.pendingStatus === "unanswered" || message.input?.status === "unanswered") && <p role="status">未完成处理</p>}{message.truncated && body === undefined && <Button type="button" size="sm" variant="ghost" disabled={!model.online || model.loadingBody.has(message.entry)} onClick={() => void model.body(message.entry)}>读取完整内容</Button>}</>;
+  return <Message className="personal-message" align={message.role === "user" ? "end" : "start"}><MessageContent><Bubble variant="muted" align={message.role === "user" ? "end" : "start"} data-animate={animate || undefined} aria-busy={message.pendingStatus === "checking"}>{message.pendingStatus === "checking" && <Loader2 className="personal-input-loading animate-spin" role="status" aria-label="发送中" />}<BubbleContent>{content}{message.outputs?.map(value => <OutputFile key={value.output} model={model} value={value} />)}</BubbleContent></Bubble></MessageContent></Message>;
 }
 
 type PersonalMessageGroup = { type: "messages"; role: "user" | "assistant"; messages: PersonalPresentedMessage[] };
@@ -169,13 +171,27 @@ function Controls({ model }: { model: PersonalState }) {
 
 export function PersonalChat({ model, onConnect }: { model: PersonalState; onConnect: () => void }) {
   const input = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { const visible = () => { if (document.visibilityState === "visible") model.visible(); }; model.visible(); document.addEventListener("visibilitychange", visible); return () => document.removeEventListener("visibilitychange", visible); }, [model]);
-  useEffect(() => { resizeComposerInput(input.current, 24); }, [model.draft]);
-  useEffect(() => {
-    const resize = () => resizeComposerInput(input.current, 24);
+  const [expanded, setExpanded] = useState(model.attachments.length > 0);
+  useEffect(() => { const visible = () => { if (document.visibilityState === "visible") model.visible(); else model.hidden(); }; visible(); document.addEventListener("visibilitychange", visible); return () => { document.removeEventListener("visibilitychange", visible); model.hidden(); }; }, [model]);
+  useLayoutEffect(() => {
+    const textarea = input.current, form = textarea?.form;
+    if (!textarea || !form) return;
+    const resize = () => {
+      // Measure at the compact width so expansion cannot oscillate as the input gets wider.
+      form.classList.remove("is-expanded");
+      resizeComposerInput(textarea, 24);
+      const next = model.attachments.length > 0 || textarea.scrollHeight > 24;
+      form.classList.toggle("is-expanded", next);
+      resizeComposerInput(textarea, 24);
+      setExpanded(next);
+    };
+    resize();
+    let width = form.clientWidth, frame = 0;
+    const observer = new ResizeObserver(() => { if (form.clientWidth !== width) { width = form.clientWidth; cancelAnimationFrame(frame); frame = requestAnimationFrame(resize); } });
+    observer.observe(form);
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, []);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", resize); };
+  }, [model, model.draft, model.attachments.length, model.identity]);
   if (!model.identity) return <div className="empty-state"><div className="empty-symbol"><Sparkles /></div><h1>连接你的个人 Agent</h1><p>{model.status.error?.message ?? model.status.detail ?? "在设置中输入个人 Agent 地址并配对。"}</p><Button onClick={onConnect}>PA 远程连接</Button></div>;
   const groups = personalMessageGroups(model.timeline, [...model.cards.values()], [...model.questionCards.values()]);
   return <><MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className="conversation"><MessageScrollerViewport className="stream-scroll selectable-text" preserveScrollOnPrepend aria-label="个人会话消息" onScroll={event => { if (event.currentTarget.scrollTop < 40) void model.older(); }}><MessageScrollerContent className="agent-stream native-message-stream selectable-text">
@@ -184,12 +200,11 @@ export function PersonalChat({ model, onConnect }: { model: PersonalState; onCon
       if (group.type === "approval") return <ApprovalCard key={`approval:${group.value.occurrence}`} model={model} value={group.value} />;
       if (group.type === "question") return <QuestionCard key={`question:${group.value.occurrence}`} model={model} value={group.value} />;
       const first = group.messages[0], date = new Date(first.timestamp);
-      return <MessageScrollerItem key={first.requestKey ?? first.entry} messageId={first.requestKey ?? String(first.entry)}><div className={`personal-message-group ${group.role}`}><time className="personal-message-time" dateTime={date.toISOString()}>{date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>{group.messages.map(message => <PersonalMessage key={message.requestKey ?? message.entry} model={model} message={message} />)}</div></MessageScrollerItem>;
+      return <MessageScrollerItem key={first.displayKey ?? first.entry} messageId={String(first.displayKey ?? first.entry)}><div className={`personal-message-group ${group.role}`}><time className="personal-message-time" dateTime={date.toISOString()}>{date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time>{group.messages.map(message => <PersonalMessage key={message.displayKey ?? message.entry} model={model} message={message} />)}</div></MessageScrollerItem>;
     })}
     <Controls model={model} />
   </MessageScrollerContent></MessageScrollerViewport></MessageScroller></MessageScrollerProvider>
-  <div className="composer-wrap"><div className="composer-width">{model.presence && <div role="status" className="task-notice">{model.presence}</div>}{model.message && <div role="status" className="task-notice">{model.message}</div>}{!model.online && <div className="task-notice" role="status">{model.status.error?.message ?? model.status.detail ?? (model.identity.online ? "正在重新同步消息…" : "后台离线或正在维护。")}<Button variant="ghost" onClick={onConnect}>连接设置</Button></div>}{model.draftMismatch && <div className="task-notice" role="status">草稿属于原连接，已停止向新档案发送。<Button variant="ghost" onClick={() => model.discardDraft()}>放弃原草稿</Button></div>}{model.pending && <div className="task-notice" role="status">原输入{model.pendingResult?.kind === "missing" ? "尚未查到接纳记录" : "结果待核实"}。<Button variant="ghost" disabled={!model.online || model.checking} onClick={() => void model.reconcile()}>核实原输入</Button>{model.pendingResult?.kind === "missing" && <Button variant="outline" disabled={!model.online || model.checking} onClick={() => void model.reconcile(true)}>继续提交原输入</Button>}</div>}
-    {model.attachmentFailed && <div className="task-notice" role="status">附件未完整准备，本条输入未发送。<Button variant="ghost" disabled={!model.canAttach} onClick={() => void model.attach()}>重新选择附件</Button><Button variant="ghost" disabled={model.sending || model.attaching || !!model.pending} onClick={() => void model.discardDraft()}>放弃草稿</Button></div>}
-    <form className="surface-composer composer personal-composer" onSubmit={event => { event.preventDefault(); void model.send(); }}>{model.attachments.length > 0 && <div className="attached-files" aria-label="已附加文件">{model.attachments.map(attachment => <span className="attachment-chip" key={attachment.id}><File /><span title={attachment.name}>{attachment.name}</span><button type="button" disabled={model.sending || model.attaching || !!model.pending || model.draftMismatch} aria-label={`移除附件 ${attachment.name}`} onClick={() => void model.removeAttachment(attachment.id)}><X /></button></span>)}</div>}<Textarea ref={input} aria-label="输入个人消息" rows={1} value={model.draft} readOnly={model.sending || model.attaching || model.draftMismatch} placeholder="描述你想做的事…" onChange={event => model.edit(event.target.value)} onKeyDown={event => submitOnEnter(event, model.canSend, () => void model.send())} /><div className="composer-actions"><div className="composer-left"><Button type="button" size="icon" variant="ghost" className="attachment-button" aria-label="添加附件" disabled={!model.canAttach} aria-busy={model.attaching} onClick={() => void model.attach()}>{model.attaching ? <Loader2 className="animate-spin" /> : <Paperclip />}</Button></div><div className="composer-right"><Button size="icon" className="send-button" type="submit" disabled={!model.canSend} aria-label="发送个人消息" aria-busy={model.sending}>{model.sending ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button></div></div></form>
+  <div className="composer-wrap personal-composer-wrap"><div className="composer-width">{model.message && <div role="status" className="task-notice">{model.message}</div>}{!model.online && <div className="task-notice" role="status">{model.status.error?.message ?? model.status.detail ?? (model.identity.online ? "正在重新同步消息…" : "后台离线或正在维护。")}<Button variant="ghost" onClick={onConnect}>连接设置</Button></div>}{model.draftMismatch && <div className="task-notice" role="status">草稿属于原连接，已停止向新档案发送。<Button variant="ghost" onClick={() => model.discardDraft()}>放弃原草稿</Button></div>}{model.pending && model.pendingResult?.kind === "missing" && <div className="task-notice"><Button variant="ghost" disabled={!model.online || model.checking} onClick={() => void model.reconcile()}>核实原输入</Button><Button variant="outline" disabled={!model.online || model.checking} onClick={() => void model.reconcile(true)}>继续提交原输入</Button></div>}
+    <form className={`surface-composer composer personal-composer${expanded ? " is-expanded" : ""}`} onSubmit={event => { event.preventDefault(); void model.send(); }}>{model.attachments.length > 0 && <div className="attached-files" aria-label="已附加文件">{model.attachments.map(attachment => <span className="attachment-chip" key={attachment.id}><File /><span title={attachment.name}>{attachment.name}</span><button type="button" disabled={model.sending || model.attaching || !!model.pending || model.draftMismatch} aria-label={`移除附件 ${attachment.name}`} onClick={() => void model.removeAttachment(attachment.id)}><X /></button></span>)}</div>}<Button type="button" size="icon" variant="ghost" className="personal-attach" aria-label="添加附件" disabled={!model.canAttach} aria-busy={model.attaching} onClick={() => void model.attach()}>{model.attaching ? <Loader2 className="animate-spin" /> : <Plus />}</Button><Textarea ref={input} aria-label="输入个人消息" rows={1} value={model.draft} readOnly={model.sending || model.attaching || model.draftMismatch} placeholder="描述你想做的事…" onChange={event => model.edit(event.target.value)} onKeyDown={event => submitOnEnter(event, model.canSend, () => void model.send())} /><Button size="icon" className="send-button personal-send" type="submit" disabled={!model.canSend} aria-label="发送个人消息" aria-busy={model.sending}>{model.sending ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button></form>
   </div></div></>;
 }

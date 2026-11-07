@@ -244,6 +244,9 @@ export class CodeState {
     }
     return this.view.sessions.find(session => session.id === id)?.name ?? "新会话";
   }
+  sessionNeedsDecision(id: string): boolean {
+    return this.view.pendingApprovals().some(item => item.sessionId === id) || this.view.ownerQuestions.some(item => item.sessionId === id && item.status === "pending");
+  }
   private async loadOwnerQuestions(): Promise<void> {
     const sessionId = this.view.currentSessionId, instanceId = this.view.instanceId, generation = this.generation, read = ++this.questionRead;
     if (this.target !== "code" || !sessionId || !instanceId) return;

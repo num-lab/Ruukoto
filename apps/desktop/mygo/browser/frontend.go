@@ -42,7 +42,7 @@ func (f *Frontend) State(ctx context.Context, s State) json.RawMessage {
 	return succeed(nil)
 }
 
-// Takeover 是拥有者接管：先撤闸门与代次推进，再通知后台；之后新网页动作按代次拒绝。
+// Takeover interrupts an active Agent claim; idle pages need no takeover.
 func (f *Frontend) Takeover(ctx context.Context, session string) json.RawMessage {
 	if denied := f.trusted(ctx); denied != nil {
 		return denied
@@ -51,11 +51,14 @@ func (f *Frontend) Takeover(ctx context.Context, session string) json.RawMessage
 	if p == nil {
 		return failure("no_page", "not_sent", "该会话没有浏览器页面。")
 	}
+	if !p.owned.Load() || p.gone.Load() {
+		return failure("not_owned", "not_sent", "Agent 未在使用此页面。")
+	}
 	f.m.setOwned(p, false, "owner")
 	return succeed(map[string]any{"owned": p.owned.Load(), "generation": p.gen.Load()})
 }
 
-// Return 是拥有者交还：闸门复位并推进代次，后台须先取得新观察再继续。
+// Return resumes the interrupted claim and requires a fresh Agent observation.
 func (f *Frontend) Return(ctx context.Context, session string) json.RawMessage {
 	if denied := f.trusted(ctx); denied != nil {
 		return denied
@@ -63,6 +66,9 @@ func (f *Frontend) Return(ctx context.Context, session string) json.RawMessage {
 	p := f.m.pageOf(session)
 	if p == nil {
 		return failure("no_page", "not_sent", "该会话没有浏览器页面。")
+	}
+	if !p.ownerHeld.Load() || p.gone.Load() {
+		return failure("not_held", "not_sent", "此页面无需交还。")
 	}
 	f.m.setOwned(p, true, "owner")
 	return succeed(map[string]any{"owned": p.owned.Load(), "generation": p.gen.Load()})
@@ -78,15 +84,15 @@ func (f *Frontend) Navigate(ctx context.Context, session, rawURL string) json.Ra
 		return failure("invalid_url", "not_sent", "导航目标必须是 HTTP(S) 地址。")
 	}
 	p := f.m.pageOf(session)
-	if p != nil && p.owned.Load() {
+	if p != nil && !p.gone.Load() && p.owned.Load() {
 		return failure("page_owned", "not_sent", "页面由 Agent 持有；请先接管。")
 	}
-	if p == nil {
+	if p == nil || p.gone.Load() {
 		if p, err = f.m.ensurePage(session); err != nil {
 			return failure("open_failed", "not_sent", err.Error())
 		}
 	}
-	p.gen.Add(1)
+	f.m.advance(p)
 	if err := p.handle.load(url); err != nil {
 		return failure("navigate_failed", "not_sent", err.Error())
 	}
@@ -113,7 +119,7 @@ func (f *Frontend) Back(ctx context.Context, session string) json.RawMessage {
 	if denied != nil {
 		return denied
 	}
-	p.gen.Add(1)
+	f.m.advance(p)
 	p.handle.back()
 	return succeed(f.m.snapshot(p))
 }
@@ -123,7 +129,7 @@ func (f *Frontend) Forward(ctx context.Context, session string) json.RawMessage 
 	if denied != nil {
 		return denied
 	}
-	p.gen.Add(1)
+	f.m.advance(p)
 	p.handle.forward()
 	return succeed(f.m.snapshot(p))
 }
@@ -133,7 +139,7 @@ func (f *Frontend) Reload(ctx context.Context, session string) json.RawMessage {
 	if denied != nil {
 		return denied
 	}
-	p.gen.Add(1)
+	f.m.advance(p)
 	p.handle.reload()
 	return succeed(f.m.snapshot(p))
 }

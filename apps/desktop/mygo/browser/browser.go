@@ -35,13 +35,15 @@ type State struct {
 
 // Event 是页面事实上报：闸门翻转、导航、标题、渲染失效与关闭。
 type Event struct {
-	Session    string `json:"session"`
-	Kind       string `json:"kind"` // gate | nav | title | gone | closed
-	URL        string `json:"url,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Owned      *bool  `json:"owned,omitempty"`
-	Source     string `json:"source,omitempty"` // owner = 可信前端按钮，host = 后台命令
-	Generation uint64 `json:"generation"`
+	Session          string `json:"session"`
+	Kind             string `json:"kind"` // gate | nav | title | gone | closed
+	URL              string `json:"url,omitempty"`
+	Title            string `json:"title,omitempty"`
+	Owned            *bool  `json:"owned,omitempty"`
+	OwnerHeld        *bool  `json:"ownerHeld,omitempty"`
+	ReturnGeneration uint64 `json:"returnGeneration"`
+	Source           string `json:"source,omitempty"` // owner = 可信前端按钮，host = 后台命令
+	Generation       uint64 `json:"generation"`
 }
 
 // Deps 注入宿主能力，全部允许跨窗口生命周期晚绑定（闭包在调用时求值）。
@@ -85,9 +87,11 @@ type page struct {
 	handle  handle
 
 	gen       atomic.Uint64 // 每次导航请求/提交、闸门翻转、页销毁均推进；动作按代次拒绝
+	returned  atomic.Uint64 // Latest explicit return requiring an Agent observation.
 	owned     atomic.Bool   // true = Agent 持有：原生盖遮挡人工输入
-	ownerHeld atomic.Bool   // true = 拥有者曾接管且未交还；open 不得夺页
+	ownerHeld atomic.Bool   // An explicit takeover blocks Agent acquisition until return.
 	gone      atomic.Bool   // 渲染进程消失或页已销毁
+	task      atomic.Value  // Task ID of the current Agent claim.
 
 	infoMu     sync.RWMutex
 	url, title string
@@ -101,8 +105,11 @@ type Manager struct {
 	// newHandle 只由同包测试替换，把页面适配换成 fake。
 	newHandle func(*mygo.WebView) handle
 
-	mu    sync.RWMutex
-	pages map[string]*page
+	mu            sync.RWMutex
+	pages         map[string]*page
+	generation    atomic.Uint64
+	transport     atomic.Uint64
+	releasedTasks map[string]bool // Fences commands whose response outlived task cleanup.
 
 	shown      string
 	panelShown bool
@@ -111,7 +118,7 @@ type Manager struct {
 }
 
 func New(deps Deps) *Manager {
-	return &Manager{deps: deps, pages: map[string]*page{}}
+	return &Manager{deps: deps, pages: map[string]*page{}, releasedTasks: map[string]bool{}}
 }
 
 // Frontend 返回只含可信前端方法的绑定对象；Manager 自身不绑定。
@@ -129,6 +136,13 @@ func succeed(value any) json.RawMessage {
 
 func (m *Manager) emit(e Event) {
 	if m.deps.Emit != nil {
+		// Every event carries ownership so a newer navigation can subsume an older gate.
+		owned, held := false, false
+		if p := m.pageOf(e.Session); p != nil && !p.gone.Load() {
+			owned, held = p.owned.Load(), p.ownerHeld.Load()
+			e.ReturnGeneration = p.returned.Load()
+		}
+		e.Owned, e.OwnerHeld = &owned, &held
 		m.deps.Emit(e)
 	}
 }
@@ -137,6 +151,13 @@ func (m *Manager) pageOf(session string) *page {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.pages[session]
+}
+
+// Generations remain monotonic when a closed session page is reopened.
+func (m *Manager) advance(p *page) uint64 {
+	gen := m.generation.Add(1)
+	p.gen.Store(gen)
+	return gen
 }
 
 // placedPage 返回当前应放置的页面；主线程。
@@ -189,7 +210,10 @@ func validURL(raw string) (string, error) {
 // ensurePage 创建或返回会话页面；仅主线程（绑定方法与 Update 闭包内）。
 func (m *Manager) ensurePage(session string) (*page, error) {
 	if p := m.pageOf(session); p != nil {
-		return p, nil
+		if !p.gone.Load() {
+			return p, nil
+		}
+		m.closePage(session)
 	}
 	v, err := m.deps.NewView(mygo.WebViewOptions{})
 	if err != nil {
@@ -200,6 +224,7 @@ func (m *Manager) ensurePage(session string) (*page, error) {
 		h = m.newHandle(v)
 	}
 	p := &page{session: session, view: v, handle: h}
+	p.task.Store("")
 	m.mu.Lock()
 	m.pages[session] = p
 	m.mu.Unlock()
@@ -228,7 +253,10 @@ func (m *Manager) bindPage(p *page, pg *mygo.Page) {
 }
 
 func (m *Manager) didNavigate(p *page, u string) {
-	gen := p.gen.Add(1)
+	if m.pageOf(p.session) != p || p.gone.Load() {
+		return
+	}
+	gen := m.advance(p)
 	p.infoMu.Lock()
 	p.url = u
 	p.infoMu.Unlock()
@@ -236,6 +264,9 @@ func (m *Manager) didNavigate(p *page, u string) {
 }
 
 func (m *Manager) titleUpdated(p *page, title string) {
+	if m.pageOf(p.session) != p || p.gone.Load() {
+		return
+	}
 	p.infoMu.Lock()
 	p.title = title
 	p.infoMu.Unlock()
@@ -243,8 +274,11 @@ func (m *Manager) titleUpdated(p *page, title string) {
 }
 
 func (m *Manager) renderGone(p *page) {
+	if m.pageOf(p.session) != p || p.gone.Load() {
+		return
+	}
 	p.gone.Store(true)
-	gen := p.gen.Add(1)
+	gen := m.advance(p)
 	m.emit(Event{Session: p.session, Kind: "gone", Generation: gen})
 }
 
@@ -258,7 +292,7 @@ func (m *Manager) closePage(session string) bool {
 		return false
 	}
 	p.gone.Store(true)
-	gen := p.gen.Add(1)
+	gen := m.advance(p)
 	if m.shown == session {
 		m.shown = ""
 	}
@@ -268,13 +302,21 @@ func (m *Manager) closePage(session string) bool {
 	return true
 }
 
-// setOwned 主线程翻转闸门并推进代次；Agent 持有时把键盘收回前端。
+// setOwned distinguishes an idle page from an explicit owner takeover.
 func (m *Manager) setOwned(p *page, owned bool, source string) {
-	if !p.owned.CompareAndSwap(!owned, owned) {
+	held := !owned && source == "owner"
+	if p.owned.Load() == owned && p.ownerHeld.Load() == held {
 		return
 	}
-	gen := p.gen.Add(1)
-	p.ownerHeld.Store(!owned)
+	p.owned.Store(owned)
+	p.ownerHeld.Store(held)
+	gen := m.advance(p)
+	if owned && source == "owner" {
+		p.returned.Store(gen)
+	}
+	if !owned && source == "host" {
+		p.returned.Store(0)
+	}
 	if owned && m.placedPage() == p {
 		m.deps.Focus()
 	}
@@ -287,12 +329,12 @@ func (m *Manager) snapshot(p *page) map[string]any {
 	defer p.infoMu.RUnlock()
 	return map[string]any{
 		"exists": true, "url": p.url, "title": p.title,
-		"generation": p.gen.Load(), "owned": p.owned.Load(), "gone": p.gone.Load(),
+		"generation": p.gen.Load(), "owned": p.owned.Load(), "ownerHeld": p.ownerHeld.Load(), "returnGeneration": p.returned.Load(), "gone": p.gone.Load(),
 	}
 }
 
 // check 校验后台动作前置：页在、渲染存活、持有权与代次吻合；gen=0 表示不绑代次。
-func check(p *page, gen uint64, needOwned bool) (code, message string) {
+func check(p *page, gen uint64, needOwned bool, task string) (code, message string) {
 	switch {
 	case p == nil:
 		return "no_page", "该会话没有浏览器页面。"
@@ -300,31 +342,30 @@ func check(p *page, gen uint64, needOwned bool) (code, message string) {
 		return "page_gone", "页面渲染已失效；请重新打开。"
 	case needOwned && !p.owned.Load():
 		return "not_owned", "页面未由 Agent 持有。"
+	case task != "" && p.task.Load() != task:
+		return "stale_task", "此浏览器操作已不属于当前任务。"
 	case gen != 0 && gen != p.gen.Load():
 		return "stale_generation", "页面代次已过期，请重新观察。"
 	}
 	return "", ""
 }
 
-// ReleaseAll 在传输失效后放开全部页面的人工输入并推进代次；迟到命令按代次拒绝。
-// 非主线程调用。
+// ReleaseAll returns every page to idle when its control transport disappears.
 func (m *Manager) ReleaseAll() {
-	m.mu.RLock()
-	var owned []*page
-	for _, p := range m.pages {
-		if p.owned.Load() {
-			owned = append(owned, p)
-		}
-	}
-	m.mu.RUnlock()
-	if len(owned) == 0 {
-		return
-	}
+	m.transport.Add(1)
 	m.deps.Update(func() {
-		for _, p := range owned {
-			if p.owned.CompareAndSwap(true, false) {
-				p.gen.Add(1)
+		m.mu.RLock()
+		pages := make([]*page, 0, len(m.pages))
+		for _, p := range m.pages {
+			pages = append(pages, p)
+		}
+		m.mu.RUnlock()
+		for _, p := range pages {
+			if task, ok := p.task.Load().(string); ok && task != "" {
+				m.releasedTasks[task] = true
 			}
+			p.task.Store("")
+			m.setOwned(p, false, "host")
 		}
 	})
 }
@@ -332,6 +373,7 @@ func (m *Manager) ReleaseAll() {
 // CommandIn 是后台经控制通路转发的浏览器命令参数；传输由后续步骤接通。
 type CommandIn struct {
 	Session    string `json:"session"`
+	Task       string `json:"task,omitempty"`
 	Generation uint64 `json:"generation,omitempty"`
 	URL        string `json:"url,omitempty"`
 	Script     string `json:"script,omitempty"`
@@ -340,6 +382,19 @@ type CommandIn struct {
 // Command 执行后台浏览器命令；只允许在窗口存活的非主线程上下文调用，
 // 变更类操作经 Update 入主线程，读类操作（eval/screenshot/status）原地执行。
 func (m *Manager) Command(ctx context.Context, op string, in CommandIn) json.RawMessage {
+	return m.Prepare(ctx, op, in)()
+}
+
+// Prepare captures the transport identity before the pipe reader dispatches work.
+func (m *Manager) Prepare(ctx context.Context, op string, in CommandIn) func() json.RawMessage {
+	transport := m.transport.Load()
+	return func() json.RawMessage { return m.command(ctx, op, in, transport) }
+}
+
+func (m *Manager) command(ctx context.Context, op string, in CommandIn, transport uint64) json.RawMessage {
+	if transport != m.transport.Load() {
+		return failure("canceled", "not_sent", "浏览器连接已改变，原操作未发送。")
+	}
 	if m.deps.Alive != nil && !m.deps.Alive() {
 		return failure("window_closed", "not_sent", "桌面窗口已关闭。")
 	}
@@ -351,27 +406,43 @@ func (m *Manager) Command(ctx context.Context, op string, in CommandIn) json.Raw
 		}
 		return succeed(m.snapshot(p))
 	case "open":
-		return m.syncMain(ctx, func() json.RawMessage {
-			return m.open(in.Session, in.URL)
+		return m.syncMain(ctx, transport, func() json.RawMessage {
+			return m.open(in.Session, in.URL, in.Task)
+		})
+	case "release":
+		return m.syncMain(ctx, transport, func() json.RawMessage {
+			if in.Task != "" {
+				m.releasedTasks[in.Task] = true
+			}
+			p := m.pageOf(in.Session)
+			if p == nil {
+				return succeed(map[string]any{"exists": false})
+			}
+			// A delayed cleanup cannot release a later task's claim.
+			if p.task.Load() == in.Task {
+				p.task.Store("")
+				m.setOwned(p, false, "host")
+			}
+			return succeed(m.snapshot(p))
 		})
 	case "navigate":
 		url, err := validURL(in.URL)
 		if err != nil {
 			return failure("invalid_url", "not_sent", "导航目标必须是 HTTP(S) 地址。")
 		}
-		return m.syncMain(ctx, func() json.RawMessage {
+		return m.syncMain(ctx, transport, func() json.RawMessage {
 			// 与绑定方法同线程复核持有权与代次，压缩检查到发出的窗口。
-			if code, msg := check(p, in.Generation, true); code != "" {
+			if code, msg := check(p, in.Generation, true, in.Task); code != "" {
 				return failure(code, "not_sent", msg)
 			}
-			p.gen.Add(1)
+			m.advance(p)
 			if err := p.handle.load(url); err != nil {
 				return failure("navigate_failed", "not_sent", err.Error())
 			}
 			return succeed(m.snapshot(p))
 		})
 	case "eval":
-		if code, msg := check(p, in.Generation, true); code != "" {
+		if code, msg := check(p, in.Generation, true, in.Task); code != "" {
 			return failure(code, "not_sent", msg)
 		}
 		v, err := p.handle.eval(ctx, in.Script)
@@ -380,7 +451,7 @@ func (m *Manager) Command(ctx context.Context, op string, in CommandIn) json.Raw
 		}
 		return succeed(map[string]any{"value": v, "generation": p.gen.Load()})
 	case "screenshot":
-		if code, msg := check(p, in.Generation, true); code != "" {
+		if code, msg := check(p, in.Generation, true, in.Task); code != "" {
 			return failure(code, "not_sent", msg)
 		}
 		png, err := p.handle.shot()
@@ -389,16 +460,31 @@ func (m *Manager) Command(ctx context.Context, op string, in CommandIn) json.Raw
 		}
 		return succeed(map[string]any{"png": base64.StdEncoding.EncodeToString(png), "generation": p.gen.Load()})
 	case "close":
-		return m.syncMain(ctx, func() json.RawMessage {
+		return m.syncMain(ctx, transport, func() json.RawMessage {
+			if in.Task != "" && m.releasedTasks[in.Task] {
+				return failure("stale_task", "not_sent", "此浏览器任务已结束。")
+			}
+			current := m.pageOf(in.Session)
+			if current != nil {
+				if code, msg := check(current, in.Generation, true, in.Task); code != "" {
+					return failure(code, "not_sent", msg)
+				}
+			}
 			return succeed(map[string]any{"closed": m.closePage(in.Session)})
 		})
 	}
 	return failure("unknown_op", "not_sent", "未知的浏览器命令。")
 }
 
-func (m *Manager) syncMain(ctx context.Context, fn func() json.RawMessage) json.RawMessage {
+func (m *Manager) syncMain(ctx context.Context, transport uint64, fn func() json.RawMessage) json.RawMessage {
 	done := make(chan json.RawMessage, 1)
-	m.deps.Update(func() { done <- fn() })
+	m.deps.Update(func() {
+		if ctx.Err() != nil || transport != m.transport.Load() {
+			done <- failure("canceled", "not_sent", "浏览器请求已取消。")
+			return
+		}
+		done <- fn()
+	})
 	select {
 	case r := <-done:
 		return r
@@ -407,9 +493,11 @@ func (m *Manager) syncMain(ctx context.Context, fn func() json.RawMessage) json.
 	}
 }
 
-// open 建立或复用会话页，授予 Agent 持有并导航；主线程。
-// 拥有者持页时拒绝：open 不得绕过交还闸门夺页。
-func (m *Manager) open(session, rawURL string) json.RawMessage {
+// open claims an idle page for this task without bypassing an owner takeover.
+func (m *Manager) open(session, rawURL, task string) json.RawMessage {
+	if task != "" && m.releasedTasks[task] {
+		return failure("stale_task", "not_sent", "此浏览器任务已结束。")
+	}
 	p, err := m.ensurePage(session)
 	if err != nil {
 		return failure("open_failed", "not_sent", err.Error())
@@ -417,6 +505,10 @@ func (m *Manager) open(session, rawURL string) json.RawMessage {
 	if p.ownerHeld.Load() {
 		return failure("page_owned", "not_sent", "页面正由拥有者持有；请先交还。")
 	}
+	if current, ok := p.task.Load().(string); ok && current != "" && current != task && p.owned.Load() {
+		return failure("page_busy", "not_sent", "原任务仍在使用此页面。")
+	}
+	p.task.Store(task)
 	m.setOwned(p, true, "host")
 	if rawURL == "" {
 		return succeed(m.snapshot(p))
@@ -425,7 +517,7 @@ func (m *Manager) open(session, rawURL string) json.RawMessage {
 	if err != nil {
 		return failure("invalid_url", "not_sent", "导航目标必须是 HTTP(S) 地址。")
 	}
-	p.gen.Add(1)
+	m.advance(p)
 	if err := p.handle.load(url); err != nil {
 		return failure("navigate_failed", "not_sent", err.Error())
 	}

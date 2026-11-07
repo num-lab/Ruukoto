@@ -1,6 +1,4 @@
 /* Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md */
-.native-window { --sidebar-toggle-closed: 114px; }
-.search-toggle { margin-left: -30px; }
 .search-dialog[data-slot="dialog-content"] { top: min(24vh, 180px); width: 640px; max-width: calc(100vw - 32px); max-height: calc(100dvh - min(24vh, 180px) - 16px); translate: -50% 0; --tw-enter-translate-y: -12px; --tw-exit-translate-y: -12px; --tw-enter-scale: 1; --tw-exit-scale: 1; display: flex; flex-direction: column; padding: 0; gap: 0; overflow: hidden; border-color: var(--ui-border); border-radius: 14px; background: var(--bg-surface); }
 .search-input-row { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--ui-border); }
 .search-input-row > svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-secondary); }

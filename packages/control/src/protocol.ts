@@ -222,6 +222,8 @@ export type DesktopBrowserEvent = {
   kind: "gate" | "nav" | "title" | "gone" | "closed";
   generation: number;
   owned?: boolean;
+  ownerHeld?: boolean;
+  returnGeneration?: number;
   source?: "owner" | "host";
   url?: string;
   title?: string;

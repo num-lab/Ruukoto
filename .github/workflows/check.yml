@@ -10,12 +10,13 @@ permissions:
 jobs:
   check:
     runs-on: ${{ matrix.os }}
-    # Note: 见 .agents/notes/implemented/testing/2026-10-24-node24-ci-budget.md
+    # Note: See .agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
+        shard: [1, 2, 3, 4]
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
@@ -30,8 +31,8 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             verification/foundation/package-lock.json
-      # Note: 见 .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
-      - name: 安装 Linux 检查前提
+      # Note: See .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
+      - name: Install Linux prerequisites
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -47,8 +48,13 @@ jobs:
           printf '%s\n' "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
           /usr/bin/bwrap --unshare-all --die-with-parent --ro-bind / / --proc /proc --dev /dev -- /usr/bin/true
           systemd-run --user --scope --quiet --property=Delegate=yes true
-      - name: 安装 macOS 检查前提
+      - name: Install macOS prerequisites
         if: runner.os == 'macOS'
         run: brew install ripgrep
       - run: npm run setup -- --skip-hooks
-      - run: npm run check
+      - run: npm run build
+      - run: npm run check:static
+        if: matrix.shard == 1
+      - run: npm run test:app -- --shard=${{ matrix.shard }}/4
+      - run: npm run test:foundation
+        if: matrix.shard == 1

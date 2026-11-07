@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[CI shards and fixture preparation](2026-11-07-ci-shards-and-fixtures.md) supersedes the single full-suite job per OS with four isolated application shards. Node, deadlines, per-runner concurrency, native boundaries and complete coverage remain.
+
 ## Problem
 
 The test-reduction candidate still exceeded forty-five minutes on GitHub macOS/Node 24 and both Node 22 jobs; Linux/Node 24 succeeded. The owner requested a larger CI budget and retirement of Node 22 compatibility.

@@ -1,0 +1,7 @@
+# CI Execution
+
+CI runs four isolated application-test shards on each of macOS and Linux with Node 24.15.0 and a 90-minute job limit. Each runner installs rg, prepares Linux native namespaces and delegated user scopes where needed, then runs `npm run setup -- --skip-hooks`, `npm run build` and `npm run test:app -- --shard=<index>/4`. Shard 1 also runs `npm run check:static` before application tests and `npm run test:foundation` afterward; all eight jobs must pass to cover the full check. Missing Python/PTY is a failure, not a reason to skip terminal cases. `ELECTRON_SKIP_BINARY_DOWNLOAD=1` avoids downloading or running Electron; desktop types, lint and pure logic still run.
+
+Shard selection uses sorted file names and round-robin assignment of ordinary files; all five macOS exclusive fixtures finish serially before shard 1 starts ordinary files. Invalid arguments, missing exclusive files and empty shards fail. Run shards on separate machines: concurrent shards on one macOS host would break shared-UID exclusivity. The default `npm run check` still runs the full suite locally. Compare CI execution and queue time separately; more shards require more available runners. See the [scheduling decision](../.agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md).
+
+The [Check workflow](../.github/workflows/check.yml) owns runner setup and job conditions. [Development](development.md#commits-and-ci) covers local setup and commit hooks.

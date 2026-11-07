@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[CI shards and fixture preparation](2026-11-07-ci-shards-and-fixtures.md) supersedes the single full-suite job per OS with four isolated application shards. Node, deadlines, per-runner concurrency, native boundaries and complete coverage remain.
+
 [Node 24 and CI budgets](2026-10-24-node24-ci-budget.md) supersedes the original Node support range and job timeout. Platform safeguards, real coverage, and historical results remain.
 
 ## Problem

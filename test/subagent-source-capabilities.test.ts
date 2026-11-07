@@ -144,10 +144,11 @@ test("普通个人来源执行 app_data，应用回执与账本归属真实子 T
   } finally { await t.shutdown(); }
 });
 
+// Note: See .agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md
 test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图和模型请求为空", async () => {
   const mcp = await startMockMcp({ tools: [] });
   let mcpClosed = false;
-  const t = await startTestRuntime("ordinary-required-tools", () => ({ kind: "text", text: "不应调用模型" }), { config: realTools() });
+  const t = await startTestRuntime("ordinary-required-tools", () => ({ kind: "text", text: "不应调用模型" }), { config: { ...realTools(), mcp: { connectTimeoutMs: 1000, listTimeoutMs: 1000 } } });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "required", cwd: t.work[0] });
     await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["missing"] });

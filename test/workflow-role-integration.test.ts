@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
+import { Db } from "@ruukoto/core/db.ts";
+import { Store } from "@ruukoto/core/store.ts";
 import { requireSubAgentDefinition } from "@ruukoto/core/subagent-definition.ts";
 import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import type { Session, Task } from "@ruukoto/core/types.ts";
@@ -170,9 +172,9 @@ test("general 与 full_access 角色的 verify 均固定受限编码能力，零
   } finally { await t.shutdown(); }
 });
 
-for (const damage of ["definition_missing", "execution_missing", "snapshot_missing", "interface_upgrade_required"] as const) test(`已完成验证在 ask 后冷恢复遇到 ${damage} 时暂停，旧 Task、尝试和字节不变`, async () => {
+// Note: See .agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md
+test("已完成验证在 ask 后冷恢复保留旧 Task、尝试和字节", async ctx => {
   const t = await startTestRuntime("workflow-completed-recovery", changeAndVerify, { config: realTools(), workDirs: 1 });
-  let recovered: Runtime | undefined;
   try {
     const rt = t.runtime, run = await start(t, CHANGE + VERIFY + HOLD + MERGE);
     await waitFor("修改和验证已完成并等待拥有者", () => requireWorkflowRun(rt.store, run.id).status === "waiting", 60_000);
@@ -181,32 +183,43 @@ for (const damage of ["definition_missing", "execution_missing", "snapshot_missi
     assert.equal(verified.verification!.passed, true);
     assert.equal(changed.status, "completed");
     assert.equal(verificationTask.status, "completed");
-    if (damage === "definition_missing") rt.store.db.prepare("UPDATE sub_agents SET definition = ? WHERE id = ?").run("null", verificationTask.subAgentId);
-    else if (damage === "execution_missing") rt.store.db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?").run(JSON.stringify({ ...verificationTask.readScope, execution: undefined }), verificationTask.id);
-    else if (damage === "snapshot_missing") rt.store.db.prepare("UPDATE work_delegations SET write_target = ? WHERE id = ?").run(JSON.stringify({ ...target, snapshot: undefined }), work.id);
-    else rt.store.db.prepare("UPDATE workflow_runs SET payload = ? WHERE id = ?").run(JSON.stringify({ ...requireWorkflowRun(rt.store, run.id), interfaceVersion: WORKFLOW_INTERFACE_VERSION - 1 }), run.id);
-    const tasks = [changed.id, verificationTask.id].map(id => rt.store.getTask(id));
-    const attempts = requireWorkflowRun(rt.store, run.id).attempts, executions = listWorkflowExecutions(rt.store, run.id);
     const sourceBytes = fs.readFileSync(path.join(t.work[0], "value.txt")), changedBytes = fs.readFileSync(path.join(target.path, "value.txt"));
     const verificationTarget = rt.store.getWorkDelegation(verificationTask.workId!)!.writeTarget!;
     const verificationBytes = fs.readFileSync(path.join(verificationTarget.path, "value.txt"));
-    const calls = t.server.calls.length;
+    const calls = t.server.calls.length, database = rt.store.db.file, snapshot = path.join(t.dirs.root, "baseline.db");
     t.client.close();
     await rt.stop("test_cold_recovery");
-    recovered = await Runtime.start({ ...rt.config, socketPath: path.join(t.dirs.root, "r.sock") });
-    const state = requireWorkflowRun(recovered.store, run.id);
-    assert.equal(state.status, "paused");
-    assert.equal(state.reason, damage);
-    await assert.rejects(recovered.workflows!.control(run.id, "resume", state.version, { action: "resume", stopsConfirmed: true, clockConfirmed: true }), { code: damage });
-    assert.deepEqual([changed.id, verificationTask.id].map(id => recovered!.store.getTask(id)), tasks);
-    assert.deepEqual(listWorkflowExecutions(recovered.store, run.id), executions);
-    assert.equal(requireWorkflowRun(recovered.store, run.id).attempts, attempts);
-    assert.equal(t.server.calls.length, calls);
-    assert.equal(getWorkflowStep(recovered.store, run.id, "merge"), null);
-    assert.deepEqual(fs.readFileSync(path.join(t.work[0], "value.txt")), sourceBytes);
-    assert.deepEqual(fs.readFileSync(path.join(target.path, "value.txt")), changedBytes);
-    assert.deepEqual(fs.readFileSync(path.join(verificationTarget.path, "value.txt")), verificationBytes);
-  } finally { await recovered?.stop("test_end"); await t.shutdown(); }
+    fs.copyFileSync(database, snapshot);
+    for (const damage of ["definition_missing", "execution_missing", "snapshot_missing", "interface_upgrade_required"] as const) await ctx.test(damage, async () => {
+      // Restore only closed SQLite state; Git copies, artifacts and native identities keep their paths and inodes.
+      fs.copyFileSync(snapshot, database);
+      const db = new Db(t.dirs.dataDir), store = new Store(db);
+      let tasks: ReturnType<Store["getTask"]>[], attempts: number, executions: ReturnType<typeof listWorkflowExecutions>;
+      try {
+        if (damage === "definition_missing") db.prepare("UPDATE sub_agents SET definition = ? WHERE id = ?").run("null", verificationTask.subAgentId);
+        else if (damage === "execution_missing") db.prepare("UPDATE tasks SET read_scope = ? WHERE id = ?").run(JSON.stringify({ ...verificationTask.readScope, execution: undefined }), verificationTask.id);
+        else if (damage === "snapshot_missing") db.prepare("UPDATE work_delegations SET write_target = ? WHERE id = ?").run(JSON.stringify({ ...target, snapshot: undefined }), work.id);
+        else db.prepare("UPDATE workflow_runs SET payload = ? WHERE id = ?").run(JSON.stringify({ ...requireWorkflowRun(store, run.id), interfaceVersion: WORKFLOW_INTERFACE_VERSION - 1 }), run.id);
+        tasks = [changed.id, verificationTask.id].map(id => store.getTask(id));
+        attempts = requireWorkflowRun(store, run.id).attempts; executions = listWorkflowExecutions(store, run.id);
+      } finally { db.close(); }
+      const recovered = await Runtime.start({ ...rt.config, socketPath: path.join(t.dirs.root, "r.sock") });
+      try {
+        const state = requireWorkflowRun(recovered.store, run.id);
+        assert.equal(state.status, "paused");
+        assert.equal(state.reason, damage);
+        await assert.rejects(recovered.workflows!.control(run.id, "resume", state.version, { action: "resume", stopsConfirmed: true, clockConfirmed: true }), { code: damage });
+        assert.deepEqual([changed.id, verificationTask.id].map(id => recovered.store.getTask(id)), tasks);
+        assert.deepEqual(listWorkflowExecutions(recovered.store, run.id), executions);
+        assert.equal(requireWorkflowRun(recovered.store, run.id).attempts, attempts);
+        assert.equal(t.server.calls.length, calls);
+        assert.equal(getWorkflowStep(recovered.store, run.id, "merge"), null);
+        assert.deepEqual(fs.readFileSync(path.join(t.work[0], "value.txt")), sourceBytes);
+        assert.deepEqual(fs.readFileSync(path.join(target.path, "value.txt")), changedBytes);
+        assert.deepEqual(fs.readFileSync(path.join(verificationTarget.path, "value.txt")), verificationBytes);
+      } finally { await recovered.stop("test_end"); }
+    });
+  } finally { await t.shutdown(); }
 });
 
 test("临时脚本先真实写入再调用旧 mode 时明确拒绝，恢复请求不能重放已完成写入", async () => {

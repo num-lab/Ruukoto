@@ -3,39 +3,46 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
-// Note: 见 .agents/notes/implemented/testing/2026-10-13-workflow-joint-acceptance.md
-// Note: 见 .agents/notes/implemented/testing/2026-10-22-ci-prerequisites.md
-// shortcut: 只隔离已证实会碰撞的同 UID 全局夹具；新增同类用例时更新此清单。
+// Note: See .agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md
+// shortcut: Only proven same-UID conflicts are isolated; extend this list when another fixture collides.
 const MACOS_EXCLUSIVE = ["test/100-worker-stop.test.ts", "test/101-native-macos-helper.test.ts", "test/background-processes-recovery.test.ts", "test/background-processes.test.ts", "test/native-macos-identity.test.ts"];
 
-export function appTestBatches(files, platform) {
-  if (files.length === 0) throw new Error("没有发现应用测试；请恢复完整检出并从仓库根运行");
-  if (platform !== "darwin") return [{ files: [...files], serial: false }];
-  for (const file of MACOS_EXCLUSIVE) {
-    if (!files.includes(file)) throw new Error(`缺少 macOS 独占测试 ${file}；请恢复完整检出`);
+export function appTestBatches(files, platform, shard = "1/1") {
+  if (!/^[1-9]\d*\/[1-9]\d*$/.test(shard)) throw new Error("Invalid shard; use --shard=index/total (1-based)");
+  const [index, total] = shard.split("/").map(Number);
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || index > total) throw new Error("Invalid shard; require 1 <= index <= total");
+  if (files.length === 0) throw new Error("No application tests found; restore the full checkout and run from the repository root");
+  const exclusive = platform === "darwin" ? MACOS_EXCLUSIVE : [];
+  for (const file of exclusive) {
+    if (!files.includes(file)) throw new Error(`Missing macOS exclusive test ${file}; restore the full checkout`);
   }
-  return [
-    { files: [...MACOS_EXCLUSIVE], serial: true },
-    { files: files.filter(file => !MACOS_EXCLUSIVE.includes(file)), serial: false },
+  const ordinary = files.filter(file => !exclusive.includes(file));
+  const batches = [
+    { files: index === 1 ? [...exclusive] : [], serial: true },
+    { files: ordinary.filter((_, position) => position % total === index - 1), serial: false },
   ].filter(batch => batch.files.length > 0);
+  if (batches.length === 0) throw new Error(`Shard ${shard} has no application tests; reduce the shard count`);
+  return batches;
 }
 
 function runAppTests() {
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && !args[0].startsWith("--shard="))) throw new Error("Usage: npm run test:app [-- --shard=index/total]");
   const files = fs.readdirSync("test").filter(file => file.endsWith(".test.ts")).sort().map(file => `test/${file}`);
-  for (const batch of appTestBatches(files, process.platform)) {
+  for (const batch of appTestBatches(files, process.platform, args[0]?.slice("--shard=".length))) {
     const result = spawnSync(process.execPath, ["--import", "tsx", "--test", `--test-concurrency=${batch.serial ? 1 : 2}`, ...batch.files], {
       env: { ...process.env, RUN_MODEL_CHECK: "0", RUN_BACKGROUND_BROWSER_CHECK: "0" }, stdio: "inherit",
     });
     if (result.error) throw result.error;
     if (result.signal) {
-      process.stderr.write(`[ruukoto:test] 应用测试因 ${result.signal} 终止；剩余批次未运行\n`);
+      process.stderr.write(`[ruukoto:test] Application tests terminated by ${result.signal}; remaining batches did not run\n`);
       process.exitCode = 1;
       process.kill(process.pid, result.signal);
       return;
     }
-    if (result.status === null) throw new Error("应用测试未报告退出码；剩余批次未运行，请核实子进程状态");
+    if (result.status === null) throw new Error("Application tests reported no exit status; remaining batches did not run, inspect the child process");
     if (result.status !== 0) {
-      process.stderr.write(`[ruukoto:test] 应用测试退出码 ${result.status}；剩余批次未运行\n`);
+      process.stderr.write(`[ruukoto:test] Application tests exited with ${result.status}; remaining batches did not run\n`);
       process.exitCode = result.status;
       return;
     }

@@ -31,7 +31,8 @@ Use the GitHub Issue as the handoff entry. The [development workflow](../.agents
 | `npm test` | All application and foundation offline tests; real-model cases remain disabled |
 | `npm run check:static` | Lint, types, notes and documentation checks |
 | `npm run check` | Prerequisites, build, static checks and all offline tests; stop at the first failed stage |
-| `npm run test:app` | Application tests; macOS runs specified native-stop/background-recovery fixtures serially before the batch with at most two files in parallel |
+| `npm run test:app` | All application tests; at most two ordinary files in parallel, with macOS shared-UID fixtures first and serial |
+| `npm run test:app -- --shard=1/4` | One deterministic file shard; macOS shared-UID fixtures all belong to shard 1 |
 | `npm run test:foundation` | Foundation offline tests only |
 | `npm run change-scope -- --base <ref>` | Committed, staged, unstaged and untracked paths relative to the merge base |
 
@@ -81,7 +82,7 @@ Setup inspects existing `core.hooksPath` and pre-commit configuration before ins
 
 Without `core.hooksPath`, linked worktrees share a hooks directory. Setup installs a fixed forwarder that runs the current checkout's `.githooks/pre-commit`, so switching branches or deleting another worktree does not change this checkout's hook entry. Old checkouts without the hook or `check:static` are explicitly skipped; that compatibility does not count as verification of those branches.
 
-CI runs macOS and Linux with Node 24.15.0 and a 90-minute job limit. It installs rg, prepares Linux native namespaces and delegated user scopes, then runs `npm run setup -- --skip-hooks` and `npm run check`. Missing Python/PTY is a failure, not a reason to skip terminal cases. `ELECTRON_SKIP_BINARY_DOWNLOAD=1` avoids downloading or running Electron; desktop types, lint and pure logic still run.
+CI covers the full check on macOS and Linux through four isolated application-test shards per OS, pinned to Node 24.15.0 with a 90-minute job limit. See [CI execution](ci.md) for commands, prerequisites, shard isolation and timing comparisons. Local `npm run check` remains unsharded.
 
 `worker/` is generated. The agent package pins QuickJS core and release-sync WASM; lockfiles determine `node_modules/`. Build workers before targeted Personal command, search, file-operation and app-data tests; real Linux/browser/computer/process checks and real-model routing have separate acceptance. Databases, tokens and credentials stay in product or temporary test profiles, never the worktree.
 

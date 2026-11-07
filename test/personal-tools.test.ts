@@ -1020,25 +1020,30 @@ test("durable 重显示登记：每次原请求及模型调用均须保留可核
   });
 });
 
+// Note: See .agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md
 test("durable 要求更新：指令、失效与重显示证据损坏拒绝重开", { timeout: 120_000 }, async t => {
-  for (const damage of ["request-instructions", "request-text", "snapshot-version", "superseded-link", "superseded-orphan", "redisplay-link", "request-native", "native-inputs", "out-of-cutoff", "earlier-request", "redisplay-entry", "redisplay-source"] as const) await t.test(damage, async t => {
-    const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
-    const target = path.join(f.outside, "corrupt.txt"), freshPath = path.join(f.outside, "fresh.txt");
-    fs.writeFileSync(target, ""); fs.writeFileSync(freshPath, "");
-    const answer = invoked(p, invoke("write_file", { path: target, content: "c" }), `corrupt-${damage}`, "tools-src"); void answer.catch(() => undefined);
-    const pending = await first(p); const work = pending.origin.work!.ref;
-    await p.work.append(work, { requestId: `note-${damage}`, content: invoke("write_file", { path: freshPath, content: "n" }), sourceRequestId: "tools-src" });
-    const stale = await record(p, pending.operation);
-    assert.equal(stale.code, "tool_requirements_changed"); assert.notEqual(stale.instructions, undefined);
-    let displayEntry: EntryId | undefined;
-    if (damage.startsWith("redisplay-")) { await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "corrupt-display"); await until(async () => (displayEntry = (await record(p, pending.operation)).redisplay) !== undefined); }
-    await until(async () => (await operations(p)).length === 2);
-    const fresh = (await operations(p)).at(-1)!;
-    await p.harness.commit(tx => toolDecide(tx, fresh.operation, "approved", f.directory), context);
-    await answer;
-    await p.close();
+  const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
+  const target = path.join(f.outside, "corrupt.txt"), freshPath = path.join(f.outside, "fresh.txt");
+  fs.writeFileSync(target, ""); fs.writeFileSync(freshPath, "");
+  const answer = invoked(p, invoke("write_file", { path: target, content: "c" }), "corrupt-baseline", "tools-src"); void answer.catch(() => undefined);
+  const pending = await first(p); const work = pending.origin.work!.ref;
+  await p.work.append(work, { requestId: "note-baseline", content: invoke("write_file", { path: freshPath, content: "n" }), sourceRequestId: "tools-src" });
+  const stale = await record(p, pending.operation);
+  assert.equal(stale.code, "tool_requirements_changed"); assert.notEqual(stale.instructions, undefined);
+  await p.answer(invoke("background_work", { action: "redisplay", operation: pending.operation }), "corrupt-display");
+  const displayEntry = (await record(p, pending.operation)).redisplay; assert.ok(displayEntry);
+  await until(async () => (await operations(p)).length === 2);
+  const fresh = (await operations(p)).at(-1)!;
+  await p.harness.commit(tx => toolDecide(tx, fresh.operation, "approved", f.directory), context);
+  await answer;
+  await p.close();
+  const database = path.join(f.directory, "personal.sqlite"), snapshot = path.join(f.root, "baseline.sqlite"), requests = f.model.calls.length;
+  fs.copyFileSync(database, snapshot);
+  for (const damage of ["request-instructions", "request-text", "snapshot-version", "superseded-link", "superseded-orphan", "redisplay-link", "request-native", "native-inputs", "out-of-cutoff", "earlier-request", "redisplay-entry", "redisplay-source"] as const) await t.test(damage, async () => {
+    // Restore only the closed database; directory and worker identities stay unchanged.
+    fs.copyFileSync(snapshot, database);
     if (damage === "request-instructions" || damage === "request-text" || damage === "request-native" || damage === "redisplay-source") {
-      const db = new DatabaseSync(path.join(f.directory, "personal.sqlite"));
+      const db = new DatabaseSync(database);
       try {
         if (damage === "redisplay-source") assert.equal(db.prepare("UPDATE entries SET record = json_replace(record, '$.data.source.submissionId', 999999) WHERE id = ?").run(displayEntry!).changes, 1);
         else if (damage === "request-text") assert.equal(db.prepare("UPDATE entries SET record = json_replace(record, '$.data.input.messages[0].sections.\"personal-work-instructions\"', 'altered requirements') WHERE id = ?").run(stale.instructions!.requestEntry).changes, 1);
@@ -1060,6 +1065,7 @@ test("durable 要求更新：指令、失效与重显示证据损坏拒绝重开
       await restored.close();
     }
     await assert.rejects(f.open(), code("tool_record_invalid"));
+    assert.equal(f.model.calls.length, requests);
   });
 });
 

@@ -53,7 +53,7 @@ For configured-model verification of concurrent work questions and cancellation,
 
 ### Develop This Repository
 
-Run `npm run check:static` and targeted tests while editing; choose the smallest sufficient set using [pre-push checks](.agents/skills/pre-push-checks/SKILL.md). CI runs the full check. Application tests use at most two files concurrently; macOS first runs shared-UID fixtures serially. Keep raw evidence outside the repository; use the explicit external-output arguments in the [platform probe guide](verification/foundation/scripts/native-isolation/README.md) rather than overwriting historical reports.
+Run `npm run check:static` and targeted tests while editing; choose the smallest sufficient set using [pre-push checks](.agents/skills/pre-push-checks/SKILL.md). CI covers the full check across four isolated application-test shards per OS. `npm run test:app -- --shard=1/4` selects one shard; omit the argument for all tests. Each runner uses at most two files concurrently; macOS shared-UID fixtures run serially on shard 1. Keep raw evidence outside the repository; use the explicit external-output arguments in the [platform probe guide](verification/foundation/scripts/native-isolation/README.md) rather than overwriting historical reports.
 
 ```bash
 npm run dev                   # Isolated Personal profile; restart the foreground backend on source edits

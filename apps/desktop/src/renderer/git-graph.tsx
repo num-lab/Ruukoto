@@ -161,7 +161,7 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
           {row.incoming.map((edge, index) => <g key={`incoming:${index}`} fill="none" stroke={laneColor(edge.lane)} strokeWidth="1.5" strokeDasharray={edge.continuation ? "3 3" : undefined}><line x1={laneX(edge.lane)} x2={laneX(edge.lane)} y1="0" y2={edge.lane === row.lane ? nodeY : "100%"} /></g>)}
           {row.parents.map((edge, index) => <g key={`parent:${index}`} fill="none" stroke={laneColor(edge.lane)} strokeWidth="1.5" strokeDasharray={edge.continuation ? "3 3" : undefined}><path d={edge.lane === row.lane ? `M ${laneX(row.lane)} ${nodeY} V ${rowHeight}` : `M ${laneX(row.lane)} ${nodeY} C ${laneX(row.lane)} ${bendY} ${laneX(edge.lane)} ${bendY} ${laneX(edge.lane)} ${rowHeight}`} /><line x1={laneX(edge.lane)} x2={laneX(edge.lane)} y1={rowHeight} y2="100%" /></g>)}
           {commit.id === repository.head && <circle cx={laneX(row.lane)} cy={nodeY} r="6" fill="none" stroke="var(--git-lane-color)" strokeWidth="1" />}
-          <circle cx={laneX(row.lane)} cy={nodeY} r="3.5" fill="var(--bg-sidebar)" stroke="var(--git-lane-color)" strokeWidth="1.8" />
+          <circle cx={laneX(row.lane)} cy={nodeY} r="3.5" fill="var(--bg-window)" stroke="var(--git-lane-color)" strokeWidth="1.8" />
         </svg>
         <CollapsibleTrigger asChild><button type="button" className="git-commit-summary" onFocus={() => setFocusId(commit.id)} onBlur={blurRow}>
           <span className="git-commit-refs">{commit.id === repository.head && <Badge variant="outline" className="git-ref"><span className="git-ref-icon"><GitBranch aria-hidden="true" /></span><span className="git-ref-name">HEAD</span></Badge>}{commit.refs.map(ref => {

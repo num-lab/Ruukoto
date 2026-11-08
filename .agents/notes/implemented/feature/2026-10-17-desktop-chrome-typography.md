@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Desktop design tokens](2026-11-08-desktop-design-tokens.md) replaces the non-message font sizes, primitive pinning and selection colors below with a fixed type scale and shared fills; colored Git lanes remain.
+
 ## Problem
 
 The owner requested a 2px increase for all text outside the message stream, brighter translucent dark-mode selection in the left sidebar and tabs, removal of the line between the inspector and top tabs, and colored rather than grayscale Git branches.

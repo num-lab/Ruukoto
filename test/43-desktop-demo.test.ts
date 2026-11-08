@@ -12,12 +12,9 @@ test("Desktop preserves shared primitives and the maintained frozen demo", () =>
   const gui = "apps/desktop/src/renderer";
   const styles = read(`${gui}/style.css`);
   assert.equal(read("verification/desktop-demo/src/style.css"), (read(`${demo}/style.css`) + read("test/fixtures/desktop-baselines/approved-demo-v4-glass.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-rendering.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-polish.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-files-sidebar.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-browser-activity.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-completed-trace.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-connection-loading.css")).replaceAll("../../../../node_modules/", "../../../node_modules/"));
-  assert.ok(styles.includes(read("test/fixtures/desktop-baselines/approved-demo-v4-rendering.css")));
-  assert.ok(styles.includes(read("test/fixtures/desktop-baselines/approved-demo-v4-completed-trace.css")));
-  assert.ok(styles.includes(read("test/fixtures/desktop-baselines/approved-demo-v4-connection-loading.css")), "保留定稿加载样式，正式功能覆盖继续追加");
   assert.equal(read(`${gui}/connection-loading.tsx`), read("verification/desktop-demo/src/connection-loading.tsx"), "加载展示组件逐字同步，模拟计时器留在 Demo App");
   assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
-  for (const file of ["reference.css", "theme.css", "sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
+  for (const file of ["sidebar-resizer.tsx", "lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
   const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();
   assert.deepEqual(fs.readdirSync(new URL(`../${gui}/components/ui/`, import.meta.url)).sort(), [...primitives, "switch.tsx"].sort());
   for (const name of primitives) {

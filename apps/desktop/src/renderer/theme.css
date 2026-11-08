@@ -1,67 +1,124 @@
-/* Note: 见 .agents/notes/implemented/feature/2026-10-16-demo-ai-elements.md */
+/* Note: See .agents/notes/implemented/feature/2026-11-08-desktop-design-tokens.md */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --window-shadow: 0 28px 70px -16px rgb(0 0 0 / 22%), 0 0 0 0.5px rgb(0 0 0 / 10%);
+  /* Neutral surfaces, fills, borders and text. Chroma stays 0; color is reserved
+     for status, diff, git lanes, syntax and terminal ANSI. */
+  --bg-window: oklch(0.97 0 0);
+  --bg-canvas: oklch(1 0 0);
+  --bg-inspector: oklch(0.985 0 0);
+  --bg-surface: oklch(0.96 0 0);
+  --bg-elevated: oklch(1 0 0);
+  --fill-hover: oklch(0 0 0 / 5%);
+  --fill-selected: oklch(0 0 0 / 8%);
+  --fill-pressed: oklch(0 0 0 / 11%);
+  --border: oklch(0 0 0 / 9%);
+  --border-strong: oklch(0 0 0 / 15%);
+  --text-1: oklch(0.21 0 0);
+  --text-2: oklch(0.44 0 0);
+  --text-3: oklch(0.55 0 0);
+  --ring: oklch(0.55 0 0);
+  --overlay: oklch(0 0 0 / 28%);
+  --success: oklch(0.62 0.11 160);
+  --warning: oklch(0.70 0.13 70);
+  --danger: oklch(0.577 0.245 27.325);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 6%), 0 0 0 0.5px oklch(0 0 0 / 6%);
+  --shadow-md: 0 4px 16px -4px oklch(0 0 0 / 8%), 0 0 0 0.5px oklch(0 0 0 / 7%);
+  --shadow-lg: 0 16px 48px -12px oklch(0 0 0 / 18%), 0 0 0 0.5px oklch(0 0 0 / 8%);
+  --diff-add-bg: rgba(22, 163, 74, 0.08);
+  --diff-add-text: #15803d;
+  --diff-del-bg: rgba(220, 38, 38, 0.07);
+  --diff-del-text: #b91c1c;
+  --git-lane-0: #2563eb;
+  --git-lane-1: #15803d;
+  --git-lane-2: #9333ea;
+  --git-lane-3: #ea580c;
+  --git-lane-4: #db2777;
+  --git-lane-5: #0891b2;
   --syntax-comment: #6e7781;
   --syntax-keyword: #cf222e;
   --syntax-string: #0a3069;
   --syntax-constant: #0550ae;
   --syntax-title: #8250df;
   --syntax-type: #116329;
+
+  /* Fixed type scale: the only px font sizes allowed in app CSS. */
+  --font-size-caption: 12px;
+  --font-size-small: 13px;
+  --font-size-ui: 14px;
+  --font-size-reading: 15px;
+  --font-size-title: 17px;
+  --font-size-heading: 22px;
+  --line-height-caption: 1.4;
+  --line-height-ui: 1.45;
+  --line-height-reading: 1.6;
+
+  /* Motion. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(.16, 1, .3, 1);
+
+  /* Layering. */
+  --z-raised: 1;
+  --z-sidebar: 20;
+  --z-header: 30;
+  --z-handle: 40;
+  --z-overlay: 50;
+  --z-toast: 100;
+
+  /* shadcn compatibility: primitives read these names. */
+  --background: var(--bg-canvas);
+  --foreground: var(--text-1);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-1);
+  --popover: var(--bg-elevated);
+  --popover-foreground: var(--text-1);
+  --primary: var(--text-1);
+  --primary-foreground: var(--bg-canvas);
+  --secondary: var(--bg-surface);
+  --secondary-foreground: var(--text-1);
+  --muted: var(--bg-surface);
+  --muted-foreground: var(--text-2);
+  --accent: var(--fill-hover);
+  --accent-foreground: var(--text-1);
+  --destructive: var(--danger);
+  --input: var(--border-strong);
+  --sidebar: var(--bg-window);
+  --sidebar-foreground: var(--text-1);
 }
 
 html.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --bg-window: oklch(0.205 0 0);
+  --bg-canvas: oklch(0.165 0 0);
+  --bg-inspector: oklch(0.185 0 0);
+  --bg-surface: oklch(0.235 0 0);
+  --bg-elevated: oklch(0.245 0 0);
+  --fill-hover: oklch(1 0 0 / 6%);
+  --fill-selected: oklch(1 0 0 / 11%);
+  --fill-pressed: oklch(1 0 0 / 15%);
+  --border: oklch(1 0 0 / 9%);
+  --border-strong: oklch(1 0 0 / 15%);
+  --text-1: oklch(0.95 0 0);
+  --text-2: oklch(0.74 0 0);
+  --text-3: oklch(0.6 0 0);
+  --ring: oklch(0.6 0 0);
+  --overlay: oklch(0 0 0 / 50%);
+  --success: oklch(0.72 0.11 160);
+  --warning: oklch(0.78 0.12 75);
+  --danger: oklch(0.704 0.191 22.216);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 40%), 0 0 0 0.5px oklch(1 0 0 / 7%);
+  --shadow-md: 0 8px 24px -8px oklch(0 0 0 / 50%), 0 0 0 0.5px oklch(1 0 0 / 7%);
+  --shadow-lg: 0 24px 64px -16px oklch(0 0 0 / 60%), 0 0 0 0.5px oklch(1 0 0 / 9%);
+  --diff-add-bg: rgba(34, 197, 94, 0.10);
+  --diff-add-text: #86efac;
+  --diff-del-bg: rgba(239, 68, 68, 0.10);
+  --diff-del-text: #fca5a5;
+  --git-lane-0: #60a5fa;
+  --git-lane-1: #4ade80;
+  --git-lane-2: #c084fc;
+  --git-lane-3: #fb923c;
+  --git-lane-4: #f472b6;
+  --git-lane-5: #22d3ee;
   --syntax-comment: #8b949e;
   --syntax-keyword: #ff7b72;
   --syntax-string: #a5d6ff;
@@ -69,23 +126,3 @@ html.dark {
   --syntax-title: #d2a8ff;
   --syntax-type: #7ee787;
 }
-
-:root, html.dark {
-  --bg-desktop: var(--muted);
-  --bg-sidebar: var(--sidebar);
-  --bg-canvas: var(--background);
-  --bg-inspector: var(--card);
-  --bg-surface: var(--muted);
-  --bg-surface-hover: var(--accent);
-  --bg-surface-active: var(--accent);
-  --bg-elevated: var(--popover);
-  --bg-user-bubble: var(--muted);
-  --text-primary: var(--foreground);
-  --text-secondary: var(--muted-foreground);
-  --text-muted: var(--muted-foreground);
-  --text-user-bubble: var(--foreground);
-  --ui-border: var(--border);
-}
-
-::-webkit-scrollbar-thumb { background: var(--border); }
-::-webkit-scrollbar-thumb:hover { background: var(--ring); }

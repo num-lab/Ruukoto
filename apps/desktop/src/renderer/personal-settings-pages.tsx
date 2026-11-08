@@ -76,7 +76,7 @@ function CuaControls({ state }: { state: PersonalSettingsPageState }) {
         {item.cuaRecovery === "observed" && <SettingsButton disabled={state.disabled || !state.canAcceptCua(item.operation, item.cuaObservation)} onClick={() => void state.controlCua("accept", item.operation)}>确认恢复</SettingsButton>}
       </SettingsRow>)}
     </SettingsCard>
-    <Dialog open={!!state.cuaConfirmation} onOpenChange={open => { if (!open) state.cancelCua(); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>停止沙箱？</DialogTitle><DialogDescription>未保存的应用状态会丢失，磁盘文件保留。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelCua()}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => void state.confirmCua()}>停止沙箱</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!state.cuaConfirmation} onOpenChange={open => { if (!open) state.cancelCua(); }}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>停止沙箱？</DialogTitle><DialogDescription>未保存的应用状态会丢失，磁盘文件保留。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelCua()}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => void state.confirmCua()}>停止沙箱</Button></DialogFooter></DialogContent></Dialog>
   </SettingsGroup>;
 }
 
@@ -108,7 +108,7 @@ function McpOperations({ state }: { state: PersonalSettingsPageState }) {
       </SettingsRow>}
       {state.mcpEndPending !== null && <SettingsRow title="原调用收尾待核实"><SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.readMcpOperations()}>核实原调用收尾</SettingsButton></SettingsRow>}
     </SettingsCard>
-    <Dialog open={state.mcpEndConfirmation !== null} onOpenChange={open => { if (!open) state.cancelMcpEnd(); }}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>结束此工作？</DialogTitle><DialogDescription>保留原调用结果未知；本地执行停止核实后，原工作将发送最终报告。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelMcpEnd()}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => void state.confirmMcpEnd()}>结束此工作，保留结果未知</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={state.mcpEndConfirmation !== null} onOpenChange={open => { if (!open) state.cancelMcpEnd(); }}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>结束此工作？</DialogTitle><DialogDescription>保留原调用结果未知；本地执行停止核实后，原工作将发送最终报告。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => state.cancelMcpEnd()}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => void state.confirmMcpEnd()}>结束此工作，保留结果未知</Button></DialogFooter></DialogContent></Dialog>
   </SettingsGroup>;
 }
 

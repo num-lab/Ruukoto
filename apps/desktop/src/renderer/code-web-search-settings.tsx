@@ -47,7 +47,7 @@ export function CodeWebSearchEditor({ state, code }: { state: CodeWebSearchState
       </SettingsGroup>
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
       {state.phase === "error" && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.read()}>重试读取凭据</SettingsButton>}
-      <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>移除 Tavily 凭据？</DialogTitle><DialogDescription>移除后 web_search 调用会直接返回未配置错误。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => { setConfirmRemove(false); void state.removeCredential(); }}>移除</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>移除 Tavily 凭据？</DialogTitle><DialogDescription>移除后 web_search 调用会直接返回未配置错误。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => { setConfirmRemove(false); void state.removeCredential(); }}>移除</Button></DialogFooter></DialogContent></Dialog>
     </SettingsPage>
   );
 }

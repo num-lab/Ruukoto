@@ -33,7 +33,11 @@ export function TerminalPanel({ model, tab, active }: { model: CodeState; tab: T
     };
     const theme = () => {
       const dark = document.documentElement.classList.contains("dark");
-      terminal.options.theme = terminalThemes[dark ? "dark" : "light"];
+      const styles = getComputedStyle(document.documentElement);
+      // The terminal surface follows the inspector; ANSI palettes stay fixed.
+      const surface = styles.getPropertyValue("--bg-inspector").trim();
+      const foreground = styles.getPropertyValue("--text-1").trim();
+      terminal.options.theme = { ...terminalThemes[dark ? "dark" : "light"], background: surface, cursorAccent: surface, black: surface, foreground };
     };
     activation.current = () => { resize(); if (element.getBoundingClientRect().width > 0) terminal.focus(); };
     const observer = new ResizeObserver(resize); observer.observe(element);

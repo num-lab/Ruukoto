@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Desktop design tokens](../feature/2026-11-08-desktop-design-tokens.md) ends the requirement that production styles keep the frozen demo's CSS prefixes; shared primitives stay byte-identical.
+
 [Settings management](../../proposed/feature/2026-10-21-desktop-settings-management.md) owns the later expansion of deferred configuration, retaining categorized floating-window visuals and its own acceptance status.
 
 ## Problem

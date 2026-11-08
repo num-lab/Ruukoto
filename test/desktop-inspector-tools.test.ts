@@ -256,12 +256,12 @@ test("断线打开 Git 不冒充非仓库，恢复后仍需读取结果", async 
 test("Git 入口始终可见，新标签和同步不预取，点击后区分非仓库与空仓库", async () => {
   const h = harness({ read_workspace_git: params => ({ workspaceId: params.workspace_id, repository: null }) });
   const render = () => renderToStaticMarkup(createElement(InspectorPanel, { model: h.model, open: true, onWidthChange() {} }));
-  assert.match(render(), /disabled=""[^>]*><svg[^]*?<span>Git graph<\/span>/);
+  assert.match(render(), /disabled=""[^>]*><span class="new-tab-icon"><svg[^]*?<strong>Git graph<\/strong>/);
   h.inspector.openParent("a"); h.inspector.newTab(); h.snapshot();
   h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(h.transport.requests.filter(request => request.op === "read_workspace_git").length, 0);
-  assert.match(render(), /<span>Git graph<\/span>/);
+  assert.match(render(), /<strong>Git graph<\/strong>/);
   h.inspector.openGit();
   await waitFor("点击后读取 Git", () => h.inspector.repositories.get("w1")?.value !== undefined);
   assert.deepEqual(h.transport.requests.filter(request => request.op === "read_workspace_git").map(request => request.params), [{ workspace_id: "w1" }]);

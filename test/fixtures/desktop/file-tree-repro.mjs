@@ -63,7 +63,7 @@ try {
   inspector.tabs=()=>[]; inspector.terminalTabs=()=>[]; inspector.selectedTool=()=>null; inspector.agents=()=>[]; model.target='code';
   const landing=()=>renderToStaticMarkup(React.createElement(InspectorPanel,{model,open:true,onWidthChange(){}}));
   assert.doesNotMatch(landing(),/正在检测 Git|正在读取 Git|工具差异|SubAgent/,'新标签页无检测提示和差异清单');
-  assert.match(landing(),/文件树/);assert.match(landing(),/浏览器/);assert.match(landing(),/Git graph/);
+  assert.match(landing(),/Files/);assert.match(landing(),/Browser/);assert.match(landing(),/Git graph/);
   const effects=[]; inspector.loadGit=()=>requests.push('git');
   const shared=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,previous=shared.H;
   shared.H={useEffect:effect=>effects.push(effect)};

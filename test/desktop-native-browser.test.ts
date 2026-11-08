@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type ViteDevServer } from "./helpers/vite.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { NativeBrowserState } from "../apps/desktop/src/renderer/native-browser.ts";
 

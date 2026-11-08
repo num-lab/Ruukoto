@@ -98,7 +98,7 @@ test("Web 搜索操作仅向 Code 目标放行", async () => {
 test("Web 搜索页 SSR 呈现凭据状态与项目开关", async t => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { createServer } = await import("vite"); const { default: react } = await import("@vitejs/plugin-react");
+  const { createServer } = await import("./helpers/vite.ts"); const { default: react } = await import("@vitejs/plugin-react");
   const { fileURLToPath } = await import("node:url");
   const { CodeState } = await import("../apps/desktop/src/renderer/code-state.ts");
   const { fakeSnapshot } = await import("./helpers/fake-control.ts");

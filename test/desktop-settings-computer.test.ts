@@ -138,7 +138,7 @@ test("Code Cua 关闭设置后的迟到图片不能恢复接受资格", async ()
 
 test("Code 电脑设置页展示程序选择、宿主权限与实际恢复图片", async t => {
   const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
-  const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
+  const { createServer } = await import("./helpers/vite.ts"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
   const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
   t.after(() => server.close());
   const { CodeComputerEditor } = await server.ssrLoadModule("/code-computer-settings.tsx");

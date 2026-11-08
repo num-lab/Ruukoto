@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type ViteDevServer } from "./helpers/vite.ts";
 import react from "@vitejs/plugin-react";
 import type { FlowEntry } from "@ruukoto/view/event-flow.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";

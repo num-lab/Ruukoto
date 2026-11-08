@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer } from "vite";
+import { createServer } from "./helpers/vite.ts";
 import react from "@vitejs/plugin-react";
 import { reorderTab, tabDragOffset } from "../apps/desktop/src/renderer/tab-order.ts";
 

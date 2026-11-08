@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import * as React from "react";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type ViteDevServer } from "./helpers/vite.ts";
 import react from "@vitejs/plugin-react";
 import type { Session } from "@ruukoto/core/types.ts";
 import type { CodeState } from "../apps/desktop/src/renderer/code-state.ts";

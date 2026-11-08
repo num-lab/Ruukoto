@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, before, after } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type ViteDevServer } from "./helpers/vite.ts";
 import type { PersonalDesktopApproval, PersonalDesktopAttachment, PersonalDesktopFrame, PersonalDesktopState, PersonalTimelineEntry } from "@ruukoto/view/personal-protocol.ts";
 import type { DesktopBridge, DesktopResult, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { PersonalState, personalCardKey } from "../apps/desktop/src/renderer/personal-state.ts";

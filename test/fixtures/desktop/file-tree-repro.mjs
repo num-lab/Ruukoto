@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { createServer } from 'vite';
+import { createServer } from '../../helpers/vite.ts';
 import react from '@vitejs/plugin-react';
 
 const root = resolve(process.argv[2] ?? process.cwd());

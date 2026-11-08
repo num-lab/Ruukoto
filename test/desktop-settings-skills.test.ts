@@ -74,7 +74,7 @@ test("Code Skills 页面仅显示固定目录、列表和诊断，没有技能�
   const h = fixture(); await h.state.read();
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { createElement } = await import("react");
-  const { createServer } = await import("vite"); const { default: react } = await import("@vitejs/plugin-react");
+  const { createServer } = await import("./helpers/vite.ts"); const { default: react } = await import("@vitejs/plugin-react");
   const server = await createServer({ configFile: false, root: path.resolve("apps/desktop/src/renderer"), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   t.after(() => server.close());
   const { CodeSkillsEditor } = await server.ssrLoadModule("/code-skills-settings.tsx");

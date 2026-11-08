@@ -347,7 +347,7 @@ test("Code MCP 原服务删除后读回不把编辑降为新增，重复保存�
 
 test("Code MCP 页与新增表单只呈现 HTTPS 服务，不再含电脑入口与恢复控制", async t => {
   const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
-  const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
+  const { createServer } = await import("./helpers/vite.ts"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
   const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   t.after(() => server.close());
   const { CodeMcpEditor, AddServicePage } = await server.ssrLoadModule("/code-mcp-settings.tsx");

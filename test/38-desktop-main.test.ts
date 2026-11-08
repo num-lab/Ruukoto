@@ -78,7 +78,7 @@ test("受管桌面只用开发档案，不执行登录 shell 或 ensureBackend",
       return { start: async () => { starts++; callbacks.onState("failed", "不兼容", new ControlClientError("protocol_version", "不兼容", "rejected", { client: 26, server: 25 })); }, close() {}, request: unavailable };
     } });
     await controller.reconnect();
-    assert.deepEqual(controller.status.recovery, ["开发后台版本较旧；请重启开发启动器。"]);
+    assert.deepEqual(controller.status.recovery, ["The dev backend version is older; restart the dev launcher."]);
     await handleRequest("code", "reconnect", {}, () => controller.reconnect(), unavailable);
     assert.equal(starts, 2);
     assert.equal(shells, 0);
@@ -110,7 +110,7 @@ test("主进程请求名单拒绝越界操作，IPC 错误保留分类与版本�
   assert.deepEqual(forwarded, [...DESKTOP_OPS]);
   for (const op of ["work_list", "work_get", "read_tool_result"] as const) assert.ok(forwarded.includes(op));
   const error = new ControlClientError("protocol_version", `拒绝 ${token}`, "rejected", { client: 25, server: 26 });
-  assert.deepEqual(serializeFailure(error, token), { code: "protocol_version", outcome: "rejected", message: "拒绝 [令牌已隐藏]", versions: { client: 25, server: 26 } });
+  assert.deepEqual(serializeFailure(error, token), { code: "protocol_version", outcome: "rejected", message: "拒绝 [token hidden]", versions: { client: 25, server: 26 } });
   const lost = await ipcResult(() => { throw new ControlClientError("request_timeout", "应答丢失", "unknown"); });
   assert.deepEqual(lost, { ok: false, error: { code: "request_timeout", outcome: "unknown", message: "应答丢失" } });
 });
@@ -135,15 +135,15 @@ test("桌面开发 CSP 限定来源与 nonce，样式内联放行供 xterm 运�
 
 test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正确转义路径", () => {
   const controlDir = "/tmp/控制目录 with 'quote'";
-  for (const target of ["code", "personal"] as const) assert.match(versionRecovery(target, { client: 24, server: 25 }, false, controlDir).join("\n"), /重建应用/);
+  for (const target of ["code", "personal"] as const) assert.match(versionRecovery(target, { client: 24, server: 25 }, false, controlDir).join("\n"), /rebuild/);
   assert.match(versionRecovery("code", { client: 24, server: 25 }, false, controlDir).join("\n"), /desktop:mygo:build/);
-  assert.match(versionRecovery("personal", { client: 26, server: 25 }, false, controlDir).join("\n"), /服务器部署同一 commit/);
+  assert.match(versionRecovery("personal", { client: 26, server: 25 }, false, controlDir).join("\n"), /same commit/);
   const guide = versionRecovery("code", { client: 26, server: 25 }, false, controlDir).join("\n");
-  assert.match(guide, /恰好只有一个 PID/);
+  assert.match(guide, /exactly one PID/);
   assert.match(guide, /ps -o user=,command=/);
   assert.match(guide, /kill -TERM <PID>/);
-  assert.match(guide, /未查到监听进程/);
-  assert.match(guide, /多个不同 PID/);
+  assert.match(guide, /no listening process/);
+  assert.match(guide, /multiple PIDs/);
   assert.ok(!guide.includes("|"));
   const socket = path.join(controlDir, "control.sock");
   const command = socketLookupCommand(socket);
@@ -153,7 +153,7 @@ test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正�
 
 test("仓库缺失与 node 不可用显示可操作错误，关闭期间不再新建连接", async () => {
   assert.throws(() => codeTargetConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing" && error.message.includes("desktop:build") && error.message.includes("desktop:mygo:build"));
-  await assert.rejects(selectEnvironment({ PATH: "/missing-node", RUUKOTO_DESKTOP_MANAGED: "1" }), (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("启动器"));
+  await assert.rejects(selectEnvironment({ PATH: "/missing-node", RUUKOTO_DESKTOP_MANAGED: "1" }), (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("launcher"));
   const f = fixture();
   try {
     const oldNode = path.join(f.dir, "node");
@@ -459,7 +459,7 @@ test("桌面任务控制与恢复队列在线丢答回读，断线等待同实�
     assert.equal(h.view.sessions[0].queueState, "active");
     failRead = true;
     await h.writes.control("cancel", "session", "task");
-    assert.match(h.writes.message!, /结果未知/);
+    assert.match(h.writes.message!, /Outcome unknown/);
     assert.equal(h.writes.unknown.size, 1);
     disconnect = true;
     const reads = h.fake.transports[0].requests.filter(request => request.op === "get_task").length;
@@ -598,7 +598,7 @@ test("桌面队列丢答回读的迟到旧值不能覆盖新暂停或谎报可�
     h.view.applyEvent(event, "live"); h.writes.update({ type: "event", event, kind: "live" });
     release(); await operation;
     assert.equal(h.view.sessions[0].queueState, "paused");
-    assert.match(h.writes.message!, /仍暂停/);
+    assert.match(h.writes.message!, /still paused/);
   } finally { release(); h.close(); }
 });
 
@@ -723,13 +723,13 @@ for (const decision of ["approve", "reject"] as const) for (const outcome of ["u
     await h.model.load(h.c.id); await h.model.respond(h.c, decision);
     assert.equal(h.transport.requests.filter(request => request.op === "respond_confirmation").length, 1);
     assert.deepEqual(h.transport.requests.find(request => request.op === "respond_confirmation")?.params, { confirmation_id: "approval", permission_version: 1, decision });
-    assert.match(h.model.message!, outcome === "unknown" ? /已核实/ : outcome === "not_sent" ? /没有发出/ : outcome === "rejected" ? /被拒绝/ : /结果未知/);
+    assert.match(h.model.message!, outcome === "unknown" ? /Verified/ : outcome === "not_sent" ? /wasn't sent/ : outcome === "rejected" ? /denied/ : /Outcome unknown/);
     assert.equal(h.view.pendingApprovals().length, outcome === "unknown" ? 0 : 1);
     if (outcome === "disconnected") {
       assert.equal(h.transport.requests.filter(request => request.op === "get_task").length, 0);
-      h.snapshot([]); assert.match(h.model.message!, /新快照已核实/);
+      h.snapshot([]); assert.match(h.model.message!, /Verified by the new snapshot/);
     }
-    if (outcome === "query_failed") { h.snapshot([], "different"); assert.match(h.model.message!, /目标已经变化/); }
+    if (outcome === "query_failed") { h.snapshot([], "different"); assert.match(h.model.message!, /target changed/); }
   });
 }
 
@@ -741,7 +741,7 @@ test("桌面权限冲突刷新展示版本等待重新决定，TUI 抢先处理�
   assert.equal(h.model.details.get("approval")?.complete, true);
   assert.equal(h.transport.requests.filter(request => request.op === "respond_confirmation").length, 1);
   stale = true; await h.model.respond(h.view.pendingApprovals()[0], "reject");
-  assert.equal(h.view.pendingApprovals().length, 0); assert.match(h.model.message!, /已经失效/);
+  assert.equal(h.view.pendingApprovals().length, 0); assert.match(h.model.message!, /already expired/);
 });
 
 test("桌面审批参数用 UTF-8 返回偏移续读，截断与读取失败可见", async () => {
@@ -752,7 +752,7 @@ test("桌面审批参数用 UTF-8 返回偏移续读，截断与读取失败可�
   await h.model.load("approval");
   assert.equal(h.model.details.get("approval")?.text, parts.join("")); assert.equal(h.model.details.get("approval")?.complete, true);
   fail = true; await h.model.load("approval");
-  assert.equal(h.model.details.get("approval")?.complete, false); assert.match(h.model.details.get("approval")!.error!, /读取失败/);
+  assert.equal(h.model.details.get("approval")?.complete, false); assert.match(h.model.details.get("approval")!.error!, /Couldn't read/);
 });
 
 for (const operation of ["get_task", "get_confirmation_params"] as const) test(`桌面审批快照换代丢弃迟到 ${operation}，相同 ID 不复活`, async () => {
@@ -771,7 +771,7 @@ test("桌面审批在线核实仍 pending 可人工再决定，新版本必须�
   let version = 1;
   const h = approvalHarness({ respond_confirmation: () => { throw new ControlClientError("timeout", "未知", "unknown"); }, get_task: () => taskDetail(desktopTask({ status: "awaiting_confirmation", permissionVersion: version }), [approval({ permissionVersion: version })]) });
   await h.model.load("approval"); await h.model.respond(h.c, "approve");
-  assert.match(h.model.message!, /结果未知，审批仍待处理/); assert.equal(h.model.decisions.size, 0);
+  assert.match(h.model.message!, /Outcome unknown; the approval is still pending/); assert.equal(h.model.decisions.size, 0);
   version = 2; await h.model.respond(h.c, "reject");
   assert.equal(h.view.pendingApprovals()[0].permissionVersion, 2); assert.equal(h.model.details.size, 0);
   await h.model.respond(h.view.pendingApprovals()[0], "approve");
@@ -785,7 +785,7 @@ test("桌面审批核实失败后在线主动刷新解锁，不重发决定", as
   const transport = h.transport;
   const refreshed = new DesktopApprovals({ request: async (_target, op) => { assert.equal(op, "reconnect"); h.snapshot(); return { ok: true, value: undefined }; } }, h.view, () => {}, "code");
   await refreshed.refresh();
-  assert.equal(h.model.decisions.size, 0); assert.match(h.model.message!, /结果未知，审批仍待处理/);
+  assert.equal(h.model.decisions.size, 0); assert.match(h.model.message!, /Outcome unknown; the approval is still pending/);
   assert.equal(transport.requests.filter(request => request.op === "respond_confirmation").length, 1);
 });
 

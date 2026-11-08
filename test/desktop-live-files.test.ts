@@ -57,7 +57,7 @@ for (const source of ["snapshot", "workspace"] as const) for (const format of ["
     else { h.inspector.openFile("workspace", name); await settle(); }
     const tab = h.inspector.activeTab()!;
     const failed = source === "snapshot" ? h.inspector.snapshots.get(tab.id) : h.inspector.files.get(`workspace:${name}`);
-    assert.equal(failed?.loading, false); assert.match(failed?.error ?? "", /内存/);
+    assert.equal(failed?.loading, false); assert.match(failed?.error ?? "", /memory/);
     context.mock.restoreAll();
     if (tab.kind === "read-snapshot") { await h.inspector.loadReadSnapshot(tab, true); assert.equal(h.inspector.snapshots.get(tab.id)?.file?.kind, format); }
     else { await h.inspector.loadFile("workspace", name, true); assert.equal(h.inspector.files.get(`workspace:${name}`)?.value?.kind, format); }
@@ -187,7 +187,7 @@ for (const mismatch of ["id", "taskId", "sessionId"] as const) test(`Read 快照
     assert.equal(h.model.view.artifacts.size, 0);
     assert.equal(await h.inspector.openToolFile(session.id, readTool("/tmp/mismatch.txt")), true); await settle();
     const state = h.inspector.snapshots.get(h.inspector.activeTab()!.id);
-    assert.match(state?.error ?? "", /来源/); assert.equal(state?.file, undefined);
+    assert.match(state?.error ?? "", /unverified/); assert.equal(state?.file, undefined);
   } finally { kit.close(); }
 });
 
@@ -347,14 +347,14 @@ test("实际预览不显示捕获版本说明、partial紧凑提示与上限，�
     const tab = h.inspector.activeTab()!;
     assert.equal(tab.kind, "read-snapshot"); if (tab.kind !== "read-snapshot") return;
     const html = renderToStaticMarkup(createElement(ReadSnapshotPreview, { model: h.model, tab }));
-    assert.doesNotMatch(html, /Read 时捕获的版本|class="file-panel-empty"/); assert.match(html, /class="file-preview-note".*仅捕获了部分内容/);
+    assert.doesNotMatch(html, /captured at Read|class="file-panel-empty"/); assert.match(html, /class="file-preview-note".*Only part of the content was captured/);
     const snapshot = h.inspector.snapshots.get(tab.id)!; snapshot.partial = false;
     const complete = renderToStaticMarkup(createElement(ReadSnapshotPreview, { model: h.model, tab }));
-    assert.doesNotMatch(complete, /file-preview-note|Read 时捕获的版本/); assert.match(html, /hljs/); assert.doesNotMatch(html, /<script>/);
+    assert.doesNotMatch(complete, /file-preview-note|captured at Read/); assert.match(html, /hljs/); assert.doesNotMatch(html, /<script>/);
     fs.writeFileSync(path.join(kit.root, "saved.txt"), "saved"); await h.inspector.loadDirectory("workspace", "");
     const state = h.inspector.directories.get("workspace:")!; state.loading = true;
     const tree = renderToStaticMarkup(createElement(WorkspaceFiles, { model: h.model, workspaceId: "workspace" }));
-    assert.match(tree, /saved.txt/); assert.doesNotMatch(tree, /正在读取/);
+    assert.match(tree, /saved.txt/); assert.doesNotMatch(tree, /Loading/);
     state.error = "刷新失败";
     const failed = renderToStaticMarkup(createElement(WorkspaceFiles, { model: h.model, workspaceId: "workspace" }));
     assert.match(failed, /saved.txt/); assert.match(failed, /刷新失败/);

@@ -161,7 +161,7 @@ test("串行：同页命令按序；页面消亡与未绑定拒绝", async () =>
   } finally { await t.close(); }
 });
 
-test("快照引用按代次绑定；观察返回代次与正文；效果未知不重发", async () => {
+test("快照引用按代次绑定；观察返回代次与正文；Outcome unknown不重发", async () => {
   const t = await kit();
   try {
     const { session } = t.project();
@@ -183,7 +183,7 @@ test("快照引用按代次绑定；观察返回代次与正文；效果未知�
     assert.equal(obs.url, "https://a");
     assert.match(obs.text, /正文/);
 
-    // 效果未知：error.outcome=unknown 不静默重试
+    // Outcome unknown：error.outcome=unknown 不静默重试
     const failing = new DesktopBrowserManager({ store: t.store, call: () => async () => ({ ok: false, error: { code: "eval_failed", outcome: "unknown", message: "页面脚本失败" } }) });
     failing.onEvent(CONN, ev(session.id, { kind: "gate", generation: 3, owned: true }));
     await assert.rejects(failing.command(task, "eval", { script: "1" }), (e: unknown) => e instanceof DesktopBrowserError && e.effectUnknown === true);

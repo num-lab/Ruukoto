@@ -173,7 +173,7 @@ test("桌面通知导航按实例定位后消费，同实例快照不抢回已�
   model.update({ type: "snapshot", result, instanceChanged: false });
   assert.equal(model.view.currentSessionId, "second"); assert.ok(!model.tabs.includes("session"));
   model.update({ type: "navigate", instanceId: "old", navigation: { sessionId: "session", taskId: "task" } });
-  assert.equal(model.view.currentSessionId, "second"); assert.match(model.message!, /原目标已经变化/);
+  assert.equal(model.view.currentSessionId, "second"); assert.match(model.message!, /original target changed/);
 });
 
 test("右栏子会话复用历史恢复，通知定位、实时补读与重连不丢思考和工具", async () => {

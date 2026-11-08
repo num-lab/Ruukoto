@@ -3,18 +3,18 @@ import { DesktopError } from "./environment.ts";
 import type { DesktopBrowserChunk, DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
 
 /**
- * MyGo 桌面浏览器桥（mygo-agent-browser）：控制面窄命令经此转到 Go 侧
- * browser.Manager；截图/快照结果按 256KiB 原始字节分块回流，服务端按
- * command_id 与 sha256 校验装配。事件上报与登记走同一控制连接。
- * Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
+ * MyGo desktop browser bridge (mygo-agent-browser): control-plane narrow commands reach the Go-side
+ * browser.Manager through here; screenshot/snapshot results flow back in 256KiB raw-byte chunks, and the server
+ * assembles them after checking command_id and sha256. Event reporting and registration share the same control connection.
+ * Note: See .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
  */
 
-/** Go 侧命令通道（Node→Go 私有帧）；结果即 Manager.Command 的 {ok,value|error}。 */
+/** Go-side command channel (Node→Go private frames); the result is Manager.Command's {ok,value|error}. */
 export interface MyGoBrowserTransport {
   command(op: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
-/** 分块发送依赖当前控制连接；连接更换时新请求走新连接，旧请求随断线失效。 */
+/** Chunked sends depend on the current control connection; on reconnect new requests take the new connection and old ones lapse. */
 export interface BrowserConn {
   request(op: "desktop_browser_chunk", params: DesktopBrowserChunk): Promise<unknown>;
   request(op: "desktop_browser_event", params: { event: DesktopBrowserEvent }): Promise<unknown>;
@@ -22,7 +22,7 @@ export interface BrowserConn {
 }
 
 const CHUNK_BYTES = 256 * 1024;
-/** 应答内联上限：结果超过即要求 transfer；非 transfer 字段超限按结果过大拒绝。 */
+/** Inline reply limit: results beyond it require transfer; non-transfer fields over the limit are rejected as too large. */
 const INLINE_RESULT_BYTES = 768 * 1024;
 const TRANSFER_FIELDS: Record<string, string> = { png: "screenshot" };
 
@@ -32,7 +32,7 @@ interface TransferPick {
   bytes: Buffer;
 }
 
-/** 从 Manager 结果中取出大字段（png=截图二进制、snapshot=快照文本）。 */
+/** Extracts large fields from a Manager result (png=screenshot binary, snapshot=snapshot text). */
 function pickTransfer(raw: unknown): TransferPick | null {
   const value = (raw as { ok?: boolean; value?: Record<string, unknown> })?.value;
   if (!value || typeof value !== "object") return null;
@@ -48,26 +48,26 @@ function pickTransfer(raw: unknown): TransferPick | null {
 export class DesktopBrowserBridge {
   constructor(private readonly transport: MyGoBrowserTransport) {}
 
-  /** 每次快照（含重连重同步）后重新登记：连接身份由服务端发定并返回。 */
+  /** Re-registers after every snapshot (including resync on reconnect): the connection identity is issued and returned by the server. */
   register(connection: BrowserConn | null): void {
     if (!connection) return;
     void connection.request("desktop_browser_register", { shell: "mygo" }).catch(error => {
-      process.stderr.write(`[ruukoto:desktop] 浏览器能力登记失败：${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`[ruukoto:desktop] Browser capability registration failed: ${error instanceof Error ? error.message : String(error)}\n`);
     });
   }
 
-  /** 页面事实上行：尽力送达；断线时控制连接自身已按 disconnected 拒绝在途命令。 */
+  /** Page-fact uplink: best effort; on disconnect the control connection itself rejects in-flight commands as disconnected. */
   event(connection: BrowserConn | null, event: DesktopBrowserEvent): void {
     if (!connection) return;
     void connection.request("desktop_browser_event", { event }).catch(error => {
-      process.stderr.write(`[ruukoto:desktop] 浏览器事件上报失败：${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`[ruukoto:desktop] Browser event report failed: ${error instanceof Error ? error.message : String(error)}\n`);
     });
   }
 
   /**
-   * 服务端窄命令：转到 Go 执行；结果含 png/snapshot 大字段时分块发送并
-   * 在应答里只留声明（kind/sha256/total_bytes/total）。传输失败按错误
-   * 结果回包，不阻塞服务端等待分块。
+   * Server narrow command: runs on Go; results with large png/snapshot fields are chunked and
+   * only declared in the reply (kind/sha256/total_bytes/total). Transfer failures go back as an error
+   * result so the server isn't blocked waiting for chunks.
    */
   async handleCall(op: string, params: Record<string, unknown>, callId: string, connection: () => BrowserConn | null): Promise<unknown> {
     if (op !== "browser_command") {
@@ -87,8 +87,8 @@ export class DesktopBrowserBridge {
     const transfer = pickTransfer(raw);
     if (!transfer) {
       if (Buffer.byteLength(JSON.stringify(raw), "utf8") <= INLINE_RESULT_BYTES) return raw;
-      // 超限只发生在只读结果（快照/截图文本）；可变更动作的结果体都很小。
-      // 应答未送达而非效果未知，标 not_sent 允许安全重试。
+      // Over-limit only happens for read-only results (snapshot/screenshot text); mutating actions have small result bodies.
+      // The reply wasn't delivered rather than having an unknown effect — marking not_sent allows safe retry.
       return { ok: false, error: { code: "result_too_large", outcome: "not_sent", message: "浏览器结果超过内联上限，未送达；请缩小范围后重试。" } };
     }
     const conn = connection();

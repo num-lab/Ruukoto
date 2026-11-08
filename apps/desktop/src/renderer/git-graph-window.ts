@@ -1,10 +1,10 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md
+// Note: See .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md
 
 export const GIT_GRAPH_ROW_HEIGHT = 28;
 export const GIT_GRAPH_INITIAL_ROWS = 40;
 export const GIT_GRAPH_OVERSCAN_ROWS = 6;
 
-// 已测量展开行的内容高度；extra 是从固定行高之外增加的高度。
+// Measured expanded-row content height; extra is the height beyond the fixed row height.
 export interface GitGraphExpansion {
   row: number;
   extra: number;
@@ -25,7 +25,7 @@ export interface GitGraphRenderWindow extends GitGraphRange {
   pinned: { row: number; before: boolean } | null;
 }
 
-// 展开高度按行号前缀和参与总高度与偏移；sorted 输入，重复行号只取第一个。
+// Expanded height joins total height and offsets as a row-number prefix sum; input is sorted and duplicate rows keep the first.
 export function gitGraphMetrics(count: number, expansions: readonly GitGraphExpansion[]): GitGraphMetrics {
   const rows: number[] = [], prefix: number[] = [0];
   for (const expansion of [...expansions].sort((left, right) => left.row - right.row)) {
@@ -47,7 +47,7 @@ export function gitGraphMetrics(count: number, expansions: readonly GitGraphExpa
   return { count, totalHeight: top(count), top };
 }
 
-// 可视行范围：行 bottom = top(row + 1)，因此“第一行底边超过 low”与“第一行顶边达到 high”都能二分。
+// Visible range: row bottom = top(row + 1), so both "first row bottom past low" and "first row top reaching high" bisect.
 export function gitGraphRange(metrics: GitGraphMetrics, scrollTop: number, viewportHeight: number, overscan = GIT_GRAPH_OVERSCAN_ROWS): GitGraphRange {
   const count = metrics.count;
   if (!count) return { first: 0, last: 0 };
@@ -76,7 +76,7 @@ export function gitGraphClampScroll(scrollTop: number, totalHeight: number, view
   return Math.min(Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0), maximum);
 }
 
-// 焦点行滚出窗口时单独以绝对定位行保留，不并入窗口范围，避免多渲染中间所有行。
+// A focused row scrolled out of the window is kept as a separate absolutely-positioned row instead of joining the range, avoiding rendering every row in between.
 export function gitGraphRenderWindow(metrics: GitGraphMetrics, scrollTop: number, viewportHeight: number, focusedRow: number | null, overscan = GIT_GRAPH_OVERSCAN_ROWS): GitGraphRenderWindow {
   const range = gitGraphRange(metrics, scrollTop, viewportHeight, overscan);
   const pinned = focusedRow !== null && Number.isInteger(focusedRow) && focusedRow >= 0 && focusedRow < metrics.count && (focusedRow < range.first || focusedRow >= range.last) ? { row: focusedRow, before: focusedRow < range.first } : null;

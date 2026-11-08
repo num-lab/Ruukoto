@@ -1,4 +1,4 @@
-// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
+// Note: See .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
 export type BrowserNavigation = { history: string[]; index: number; draft: string; revision: number; error: boolean };
 
 export function browserAddress(value: string): string | null {

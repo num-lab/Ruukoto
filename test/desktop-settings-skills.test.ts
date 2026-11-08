@@ -79,6 +79,6 @@ test("Code Skills 页面仅显示固定目录、列表和诊断，没有技能�
   t.after(() => server.close());
   const { CodeSkillsEditor } = await server.ssrLoadModule("/code-skills-settings.tsx");
   const html = renderToStaticMarkup(createElement(CodeSkillsEditor, { state: h.state }));
-  assert.match(html, /\$HOME\/\.agents\/skills\//); assert.match(html, /按名称检索/); assert.match(html, /example/); assert.match(html, /缺少描述/);
-  assert.doesNotMatch(html, /导入|选择技能|停用|启用|删除|保存更改|托管副本/);
+  assert.match(html, /\$HOME\/\.agents\/skills\//); assert.match(html, /Filter by name/); assert.match(html, /example/); assert.match(html, /缺少描述/);
+  assert.doesNotMatch(html, /Import|Select skills|Disable|Enable|Delete|Save changes|Managed copy/);
 });

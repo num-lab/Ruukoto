@@ -120,7 +120,7 @@ test("定时通知等待整项关闭，首次任务结束与重连补发不提�
   const closed: CodeScheduleRun = { ...run, status: "completed", closedAt: at, version: 2 };
   event(5, { type: "code_schedule.run_changed", run: closed }); event(5, { type: "code_schedule.run_changed", run: closed }, "replay");
   notifications.update("code", { type: "snapshot", instanceChanged: false, result: { snapshot: fakeSnapshot({ codeScheduleRuns: [closed] }), replay: [], seq: 5 } });
-  assert.equal(notices.length, 1); assert.equal(notices[0].taskId, "root"); assert.match(notices[0].title, /定时运行/);
+  assert.equal(notices.length, 1); assert.equal(notices[0].taskId, "root"); assert.match(notices[0].title, /Scheduled run/);
 });
 
 test("Code 计划控制面真实接纳与回读，原键幂等且拒绝越权字段和过期版本", async t => {

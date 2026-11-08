@@ -1,12 +1,12 @@
 import type { Session } from "electron";
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export function cspFor(devServerUrl: string, nonce: string): string {
   const url = new URL(devServerUrl);
-  if (url.protocol !== "http:" || !/^[A-Za-z0-9_-]{16,}$/.test(nonce)) throw new Error("开发页面需要 HTTP 地址与启动器生成的 nonce");
+  if (url.protocol !== "http:" || !/^[A-Za-z0-9_-]{16,}$/.test(nonce)) throw new Error("Dev pages need an HTTP URL and the launcher-generated nonce");
   const socket = new URL(url.origin);
   socket.protocol = "ws:";
-  // style-src 的 'unsafe-inline' 与生产策略一致：xterm 运行时注入无 nonce 的 <style>，拦截即失去终端颜色与字体。
+  // style-src 'unsafe-inline' matches production: xterm injects non-nonced <style> at runtime, and blocking it loses terminal colors and fonts.
   return `default-src 'self'; script-src 'self' ${url.origin} 'nonce-${nonce}'; style-src 'self' ${url.origin} 'nonce-${nonce}' 'unsafe-inline'; connect-src 'self' ${url.origin} ${socket.origin}; object-src 'none'; base-uri 'none'; frame-src http: https:; img-src * data: blob: file:; frame-ancestors 'none'`;
 }
 
@@ -27,7 +27,7 @@ export function browserFrameAllowed(value: string, rendererUrl: string | undefin
   return value === "about:blank" || externalUrl(value) !== null && !isRendererOrigin(value, rendererUrl);
 }
 
-// 本地界面使用主进程通知与系统选择器，不需要网页设备或媒体权限。
+// The local UI uses main-process notifications and system pickers; it needs no web device or media permissions.
 export function denyBrowserPermissions(target: Pick<Session, "setPermissionCheckHandler" | "setPermissionRequestHandler" | "setDevicePermissionHandler" | "setDisplayMediaRequestHandler">): void {
   target.setPermissionCheckHandler(() => false);
   target.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));

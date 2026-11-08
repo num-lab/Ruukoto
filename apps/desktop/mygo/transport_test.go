@@ -440,7 +440,7 @@ func TestSidecarBrowserRequest(t *testing.T) {
 	if gotMethod != "browser_command" || !strings.Contains(string(gotArgs), `"session":"s1"`) {
 		t.Fatalf("request mangled: %s %s", gotMethod, gotArgs)
 	}
-	// 未安装处理器的连接收到请求时按 bridge_closed 拒绝，不悬挂
+	// A connection without a handler rejects requests as bridge_closed instead of hanging
 	plain := testChild(t, func(json.RawMessage) {})
 	if got := outcome(t, plain.call(context.Background(), "ask_browser")); got != "not_sent" {
 		t.Fatal(got)

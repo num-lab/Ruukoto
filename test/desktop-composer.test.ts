@@ -110,7 +110,7 @@ test("Desktop 问题选项直接单选，输入文字清除选项且卡片不重
   model.status = { type: "state", state: "reconnecting" }; html = render();
   assert.ok(choices().every(element => hasAttr(element, "disabled")));
   model.view.ownerQuestions = [{ ...question, status: "answered", version: 2, answers: [{ text: "自己的回答" }] }]; html = render();
-  assert.equal((html.match(/已回答/g) ?? []).length, 1);
+  assert.equal((html.match(/Answered/g) ?? []).length, 1);
   assert.match(html, /自己的回答/);
 });
 test("Desktop 提问卡片分为题头、编号选项、自由输入和底部导航，翻页后保留回答", () => {
@@ -123,19 +123,19 @@ test("Desktop 提问卡片分为题头、编号选项、自由输入和底部导
   assert.ok(html.indexOf("owner-question-free-input") < html.indexOf("owner-question-footer"));
   const radios = elements(html).filter(element => attr(element, "role") === "radio");
   assert.deepEqual(radios.map(element => element.childNodes.filter(node => "tagName" in node && attr(node, "aria-hidden") === "true").length), [1, 1], "编号不重复进入可访问选项名");
-  assert.ok(!button(html, "收起问题") && !button(html, "展开问题") && !button(html, "取消问题"));
-  assert.doesNotMatch(html, /问题 1\/3/);
+  assert.ok(!button(html, "Collapse question") && !button(html, "Expand question") && !button(html, "Cancel question"));
+  assert.doesNotMatch(html, /Question 1\/3/);
   assert.equal(elements(html).filter(element => attr(element, "class")?.includes("owner-question-progress")).length, 1);
-  assert.ok(hasAttr(button(html, "上一题"), "disabled"));
-  assert.ok(hasAttr(button(html, "下一题"), "disabled"));
+  assert.ok(hasAttr(button(html, "Previous question"), "disabled"));
+  assert.ok(hasAttr(button(html, "Next question"), "disabled"));
   model.questions.choose(question, 1); html = render();
-  assert.ok(!hasAttr(button(html, "下一题"), "disabled"));
+  assert.ok(!hasAttr(button(html, "Next question"), "disabled"));
   assert.equal((html.match(/先给方案/g) ?? []).length, 1, "选中的选项不重复填入自由输入行");
   model.questions.next(question); html = render();
   assert.match(html, />2\/3</);
   assert.match(html, /还有什么要求？/);
   assert.ok(!elements(html).some(element => attr(element, "role") === "radio"));
-  assert.ok(!hasAttr(button(html, "上一题"), "disabled"));
+  assert.ok(!hasAttr(button(html, "Previous question"), "disabled"));
   model.questions.back(question); html = render();
   assert.deepEqual(elements(html).filter(element => attr(element, "role") === "radio").map(element => attr(element, "aria-checked")), ["false", "true"]);
   model.questions.edit(question, "按实际情况决定");
@@ -143,16 +143,16 @@ test("Desktop 提问卡片分为题头、编号选项、自由输入和底部导
   model.questions.edit(question, "保持简洁");
   model.questions.next(question); html = render();
   assert.match(html, />3\/3</);
-  assert.ok(hasAttr(button(html, "核对回答"), "disabled"));
+  assert.ok(hasAttr(button(html, "Review answers"), "disabled"));
   model.questions.choose(question, 0);
   model.questions.next(question); html = render();
   assert.match(html, /按实际情况决定/);
   assert.match(html, /保持简洁/);
-  assert.match(html, /提交回答/);
+  assert.match(html, /Submit answers/);
   assert.ok(!elements(html).some(element => element.tagName === "textarea" || attr(element, "role") === "radio"));
   model.questions.back(question);
   model.questions.next(question, true); html = render();
-  assert.match(html, /已跳过/);
+  assert.match(html, /Skipped/);
   assert.deepEqual(model.questions.draft(question).answers[2], { text: "" }, "Skip 清除最后一题选择并进入核对");
 });
 test("Desktop 选项显示说明与推荐标签，多选保留顺序，Skip 保存空答案", () => {
@@ -163,7 +163,7 @@ test("Desktop 选项显示说明与推荐标签，多选保留顺序，Skip 保�
   const choices = () => elements(html).filter(element => attr(element, "role") === "checkbox");
   assert.equal(choices().length, 3);
   assert.ok(choices().every(element => attr(element, "aria-checked") === "false"));
-  assert.doesNotMatch(html, />多选</);
+  assert.doesNotMatch(html, />Multiple</);
   assert.ok(!elements(html).some(element => attr(element, "class") === "owner-question-number" && element.childNodes.some(node => "value" in node && /^[123]$/.test(node.value))));
   assert.ok(html.indexOf("页面") < html.indexOf("实现完整页面"));
   assert.equal((html.match(/Recommended/g) ?? []).length, 1);
@@ -175,7 +175,7 @@ test("Desktop 选项显示说明与推荐标签，多选保留顺序，Skip 保�
   assert.deepEqual(choices().map(element => attr(element, "aria-checked")), ["true", "false", "true"]);
   model.questions.choose(question, []); html = render();
   assert.ok(choices().every(element => attr(element, "aria-checked") === "false"));
-  assert.ok(hasAttr(button(html, "下一题"), "disabled"));
+  assert.ok(hasAttr(button(html, "Next question"), "disabled"));
   model.questions.choose(question, [1]);
   model.questions.edit(question, "自己填写的回答"); html = render();
   assert.ok(choices().every(element => attr(element, "aria-checked") === "false"));
@@ -189,7 +189,7 @@ test("Desktop 选项显示说明与推荐标签，多选保留顺序，Skip 保�
   model.status = { type: "state", state: "online" };
   model.questions.next(question, true); html = render();
   assert.deepEqual(model.questions.draft(question).answers, [{ text: "" }, { text: "" }, { text: "" }]);
-  assert.equal((html.match(/已跳过/g) ?? []).length, 3);
+  assert.equal((html.match(/Skipped/g) ?? []).length, 3);
   assert.doesNotMatch(html, /Recommended|owner-question-progress/);
 });
 test("Desktop question batches stay at their original tool results without replacing the requirement", () => {
@@ -205,7 +205,7 @@ test("Desktop question batches stay at their original tool results without repla
     for (const item of history) model.view.openSession(current.id).flow.addHistory(item);
     if (order === "history-first") model.view.ownerQuestions = [question, second];
     const html = render();
-    assert.equal((html.match(/aria-label="拥有者问题"/g) ?? []).length, 2);
+    assert.equal((html.match(/aria-label="Owner question"/g) ?? []).length, 2);
     assert.match(html, /请确认发布范围/);
     assert.ok(html.indexOf("发布范围？") < html.indexOf("继续确认"));
     assert.ok(html.indexOf("继续确认") < html.indexOf("发布位置？"));
@@ -243,19 +243,19 @@ test("Desktop 输入区匹配 demo 控件结构，四模式有图标且只保留
   for (const [value, label, icon] of [["confirm", "Ask for approval", "message-circle-question"], ["auto-review", "Auto review", "shield-check"], ["full_access", "Full access", "shield-off"], ["plan", "Plan", "list-todo"]] as const) {
     h.current.defaultAccessMode = value;
     const html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
-    assert.match(attr(button(html, "附加文件"), "class")!, /attachment-button/);
-    assert.match(attr(button(html, "会话默认模式"), "class")!, /mode-selector/);
-    assert.equal(attr(button(html, "会话默认模式"), "aria-description"), label);
+    assert.match(attr(button(html, "Attach files"), "class")!, /attachment-button/);
+    assert.match(attr(button(html, "Chat default mode"), "class")!, /mode-selector/);
+    assert.equal(attr(button(html, "Chat default mode"), "aria-description"), label);
     assert.match(html, new RegExp(`lucide-${icon}`));
     assert.match(html, /mode-selector-label/);
     assert.equal(elements(html).filter(element => attr(element, "data-slot") === "select-trigger").length, 1);
-    assert.equal(attr(button(html, "会话模型"), "data-slot"), "dropdown-menu-trigger");
+    assert.equal(attr(button(html, "Chat model"), "data-slot"), "dropdown-menu-trigger");
     assert.match(html, /model-selector-icon/);
     assert.match(html, /Current model/);
-    assert.equal(attr(button(html, "会话模型"), "aria-description"), "Current model · Effort: High");
-    assert.match(attr(button(html, "会话模型"), "class")!, /model-selector/);
+    assert.equal(attr(button(html, "Chat model"), "aria-description"), "Current model · Effort: High");
+    assert.match(attr(button(html, "Chat model"), "class")!, /model-selector/);
     assert.match(html, /model-selector-name">Current model<\/span><span class="model-selector-effort">High<\/span>/, "思考强度跟在模型名后显示");
-    assert.ok(hasAttr(button(html, "发送消息"), "disabled"), "无输入仍禁止发送");
+    assert.ok(hasAttr(button(html, "Send message"), "disabled"), "无输入仍禁止发送");
   }
 });
 
@@ -288,15 +288,15 @@ test("Desktop 排队面板使用拖拽手柄和行内动作，输入区与空队
   const panel = renderToStaticMarkup(createElement(QueuePanel, { model: h.model, session: h.current, defaultOpen: true }));
   assert.match(panel, /queue-summary/);
   assert.match(panel, /lucide-grip-vertical/);
-  assert.match(panel, /可拖拽或用方向键调整顺序/);
+  assert.match(panel, /drag or use arrow keys to reorder/);
   assert.match(panel, /queue-panel-actions/);
   assert.match(panel, /lucide-waypoints/);
-  assert.doesNotMatch(panel, /上移第|下移第/);
+  assert.doesNotMatch(panel, /Move up|Move down/);
   assert.equal(elements(panel).filter(element => attr(element, "draggable") === "true").length, 2);
   h.model.status = { type: "state", state: "reconnecting" };
   const offlinePanel = renderToStaticMarkup(createElement(QueuePanel, { model: h.model, session: h.current, defaultOpen: true }));
   assert.equal(elements(offlinePanel).filter(element => attr(element, "draggable") === "true").length, 0);
-  assert.ok(hasAttr(button(offlinePanel, "把第 1 项转为引导"), "disabled"));
+  assert.ok(hasAttr(button(offlinePanel, "Send item 1 as guidance"), "disabled"));
 
   const composer = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
   assert.match(composer, /<div class="composer-stack surface-composer has-queue">/);
@@ -330,7 +330,7 @@ test("打开会话保留草稿和附件，正常输入不需要退出历史模�
   const html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
   assert.match(html, /<textarea/);
   assert.match(html, /尚未发送的草稿/);
-  assert.doesNotMatch(html, /查看历史|返回最新/);
+  assert.doesNotMatch(html, /View history|Back to latest/);
   assert.equal(h.model.writes.blocked(h.current.id), false);
   assert.strictEqual(h.model.writes.draft(h.current.id), draft);
   assert.equal(draft.attachments[0].id, "attachment");
@@ -343,19 +343,19 @@ test("Desktop 保留未在目录的真实模型和档位，离线与核实时禁
   h.current.modelSelection = { provider: "retired", modelId: "old-real-model", thinkingLevel: "xhigh" };
   h.model.writes.models = [];
   let html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
-  assert.equal(attr(button(html, "会话模型"), "aria-description"), "old-real-model · Effort: Xhigh");
+  assert.equal(attr(button(html, "Chat model"), "aria-description"), "old-real-model · Effort: Xhigh");
   assert.match(html, /old-real-model/);
-  assert.doesNotMatch(html, /Medium|认证不可用/);
+  assert.doesNotMatch(html, /Medium|Auth unavailable/);
   h.model.status = { type: "state", state: "reconnecting" };
   html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
-  for (const name of ["附加文件", "会话默认模式", "会话模型", "发送消息"]) assert.ok(hasAttr(button(html, name), "disabled"));
+  for (const name of ["Attach files", "Chat default mode", "Chat model", "Send message"]) assert.ok(hasAttr(button(html, name), "disabled"));
   h.model.status = { type: "state", state: "online" };
   h.model.writes.edit("a", "保留待核实输入");
   const sending = h.model.writes.send("a");
   html = renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
   assert.ok(elements(html).some(element => element.tagName === "textarea" && hasAttr(element, "readonly")));
-  for (const name of ["附加文件", "会话默认模式", "会话模型", "正在核实输入"]) assert.ok(hasAttr(button(html, name), "disabled"));
-  assert.equal(attr(button(html, "正在核实输入"), "aria-busy"), "true");
+  for (const name of ["Attach files", "Chat default mode", "Chat model", "Verifying input"]) assert.ok(hasAttr(button(html, name), "disabled"));
+  assert.equal(attr(button(html, "Verifying input"), "aria-busy"), "true");
   release();
   await sending;
   assert.equal(h.model.writes.draft("a").text, "保留待核实输入");
@@ -370,7 +370,7 @@ test("Desktop Context 明细保留三分类渐变和原始用量，环形入口�
   assert.match(details, /aria-valuenow="50"/);
   assert.match(details, /System prompt.*~100.*Tool definitions.*~200.*Messages.*~700/);
   const indicator = renderToStaticMarkup(createElement(ContextIndicator, { context: state, onOpen() {} }));
-  assert.equal(attr(button(indicator, "上下文使用量"), "aria-description"), "1,000 / 2,000 tokens");
+  assert.equal(attr(button(indicator, "Context usage"), "aria-description"), "1,000 / 2,000 tokens");
   assert.match(indicator, /data-slot="context-ring-value"[^>]*stroke-dashoffset="50"/);
   assert.doesNotMatch(indicator, /50%|99,999/);
 });
@@ -422,27 +422,27 @@ test("Desktop new-chat draft sends without workspace selection and retains ordin
   const h = harness();
   const draft = (workspaceId: string, modelSelection: ModelSelection | null = selection) => renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId, text: "写一个测试", mode: "auto-review", modelSelection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
   const empty = draft("");
-  assert.match(attr(button(empty, "选择工作区"), "class")!, /workspace-picker/);
-  assert.equal(attr(button(empty, "选择工作区"), "aria-description"), undefined);
+  assert.match(attr(button(empty, "Select workspace"), "class")!, /workspace-picker/);
+  assert.equal(attr(button(empty, "Select workspace"), "aria-description"), undefined);
   assert.match(empty, /Task or question/);
-  assert.ok(!hasAttr(button(empty, "发送消息"), "disabled"));
+  assert.ok(!hasAttr(button(empty, "Send message"), "disabled"));
   assert.match(empty, /No workspace/);
   const chosen = draft("p1");
-  assert.equal(attr(button(chosen, "选择工作区"), "aria-description"), "ruukoto");
-  assert.ok(!hasAttr(button(chosen, "发送消息"), "disabled"));
+  assert.equal(attr(button(chosen, "Select workspace"), "aria-description"), "ruukoto");
+  assert.ok(!hasAttr(button(chosen, "Send message"), "disabled"));
   // 工作区选择器在 composer 表单之外，输入区仍带附件、模式与模型控件。
   assert.match(chosen, /workspace-picker[\s\S]*<form class="surface-composer composer"/);
-  for (const name of ["附加文件", "会话默认模式", "会话模型", "发送消息"]) assert.ok(button(chosen, name), name);
-  assert.equal(attr(button(chosen, "会话默认模式"), "aria-description"), "Auto review");
+  for (const name of ["Attach files", "Chat default mode", "Chat model", "Send message"]) assert.ok(button(chosen, name), name);
+  assert.equal(attr(button(chosen, "Chat default mode"), "aria-description"), "Auto review");
   assert.equal(elements(chosen).filter(element => attr(element, "data-slot") === "select-trigger").length, 1);
   assert.match(chosen, /Current model/);
   // 草稿未选模型时沿用当前会话/后台默认值，模型名后不加额外标注。
   const inherited = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "p1", text: "写一个测试", mode: "confirm", modelSelection: null, attachments: [] }, fallbackSelection: selection, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
-  assert.doesNotMatch(inherited, /model-selector-note|继承/);
+  assert.doesNotMatch(inherited, /model-selector-note|[Ii]nherited/);
   assert.match(inherited, /Current model/);
-  assert.ok(!hasAttr(button(inherited, "发送消息"), "disabled"));
+  assert.ok(!hasAttr(button(inherited, "Send message"), "disabled"));
   const noModel = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "p1", text: "写一个测试", mode: "confirm", modelSelection: null, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
-  assert.ok(hasAttr(button(noModel, "发送消息"), "disabled"), "没有可用模型时不能开始");
+  assert.ok(hasAttr(button(noModel, "Send message"), "disabled"), "没有可用模型时不能开始");
 });
 
 test("在线且未选会话时主画布默认是新对话草稿页，空态页只留给离线与 PA", () => {
@@ -463,7 +463,7 @@ test("工作区菜单按名称筛选，空结果与未登记工作区都有明�
   // 菜单内容经 Radix 门户在打开后才挂载，SSR 只验证触发器仍是选择器本身。
   const h = harness();
   const html = renderToStaticMarkup(createElement(NewChatDraft, { model: h.model, workspaces: projects, value: { workspaceId: "", text: "", mode: "confirm", modelSelection: selection, attachments: [] }, fallbackSelection: null, onChange() {}, onSend() {}, onAddWorkspace() {}, starting: false, blocked: false }));
-  assert.equal(attr(button(html, "选择工作区"), "aria-expanded"), "false");
+  assert.equal(attr(button(html, "Select workspace"), "aria-expanded"), "false");
 });
 
 test("Scheduled 列表使用摘要卡片和下次触发进度，不再提供手动刷新", () => {
@@ -472,8 +472,8 @@ test("Scheduled 列表使用摘要卡片和下次触发进度，不再提供手�
   const plan: CodeSchedulePlan = { id: "plan", config, workspace: { cwd: "/work", cwdReal: "/work", dev: 1, ino: 1 }, version: 1, status: "active", nextDueAt: at, reason: null, createdAt: "2026-10-15T00:00:00.000Z", updatedAt: at };
   model.scheduled.plans = [plan];
   const html = renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession() {} }));
-  assert.match(html, /定时检查/); assert.match(html, /检查目录/); assert.match(html, /每天 09:00/); assert.match(html, />Active</); assert.match(html, />Archived</);
-  assert.doesNotMatch(html, />刷新|>当前计划<|>历史</);
+  assert.match(html, /定时检查/); assert.match(html, /检查目录/); assert.match(html, /Daily 09:00/); assert.match(html, />Active</); assert.match(html, />Archived</);
+  assert.doesNotMatch(html, />Refresh|>Current plan<|>History</);
   assert.match(html, /data-slot="tabs-list"/); assert.equal(elements(html).filter(element => attr(element, "data-slot") === "tabs-trigger" && attr(element, "data-state") === "active").length, 1, "Active/Archived 只有一个选中项");
   const progress = elements(html).filter(element => attr(element, "role") === "progressbar");
   assert.equal(progress.length, 1); assert.equal(attr(progress[0], "aria-valuenow"), "100");
@@ -486,11 +486,11 @@ test("Scheduled 详情把下次触发、任务内容和执行设置分层展示"
   const run: CodeScheduleRun = { id: "run", scheduleId: plan.id, planVersion: 1, snapshot: config, workspace: plan.workspace, sessionId: "session", rootTaskId: "root", scheduledAt: at, coalescedFrom: at, coalescedThrough: at, status: "active", cancelRequested: false, reason: null, version: 1, createdAt: at, closedAt: null };
   model.scheduled.selectedId = plan.id; model.scheduled.detail = { plan, runs: [run], activeRun: null, nextRunOffset: null };
   const html = renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession(id) { assert.equal(id, "session"); } }));
-  for (const text of ["概览", "运行记录", "下次触发", "任务内容", "执行设置", "模型", "Effort", "High", "Asia/Tokyo"]) assert.match(html, new RegExp(text));
-  assert.equal(attr(button(html, "暂停计划"), "role"), "switch");
-  assert.equal(attr(button(html, "暂停计划"), "aria-checked"), "true");
-  assert.equal(elements(html).filter(element => attr(element, "aria-label") === "暂停计划").length, 1, "switch props belong only to the control, not its decorative thumb");
-  assert.match(attr(button(html, "取消计划"), "class")!, /is-danger/);
+  for (const text of ["Overview", "Runs", "Next trigger", "Task", "Run settings", "Model", "Effort", "High", "Asia/Tokyo"]) assert.match(html, new RegExp(text));
+  assert.equal(attr(button(html, "Pause schedule"), "role"), "switch");
+  assert.equal(attr(button(html, "Pause schedule"), "aria-checked"), "true");
+  assert.equal(elements(html).filter(element => attr(element, "aria-label") === "Pause schedule").length, 1, "switch props belong only to the control, not its decorative thumb");
+  assert.match(attr(button(html, "Cancel schedule"), "class")!, /is-danger/);
   assert.equal(elements(html).filter(element => attr(element, "role") === "progressbar").length, 1);
 });
 
@@ -501,11 +501,11 @@ test("Scheduled edits the whole plan on one page and validates every field befor
   const render = () => renderToStaticMarkup(createElement(Scheduled, { model, onOpenSession() {} }));
   const save = (html: string) => elements(html).find(element => element.tagName === "button" && attr(element, "type") === "submit")!;
   let html = render(); assert.match(html, /scheduled-page is-form/); assert.match(html, /scheduled-back/);
-  for (const text of ["任务", "时间", "计划名称", "任务内容", "Asia/Tokyo"]) assert.match(html, new RegExp(text));
-  assert.doesNotMatch(html, /scheduled-steps|scheduled-review|>继续<|>上一步</);
+  for (const text of ["Task", "Time", "Name", "Asia/Tokyo"]) assert.match(html, new RegExp(text));
+  assert.doesNotMatch(html, /scheduled-steps|scheduled-review|>Continue<|>Previous</);
   assert.equal(elements(html).filter(element => element.tagName === "button" && attr(element, "aria-pressed") !== undefined).length, 10);
-  assert.equal(attr(button(html, "计划权限"), "aria-description"), "Ask for approval");
-  assert.equal(attr(button(html, "会话模型"), "aria-description"), "Current model · Effort: High");
+  assert.equal(attr(button(html, "Schedule permission"), "aria-description"), "Ask for approval");
+  assert.equal(attr(button(html, "Chat model"), "aria-description"), "Current model · Effort: High");
   assert.equal(hasAttr(save(html), "disabled"), false);
   const original = structuredClone(model.scheduled.draft);
   for (const patch of [{ title: " " }, { instructions: " " }, { instructions: "界".repeat(22_000) }, { workspaceId: "" }, { modelSelection: null }, { time: "24:00" }, { weekdays: [] }, { repeat: "once" as const, date: "2000-01-01" }]) {
@@ -513,9 +513,9 @@ test("Scheduled edits the whole plan on one page and validates every field befor
     assert.equal(hasAttr(save(render()), "disabled"), true, `Invalid ${Object.keys(patch)[0]} cannot be submitted`);
   }
   model.scheduled.draft = { ...original, instructions: "界".repeat(22_000) };
-  assert.match(render(), /role="alert">Instructions 过长/);
+  assert.match(render(), /role="alert">Instructions are too long/);
   model.scheduled.draft = { ...original, repeat: "once", date: "2000-01-01" };
-  assert.match(render(), /role="alert">一次性计划须选择未来时间/);
+  assert.match(render(), /role="alert">A one-time schedule needs a future time/);
   model.scheduled.draft = original; model.scheduled.needsReview = true;
   assert.equal(hasAttr(save(render()), "disabled"), true);
   model.scheduled.needsReview = false; model.status = { type: "state", state: "failed" };
@@ -532,12 +532,12 @@ test("active scheduled conversations retain draft editing and commands while blo
   const render = () => renderToStaticMarkup(createElement(Composer, { model, session: current }));
   let html = render();
   assert.equal(hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"), false);
-  assert.equal(hasAttr(button(html, "发送消息"), "disabled"), true);
-  assert.ok(hasAttr(button(html, "会话默认模式"), "disabled")); assert.ok(hasAttr(button(html, "会话模型"), "disabled"));
-  assert.doesNotMatch(html, /正在继续中断的任务|发送并继续/);
+  assert.equal(hasAttr(button(html, "Send message"), "disabled"), true);
+  assert.ok(hasAttr(button(html, "Chat default mode"), "disabled")); assert.ok(hasAttr(button(html, "Chat model"), "disabled"));
+  assert.doesNotMatch(html, /Resuming the interrupted task|Send and continue/);
   current.modelSelection = null;
   model.writes.edit(current.id, "/help");
-  assert.equal(hasAttr(button(render(), "发送消息"), "disabled"), false, "local command does not require a model or ordinary-task eligibility");
+  assert.equal(hasAttr(button(render(), "Send message"), "disabled"), false, "local command does not require a model or ordinary-task eligibility");
 });
 
 
@@ -551,24 +551,24 @@ test("the send button resumes only a nonempty paused queue with no input", () =>
     const html = render();
     const primary = elements(html).find(element => element.tagName === "button" && attr(element, "class")?.split(" ").includes("send-button"))!;
     const resumes = queueState === "paused" && hasQueue;
-    assert.equal(attr(primary, "aria-label"), resumes ? "恢复队列" : "发送消息");
+    assert.equal(attr(primary, "aria-label"), resumes ? "Resume queue" : "Send message");
     assert.equal(attr(primary, "type"), "submit");
     assert.equal(hasAttr(primary, "disabled"), !resumes);
     assert.equal(html.includes("lucide-play"), resumes);
-    assert.equal(elements(html).filter(element => element.tagName === "button" && attr(element, "aria-label") === "恢复队列").length, resumes ? 1 : 0);
-    assert.doesNotMatch(html, /队列暂停|个任务等待继续/);
-    assert.match(attr(button(html, "上下文使用量"), "aria-haspopup")!, /dialog/);
+    assert.equal(elements(html).filter(element => element.tagName === "button" && attr(element, "aria-label") === "Resume queue").length, resumes ? 1 : 0);
+    assert.doesNotMatch(html, /Queue paused|tasks waiting to resume/);
+    assert.match(attr(button(html, "Context usage"), "aria-haspopup")!, /dialog/);
   }
   h.current.queueState = "paused";
   h.model.view.tasks.set(queued.id, queued);
   for (const draft of [{ text: "new queued input", attachments: [] }, { text: "", attachments: [{ id: "attachment", name: "input.txt", size: 10 }] }]) {
     Object.assign(h.model.writes.draft(h.current.id), draft);
     const html = render();
-    assert.ok(button(html, "发送消息"));
-    assert.equal(hasAttr(button(html, "发送消息"), "disabled"), false);
+    assert.ok(button(html, "Send message"));
+    assert.equal(hasAttr(button(html, "Send message"), "disabled"), false);
     assert.match(html, /lucide-arrow-up/);
     assert.doesNotMatch(html, /lucide-play/);
-    assert.equal(button(html, "恢复队列"), undefined);
+    assert.equal(button(html, "Resume queue"), undefined);
   }
 });
 
@@ -579,32 +579,32 @@ test("queue resume retains fixed task models and composer locks while Stop takes
   h.model.view.tasks.set(queued.id, queued);
   const render = () => renderToStaticMarkup(createElement(Composer, { model: h.model, session: h.current }));
   h.current.modelSelection = null;
-  assert.equal(hasAttr(button(render(), "恢复队列"), "disabled"), false, "fixed queued models do not require a current selection");
+  assert.equal(hasAttr(button(render(), "Resume queue"), "disabled"), false, "fixed queued models do not require a current selection");
   h.model.writes.busy.add(h.current.id);
-  assert.equal(hasAttr(button(render(), "恢复队列"), "disabled"), true);
+  assert.equal(hasAttr(button(render(), "Resume queue"), "disabled"), true);
   h.model.writes.busy.clear();
   h.model.status = { type: "state", state: "reconnecting" };
-  assert.equal(hasAttr(button(render(), "恢复队列"), "disabled"), true);
+  assert.equal(hasAttr(button(render(), "Resume queue"), "disabled"), true);
   h.model.status = { type: "state", state: "online" };
   h.model.writes.draft(h.current.id).attaching = true;
-  assert.equal(hasAttr(button(render(), "恢复队列"), "disabled"), true);
+  assert.equal(hasAttr(button(render(), "Resume queue"), "disabled"), true);
   h.model.writes.draft(h.current.id).attaching = false;
   h.current.codeScheduleActive = true;
   let html = render();
-  assert.equal(button(html, "恢复队列"), undefined);
-  assert.equal(hasAttr(button(html, "发送消息"), "disabled"), true);
+  assert.equal(button(html, "Resume queue"), undefined);
+  assert.equal(hasAttr(button(html, "Send message"), "disabled"), true);
   h.current.codeScheduleActive = false;
   const active = { ...queuedTask("active", "running input", 0), status: "running" as const };
   h.model.view.tasks.set(active.id, active);
   html = render();
-  assert.equal(button(html, "恢复队列"), undefined);
-  assert.equal(hasAttr(button(html, "停止任务"), "disabled"), false);
+  assert.equal(button(html, "Resume queue"), undefined);
+  assert.equal(hasAttr(button(html, "Stop task"), "disabled"), false);
   assert.match(html, /lucide-square/);
   h.current.modelSelection = selection;
   h.model.writes.edit(h.current.id, "normal queued input");
   html = render();
-  assert.equal(hasAttr(button(html, "发送消息"), "disabled"), false);
-  assert.doesNotMatch(html, /发送为引导|lucide-play/);
+  assert.equal(hasAttr(button(html, "Send message"), "disabled"), false);
+  assert.doesNotMatch(html, /Send as guidance|lucide-play/);
 });
 
 test("text and attachment submissions preserve a paused queue without resuming it", async () => {

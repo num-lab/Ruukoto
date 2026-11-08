@@ -57,19 +57,19 @@ export class DesktopNotifications {
   private notice(target: DesktopTarget, observation: Observation, sessionId: string, taskId: string, title: string, body: string, silent: boolean): void {
     if (silent || this.focused()) return;
     try { this.show({ target, instanceId: observation.view.instanceId!, sessionId, taskId, title: `${target === "code" ? "Code" : "Personal"} · ${title}`, body }); }
-    catch { process.stderr.write("[ruukoto:desktop] 系统通知未送达；请检查系统通知设置。\n"); }
+    catch { process.stderr.write("[ruukoto:desktop] System notification not delivered; check system notification settings.\n"); }
   }
   private terminal(target: DesktopTarget, observation: Observation, taskId: string, sessionId: string, status: TaskStatus, silent: boolean, reason?: string): void {
     observation.watching.delete(taskId);
     if (observation.terminals.has(taskId)) return;
     observation.terminals.add(taskId);
     if (observation.view.getTask(taskId)?.codeScheduleRunId || [...observation.runs.values()].some(run => run.rootTaskId === taskId) || observation.view.sessions.some(session => session.id === sessionId && session.codeScheduleActive)) return;
-    if (status !== "canceled") this.notice(target, observation, sessionId, taskId, `任务${formatTaskStatus(status)}`, reason ? `模式切换失败：${reason}` : "点击查看对应会话。", silent);
+    if (status !== "canceled") this.notice(target, observation, sessionId, taskId, `Task ${formatTaskStatus(status)}`, reason ? `Mode switch failed: ${reason}` : "Click to open the chat.", silent);
   }
   private scheduleTerminal(target: DesktopTarget, observation: Observation, run: CodeScheduleRun, silent: boolean): void {
     if (!run.closedAt || observation.runTerminals.has(run.id)) return;
     observation.runTerminals.add(run.id);
-    if (run.status !== "canceled") this.notice(target, observation, run.sessionId, run.rootTaskId, `定时运行${formatTaskStatus(run.status === "active" ? "interrupted" : run.status)}`, run.snapshot.title, silent);
+    if (run.status !== "canceled") this.notice(target, observation, run.sessionId, run.rootTaskId, `Scheduled run ${formatTaskStatus(run.status === "active" ? "interrupted" : run.status)}`, run.snapshot.title, silent);
   }
   private acceptRun(target: DesktopTarget, observation: Observation, run: CodeScheduleRun, silent: boolean): void {
     const known = observation.runs.get(run.id);
@@ -80,7 +80,7 @@ export class DesktopNotifications {
     for (const approval of observation.view.pendingApprovals()) {
       if (observation.approvals.has(approval.id)) continue;
       observation.approvals.add(approval.id);
-      this.notice(target, observation, approval.sessionId, approval.taskId, "待处理审批", approval.toolName, silent);
+      this.notice(target, observation, approval.sessionId, approval.taskId, "Pending approval", approval.toolName, silent);
     }
     for (const task of observation.view.tasks.values()) {
       if (TERMINAL_TASK_STATUSES.includes(task.status)) this.terminal(target, observation, task.id, task.sessionId, task.status, silent);

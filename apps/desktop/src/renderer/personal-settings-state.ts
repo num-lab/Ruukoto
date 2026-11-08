@@ -86,7 +86,7 @@ export class PersonalSettingsPageState implements SettingsForm {
   discard(): void { if (this.phase === "saving" || this.phase === "unknown") return; this.adopt(); this.phase = "ready"; this.changed(); }
   private async request<T>(op: string, params: Record<string, unknown> = {}): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("personal", `desktop_personal_settings_${op}`, params) as DesktopResult<T>; }
-    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "未取得宿主应答，请稍后刷新。" } }; }
+    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "No host response. Refresh later." } }; }
   }
   private fail(error: Extract<DesktopResult<unknown>, { ok: false }>["error"], write = false): void {
     this.uncertain ||= write && (error.outcome === "unknown" || error.outcome === "disconnected");
@@ -104,7 +104,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     this.uncertain = this.hasUnknown || this.pendingSave !== null;
     if (!preserve || saved) this.adopt();
     this.phase = this.uncertain ? "unknown" : rejected ? "error" : "ready";
-    this.message = this.view.settings.settingsProtocol !== 2 ? "原后台尚不支持在线配置，请升级后重新读取。" : this.uncertain ? "正在核实保存结果…" : rejected ? "配置未保存，请重新保存。" : saved ? "配置已保存。" : "";
+    this.message = this.view.settings.settingsProtocol !== 2 ? "The original backend doesn't support online configuration. Upgrade and read again." : this.uncertain ? "Verifying the save outcome…" : rejected ? "Configuration not saved. Save again." : saved ? "Configuration saved." : "";
   }
   async read(): Promise<boolean> {
     if (this.reading || this.phase === "saving") return false;
@@ -127,7 +127,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.accepts(generation)) return null;
     this.reading = false;
     if (!result.ok) { this.fail(result.error); this.changed(); return null; }
-    if (!same(result.value.profile, this.view!.settings.profile)) { this.phase = "conflict"; this.message = "查询应答不属于原档案，请核实管理连接。"; this.changed(); return null; }
+    if (!same(result.value.profile, this.view!.settings.profile)) { this.phase = "conflict"; this.message = "The query response doesn't belong to the original archive. Verify the management connection."; this.changed(); return null; }
     this.changed(); return result.value;
   }
   editModel<K extends keyof typeof this.model>(key: K, value: (typeof this.model)[K]): void { if (this.disabled) return; this.model = { ...this.model, [key]: value }; this.customModel = true; this.test = null; delete this.fieldErrors[key]; this.changed(); }
@@ -145,20 +145,20 @@ export class PersonalSettingsPageState implements SettingsForm {
   private modelValue(): PersonalModel | null {
     const value = { ...this.model, contextWindow: Number(this.model.contextWindow), maxTokens: Number(this.model.maxTokens) };
     this.fieldErrors = {};
-    if (!value.modelId.trim()) this.fieldErrors.modelId = "请输入模型标识。";
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(value.apiKeyEnv) || /^RUUKOTO_(OWNER_TOKEN|SERVICE|CODE_|DESKTOP_|.*_DIR$|PRODUCT$|EXECUTION_BACKEND$)/.test(value.apiKeyEnv)) this.fieldErrors.apiKeyEnv = "请输入专用凭据环境变量名称。";
+    if (!value.modelId.trim()) this.fieldErrors.modelId = "Enter a model identifier.";
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(value.apiKeyEnv) || /^RUUKOTO_(OWNER_TOKEN|SERVICE|CODE_|DESKTOP_|.*_DIR$|PRODUCT$|EXECUTION_BACKEND$)/.test(value.apiKeyEnv)) this.fieldErrors.apiKeyEnv = "Enter a dedicated credential environment variable name.";
     let url: URL | null = null;
-    try { url = new URL(value.baseUrl); } catch { this.fieldErrors.baseUrl = "请输入完整服务地址。"; }
-    if (url && (url.username || url.password || url.search || url.hash || url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) this.fieldErrors.baseUrl = "使用无凭据的 HTTPS 地址；回环地址可使用 HTTP。";
-    if (!Number.isSafeInteger(value.contextWindow) || value.contextWindow < 1024) this.fieldErrors.contextWindow = "上下文上限至少为 1024。";
-    if (!Number.isSafeInteger(value.maxTokens) || value.maxTokens < 1 || value.maxTokens >= value.contextWindow) this.fieldErrors.maxTokens = "输出上限须为正整数且小于上下文上限。";
-    if (Object.keys(this.fieldErrors).length) { this.message = "请修正标记字段。"; this.changed(); return null; }
+    try { url = new URL(value.baseUrl); } catch { this.fieldErrors.baseUrl = "Enter a complete service URL."; }
+    if (url && (url.username || url.password || url.search || url.hash || url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) this.fieldErrors.baseUrl = "Use a credential-free HTTPS URL; loopback may use HTTP.";
+    if (!Number.isSafeInteger(value.contextWindow) || value.contextWindow < 1024) this.fieldErrors.contextWindow = "Context limit must be at least 1024.";
+    if (!Number.isSafeInteger(value.maxTokens) || value.maxTokens < 1 || value.maxTokens >= value.contextWindow) this.fieldErrors.maxTokens = "Output limit must be a positive integer below the context limit.";
+    if (Object.keys(this.fieldErrors).length) { this.message = "Fix the marked fields."; this.changed(); return null; }
     return value;
   }
   async testModel(): Promise<void> { const value = this.modelValue(); if (!value) return; const result = await this.queryRemote<{ test: { status: string; message?: string } }>("model.test", { value }); if (result) { this.test = result.test; this.changed(); } }
   async selectService(id: string | null): Promise<void> {
     if (this.disabled || this.dirty) return;
-    if (!id && this.category === "mcp" && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "请先迁入 MCP 调用格式，再添加普通服务。"; this.changed(); return; }
+    if (!id && this.category === "mcp" && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "Migrate to the MCP call format before adding a normal service."; this.changed(); return; }
     let service: PersonalService | null = null;
     if (id) {
       let offset = 0, hasMore = true;
@@ -178,17 +178,17 @@ export class PersonalSettingsPageState implements SettingsForm {
   rebindCredential(): void { if (this.disabled || this.service.cua || this.service.authentication !== "credential" || this.mcpNeedsMigration) return; this.service.credentialRebind = true; this.changed(); }
   private serviceValue(): Record<string, unknown> | null {
     if (this.service.cua) {
-      if (!this.service.label.trim() || this.service.label.length > 128) { this.fieldErrors = { label: "请输入不超过 128 字的服务名称。" }; this.changed(); return null; }
+      if (!this.service.label.trim() || this.service.label.length > 128) { this.fieldErrors = { label: "Enter a service name of at most 128 characters." }; this.changed(); return null; }
       return { id: this.service.id, label: this.service.label, cua: this.service.cua };
     }
     this.fieldErrors = {};
-    if (!this.service.label.trim() || this.service.label.length > 128) this.fieldErrors.label = "请输入不超过 128 字的服务名称。";
+    if (!this.service.label.trim() || this.service.label.length > 128) this.fieldErrors.label = "Enter a service name of at most 128 characters.";
     let url: URL | null = null;
-    try { url = new URL(this.service.endpoint); } catch { this.fieldErrors.endpoint = "请输入完整 HTTPS 端点。"; }
-    if (url && (url.protocol !== "https:" || url.username || url.password || url.hash)) this.fieldErrors.endpoint = "使用无用户名、密码与片段的 HTTPS 端点。";
-    if (!this.service.authentication) this.fieldErrors.authentication = "请选择匿名或私有凭据文件。";
-    if (this.service.authentication === "credential" && !this.service.credentialPath.startsWith("/")) this.fieldErrors.credentialPath = "请输入远端私有凭据文件的绝对路径。";
-    if (Object.keys(this.fieldErrors).length) { this.message = "请修正标记字段。"; this.changed(); return null; }
+    try { url = new URL(this.service.endpoint); } catch { this.fieldErrors.endpoint = "Enter a complete HTTPS endpoint."; }
+    if (url && (url.protocol !== "https:" || url.username || url.password || url.hash)) this.fieldErrors.endpoint = "Use an HTTPS endpoint without username, password or fragment.";
+    if (!this.service.authentication) this.fieldErrors.authentication = "Choose anonymous or a private credential file.";
+    if (this.service.authentication === "credential" && !this.service.credentialPath.startsWith("/")) this.fieldErrors.credentialPath = "Enter the absolute path of the remote private credential file.";
+    if (Object.keys(this.fieldErrors).length) { this.message = "Fix the marked fields."; this.changed(); return null; }
     const { id, label, endpoint, authentication, credentialPath, credentialRebind } = this.service;
     return { id, label, endpoint, authentication, ...(authentication === "credential" ? { credentialPath, ...(credentialRebind ? { credentialRebind: true } : {}) } : {}) };
   }
@@ -197,7 +197,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.editingService || this.services.some(service => service.id === this.service.id)) return;
     this.cuaChoosing = true;
     const result = await this.queryRemote<{ targets: { label: string; config: PersonalService["cua"] }[]; issues: { code: string; message: string }[] }>("mcp.cua-targets");
-    if (result) { this.cuaTargets = result.targets.filter((target): target is { label: string; config: NonNullable<PersonalService["cua"]> } => target.config?.kind === "cua-linux"); this.cuaIssues = result.issues; this.message = this.cuaTargets.length ? "" : "未发现可用 Linux 桌面沙箱，请按安装说明准备本地环境后刷新。"; this.changed(); }
+    if (result) { this.cuaTargets = result.targets.filter((target): target is { label: string; config: NonNullable<PersonalService["cua"]> } => target.config?.kind === "cua-linux"); this.cuaIssues = result.issues; this.message = this.cuaTargets.length ? "" : "No usable Linux desktop sandbox found. Prepare the local environment per the install instructions and refresh."; this.changed(); }
   }
   chooseCua(index: number): void {
     const target = this.cuaTargets[index];
@@ -213,7 +213,7 @@ export class PersonalSettingsPageState implements SettingsForm {
   }
   prepareCua(action: "stop", operation: number): void {
     if (this.disabled || !this.cua?.operations.some(item => item.operation === operation)) return;
-    this.cuaConfirmation = { action, operation, label: "停止整个原沙箱会丢失内存及未保存的应用状态，磁盘保留。" }; this.changed();
+    this.cuaConfirmation = { action, operation, label: "Stopping the entire original sandbox loses memory and unsaved app state; disk is kept." }; this.changed();
   }
   cancelCua(): void { this.cuaConfirmation = null; this.changed(); }
   async confirmCua(): Promise<void> { const confirmation = this.cuaConfirmation; this.cuaConfirmation = null; if (confirmation) await this.controlCua(confirmation.action, confirmation.operation); }
@@ -224,7 +224,7 @@ export class PersonalSettingsPageState implements SettingsForm {
   cuaImageLoaded(operation: number, observation: number, id: string, loaded: boolean): void {
     const image = this.cuaImages.find(image => image.operation === operation && image.observation === observation && image.id === id);
     if (!image) return;
-    image.loaded = loaded; if (!loaded) this.message = "新截图无法显示，请重新观察；未开放电脑操作。"; this.changed();
+    image.loaded = loaded; if (!loaded) this.message = "The new screenshot can't be displayed. Observe again; computer operations aren't open."; this.changed();
   }
   async controlCua(action: "pause" | "resume" | "stop" | "observe" | "accept", operation?: number): Promise<void> {
     if (this.disabled) return;
@@ -237,7 +237,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!this.accepts(generation)) return;
     this.reading = false;
     if (!result.ok) { this.fail(result.error, true); this.changed(); return; }
-    if (!same(result.value.profile, this.view!.settings.profile)) { this.phase = "conflict"; this.message = "电脑控制应答不属于原档案，请重新读取。"; this.changed(); return; }
+    if (!same(result.value.profile, this.view!.settings.profile)) { this.phase = "conflict"; this.message = "The computer-control response doesn't belong to the original archive. Read it again."; this.changed(); return; }
     this.cua = { ...result.value, available: true };
     this.message = "";
     if (action === "observe" && operation !== undefined) await this.loadCuaImages(operation);
@@ -279,7 +279,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (!more) { this.mcpDetail = null; this.mcpEndConfirmation = null; }
     const result = await this.queryRemote<NonNullable<PersonalSettingsPageState["mcpDetail"]>>("mcp.operation", { operation, offset: more ? current!.nextOffset : 0 });
     if (!result) return;
-    if (result.summary.operation !== operation) { this.message = "原调用应答身份不符，请重新读取原调用。"; this.changed(); return; }
+    if (result.summary.operation !== operation) { this.message = "The original call's response identity doesn't match. Read the original call again."; this.changed(); return; }
     this.mcpDetail = result;
     if (this.mcpEndPending === operation) this.mcpEndPending = null;
     this.changed();
@@ -305,20 +305,20 @@ export class PersonalSettingsPageState implements SettingsForm {
       if (result.error.outcome === "not_sent" || result.error.outcome === "rejected") this.mcpEndPending = null;
       this.fail(result.error); this.changed(); return;
     }
-    if (!same(result.value.profile, this.view!.settings.profile) || result.value.operation !== operation || result.value.ended !== true) { this.message = "人工收尾应答不属于原调用，请刷新调用核实；不会自动重发。"; this.changed(); return; }
+    if (!same(result.value.profile, this.view!.settings.profile) || result.value.operation !== operation || result.value.ended !== true) { this.message = "The manual-closure response doesn't belong to the original call. Refresh the call to verify; it won't be resent."; this.changed(); return; }
     this.mcpEndPending = null;
     this.mcpOperations = this.mcpOperations.map(item => item.operation === operation ? { ...item, canEnd: false, ended: true } : item);
     if (this.mcpDetail?.summary.operation === operation) this.mcpDetail = { ...this.mcpDetail, summary: { ...this.mcpDetail.summary, canEnd: false, ended: true } };
-    this.message = "已接纳工作收尾，原调用结果仍未知；真实资源停止与最终报告由原工作继续核实。"; this.changed();
+    this.message = "Work closure admitted; the original call outcome is still unknown. The real resource stop and final report continue to be verified by the original work."; this.changed();
   }
   async save(): Promise<boolean> {
     if (this.category === "skills" || this.disabled || !this.dirty) return false;
-    if (this.mcpLike && !this.service.cua && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "请先迁入 MCP 调用格式，再保存普通服务。"; this.changed(); return false; }
+    if (this.mcpLike && !this.service.cua && this.view?.settings.mcp && this.view.settings.mcp.version !== 4) { this.message = "Migrate to the MCP call format before saving a normal service."; this.changed(); return false; }
     if (this.category === "models") {
       const value = this.modelValue();
       return value ? this.apply({ v: 1, op: "config.save", target: "model", value }) : false;
     }
-    if (this.service.cua && !this.service.tools.some(tool => tool.name === "computer_screenshot")) { this.message = "电脑入口必须允许 computer_screenshot 才能观察与恢复。"; this.changed(); return false; }
+    if (this.service.cua && !this.service.tools.some(tool => tool.name === "computer_screenshot")) { this.message = "The computer entry must allow computer_screenshot to observe and recover."; this.changed(); return false; }
     const service = this.serviceValue();
     return service ? this.apply({ v: 1, op: "mcp.save-service", service: { ...service, ...(!this.service.cua && !this.mcpNeedsMigration ? { toolEffects: this.service.toolEffects } : {}), ...(this.view?.settings.mcp?.version === 1 ? {} : { enabled: this.service.enabled }), ...(this.toolsChanged || !this.services.some(item => item.id === this.service.id) ? { tools: this.service.tools } : {}) } }) : false;
   }
@@ -326,7 +326,7 @@ export class PersonalSettingsPageState implements SettingsForm {
     if (this.disabled || request.op !== "settings.withdraw" && !this.writable) return false;
     const generation = this.generation;
     this.pendingSave = crypto.randomUUID();
-    this.phase = "saving"; this.message = "正在保存…"; this.changed();
+    this.phase = "saving"; this.message = "Saving…"; this.changed();
     const result = await this.request<PersonalPageView>("apply", { id: this.pendingSave, request });
     if (!this.accepts(generation)) return false;
     if (!result.ok) { if (["not_sent", "rejected"].includes(result.error.outcome)) this.pendingSave = null; this.fail(result.error, true); this.changed(); return false; }
@@ -374,7 +374,7 @@ export class PersonalSettingsPageState implements SettingsForm {
       const previous = this.view.settings.skills;
       const result = await this.queryRemote<typeof previous>("skills.list", { offset: previous.skills.length, limit: 20 }, true);
       if (result) {
-        if (result.revision !== previous.revision || result.directory !== previous.directory) { this.phase = "conflict"; this.message = "技能目录在分页期间变化，请重新读取；已取得的列表仍保留。"; }
+        if (result.revision !== previous.revision || result.directory !== previous.directory) { this.phase = "conflict"; this.message = "The skills catalog changed during paging; read again. The fetched list is kept."; }
         else this.view.settings.skills = { ...result, skills: [...previous.skills, ...result.skills] };
         this.changed();
       }
@@ -382,7 +382,7 @@ export class PersonalSettingsPageState implements SettingsForm {
       const previous = this.view.settings.mcp;
       const result = await this.queryRemote<PersonalPageView["settings"]>("settings.read", { offset: previous.services.length, limit: 1 });
       if (result) {
-        if (result.revisions.mcp !== this.revision) { this.phase = "conflict"; this.message = "MCP 配置在分页期间变化，请重新读取原配置；未混入新修订。"; }
+        if (result.revisions.mcp !== this.revision) { this.phase = "conflict"; this.message = "MCP configuration changed during paging; read the original configuration again. No new revisions were mixed in."; }
         else if (result.mcp) this.view.settings.mcp = { ...result.mcp, services: [...previous.services, ...result.mcp.services] };
         this.changed();
       }

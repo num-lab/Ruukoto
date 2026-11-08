@@ -22,7 +22,7 @@ export function SettingsSelect({ options, className = "", value, defaultValue, o
   return (
     <SelectPrimitive.Root value={encode(current)} onValueChange={value => { const next = value.slice(7); setSelected(next); onValueChange?.(next); }} disabled={disabled}>
       <SelectPrimitive.Trigger {...props} className={`settings-select ${className}`}>
-        <SelectPrimitive.Value>{options.find(option => option.value === current)?.label ?? (current || "请选择")}</SelectPrimitive.Value><SelectPrimitive.Icon asChild><ChevronDown aria-hidden="true" /></SelectPrimitive.Icon>
+        <SelectPrimitive.Value>{options.find(option => option.value === current)?.label ?? (current || "Select")}</SelectPrimitive.Value><SelectPrimitive.Icon asChild><ChevronDown aria-hidden="true" /></SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal><SelectPrimitive.Content className="settings-select-content" position="popper" align="start" sideOffset={4}>
         <SelectPrimitive.ScrollUpButton className="settings-select-scroll"><ChevronUp aria-hidden="true" /></SelectPrimitive.ScrollUpButton>

@@ -36,9 +36,9 @@ type Desktop struct {
 	outputPreviews outputPreviews
 }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
-// 可信调用者必须同时匹配前端 Page 对象、宿主窗口与精确前端 URL：
-// 同一 URL 的另一独立 WebView 不能借 URL 冒充前端。
+// Note: See .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
+// A trusted caller must match the front-end Page object, the host window and the exact front-end URL:
+// another WebView at the same URL can't impersonate the front end.
 func (d *Desktop) trusted(ctx context.Context) bool {
 	page := mygo.CallerPage(ctx)
 	return page != nil && d.frontend != nil && page == d.frontend.Page() && mygo.CallerWindow(ctx) == d.window && page.URL() == documentURL
@@ -46,7 +46,7 @@ func (d *Desktop) trusted(ctx context.Context) bool {
 
 func (d *Desktop) call(ctx context.Context, method string, args ...any) json.RawMessage {
 	if !d.trusted(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
 	if d.child == nil {
 		return d.error
@@ -64,11 +64,11 @@ func (d *Desktop) Request(ctx context.Context, target, op string, params json.Ra
 
 func (d *Desktop) PickFolder(ctx context.Context) json.RawMessage {
 	if !d.trusted(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
-	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Directory: true, Title: "选择工作区"})
+	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Directory: true, Title: "Choose workspace"})
 	if err != nil {
-		return failure("dialog_failed", "not_sent", "无法打开文件夹选择器；请重新选择。")
+		return failure("dialog_failed", "not_sent", "Couldn't open the folder picker; choose again.")
 	}
 	var folder any
 	if len(files) > 0 {
@@ -80,7 +80,7 @@ func (d *Desktop) PickFolder(ctx context.Context) json.RawMessage {
 
 func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string) json.RawMessage {
 	if !d.trusted(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
 	prepared := d.call(ctx, "attachment_instance", target, sessionID)
 	var selection struct {
@@ -90,12 +90,12 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string)
 	if json.Unmarshal(prepared, &selection) != nil || !selection.OK {
 		return prepared
 	}
-	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "选择附件"})
+	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "Choose attachments"})
 	if err != nil {
 		if target == "personal" {
 			d.call(ctx, "attachments", sessionID, []string{}, selection.Instance, target)
 		}
-		return failure("dialog_failed", "not_sent", "无法打开附件选择器；请重新选择。")
+		return failure("dialog_failed", "not_sent", "Couldn't open the attachment picker; choose again.")
 	}
 	if files == nil {
 		files = []string{}
@@ -105,11 +105,11 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string)
 
 func (d *Desktop) PickDraftAttachments(ctx context.Context) json.RawMessage {
 	if !d.trusted(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
-	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "选择附件"})
+	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "Choose attachments"})
 	if err != nil {
-		return failure("dialog_failed", "not_sent", "无法打开附件选择器；请重新选择。")
+		return failure("dialog_failed", "not_sent", "Couldn't open the attachment picker; choose again.")
 	}
 	if files == nil {
 		files = []string{}
@@ -123,7 +123,7 @@ func (d *Desktop) UploadDraftAttachments(ctx context.Context, sessionID string, 
 
 func (d *Desktop) Reveal(ctx context.Context, path string) json.RawMessage {
 	if !d.trusted(ctx) || !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
-		return failure("invalid_path", "not_sent", "请选择有效的本机绝对路径。")
+		return failure("invalid_path", "not_sent", "Choose a valid local absolute path.")
 	}
 	mygo.Shell.ShowItemInFolder(path)
 	return json.RawMessage(`{"ok":true}`)
@@ -139,10 +139,10 @@ func externalURL(value string) string {
 
 func (d *Desktop) OpenExternal(ctx context.Context, value string) json.RawMessage {
 	if !d.trusted(ctx) || externalURL(value) == "" {
-		return failure("invalid_url", "not_sent", "请选择有效的 HTTP(S) 链接。")
+		return failure("invalid_url", "not_sent", "Choose a valid HTTP(S) link.")
 	}
 	if err := mygo.Shell.OpenExternal(value); err != nil {
-		return failure("external_failed", "not_sent", "无法打开系统浏览器；请检查默认浏览器设置。")
+		return failure("external_failed", "not_sent", "Couldn't open the system browser; check the default browser settings.")
 	}
 	return json.RawMessage(`{"ok":true}`)
 }
@@ -174,17 +174,17 @@ func (d *Desktop) outputRequest(method string, args json.RawMessage) json.RawMes
 	if strings.HasPrefix(method, "output_") {
 		var raw []json.RawMessage
 		if json.Unmarshal(args, &raw) != nil {
-			return failure("invalid_params", "not_sent", "文件窗口参数无效。")
+			return failure("invalid_params", "not_sent", "Invalid file-window parameters.")
 		}
 		switch method {
 		case "output_choose":
 			var name string
 			if len(raw) != 1 || json.Unmarshal(raw[0], &name) != nil || !outputName(name) {
-				return failure("invalid_params", "not_sent", "最终文件名无效。")
+				return failure("invalid_params", "not_sent", "Invalid final file name.")
 			}
-			destination, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: d.window, Title: "保存最终文件", DefaultPath: name, CreateDirectories: true})
+			destination, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: d.window, Title: "Save final file", DefaultPath: name, CreateDirectories: true})
 			if err != nil {
-				return failure("personal_output_dialog", "not_sent", "保存窗口未能打开，请重新选择。")
+				return failure("personal_output_dialog", "not_sent", "The save dialog couldn't open; choose again.")
 			}
 			if destination == "" {
 				return outputValue(nil)
@@ -193,30 +193,30 @@ func (d *Desktop) outputRequest(method string, args json.RawMessage) json.RawMes
 		case "output_preview":
 			var filename, name string
 			if len(raw) != 2 || json.Unmarshal(raw[0], &filename) != nil || json.Unmarshal(raw[1], &name) != nil {
-				return failure("invalid_params", "not_sent", "文件预览参数无效。")
+				return failure("invalid_params", "not_sent", "Invalid file-preview parameters.")
 			}
 			id, err := d.outputPreviews.open(filename, name)
 			if err != nil {
-				return failure("personal_output_preview", "not_sent", "文件预览未能打开，请重新下载原文件。")
+				return failure("personal_output_preview", "not_sent", "The file preview couldn't open; download the original file again.")
 			}
 			return outputValue(id)
 		case "output_close_preview":
 			var id uint64
 			if len(raw) != 1 || json.Unmarshal(raw[0], &id) != nil || id == 0 {
-				return failure("invalid_params", "not_sent", "原预览身份无效。")
+				return failure("invalid_params", "not_sent", "The original preview identity is invalid.")
 			}
 			if err := d.outputPreviews.stop(id); err != nil {
-				return failure("personal_output_stop", "unknown", "原文件预览停止未能核实，请关闭预览窗口。")
+				return failure("personal_output_stop", "unknown", "The original file preview's stop is unverified; close the preview window.")
 			}
 			return outputValue(nil)
 		default:
-			return failure("unknown_method", "not_sent", "未知的文件窗口操作。")
+			return failure("unknown_method", "not_sent", "Unknown file-window operation.")
 		}
 	}
-	return failure("unknown_method", "not_sent", "未知的文件窗口操作。")
+	return failure("unknown_method", "not_sent", "Unknown file-window operation.")
 }
 
-// browserEvent 把页面事实上报子进程；闸门在原生侧已生效，送达失败只记诊断。
+// browserEvent reports page facts to the subprocess; the gate already took effect natively, so delivery failure only logs a diagnostic.
 func (d *Desktop) browserEvent(e browser.Event) {
 	if d.child == nil {
 		return
@@ -233,7 +233,7 @@ func (d *Desktop) browserEvent(e browser.Event) {
 			OK bool `json:"ok"`
 		}
 		if json.Unmarshal(res, &v) != nil || !v.OK {
-			os.Stderr.WriteString("[ruukoto:desktop] 浏览器事件未送达子进程；请核实后台会话状态。\n")
+			os.Stderr.WriteString("[ruukoto:desktop] Browser event not delivered to the subprocess; check the backend session state.\n")
 		}
 	}()
 }
@@ -261,7 +261,7 @@ func (d *Desktop) event(data json.RawMessage) {
 			return
 		}
 		if err := updates.EmitPage(d.frontend.Page(), data); err != nil {
-			os.Stderr.WriteString("[ruukoto:desktop] MyGo 更新未送达窗口；请重新打开应用核实当前状态。\n")
+			os.Stderr.WriteString("[ruukoto:desktop] MyGo update not delivered to the window; reopen the app to verify the current state.\n")
 		}
 	case "badge":
 		mygo.App.SetBadgeCount(event.Count)
@@ -278,7 +278,7 @@ func (d *Desktop) event(data json.RawMessage) {
 		})
 		go func() {
 			if err := n.Show(); err != nil {
-				os.Stderr.WriteString("[ruukoto:desktop] 系统通知未送达；请检查系统通知设置。\n")
+				os.Stderr.WriteString("[ruukoto:desktop] System notification not delivered; check system notification settings.\n")
 			}
 		}()
 	}
@@ -305,12 +305,12 @@ func (d *Desktop) ready() {
 	if dir, err := appearanceDir(); err == nil {
 		mygo.Theme.SetSource(loadAppearance(dir))
 	} else {
-		os.Stderr.WriteString("[ruukoto:desktop] 无法定位偏好目录，外观将跟随系统。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] Couldn't locate the preferences directory; appearance follows system.\n")
 	}
 	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, TrafficLightPosition: &mygo.Point{X: 18, Y: 17}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
 	frontend, err := d.window.NewWebView(mygo.WebViewOptions{URL: "/", Transparent: true, Page: mygo.PageOptions{PreloadScript: preload}})
 	if err != nil {
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 前端视图创建失败；请重新构建应用。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] MyGo front-end view creation failed; rebuild the app.\n")
 		d.failed = true
 		mygo.App.Quit()
 		return
@@ -327,7 +327,7 @@ func (d *Desktop) ready() {
 	page.OnWillDownload(func(event *mygo.DownloadEvent) { event.PreventDefault() })
 	page.OnWillNavigate(func(event *mygo.NavigateEvent) { event.PreventDefault() })
 	page.SetWindowOpenHandler(func(mygo.WindowOpenRequest) *mygo.WindowOptions { return nil })
-	d.error = failure("node_unavailable", "not_sent", "MyGo 子进程启动失败；请确认构建时的 Node 与仓库仍存在，再运行 npm run desktop:mygo:build。")
+	d.error = failure("node_unavailable", "not_sent", "The MyGo subprocess failed to start; make sure the build-time Node and repo still exist, then run npm run desktop:mygo:build.")
 	resources, err := mygo.App.Path(mygo.PathResources)
 	if err == nil {
 		executable, executableErr := os.Executable()
@@ -337,7 +337,7 @@ func (d *Desktop) ready() {
 			if verifyErr == nil {
 				d.instanceLock, err = acquireInstanceLock(command.Args[len(command.Args)-1])
 				if err != nil {
-					os.Stderr.WriteString("[ruukoto:desktop] 同一安装已运行或私有实例锁不可用；请关闭原应用后重试。\n")
+					os.Stderr.WriteString("[ruukoto:desktop] This installation is already running or the private instance lock is unavailable; close the original app and try again.\n")
 					d.failed = true
 					mygo.App.Quit()
 					return
@@ -357,13 +357,13 @@ func (d *Desktop) ready() {
 					}
 				}
 			} else {
-				d.error = failure("desktop_integrity", "not_sent", "应用签名、资源或固定 Node 校验失败；请重新构建应用。")
+				d.error = failure("desktop_integrity", "not_sent", "App signature, resource or pinned-Node verification failed; rebuild the app.")
 			}
 		}
 	}
 	if d.child == nil {
 		d.failed = true
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程启动失败；请确认构建时的 Node 与仓库仍存在后重新构建。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] The MyGo subprocess failed to start; confirm the build-time Node and repo still exist and rebuild.\n")
 	}
 	focus := func(value bool) {
 		if d.child != nil {
@@ -378,7 +378,7 @@ func (d *Desktop) ready() {
 
 func runDesktop() int {
 	if len(os.Args) != 1 || os.Getenv("RUUKOTO_DESKTOP_MYGO_USER_DATA") != "" || os.Getenv("RUUKOTO_DESKTOP_MANAGED") != "" {
-		os.Stderr.WriteString("[ruukoto:desktop] 正式应用不接受开发路径或启动参数；请从应用目录重新打开。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] The production app doesn't accept dev paths or launch arguments; reopen it from the app directory.\n")
 		return 1
 	}
 	desktop := &Desktop{}
@@ -431,7 +431,7 @@ func runDesktop() int {
 	})
 	mygo.App.WhenReady(desktop.ready)
 	if err := mygo.App.Run(); err != nil {
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 启动失败；请检查 macOS 环境并重新构建。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] MyGo launch failed; check the macOS environment and rebuild.\n")
 		return 1
 	}
 	if desktop.failed {

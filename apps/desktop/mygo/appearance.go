@@ -26,7 +26,7 @@ func loadAppearance(dir string) mygo.ThemeSource {
 	raw, err := os.ReadFile(filepath.Join(dir, appearanceFile))
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			os.Stderr.WriteString(fmt.Sprintf("[ruukoto:desktop] desktop-preferences.json 无法读取（%s），已回退到跟随系统；请检查应用数据目录。\n", err))
+			os.Stderr.WriteString(fmt.Sprintf("[ruukoto:desktop] desktop-preferences.json unreadable (%s); fell back to system. Check the app data directory.\n", err))
 		}
 		return mygo.ThemeSystem
 	}
@@ -38,7 +38,7 @@ func loadAppearance(dir string) mygo.ThemeSource {
 			return source
 		}
 	}
-	os.Stderr.WriteString("[ruukoto:desktop] desktop-preferences.json 无法读取，已回退到跟随系统；请检查应用数据目录。\n")
+	os.Stderr.WriteString("[ruukoto:desktop] desktop-preferences.json unreadable; fell back to system. Check the app data directory.\n")
 	return mygo.ThemeSystem
 }
 
@@ -79,11 +79,11 @@ func appearanceDir() (string, error) {
 
 func (d *Desktop) Appearance(ctx context.Context) json.RawMessage {
 	if !d.trusted(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
 	dir, err := appearanceDir()
 	if err != nil {
-		return failure("preferences_unavailable", "failed", "外观记录目录不可用；请重新打开应用。")
+		return failure("preferences_unavailable", "failed", "The preferences directory is unavailable; reopen the app.")
 	}
 	data, _ := json.Marshal(map[string]any{"ok": true, "value": string(loadAppearance(dir))})
 	return data
@@ -91,18 +91,18 @@ func (d *Desktop) Appearance(ctx context.Context) json.RawMessage {
 
 func (d *Desktop) SetAppearance(ctx context.Context, value string) json.RawMessage {
 	if !d.trusted(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
 	source, ok := appearanceSources[value]
 	if !ok {
-		return failure("invalid_params", "not_sent", "外观取值无效，请重新选择。")
+		return failure("invalid_params", "not_sent", "Invalid appearance value; choose again.")
 	}
 	dir, err := appearanceDir()
 	if err != nil {
-		return failure("preferences_unavailable", "failed", "外观记录目录不可用；请重新打开应用。")
+		return failure("preferences_unavailable", "failed", "The preferences directory is unavailable; reopen the app.")
 	}
 	if err := saveAppearance(dir, source); err != nil {
-		return failure("preferences_write", "failed", fmt.Sprintf("外观记录写入失败：%v", err))
+		return failure("preferences_write", "failed", fmt.Sprintf("Preferences write failed: %v", err))
 	}
 	mygo.Theme.SetSource(source)
 	data, _ := json.Marshal(map[string]any{"ok": true, "value": nil})

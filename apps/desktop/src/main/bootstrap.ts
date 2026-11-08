@@ -17,6 +17,6 @@ async function start(): Promise<void> {
   await import("./index.ts");
 }
 void start().catch(() => {
-  process.stderr.write("[ruukoto:desktop] 桌面启动校验失败；请移除调试与开发覆盖参数，重新构建后打开应用。\n");
+  process.stderr.write("[ruukoto:desktop] Desktop startup validation failed; remove debug/dev override flags and rebuild before opening the app.\n");
   app.exit(1);
 });

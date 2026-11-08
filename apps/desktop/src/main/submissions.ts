@@ -11,7 +11,7 @@ import { DesktopError } from "./environment.ts";
 
 type Connection = Pick<ControlConnection, "request"> & { instanceId?: string | null };
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopSubmissions {
   private readonly results = new Map<string, ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome>();
   private readonly announced = new Set<string>();
@@ -25,8 +25,8 @@ export class DesktopSubmissions {
     const connection = this.connection();
     const instanceId = connection?.instanceId ?? null;
     return { instanceId, request: (op, params) => {
-      // 核实跨过 await 后也必须留在原连接与实例，不能把旧输入重发到新数据库。
-      if (!connection || this.stopped || this.connection() !== connection || connection.instanceId !== instanceId) throw new ControlClientError("connection_changed", "连接已变化；等待原数据实例核实。", "not_sent");
+      // Verification must stay on the original connection and instance across awaits — old input must never resend to a new database.
+      if (!connection || this.stopped || this.connection() !== connection || connection.instanceId !== instanceId) throw new ControlClientError("connection_changed", "The connection changed; wait for the original data instance to verify.", "not_sent");
       return this.request(op, params);
     } };
   }
@@ -39,20 +39,20 @@ export class DesktopSubmissions {
   // Note: See .agents/notes/implemented/feature/2026-11-08-desktop-slash-commands.md
   /** The host retains the original request until its terminal receipt is known. */
   async compact(params: OpParams<"compact_session">): Promise<DesktopCompactionResult> {
-    if (typeof params.session_id !== "string" || !params.session_id.trim() || typeof params.request_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(params.request_id) || params.prompt !== undefined && typeof params.prompt !== "string") throw new DesktopError("invalid_params", "请选择会话并提供有效的压缩请求。");
+    if (typeof params.session_id !== "string" || !params.session_id.trim() || typeof params.request_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(params.request_id) || params.prompt !== undefined && typeof params.prompt !== "string") throw new DesktopError("invalid_params", "Select a chat and provide a valid compaction request.");
     const connection = this.guardConnection();
-    if (!connection.instanceId) throw new DesktopError("connection_unavailable", "请等待连接恢复后再压缩上下文。");
+    if (!connection.instanceId) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before compacting context.");
     const saved = this.store.list(true);
-    if (saved.corrupt.length) throw new DesktopError("pending_corrupt", "待核实记录损坏，请先检查桌面应用数据目录。");
+    if (saved.corrupt.length) throw new DesktopError("pending_corrupt", "The pending-verification records are corrupt; check the desktop app data directory first.");
     const existing = saved.records.find(record => record.op === "compact_session" && record.instanceId === connection.instanceId && record.params.session_id === params.session_id);
     if (existing) {
-      if (this.sending.has(existing.requestId)) return this.compactionResult(existing, { kind: "pending_verification", message: "原压缩请求正在发送，请等待核实。" });
+      if (this.sending.has(existing.requestId)) return this.compactionResult(existing, { kind: "pending_verification", message: "The original compaction request is sending; wait for verification." });
       const result = await this.reconcileCompaction(existing, existing.requestId === params.request_id);
-      if (existing.requestId !== params.request_id) return { record: existing, outcome: { kind: "pending_verification", message: "已核实原压缩请求，请查看结果后再提交新命令。" } };
+      if (existing.requestId !== params.request_id) return { record: existing, outcome: { kind: "pending_verification", message: "The original compaction request was verified; review the outcome before submitting a new command." } };
       return result;
     }
     const previous = this.store.read(params.request_id);
-    if (previous.kind !== "absent") throw new DesktopError("request_conflict", "压缩请求标识已被占用，请先核实原操作。");
+    if (previous.kind !== "absent") throw new DesktopError("request_conflict", "The compaction request ID is taken; verify the original operation first.");
     const record: PendingRequest = { requestId: params.request_id, op: "compact_session", instanceId: connection.instanceId, params: { ...params }, createdAt: new Date().toISOString() };
     this.store.save(record);
     const result = await this.sendCompaction(record);
@@ -76,9 +76,9 @@ export class DesktopSubmissions {
       const outcome = requestOutcome(error);
       if (outcome === "rejected" || outcome === "not_sent") {
         this.store.clear(record.requestId);
-        return this.compactionResult(record, { kind: "rejected", message: error instanceof Error ? error.message : "压缩请求未被接收，请重试。" });
+        return this.compactionResult(record, { kind: "rejected", message: error instanceof Error ? error.message : "The compaction request wasn't accepted; try again." });
       }
-      return this.compactionResult(record, { kind: "pending_verification", message: "压缩结果待核实；恢复连接后将查询原请求。" });
+      return this.compactionResult(record, { kind: "pending_verification", message: "Compaction outcome unverified; the original request will be queried once connected." });
     } finally { this.sending.delete(record.requestId); this.refresh(); }
   }
   private async reconcileCompaction(record: PendingRequest, retry = false): Promise<DesktopCompactionResult> {
@@ -86,25 +86,25 @@ export class DesktopSubmissions {
     if (record.instanceId !== connection.instanceId) return this.compactionResult(record, { kind: "foreign_instance" });
     let request;
     try { request = await connection.request("get_session_compaction", { session_id: String(record.params.session_id), request_id: record.requestId }); }
-    catch (error) { return this.compactionResult(record, { kind: "pending_verification", message: error instanceof Error ? error.message : "无法核实原压缩请求，请恢复连接后重试。" }); }
+    catch (error) { return this.compactionResult(record, { kind: "pending_verification", message: error instanceof Error ? error.message : "Couldn't verify the original compaction request; restore the connection and try again." }); }
     if (record.instanceId !== this.connection()?.instanceId) return this.compactionResult(record, { kind: "foreign_instance" });
-    if (!request) return retry ? this.sendCompaction(record) : this.compactionResult(record, { kind: "pending_verification", message: "未找到原压缩请求；点击核实原压缩请求可按原参数重试。" });
+    if (!request) return retry ? this.sendCompaction(record) : this.compactionResult(record, { kind: "pending_verification", message: "The original compaction request wasn't found; clicking verify retries with the original parameters." });
     if (request.status !== "running") this.store.clear(record.requestId);
     return this.compactionResult(record, { kind: "accepted", request });
   }
   async submit(op: "submit" | "owner_question_answer", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
-    if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string")) throw new DesktopError("invalid_params", "请选择会话后再发送。");
+    if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string")) throw new DesktopError("invalid_params", "Select a chat before sending.");
     const existing = this.store.list().records.find(record => op === "owner_question_answer"
       ? (record.op === "owner_question_answer" || record.op === "owner_question_cancel") && record.params.question_id === params.question_id
       : record.op === op && record.params.session_id === params.session_id);
     if (existing) return { kind: "pending_existing", record: existing };
     const requestId = params.request_id;
-    if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId))) throw new DesktopError("invalid_params", "输入请求标识无效，请重新发送。");
+    if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId))) throw new DesktopError("invalid_params", "The input request ID is invalid; send again.");
     if (typeof requestId === "string") {
       let previous: ReturnType<PendingRequestStore["read"]>;
       try { previous = this.store.read(requestId); }
-      catch { throw new DesktopError("pending_read_failed", "无法核对原输入记录，本次没有发送；请恢复应用数据目录权限后重试。"); }
-      if (previous.kind !== "absent") throw new DesktopError("request_conflict", "输入请求标识已被占用，本次没有发送；原记录仍保留。");
+      catch { throw new DesktopError("pending_read_failed", "Couldn't check the original input record and nothing was sent; restore app data directory permissions and try again."); }
+      if (previous.kind !== "absent") throw new DesktopError("request_conflict", "The input request ID is taken and nothing was sent; the original record is kept.");
     }
     const guard = this.guard();
     const pending = guard.submit(op, params, typeof requestId === "string" ? { requestId } : {});
@@ -140,7 +140,7 @@ export class DesktopSubmissions {
     return result;
   }
   async endBackground(params: Record<string, unknown>): Promise<BackgroundEndOutcome> {
-    if (typeof params.session_id !== "string" || !params.session_id.trim() || (params.request_id !== undefined && typeof params.request_id !== "string")) throw new DesktopError("invalid_params", "请选择需要结束后台的会话。");
+    if (typeof params.session_id !== "string" || !params.session_id.trim() || (params.request_id !== undefined && typeof params.request_id !== "string")) throw new DesktopError("invalid_params", "Select the chat whose background should end.");
     const result = await new BackgroundEndGuard(this.store, this.guardConnection()).end(params.session_id, params.request_id as string | undefined);
     this.refresh();
     return result;
@@ -186,15 +186,15 @@ export class DesktopSubmissions {
   }
   local(op: PendingOp, params: Record<string, unknown>): PendingRequest | undefined {
     const requestId = params.request_id;
-    if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]+$/.test(requestId)) throw new DesktopError("not_restorable", "此输入不可恢复；请等待核实或连回原数据实例。");
+    if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]+$/.test(requestId)) throw new DesktopError("not_restorable", "This input can't be restored; wait for verification or reconnect to the original data instance.");
     let entry: ReturnType<PendingRequestStore["read"]>;
     try { entry = this.store.read(requestId); }
-    catch { throw new DesktopError(op === "desktop_pending_read" ? "pending_read_failed" : "pending_clear_failed", "原记录无法读取，发送仍禁用；请检查应用数据目录后重试。"); }
+    catch { throw new DesktopError(op === "desktop_pending_read" ? "pending_read_failed" : "pending_clear_failed", "The original record can't be read and sending stays disabled; check the app data directory and try again."); }
     if (entry.kind === "absent" && op === "desktop_pending_clear") { this.refresh(); return; }
-    if (entry.kind !== "record" || entry.record.op !== "submit" || entry.record.instanceId !== this.connection()?.instanceId || this.results.get(requestId)?.kind !== "needs_resubmit") throw new DesktopError("not_restorable", "此输入不可恢复；请等待核实或连回原数据实例。");
+    if (entry.kind !== "record" || entry.record.op !== "submit" || entry.record.instanceId !== this.connection()?.instanceId || this.results.get(requestId)?.kind !== "needs_resubmit") throw new DesktopError("not_restorable", "This input can't be restored; wait for verification or reconnect to the original data instance.");
     if (op === "desktop_pending_read") return entry.record;
     try { this.store.remove(requestId); }
-    catch { throw new DesktopError("pending_clear_failed", "原记录未能清除，发送仍禁用；请检查应用数据目录后重试。"); }
+    catch { throw new DesktopError("pending_clear_failed", "The original record couldn't be cleared and sending stays disabled; check the app data directory and try again."); }
     this.results.delete(requestId);
     this.refresh();
   }

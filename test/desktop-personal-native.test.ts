@@ -33,14 +33,14 @@ test("Personal composer retains text, attachment actions and native draft guards
   for (const text of ["", "短消息", "first\nsecond", "long input ".repeat(4), "较长的中文消息".repeat(3)]) {
     state.edit(text);
     const markup = render();
-    assert.match(markup, /aria-label="输入个人消息"/); assert.equal(state.draft, text);
+    assert.match(markup, /aria-label="Type a personal message"/); assert.equal(state.draft, text);
     assert.match(markup, /class="[^"]*personal-attach[^"]*"/); assert.match(markup, /class="[^"]*personal-send[^"]*"/);
   }
   const attachment: PersonalDesktopAttachment = { id: "3b7a00d1-8815-41a2-b0e9-467b79d8521a", name: "report.txt", size: 9, mime: "text/plain", sha256: "a".repeat(64) };
   state.update({ type: "personal_draft", draft: { v: 1, id: "draft", origin: identity.origin, remoteId: identity.remoteId, profile: identity.profile, input: "", attachments: [attachment], failed: false } });
-  assert.match(render(), /personal-composer is-expanded/); assert.match(render(), /移除附件 report.txt/); assert.equal(state.canSend, true);
+  assert.match(render(), /personal-composer is-expanded/); assert.match(render(), /Remove attachment report.txt/); assert.equal(state.canSend, true);
   state.update({ type: "personal_identity", identity: { ...identity, profile: { ...identity.profile, id: "other" } } });
-  assert.equal(state.canSend, false); assert.match(render(), /草稿属于原连接/);
+  assert.equal(state.canSend, false); assert.match(render(), /The draft belongs to the original connection/);
 });
 
 test("Attachment-only owner bubbles keep refs and names; persisted failure disables sending after reload", async t => {
@@ -54,7 +54,7 @@ test("Attachment-only owner bubbles keep refs and names; persisted failure disab
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /original.csv/); assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1); assert.deepEqual(f.state.timeline.find(entry => entry.requestKey === "original")!.attachments, [ref]);
   const reloaded = fixture(); t.after(() => reloaded.state.dispose()); await settle(); reloaded.state.update({ type: "personal_draft", draft: { ...draft, input: "Keep text", failed: true } });
   assert.equal(reloaded.state.draft, "Keep text"); assert.deepEqual(reloaded.state.attachments, [ref]); assert.equal(reloaded.state.canSend, false); await reloaded.state.send(); assert.equal(reloaded.calls.some(call => call.op === "desktop_personal_input_submit"), false);
-  const failedMarkup = renderToStaticMarkup(createElement(Chat, { model: reloaded.state, onConnect() {} })); assert.doesNotMatch(failedMarkup, /附件未完整准备|重新选择附件|放弃草稿/); assert.match(failedMarkup, /添加附件/); assert.match(failedMarkup, /移除附件 original.csv/); assert.equal(reloaded.state.canAttach, true);
+  const failedMarkup = renderToStaticMarkup(createElement(Chat, { model: reloaded.state, onConnect() {} })); assert.doesNotMatch(failedMarkup, /attachment wasn't fully prepared|choose the attachment again|discard the draft/); assert.match(failedMarkup, /Add attachment/); assert.match(failedMarkup, /Remove attachment original.csv/); assert.equal(reloaded.state.canAttach, true);
 });
 
 test("PA原生状态：块替换不重复文字，原entry去重，旧订阅和断序不能推进当前投影", async t => {
@@ -123,12 +123,12 @@ test("Published files stay with completed timeline entries and use only native i
   const value = { v: 1 as const, publication: 200, output: 100, name: "final.txt", mime: "text/plain", bytes: 12, sha256: "a".repeat(64), partial: false };
   const f = fixture(async (_target, op, params) => op === "desktop_personal_output_save" || op === "desktop_personal_output_preview" ? ok({ state: op.endsWith("save") ? "saved" : "previewed" }) : op === "desktop_personal_request" && params.path === "/permissions" ? ok({ default: { mode: "confirm" } }) : ok({ items: [] })); t.after(() => f.state.dispose()); await settle();
   f.state.entries.set(value.publication, { entry: value.publication, conversation: 0, kind: "ruukoto.report-publication", role: "assistant", text: "", partial: false, truncated: false, timestamp: 1, outputs: [value] });
-  let markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /final.txt/); assert.match(markup, /预览/); assert.match(markup, /下载/); assert.doesNotMatch(markup, /download=|data:application|blob:/);
+  let markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /final.txt/); assert.match(markup, /Preview/); assert.match(markup, /Download/); assert.doesNotMatch(markup, /download=|data:application|blob:/);
   await f.state.output(value, "preview"); await f.state.output(value, "save");
   assert.deepEqual(f.calls.filter(call => call.op.startsWith("desktop_personal_output_")), ["preview", "save"].map(action => ({ op: `desktop_personal_output_${action}`, params: { origin: identity.origin, remoteId: identity.remoteId, profileId: identity.profile.id, publication: value.publication, output: value.output } })));
-  assert.equal(f.state.outputStatus.get("200:100"), "文件已保存");
+  assert.equal(f.state.outputStatus.get("200:100"), "File saved");
   f.state.entries.get(value.publication)!.outputs = [{ ...value, partial: true }];
-  markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /不完整或超过 8 MiB/); assert.doesNotMatch(markup, />预览<|>下载</);
+  markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} })); assert.match(markup, /incomplete or over 8 MiB/); assert.doesNotMatch(markup, />Preview<|>Download</);
   await f.state.output({ ...value, partial: true }, "save"); await f.state.output({ ...value, bytes: 8 * 1024 * 1024 + 1 }, "save"); assert.equal(f.calls.filter(call => call.op.startsWith("desktop_personal_output_")).length, 2);
 });
 
@@ -228,8 +228,8 @@ test("PA视图：完整消息按角色气泡分组，流式片段与trace不显�
   f.state.live.generation = { attempt: 1, message: { role: "assistant", text: "流式片段", partial: true, truncated: false, timestamp: timestamp + 5000 } };
   f.state.live.tools = [{ callId: "tool", name: "read_file", status: "running", output: "片段", truncated: true }]; f.state.live.toolCount = 1;
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.match(markup, /原输入/); assert.match(markup, /完整回复一/); assert.match(markup, /完整回复二/); assert.match(markup, /发送个人消息/); assert.match(markup, /aria-label="添加附件"/); assert.doesNotMatch(markup, /PA 暂不支持附件/); assert.match(markup, /rows="1"/);
-  assert.doesNotMatch(markup, /read_file|流式片段|隐藏思考|隐藏工具结果|空正文也不显示|新输入的默认权限|停止任务|发送并继续|Context|会话模型|Plan/);
+  assert.match(markup, /原输入/); assert.match(markup, /完整回复一/); assert.match(markup, /完整回复二/); assert.match(markup, /Send personal message/); assert.match(markup, /aria-label="Add attachment"/); assert.doesNotMatch(markup, /not supported|doesn't support/); assert.match(markup, /rows="1"/);
+  assert.doesNotMatch(markup, /read_file|stream fragment|hidden thinking|hidden tool result|empty body|default permission|Stop task|Send and continue|Context|Chat model|Plan/);
   assert.equal([...markup.matchAll(/class="personal-message-group /g)].length, 2);
   assert.equal([...markup.matchAll(/class="personal-message-time"/g)].length, 2);
   assert.equal([...markup.matchAll(/data-slot="bubble"/g)].length, 3);
@@ -247,12 +247,12 @@ test("Native cards arrive in the timeline before prose and retain superseded exa
   f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "personal_state", state: projection(1, [value]) }] });
   await f.state.loadCard(value);
   let markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.match(markup, /EXACT OLD CONTENT/); assert.match(markup, /批准本次/); assert.doesNotMatch(markup, /核实原操作/);
+  assert.match(markup, /EXACT OLD CONTENT/); assert.match(markup, /Approve/); assert.doesNotMatch(markup, /Verify the original operation/);
   const terminal = { ...value, approval: "approved" as const, observed: true, canDecide: false, code: "tool_requirements_changed", notice: "要求已更新，这项旧操作没有执行。" };
   f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 2, type: "events", events: [{ type: "personal_state", state: projection(2, [terminal]) }, { type: "entry_appended", entry: { entry: 200, conversation: 0, kind: "pi.assistant", role: "assistant", text: "Later completed prose", timestamp: 2, partial: false, truncated: false } }] });
   markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
   assert.ok(markup.indexOf("EXACT OLD CONTENT") < markup.indexOf("Later completed prose"));
-  assert.match(markup, /要求已更新，这项旧操作没有执行/); assert.doesNotMatch(markup, /批准本次|拒绝本次/);
+  assert.match(markup, /要求已更新，这项旧操作没有执行/); assert.doesNotMatch(markup, /Approve|Deny/);
   assert.equal(f.state.cards.get(value.occurrence)?.approval, "approved");
   f.state.edit("Amend or query while external work waits"); assert.equal(f.state.canSend, true);
 });
@@ -266,7 +266,7 @@ test("Personal processing and admission do not add composer status notices", asy
   f.state.update({ type: "personal_pending", record: { ...identity, requestId: "original", input: "ping" } });
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
   const composer = markup.slice(markup.indexOf('class="composer-wrap'));
-  assert.doesNotMatch(composer, /task-notice|正在处理|工作进行中|正在准备结果|结果待核实|核实原输入/);
+  assert.doesNotMatch(composer, /task-notice|Pending|Work running|Preparing result|unverified|Verify the original input/);
 });
 
 test("Personal send shows its bubble before the host responds and removes only the loader on acceptance", async t => {
@@ -277,7 +277,7 @@ test("Personal send shows its bubble before the host responds and removes only t
     const render = () => renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
     f.state.edit("ping"); const sending = f.state.send();
     assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1, "bubble exists before host pending or RPC receipt");
-    assert.match(render(), /class="[^"]*personal-input-loading/); assert.doesNotMatch(render(), /正在核实接纳|结果待核实/);
+    assert.match(render(), /class="[^"]*personal-input-loading/); assert.doesNotMatch(render(), /Verifying acceptance|unverified/i);
     const anchor = f.state.timeline.at(-1)!.entry;
     f.state.update({ type: "personal_pending", record: { ...identity, requestId: "original", input: "ping" } });
     assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1); assert.equal(f.state.timeline.at(-1)!.entry, anchor);
@@ -285,7 +285,7 @@ test("Personal send shows its bubble before the host responds and removes only t
     if (streamFirst) { f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry: history }] }); assert.doesNotMatch(render(), /personal-input-loading/); }
     f.state.update({ type: "personal_pending", record: null, result: { kind: "accepted", requestId: "original", status: "queued" } });
     receipt(ok({ kind: "accepted", requestId: "original", status: "queued" })); await sending;
-    assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1); assert.doesNotMatch(render(), /personal-input-loading|正在核实接纳|等待处理/);
+    assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1); assert.doesNotMatch(render(), /personal-input-loading|Sending|Waiting/);
     if (!streamFirst) f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 1, type: "events", events: [{ type: "entry_appended", entry: history }] });
     assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1);
     assert.equal(f.calls.filter(call => call.op === "desktop_personal_input_submit").length, 1);
@@ -322,9 +322,9 @@ test("Delegation layout shows each member once and retains off-page work and who
   f.state.delegations = [{ ref: { entryId: 7 }, content: work.content, state: "reporting", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false }, { ref: { entryId: 8 }, content: "Assignment without loaded members", state: "active", cancelRequested: false, total: 1, active: 1, unverified: 0, paused: false }];
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
   for (const label of ["Visible member", "Off-page group member", "Standalone work", "Assignment without loaded members"]) assert.equal(markup.split(label).length - 1, 1);
-  assert.doesNotMatch(markup, /Repeated owner content|正在准备结果/);
-  assert.equal(markup.split("取消整项工作").length - 1, 2); assert.equal(markup.split("取消此工作").length - 1, 1);
-  assert.equal(markup.split("查看状态").length - 1, 3); assert.equal(markup.split("已接纳").length - 1, 3);
+  assert.doesNotMatch(markup, /Repeated owner content|Preparing result/);
+  assert.equal(markup.split("Cancel the entire work").length - 1, 2); assert.equal(markup.split("Cancel this work").length - 1, 1);
+  assert.equal(markup.split("View status").length - 1, 3); assert.equal(markup.split("accepted").length - 1, 3);
 });
 
 test("Cancellation rejection remains visible while another pending card is inspected", async t => {
@@ -416,7 +416,7 @@ test("Legacy Personal history renders one owner bubble after a successful native
   assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 1);
   assert.equal(f.state.timeline.some(entry => entry.kind === "local-input"), false);
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.doesNotMatch(markup, /正在核实接纳/);
+  assert.doesNotMatch(markup, /Sending/);
   f.state.frame({ v: 1, runId: "run", subscription: "subscription", seq: 2, type: "events", events: [{ type: "entry_appended", entry: { entry: 11, conversation: 0, kind: "pi.user", role: "user", text: "ping", partial: false, truncated: false, timestamp: 101 } }] });
   assert.equal(f.state.timeline.filter(entry => entry.text === "ping").length, 2, "identical real submissions remain distinct");
 });
@@ -429,9 +429,9 @@ test("Accepted Personal input status is never presented as uncertain admission",
     f.state.edit("ping"); await f.state.send();
     assert.equal(f.state.timeline.filter(entry => entry.requestKey === "original").length, 1);
     const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-    assert.doesNotMatch(markup, /正在核实接纳/, status);
-    assert.doesNotMatch(markup, /personal-input-loading|等待处理/);
-    if (status === "unanswered") assert.match(markup, /未完成处理/);
+    assert.doesNotMatch(markup, /Sending/, status);
+    assert.doesNotMatch(markup, /personal-input-loading|Waiting/);
+    if (status === "unanswered") assert.match(markup, /Processing unfinished/);
   }
 });
 
@@ -468,7 +468,7 @@ test("Write cards display the full resolved target and clearly identify an empty
   f.state.frame({ ...snapshot(), state: projection(1, [value]) });
   f.state.details.set(personalCardKey(value), { admission: value.admission, text: JSON.stringify({ target, params: { path: "/short-alias/result", content: "" } }), complete: true });
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.match(markup, /EXACT-TAIL\.txt/); assert.match(markup, /文件内容将清空/); assert.match(markup, /批准本次/);
+  assert.match(markup, /EXACT-TAIL\.txt/); assert.match(markup, /The file contents will be cleared/); assert.match(markup, /Approve/);
 });
 
 test("Restored host decisions lock cards and legacy modal decisions inspect canonical state after reply loss", async t => {
@@ -672,7 +672,7 @@ test("All-family recovery cards retain claims, current observations and explicit
   f.state.frame({ ...snapshot(), state: projection(1, [value]) }); f.state.details.set(personalCardKey(value), { admission: value.admission, family: "mcp", complete: true, text: JSON.stringify({ target: value.target, params: { action: "Original click" } }) });
   f.state.entries.set(400, { entry: 400, conversation: 0, kind: "pi.assistant", role: "assistant", text: "Later prose", partial: false, truncated: false, timestamp: 1000 });
   const markup = renderToStaticMarkup(createElement(Chat, { model: f.state, onConnect() {} }));
-  assert.ok(markup.indexOf("Original click") < markup.indexOf("Later prose")); assert.match(markup, /当前观察：Current target is healthy/); assert.match(markup, /你的记录：已生效/); assert.match(markup, /停止原执行|查看新现场|停止整个原沙箱/); assert.doesNotMatch(markup, /确认停止整个原沙箱/);
+  assert.ok(markup.indexOf("Original click") < markup.indexOf("Later prose")); assert.match(markup, /Current observation: Current target is healthy/); assert.match(markup, /Your record: applied/); assert.match(markup, /Stop the original execution|View the new state|Stop the entire original sandbox/); assert.doesNotMatch(markup, /Confirm stopping the entire sandbox/);
 });
 
 test("A native canceled question and a stale recovery card cannot send their former actions", async t => {
@@ -711,8 +711,8 @@ test("A native recovery screenshot must match observation, completeness, hash an
   await f.state.loadCuaImages(value); assert.deepEqual(parserFailures, []); assert.equal(settingsReads, 1); assert.ok(f.state.cuaImages.has(value.operation), f.state.message ?? "Native screenshot did not load"); assert.deepEqual(pages, [{ revision, offset: 0 }, { revision, offset: 8 }]);
   assert.equal(f.state.canAcceptCua(value), false); f.state.cuaImageLoaded(value, image, true); assert.equal(f.state.canAcceptCua(value), true);
   f.state.cuaImageLoaded({ ...value, observation: 1199 }, image, false); assert.equal(f.state.canAcceptCua(value), true);
-  corrupt = true; await f.state.loadCuaImages(value); assert.equal(settingsReads, 2); assert.equal(f.state.canAcceptCua(value), false); assert.match(f.state.message ?? "", /完整性/);
-  await f.state.loadCuaImages({ ...value, images: [{ ...value.images[0], partial: true }] }); assert.equal(f.state.canAcceptCua(value), false); assert.match(f.state.message ?? "", /不完整/); assert.equal(pages.length, 4);
+  corrupt = true; await f.state.loadCuaImages(value); assert.equal(settingsReads, 2); assert.equal(f.state.canAcceptCua(value), false); assert.match(f.state.message ?? "", /integrity/);
+  await f.state.loadCuaImages({ ...value, images: [{ ...value.images[0], partial: true }] }); assert.equal(f.state.canAcceptCua(value), false); assert.match(f.state.message ?? "", /incomplete/); assert.equal(pages.length, 4);
 });
 
 test("A native screenshot cannot use a foreign or stale settings read", async t => {
@@ -734,7 +734,7 @@ test("A native screenshot cannot use a foreign or stale settings read", async t 
     const responseProfile = { directory: mode === "foreign directory" ? "/private/other-pa" : profile.directory, id: mode === "foreign profile" ? `sha256:${"d".repeat(64)}` : profile.id };
     release(ok({ profile: responseProfile, revisions: { mcp: revision } })); await loading;
     assert.equal(imageReads, 0); assert.equal(f.state.cuaImages.size, 0); assert.equal(f.state.canAcceptCua(value), false); assert.equal(f.state.cuaImageLoading.has(value.operation), false);
-    if (mode === "foreign profile" || mode === "foreign directory") assert.match(f.state.message ?? "", /原档案/);
+    if (mode === "foreign profile" || mode === "foreign directory") assert.match(f.state.message ?? "", /original archive/);
   });
 });
 

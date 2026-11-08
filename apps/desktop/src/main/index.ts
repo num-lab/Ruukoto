@@ -22,7 +22,7 @@ function showNotice(notice: DesktopNotice): void {
   const notification = new Notification({ title: notice.title, body: notice.body });
   notifications.add(notification);
   notification.on("close", () => notifications.delete(notification));
-  notification.on("failed", () => { notifications.delete(notification); process.stderr.write("[ruukoto:desktop] 系统通知未送达；请检查系统通知设置。\n"); });
+  notification.on("failed", () => { notifications.delete(notification); process.stderr.write("[ruukoto:desktop] System notification not delivered; check system notification settings.\n"); });
   notification.on("click", () => {
     notifications.delete(notification);
     window?.show();
@@ -33,13 +33,13 @@ function showNotice(notice: DesktopNotice): void {
 }
 const platform = {
   pickOutput: async (name: string) => {
-    if (!window || window.isDestroyed()) throw new DesktopError("personal_output_closed", "文件窗口已关闭，请重新打开应用。");
-    const result = await dialog.showSaveDialog(window, { title: "保存最终文件", defaultPath: name, properties: ["createDirectory", "showOverwriteConfirmation"] });
+    if (!window || window.isDestroyed()) throw new DesktopError("personal_output_closed", "The file window closed; reopen the app.");
+    const result = await dialog.showSaveDialog(window, { title: "Save final file", defaultPath: name, properties: ["createDirectory", "showOverwriteConfirmation"] });
     return result.canceled ? null : result.filePath ?? null;
   },
   previewOutput: async (filename: string, name: string) => {
     const source = window;
-    if (!source || source.isDestroyed()) throw new DesktopError("personal_output_closed", "文件窗口已关闭，请重新打开应用。");
+    if (!source || source.isDestroyed()) throw new DesktopError("personal_output_closed", "The file window closed; reopen the app.");
     source.previewFile(filename, name);
     return () => { if (!source.isDestroyed()) source.closeFilePreview(); };
   },
@@ -49,7 +49,7 @@ const platform = {
   notice: showNotice,
   badge: (count: number) => {
     try { app.dock?.setBadge(count ? String(count) : ""); }
-    catch { process.stderr.write("[ruukoto:desktop] Dock 角标更新失败；请在应用中查看待审批。\n"); }
+    catch { process.stderr.write("[ruukoto:desktop] Dock badge update failed; view pending approvals in the app.\n"); }
   },
 };
 const host = new DesktopHost(__RUUKOTO_REPOSITORY__, app.getPath("userData"), platform);
@@ -57,11 +57,11 @@ function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): bo
   return !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
 }
 function assertTrusted(event: Electron.IpcMainInvokeEvent): void {
-  if (!trusted(event)) throw new DesktopError("ipc_sender", "桌面请求来源不可用；请重新打开应用。");
+  if (!trusted(event)) throw new DesktopError("ipc_sender", "The desktop request source is unavailable; reopen the app.");
 }
 function openExternal(value: string): void {
   const url = externalUrl(value);
-  if (url) void shell.openExternal(url).catch(() => { process.stderr.write("[ruukoto:desktop] 无法打开系统浏览器，请核对默认浏览器设置。\n"); });
+  if (url) void shell.openExternal(url).catch(() => { process.stderr.write("[ruukoto:desktop] Couldn't open the system browser; check the default browser settings.\n"); });
 }
 
 async function createWindow(): Promise<void> {
@@ -108,7 +108,7 @@ ipcMain.handle("desktop:appearance", event => ipcResult(() => {
 ipcMain.handle("desktop:set-appearance", (event, value: unknown) => ipcResult(() => {
   assertTrusted(event);
   const appearance = appearanceValue(value);
-  if (!appearance) throw new DesktopError("invalid_params", "外观取值无效，请重新选择。");
+  if (!appearance) throw new DesktopError("invalid_params", "Invalid appearance value; choose again.");
   saveAppearance(app.getPath("userData"), appearance);
   nativeTheme.themeSource = appearance;
 }));
@@ -123,14 +123,14 @@ ipcMain.handle("desktop:request", async (event, target, op, params) => {
 ipcMain.handle("desktop:pick-attachments", (event, sessionId: unknown, target: unknown = "code") => ipcResult(async () => {
   assertTrusted(event);
   return host.pickAttachments(sessionId, async () => {
-    const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" });
+    const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "Choose attachments" });
     return selection.canceled ? [] : selection.filePaths;
   }, undefined, target);
 }));
 ipcMain.handle("desktop:pick-draft-attachments", event => ipcResult(async () => {
   assertTrusted(event);
   return host.pickDraftAttachments(async () => {
-    const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "选择附件" });
+    const selection = await dialog.showOpenDialog(window!, { properties: ["openFile", "multiSelections"], title: "Choose attachments" });
     return selection.canceled ? [] : selection.filePaths;
   });
 }));
@@ -140,12 +140,12 @@ ipcMain.handle("desktop:upload-draft-attachments", (event, sessionId: unknown, t
 }));
 ipcMain.handle("desktop:pick-folder", event => ipcResult(async () => {
   assertTrusted(event);
-  const result = await dialog.showOpenDialog(window!, { properties: ["openDirectory"], title: "选择工作区" });
+  const result = await dialog.showOpenDialog(window!, { properties: ["openDirectory"], title: "Choose workspace" });
   return result.canceled ? null : result.filePaths[0] ?? null;
 }));
 ipcMain.handle("desktop:reveal", (event, value: unknown) => ipcResult(() => {
   assertTrusted(event);
-  if (typeof value !== "string" || !path.isAbsolute(value) || value.includes("\0")) throw new DesktopError("invalid_path", "请选择有效的本机绝对路径。");
+  if (typeof value !== "string" || !path.isAbsolute(value) || value.includes("\0")) throw new DesktopError("invalid_path", "Choose a valid local absolute path.");
   shell.showItemInFolder(value);
 }));
 
@@ -155,8 +155,8 @@ app.on("before-quit", event => {
   if (quitting) return;
   quitting = true;
   void host.close().catch(() => {
-    process.stderr.write("[ruukoto:desktop] Personal 退出清理失败；请检查应用数据目录权限。\n");
+    process.stderr.write("[ruukoto:desktop] Personal shutdown cleanup failed; check app data directory permissions.\n");
   }).finally(() => { quitReady = true; app.quit(); });
 });
 app.on("window-all-closed", () => app.quit());
-app.whenReady().then(async () => { await createWindow(); void host.reconnectPersonal(); }).catch(() => { process.stderr.write("[ruukoto:desktop] 桌面窗口启动失败，请检查开发 nonce 或重新构建应用。\n"); app.quit(); });
+app.whenReady().then(async () => { await createWindow(); void host.reconnectPersonal(); }).catch(() => { process.stderr.write("[ruukoto:desktop] Desktop window launch failed; check the dev nonce or rebuild the app.\n"); app.quit(); });

@@ -215,7 +215,7 @@ test("Desktop 提供方目录丢答时不提交后续 Key，核实只读且要�
   h.hook.after = async op => { if (op === "save_model_catalog") throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.save(), false);
   assert.equal(h.state.phase, "unknown"); assert.equal(h.state.secret, "");
-  assert.match(h.state.message, /存储 API Key 尚未提交/);
+  assert.match(h.state.message, /stored API key wasn't submitted/);
   assert.equal(h.requests.filter(request => request.op === "set_model_api_key").length, 0);
   const pending = h.state.pending;
   h.state.closeProvider();
@@ -233,7 +233,7 @@ test("Desktop 提供方目录成功而存储 Key 丢答时保留部分成功，�
   h.hook.after = async op => { if (op === "set_model_api_key") throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.save(), false);
   assert.equal(h.state.phase, "unknown"); assert.equal(h.state.provider.name, "Saved first");
-  assert.match(h.state.message, /模型目录已保存/); assert.equal(h.state.secret, "");
+  assert.match(h.state.message, /Model catalog saved/); assert.equal(h.state.secret, "");
   h.hook.after = undefined; await h.state.read();
   assert.equal(h.requests.filter(request => request.op === "set_model_api_key").length, 1);
   assert.equal(h.state.dirty, false);
@@ -252,7 +252,7 @@ test("Desktop 提供方提交中点叉号退出并丢弃草稿，不继续后续
   assert.equal(h.requests.filter(request => request.op === "set_model_api_key").length, 0);
   const providers = h.requests.find(request => request.op === "save_model_catalog")!.params.providers as Record<string, Record<string, unknown>>;
   assert.equal(providers.mock.name, "Committed after close");
-  assert.match(h.state.message, /存储 API Key 尚未提交/);
+  assert.match(h.state.message, /stored API key wasn't submitted/);
 });
 
 test("Desktop 跨客户端 revision 冲突保留草稿、显示当前值且不自动重发", async t => {
@@ -330,7 +330,7 @@ test("Desktop 移除存储凭据保留目录来源，重开仍显示未验证且
   await h.state.removeStoredCredential();
   assert.equal(fs.readFileSync(h.file, "utf8"), bytes, "移除存储条目不改目录中的秘密");
   assert.equal((await h.config()).credentials.mock, undefined);
-  assert.match(h.state.message, /存储/); assert.doesNotMatch(h.state.message, /已无凭据|不可用/);
+  assert.match(h.state.message, /stored/); assert.doesNotMatch(h.state.message, /no credential|unavailable/i);
   const reopened = h.createState(); await reopened.read();
   const sources = reopened.view?.credentialSources.mock;
   assert.equal(sources?.verification, "unverified");
@@ -385,7 +385,7 @@ test("移除最后可用来源导致重建失败时恢复存储条目与原修�
   assert.equal(fs.readFileSync(authFile, "utf8"), before);
   assert.equal((await h.config()).revision, revision);
   assert.equal((await h.config()).credentials.mock.configured, true);
-  assert.doesNotMatch(h.state.message, /已移除所选/);
+  assert.doesNotMatch(h.state.message, /removed.*selected/i);
 });
 
 test("Desktop 离线及实例变化后不写入，旧读取迟到也不能覆盖当前草稿", async () => {
@@ -481,7 +481,7 @@ test("冲突读回失败如实报告，保存成功但读回失败保留待核�
     if (op === "get_model_config") throw new ControlClientError("request_timeout", "合成读取失败", "unknown");
   };
   assert.equal(await h.state.save(), false); assert.equal(h.state.phase, "conflict");
-  assert.match(h.state.message, /读取失败/); assert.doesNotMatch(h.state.message, /已读回当前值/);
+  assert.match(h.state.message, /reading the current value failed/); assert.doesNotMatch(h.state.message, /read back/);
   h.hook.before = undefined; await h.state.read(); h.state.discard();
   h.state.editProvider("name", "Committed"); h.view.providers.mock.name = "Committed";
   h.hook.before = async op => { if (op === "get_model_config") throw new ControlClientError("request_timeout", "合成读取失败", "unknown"); };
@@ -511,7 +511,7 @@ test("连接测试迟到不能写入另一提供方，默认变更事件刷新�
   h.hook.before = async op => { if (op === "get_model_config") throw new ControlClientError("request_timeout", "合成默认值读取失败", "unknown"); };
   const config = await h.config();
   await h.client.request("set_default_model", { provider: primary.provider, model_id: primary.modelId, thinking_level: primary.thinkingLevel, expected_revision: config.revision });
-  await waitFor("默认值不可核实提示", () => !!h.code.message?.includes("默认模型刷新失败"));
+  await waitFor("默认值不可核实提示", () => !!h.code.message?.includes("default model refresh failed"));
   assert.equal(h.code.newChatSelection(null), null, "无法核实默认值时不沿用旧默认");
   assert.deepEqual(h.code.newChatSelection(primary), primary, "明确选择仍可使用");
 });

@@ -23,10 +23,10 @@ test("正式 Git graph 保留紧凑标签、详情和危险文本转义，不含
     const commit = { id: "a".repeat(40), parents: [], subject: "<img onerror=alert(1)>", author: "<script>", date: "2026-10-17", refs: [{ name: "main", type: "branch", remote: "origin" }] };
     const html = renderToStaticMarkup(createElement(GitGraphPanel, { active: true, name: "actual", repository: { head: commit.id, commits: [commit] }, loading: false, onRefresh() {} }));
     assert.match(html, /git-ref-name">HEAD<\/span>/); assert.doesNotMatch(html, /HEAD →/);
-    assert.match(html, /远程分支/); assert.match(html, /origin/); assert.doesNotMatch(html, /只读样例|chevron|2026-10-17|<img/);
-    assert.doesNotMatch(renderToStaticMarkup(createElement(GitGraphPanel, { active: true, name: "actual", repository: { head: commit.id, commits: [commit], nextCursor: "page" }, loading: false, onRefresh() {}, onLoadMore() {} })), /加载更多/);
+    assert.match(html, /Remote branch/); assert.match(html, /origin/); assert.doesNotMatch(html, /只读样例|chevron|2026-10-17|<img/);
+    assert.doesNotMatch(renderToStaticMarkup(createElement(GitGraphPanel, { active: true, name: "actual", repository: { head: commit.id, commits: [commit], nextCursor: "page" }, loading: false, onRefresh() {}, onLoadMore() {} })), /Load more/);
     const failedPage = renderToStaticMarkup(createElement(GitGraphPanel, { active: true, name: "actual", repository: { head: commit.id, commits: [commit], nextCursor: "page" }, loading: false, onRefresh() {}, onLoadMore() {}, moreError: "Git 历史已变化，请刷新", loadingMore: true }));
-    assert.match(failedPage, /role="alert".*?Git 历史已变化，请刷新/); assert.match(failedPage, /disabled=""[^>]*>重试/); assert.match(failedPage, /aria-busy="true"/); assert.doesNotMatch(failedPage, /正在读取更早提交/); assert.doesNotMatch(failedPage, /只显示最近/);
+    assert.match(failedPage, /role="alert".*?Git 历史已变化，请刷新/); assert.match(failedPage, /disabled=""[^>]*>Retry/); assert.match(failedPage, /aria-busy="true"/); assert.doesNotMatch(failedPage, /Loading earlier commits/); assert.doesNotMatch(failedPage, /[Oo]nly recent/);
     const branches = Array.from({ length: 8 }, (_value, index) => String(index));
     const graph = renderToStaticMarkup(createElement(GitGraphPanel, { active: true, name: "lanes", repository: { head: "merge", commits: [{ ...commit, id: "merge", parents: branches }, ...branches.map(id => ({ ...commit, id, parents: ["base"] })), { ...commit, id: "base" }] }, loading: false, onRefresh() {} }));
     for (let lane = 0; lane < 6; lane++) assert.ok(graph.includes(`var(--git-lane-${lane})`));

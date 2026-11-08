@@ -5,24 +5,24 @@ import (
 	"encoding/json"
 )
 
-// Frontend 是绑定给可信前端的窄方法面（Browser.*）；每个方法先核实前端身份。
-// 绑定方法运行在主线程，可直接改视图状态；Manager 的其余方法不进 IPC 面。
+// Frontend is the narrow method surface bound to the trusted front end (Browser.*); every method verifies front-end identity first.
+// Bound methods run on the main thread and may change view state directly; the rest of Manager never enters the IPC surface.
 type Frontend struct{ m *Manager }
 
 func (f *Frontend) trusted(ctx context.Context) json.RawMessage {
 	if f.m.deps.Identity == nil || !f.m.deps.Identity(ctx) {
-		return failure("ipc_sender", "not_sent", "桌面请求来源不可用；请重新打开应用。")
+		return failure("ipc_sender", "not_sent", "The desktop request source is unavailable; reopen the app.")
 	}
 	return nil
 }
 
-// Rect 上报浏览器占位矩形；非法数值拒绝，越界钳制进内容区。
+// Rect reports the browser placeholder rect; invalid values are rejected and out-of-range is clamped to the content area.
 func (f *Frontend) Rect(ctx context.Context, r Rect) json.RawMessage {
 	if denied := f.trusted(ctx); denied != nil {
 		return denied
 	}
 	if !finiteRect(r) {
-		return failure("invalid_rect", "not_sent", "占位矩形坐标无效。")
+		return failure("invalid_rect", "not_sent", "Invalid placeholder rect coordinates.")
 	}
 	cw, ch := f.m.deps.Content()
 	f.m.rect = clampRect(r, cw, ch)
@@ -30,7 +30,7 @@ func (f *Frontend) Rect(ctx context.Context, r Rect) json.RawMessage {
 	return succeed(nil)
 }
 
-// State 上报展示状态：当前展示的会话、右栏是否展示浏览器占位、是否被弹层遮挡。
+// State reports the display state: the chat being shown, whether the right panel shows a browser placeholder, and whether a popup occludes it.
 func (f *Frontend) State(ctx context.Context, s State) json.RawMessage {
 	if denied := f.trusted(ctx); denied != nil {
 		return denied
@@ -49,10 +49,10 @@ func (f *Frontend) Takeover(ctx context.Context, session string) json.RawMessage
 	}
 	p := f.m.pageOf(session)
 	if p == nil {
-		return failure("no_page", "not_sent", "该会话没有浏览器页面。")
+		return failure("no_page", "not_sent", "This chat has no browser page.")
 	}
 	if !p.owned.Load() || p.gone.Load() {
-		return failure("not_owned", "not_sent", "Agent 未在使用此页面。")
+		return failure("not_owned", "not_sent", "The Agent isn't using this page.")
 	}
 	f.m.setOwned(p, false, "owner")
 	return succeed(map[string]any{"owned": p.owned.Load(), "generation": p.gen.Load()})
@@ -65,27 +65,27 @@ func (f *Frontend) Return(ctx context.Context, session string) json.RawMessage {
 	}
 	p := f.m.pageOf(session)
 	if p == nil {
-		return failure("no_page", "not_sent", "该会话没有浏览器页面。")
+		return failure("no_page", "not_sent", "This chat has no browser page.")
 	}
 	if !p.ownerHeld.Load() || p.gone.Load() {
-		return failure("not_held", "not_sent", "此页面无需交还。")
+		return failure("not_held", "not_sent", "This page has nothing to return.")
 	}
 	f.m.setOwned(p, true, "owner")
 	return succeed(map[string]any{"owned": p.owned.Load(), "generation": p.gen.Load()})
 }
 
-// Navigate 是拥有者地址栏导航；页面由 Agent 持有时同一闸门约束，须先接管。
+// Navigate is owner address-bar navigation; while the Agent holds the page the same gate applies — take over first.
 func (f *Frontend) Navigate(ctx context.Context, session, rawURL string) json.RawMessage {
 	if denied := f.trusted(ctx); denied != nil {
 		return denied
 	}
 	url, err := validURL(rawURL)
 	if err != nil {
-		return failure("invalid_url", "not_sent", "导航目标必须是 HTTP(S) 地址。")
+		return failure("invalid_url", "not_sent", "The navigation target must be an HTTP(S) URL.")
 	}
 	p := f.m.pageOf(session)
 	if p != nil && !p.gone.Load() && p.owned.Load() {
-		return failure("page_owned", "not_sent", "页面由 Agent 持有；请先接管。")
+		return failure("page_owned", "not_sent", "The Agent holds this page; take over first.")
 	}
 	if p == nil || p.gone.Load() {
 		if p, err = f.m.ensurePage(session); err != nil {
@@ -99,17 +99,17 @@ func (f *Frontend) Navigate(ctx context.Context, session, rawURL string) json.Ra
 	return succeed(f.m.snapshot(p))
 }
 
-// ownerHistory 校验后退/前进/刷新的共同前置：身份、页存在、未被 Agent 持有。
+// ownerHistory verifies the shared preconditions of back/forward/refresh: identity, page exists, not held by the Agent.
 func (f *Frontend) ownerHistory(ctx context.Context, session string) (*page, json.RawMessage) {
 	if denied := f.trusted(ctx); denied != nil {
 		return nil, denied
 	}
 	p := f.m.pageOf(session)
 	if p == nil {
-		return nil, failure("no_page", "not_sent", "该会话没有浏览器页面。")
+		return nil, failure("no_page", "not_sent", "This chat has no browser page.")
 	}
 	if p.owned.Load() {
-		return nil, failure("page_owned", "not_sent", "页面由 Agent 持有；请先接管。")
+		return nil, failure("page_owned", "not_sent", "The Agent holds this page; take over first.")
 	}
 	return p, nil
 }
@@ -144,7 +144,7 @@ func (f *Frontend) Reload(ctx context.Context, session string) json.RawMessage {
 	return succeed(f.m.snapshot(p))
 }
 
-// Close 关闭会话页；关闭与接管始终可用，不受闸门限制。
+// Close closes the chat page; close and take-over are always available regardless of the gate.
 func (f *Frontend) Close(ctx context.Context, session string) json.RawMessage {
 	if denied := f.trusted(ctx); denied != nil {
 		return denied

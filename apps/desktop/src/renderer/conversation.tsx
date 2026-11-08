@@ -1,6 +1,6 @@
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-transcript-rendering.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
+// Note: See .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, GitBranch, Loader2, Undo2 } from "lucide-react";
 import type { Components } from "streamdown";
@@ -23,7 +23,7 @@ async function copyText(text: string): Promise<void> {
     return;
   } catch (error) {
     if (!(error instanceof Error)) throw error;
-    // 宿主统一拒绝网页权限；退回不依赖权限的选区复制。
+    // The host always denies web permission requests; fall back to permission-free selection copy.
   }
   const area = document.createElement("textarea");
   area.value = text;
@@ -34,7 +34,7 @@ async function copyText(text: string): Promise<void> {
   area.select();
   const copied = document.execCommand("copy");
   area.remove();
-  if (!copied) throw new Error("复制消息失败");
+  if (!copied) throw new Error("Failed to copy the message");
 }
 
 function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolCount, referencesKey }: { model: CodeState; sessionId: string; entry: Extract<FlowEntry, { kind: "message" }>; child: boolean; branchable: boolean; tools: DiffTool[]; toolCount: number; referencesKey: string }) {
@@ -52,7 +52,7 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
     };
     return <div className="markdown"><MarkdownText components={components}>{text}</MarkdownText></div>;
   }, [text, model, sessionId, referencesKey]);
-  const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>［附件：{attachment.name}］</div>)}</>;
+  const content = <>{markdown}{entry.attachments?.map(attachment => <div key={attachment.id}>[Attachment: {attachment.name}]</div>)}</>;
   const task = entry.taskId ? model.view.tasks.get(entry.taskId) : undefined;
   const completed = entry.role === "assistant" && !entry.streaming && task?.status === "completed" && (!!entry.text.trim() || !!entry.attachments?.length);
   const showCopy = !!text.trim() && (entry.role === "user" || completed);
@@ -66,18 +66,18 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
-      model.message = "复制消息失败，请手动选择正文复制。";
+      model.message = "Couldn't copy the message. Select the text and copy it manually.";
       model.refresh();
     }
   };
-  const actions = (showCopy || showBranch || recallCandidate) && <div className={`flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground ${entry.role === "user" ? "self-end" : ""}`} role="group" aria-label="消息操作">
-    {showCopy && <Button type="button" variant="ghost" size="icon-xs" aria-label="复制消息" title={entry.truncated ? "正文尚未读取完整" : "复制消息"} disabled={entry.truncated} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>}
-    {showBranch && <Button type="button" variant="ghost" size="icon-xs" aria-label="从当前任务建立分支" title="从当前任务建立分支" disabled={model.status.state !== "online" || !!model.pendingCreation || (!!model.pendingBranch && !pendingHere)} onClick={() => void model.branch(sessionId, entry.taskId!)}>{pendingHere ? <Loader2 className="animate-spin" /> : <GitBranch />}</Button>}
-    {recallCandidate && <Button type="button" variant="ghost" size="icon-xs" aria-label="撤回此输入并编辑" title="撤回此输入并编辑" disabled={model.writes.blocked(sessionId)} onClick={() => void model.writes.recall(sessionId, entry.taskId!)}><Undo2 /></Button>}
+  const actions = (showCopy || showBranch || recallCandidate) && <div className={`flex items-center gap-0.5 -mt-0.5 -ml-1.5 text-muted-foreground ${entry.role === "user" ? "self-end" : ""}`} role="group" aria-label="Message actions">
+    {showCopy && <Button type="button" variant="ghost" size="icon-xs" aria-label="Copy message" title={entry.truncated ? "The body hasn't been fully read" : "Copy message"} disabled={entry.truncated} onClick={() => void copy()}>{copied ? <Check /> : <Copy />}</Button>}
+    {showBranch && <Button type="button" variant="ghost" size="icon-xs" aria-label="Branch from this task" title="Branch from this task" disabled={model.status.state !== "online" || !!model.pendingCreation || (!!model.pendingBranch && !pendingHere)} onClick={() => void model.branch(sessionId, entry.taskId!)}>{pendingHere ? <Loader2 className="animate-spin" /> : <GitBranch />}</Button>}
+    {recallCandidate && <Button type="button" variant="ghost" size="icon-xs" aria-label="Recall this input and edit" title="Recall this input and edit" disabled={model.writes.blocked(sessionId)} onClick={() => void model.writes.recall(sessionId, entry.taskId!)}><Undo2 /></Button>}
   </div>;
   return <Message align={entry.role === "user" ? "end" : "start"}><MessageContent>{entry.role === "user" ? <><Bubble variant="muted" align="end"><BubbleContent>{content}</BubbleContent></Bubble>{actions}</> : <>{content}{actions}</>}</MessageContent></Message>;
 }
-// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
+// Note: See .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
 export function Conversation({ model, sessionId, child = false }: { model: CodeState; sessionId: string; child?: boolean }) {
   const scroll = useRef<HTMLDivElement>(null);
   // Load the recall candidate on entry; message_recall.changed and task.queued drive subsequent updates.
@@ -107,7 +107,7 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
     try { await model.loadHistory(sessionId, "prepend"); }
     finally { loadingOlder.current = false; }
   };
-  return <MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className={child ? "conversation subagent-conversation" : "conversation"}><MessageScrollerViewport ref={scroll} className={child ? "child-scroll selectable-text" : "stream-scroll selectable-text"} preserveScrollOnPrepend aria-label={child ? "子 Agent 消息" : "会话消息"} onScroll={() => {
+  return <MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className={child ? "conversation subagent-conversation" : "conversation"}><MessageScrollerViewport ref={scroll} className={child ? "child-scroll selectable-text" : "stream-scroll selectable-text"} preserveScrollOnPrepend aria-label={child ? "SubAgent messages" : "Chat messages"} onScroll={() => {
     const container = scroll.current!;
     if (container.scrollTop < 40) void older();
   }}><MessageScrollerContent className={`${child ? "subagent-stream" : "agent-stream"} native-message-stream selectable-text`}>
@@ -122,5 +122,5 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
     })}
     <ApprovalCards model={model} sessionId={sessionId} />
     {!child && <OwnerQuestionCards model={model} sessionId={sessionId} positioned={positionedQuestions.map(question => question.id)} />}
-  </MessageScrollerContent></MessageScrollerViewport>{items.length === 0 && !child && !session.historyLoaded && <div className="new-session-empty pointer-events-none absolute inset-x-6 top-3" role="status">正在加载会话…</div>}</MessageScroller></MessageScrollerProvider>;
+  </MessageScrollerContent></MessageScrollerViewport>{items.length === 0 && !child && !session.historyLoaded && <div className="new-session-empty pointer-events-none absolute inset-x-6 top-3" role="status">Loading chat…</div>}</MessageScroller></MessageScrollerProvider>;
 }

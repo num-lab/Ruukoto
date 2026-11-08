@@ -70,8 +70,8 @@ test("外观分段控件呈现三项并绑定 appearance 取值", async () => {
   settings.chooseCategory("appearance");
   const props = { settings, code, personal, appearance: "dark", onAppearance() {} };
   const html = renderToStaticMarkup(createElement(SettingsContents, props));
-  assert.match(html, /跟随系统/); assert.match(html, /浅色/); assert.match(html, /深色/);
-  assert.match(html, /aria-pressed="true"[^>]*>[^<]*<svg[^]*?深色/);
+  assert.match(html, /System/); assert.match(html, /Light/); assert.match(html, /Dark/);
+  assert.match(html, /aria-pressed="true"[^>]*>[^<]*<svg[^]*?Dark/);
 });
 
 test("没有当前会话时不渲染右栏开关", () => {

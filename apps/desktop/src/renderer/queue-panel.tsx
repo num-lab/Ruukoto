@@ -23,7 +23,7 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
   const count = queued.length;
 
   useEffect(() => {
-    // 事件驱动的刷新在 writes.update 内；本 effect 只覆盖会话切换/上线/冷恢复出现排队项
+    // Event-driven refresh lives in writes.update; this effect only covers queued items from session switch, reconnect or cold recovery.
     if (online && count > 0) void model.writes.loadQueue(session.id);
   }, [model.writes, session.id, online, count]);
 
@@ -42,7 +42,7 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
     const target = order[order.indexOf(taskId) + delta];
     await model.writes.moveQueued(session.id, taskId, delta);
     const pos = target ? queued.findIndex(task => task.id === target) + 1 : 0;
-    if (pos > 0) setAnnounce(`已移动到第 ${pos} 位，共 ${count} 项`);
+    if (pos > 0) setAnnounce(`Moved to position ${pos} of ${count}`);
   }
 
   async function drop(taskId: string, targetId: string, placement: "before" | "after") {
@@ -52,7 +52,7 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
     let cursor = 0;
     const visible = queued.map(task => reorderable.includes(task.id) ? next[cursor++]! : task.id);
     const pos = visible.indexOf(taskId) + 1;
-    if (pos > 0) setAnnounce(`已移动到第 ${pos} 位，共 ${count} 项`);
+    if (pos > 0) setAnnounce(`Moved to position ${pos} of ${count}`);
   }
 
   function updateDrop(event: DragEvent<HTMLLIElement>, taskId: string, canMove: boolean): "before" | "after" | null {
@@ -65,14 +65,14 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
   }
 
   return <div className={open ? "queue-panel is-open" : "queue-panel"}>
-    <button type="button" className="queue-panel-toggle" aria-expanded={open} aria-label={`排队输入 ${count} 项`} onClick={() => setOpen(!open)}>
+    <button type="button" className="queue-panel-toggle" aria-expanded={open} aria-label={`Queued input, ${count} items`} onClick={() => setOpen(!open)}>
       <ListOrdered className="queue-panel-icon" aria-hidden="true" />
-      <span className="queue-summary">排队 <span className="queue-count">{count}</span></span>
+      <span className="queue-summary">Queued <span className="queue-count">{count}</span></span>
       {!open && <span className="queue-next">{queued[0].displayInput ?? queued[0].input}</span>}
       <ChevronDown className={open ? "queue-panel-chevron is-open" : "queue-panel-chevron"} aria-hidden="true" />
     </button>
     <span className="sr-only" role="status" aria-live="polite">{announce}</span>
-    {open && <ul className="queue-panel-list" aria-label="排队输入列表" onDragLeave={event => {
+    {open && <ul className="queue-panel-list" aria-label="Queued input list" onDragLeave={event => {
       const next = event.relatedTarget;
       if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDrag(null);
     }}>
@@ -89,7 +89,7 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
           className={`queue-panel-item${dragging ? " is-dragging" : ""}${drag?.targetId === task.id && !dragging ? " drop-target" : ""}`}
           tabIndex={0}
           draggable={canMove && !busy}
-          aria-label={`第 ${index + 1} 位：${input}${canMove ? "，可拖拽或用方向键调整顺序" : ""}`}
+          aria-label={`Position ${index + 1}: ${input}${canMove ? ", drag or use arrow keys to reorder" : ""}`}
           style={style}
           onDragStart={event => {
             if (!canMove || busy) { event.preventDefault(); return; }
@@ -115,8 +115,8 @@ export function QueuePanel({ model, session, defaultOpen = false }: { model: Cod
           <span className="queue-panel-pos" aria-hidden="true">{index + 1}</span>
           <span className="queue-panel-text">{input}</span>
           {(canSteer || canRecall) && <span className="queue-panel-actions">
-            {canSteer && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn queue-panel-steer" draggable={false} disabled={busy} aria-label={`把第 ${index + 1} 项转为引导`} title="转为引导：接入当前任务下一边界" onClick={() => void model.writes.steerQueued(session.id, task.id)}><Waypoints /></Button>}
-            {canRecall && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn" draggable={false} disabled={busy} aria-label={`撤回第 ${index + 1} 项并编辑`} title="撤回此输入并编辑" onClick={() => void model.writes.recall(session.id, task.id, "queued")}><Undo2 /></Button>}
+            {canSteer && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn queue-panel-steer" draggable={false} disabled={busy} aria-label={`Send item ${index + 1} as guidance`} title="Send as guidance: steer the task at the next boundary" onClick={() => void model.writes.steerQueued(session.id, task.id)}><Waypoints /></Button>}
+            {canRecall && <Button type="button" variant="ghost" size="icon" className="queue-panel-btn" draggable={false} disabled={busy} aria-label={`Recall item ${index + 1} and edit`} title="Recall this input and edit" onClick={() => void model.writes.recall(session.id, task.id, "queued")}><Undo2 /></Button>}
           </span>}
         </li>;
       })}

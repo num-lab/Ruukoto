@@ -64,7 +64,7 @@ for (const op of ["open_workspace", "create_session"] as const) {
         if (outcome === "rejected") {
           assert.equal(model.pendingCreation, null);
           assert.equal(model.view.currentSessionId, null);
-          assert.match(model.message!, /创建失败/);
+          assert.match(model.message!, /Chat creation failed/);
           assert.equal(t.runtime.store.listSessions().filter(session => calls.includes(session.createRequestId ?? "")).length, 0);
           return;
         }
@@ -122,7 +122,7 @@ for (const lateSuccess of [false, true]) test(`桌面跨实例：A ${lateSuccess
     assert.equal(model.pendingCreation, record);
     assert.equal(model.view.currentSessionId, null);
     assert.equal(model.tabs.length, 0);
-    assert.match(model.message!, /原操作结果仍未知/);
+    assert.match(model.message!, /original operation outcome is still unknown/);
     current = a;
     await install(model, a);
     await waitFor("回原实例核实", () => model.pendingCreation === null);
@@ -144,7 +144,7 @@ test("桌面二次未知保留原操作，迟到创建事件能确认原会话",
     await install(model, t);
     await model.create("open_workspace", { cwd: t.work[0] });
     assert.equal(calls.length, 2);
-    assert.match(model.message!, /结果未知/);
+    assert.match(model.message!, /unknown/);
     const request = model.pendingCreation!;
     await model.create("open_workspace", { cwd: t.work[0] });
     assert.equal(calls.length, 2, "未知后再次点击只核实，不无限重发");
@@ -177,11 +177,11 @@ test("Desktop selected-workspace new chat binds its first message after creation
     const draft = { workspaceId: "missing", text: "你好", attachments: [], mode: "full_access" as const, modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" as const } };
     const upload = async (sessionId: string, tokens: string[]) => { uploads.push({ sessionId, tokens }); return tokens.map(token => ({ id: `att_${token}`, name: "note.txt", size: 3 })); };
     assert.equal(await model.startChat({ ...draft, modelSelection: null }, upload), null, "没有模型不建会话");
-    assert.match(model.message!, /模型/);
+    assert.match(model.message!, /model/);
     const before = t.runtime.store.listSessions().length;
     assert.equal(await model.startChat(draft, upload), null, "未选工作区不建会话");
     assert.equal(t.runtime.store.listSessions().length, before);
-    assert.match(model.message!, /工作区/);
+    assert.match(model.message!, /selected workspace is unavailable/);
     const workspace = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0], request_id: "fixture" });
     await install(model, t);
     const sessionId = await model.startChat({ ...draft, workspaceId: workspace.session.projectId, text: "写一个测试" }, upload);

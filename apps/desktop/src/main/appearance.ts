@@ -16,7 +16,7 @@ export function loadAppearance(userData: string): DesktopAppearance {
   let raw: string;
   try { raw = fs.readFileSync(path.join(userData, filename), "utf8"); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") process.stderr.write(`[ruukoto:desktop] desktop-preferences.json 无法读取（${(error as NodeJS.ErrnoException).code ?? "unknown"}），已回退到跟随系统；请检查应用数据目录。\n`);
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") process.stderr.write(`[ruukoto:desktop] desktop-preferences.json unreadable (${(error as NodeJS.ErrnoException).code ?? "unknown"}); fell back to system. Check the app data directory.\n`);
     return "system";
   }
   try {
@@ -26,7 +26,7 @@ export function loadAppearance(userData: string): DesktopAppearance {
       if (appearance) return appearance;
     }
   } catch { /* fall through to the diagnostic below */ }
-  process.stderr.write(`[ruukoto:desktop] desktop-preferences.json 无法读取，已回退到跟随系统；请检查应用数据目录。\n`);
+  process.stderr.write(`[ruukoto:desktop] desktop-preferences.json unreadable; fell back to system. Check the app data directory.\n`);
   return "system";
 }
 

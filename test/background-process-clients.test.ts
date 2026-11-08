@@ -118,7 +118,7 @@ test("Desktop 日志按原字节位置分页，停止只接纳，关闭窗口/�
     h.desktop.nextOutput(); await settle(); assert.equal(h.desktop.output?.offset, 3);
     h.desktop.previousOutput(); await settle(); assert.equal(h.desktop.output?.offset, 0);
     await h.desktop.read(0, "stderr"); assert.equal(h.desktop.stream, "stderr");
-    await h.desktop.stop(h.process); assert.match(h.desktop.message ?? "", /已接纳/); assert.equal(h.desktop.selected?.state, "stop_requested");
+    await h.desktop.stop(h.process); assert.match(h.desktop.message ?? "", /accepted/); assert.equal(h.desktop.selected?.state, "stop_requested");
     h.desktop.close(); h.desktop.update({ type: "state", state: "closed" });
     assert.equal(h.endCalls, 0); assert.equal(h.transport.requests.filter(request => request.op === "background_process_stop").length, 1);
   } finally { h.cleanup(); }

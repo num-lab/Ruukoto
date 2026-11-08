@@ -20,17 +20,17 @@ export function readAttachmentBytes(file: string): Buffer {
     const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
     try {
       const before = fs.fstatSync(fd);
-      if (!before.isFile() || before.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "请选择不超过 8 MiB 的普通文件。");
+      if (!before.isFile() || before.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "Choose regular files no larger than 8 MiB.");
       const buffer = Buffer.alloc(MAX_ATTACHMENT_BYTES + 1);
       let size = 0;
       while (size < buffer.length) { const read = fs.readSync(fd, buffer, size, buffer.length - size, size); if (!read) break; size += read; }
       const after = fs.fstatSync(fd);
-      if (size > MAX_ATTACHMENT_BYTES || size !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) throw new DesktopError("attachment_changed", "所选文件读取时发生变化，请保存后重新选择。");
+      if (size > MAX_ATTACHMENT_BYTES || size !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) throw new DesktopError("attachment_changed", "The selected file changed while reading; save it and choose again.");
       return buffer.subarray(0, size);
     } finally { fs.closeSync(fd); }
   } catch (error) {
     if (error instanceof DesktopError) throw error;
-    throw new DesktopError("attachment_read_failed", "所选文件不可读，未附加；请检查文件后重新选择。");
+    throw new DesktopError("attachment_read_failed", "The selected file isn't readable and wasn't attached; check it and choose again.");
   }
 }
 
@@ -44,20 +44,20 @@ export function personalAttachments(value: unknown): value is PersonalDesktopAtt
 
 export function readSelectedAttachment(file: string): { name: string; bytes: Buffer; sha256: string } {
   const name = path.basename(file);
-  if (!name.trim() || name.length > 128 || name === "." || name === ".." || /[\x00-\x1f\x7f\\/]/.test(name)) throw new DesktopError("attachment_name_invalid", "附件名称无效，请选择不超过 128 个字符的普通文件名。");
+  if (!name.trim() || name.length > 128 || name === "." || name === ".." || /[\x00-\x1f\x7f\\/]/.test(name)) throw new DesktopError("attachment_name_invalid", "Invalid attachment name; choose a regular file name of at most 128 characters.");
   const bytes = readAttachmentBytes(file);
   return { name, bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-10-16-owner-attachments.md
 export async function pickAttachments(sessionId: string, source: AttachmentPicker): Promise<DesktopAttachment[]> {
-  if (typeof sessionId !== "string" || !sessionId) throw new DesktopError("invalid_params", "请选择会话后附加文件。");
+  if (typeof sessionId !== "string" || !sessionId) throw new DesktopError("invalid_params", "Select a chat before attaching files.");
   const instanceId = source.instanceId();
-  const check = () => { if (!instanceId || source.instanceId() !== instanceId) throw new DesktopError("attachment_instance_changed", "连接目标已变化，未附加文件；请重新选择。"); };
+  const check = () => { if (!instanceId || source.instanceId() !== instanceId) throw new DesktopError("attachment_instance_changed", "The connection target changed; files weren't attached. Choose again."); };
   check();
   const files = await source.pick();
   check();
-  if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `每次最多选择 ${MAX_ATTACHMENTS} 个文件。`);
+  if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `Choose at most ${MAX_ATTACHMENTS} files at a time.`);
   const attachments: DesktopAttachment[] = [];
   for (const [index, file] of files.entries()) {
     const { bytes, name, sha256: hash } = readSelectedAttachment(file);
@@ -75,7 +75,7 @@ export async function pickAttachments(sessionId: string, source: AttachmentPicke
         result = await source.upload(params);
       }
       check();
-      if (result.nextOffset !== offset + chunk.length || result.complete !== (result.nextOffset === bytes.length)) throw new DesktopError("attachment_upload_failed", "附件未连续保存，未附加文件；请重新选择。");
+      if (result.nextOffset !== offset + chunk.length || result.complete !== (result.nextOffset === bytes.length)) throw new DesktopError("attachment_upload_failed", "The attachment wasn't saved contiguously and wasn't attached; choose again.");
       offset = result.nextOffset;
     } while (offset < bytes.length);
     attachments.push(attachment);
@@ -111,7 +111,7 @@ export async function uploadPersonalAttachments(files: string[], check: () => vo
       }
       check();
       const next = offset + chunk.length;
-      if (!response || typeof response !== "object" || !("v" in response) || response.v !== 1 || !("attachmentId" in response) || response.attachmentId !== id || !("nextOffset" in response) || response.nextOffset !== next || !("complete" in response) || response.complete !== (next === bytes.length)) throw new DesktopError("attachment_upload_failed", "附件未完整保存，本条输入未发送；请重新选择附件。");
+      if (!response || typeof response !== "object" || !("v" in response) || response.v !== 1 || !("attachmentId" in response) || response.attachmentId !== id || !("nextOffset" in response) || response.nextOffset !== next || !("complete" in response) || response.complete !== (next === bytes.length)) throw new DesktopError("attachment_upload_failed", "The attachment wasn't saved completely and this input wasn't sent; choose the attachments again.");
       offset = next;
     } while (offset < bytes.length);
     result.push({ id, name, size: bytes.length, mime, sha256 });
@@ -121,17 +121,17 @@ export async function uploadPersonalAttachments(files: string[], check: () => vo
 
 /** Register local metadata before a first send owns attachment snapshots. */
 export function stageAttachments(files: string[]): StagedAttachment[] {
-  if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `每次最多选择 ${MAX_ATTACHMENTS} 个文件。`);
+  if (files.length > MAX_ATTACHMENTS) throw new DesktopError("attachment_limit", `Choose at most ${MAX_ATTACHMENTS} files at a time.`);
   return files.map(file => {
     let fd: number | undefined;
     try {
       fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       const stat = fs.fstatSync(fd);
-      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "请选择不超过 8 MiB 的普通文件。");
+      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) throw new DesktopError("attachment_limit", "Choose regular files no larger than 8 MiB.");
       return { token: `draft_${randomUUID()}`, name: path.basename(file), size: stat.size, path: file };
     } catch (error) {
       if (error instanceof DesktopError) throw error;
-      throw new DesktopError("attachment_read_failed", "所选文件不可读，未附加；请检查文件后重新选择。");
+      throw new DesktopError("attachment_read_failed", "The selected file isn't readable and wasn't attached; check it and choose again.");
     } finally { if (fd !== undefined) fs.closeSync(fd); }
   });
 }

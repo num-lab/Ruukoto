@@ -1,11 +1,11 @@
 import type { DesktopBridge, DesktopResult } from "../shared/bridge.ts";
 
 type Credential = { name: string; host: string; header: string; purpose: string; references: unknown[] };
-// 与 @ruukoto/agent web-search.ts 的 WEB_SEARCH_CREDENTIAL_NAME 一致：桌面专用 op 只写这个固定名绑定。
+// Matches WEB_SEARCH_CREDENTIAL_NAME in @ruukoto/agent web-search.ts: the desktop-only op only writes this fixed-name binding.
 const WEB_SEARCH_CREDENTIAL_NAME = "web-search";
 const TAVILY_CREDENTIAL_PURPOSE = "tavily_search";
 
-/** Web 搜索页：即时操作无草稿；写入后重读核实，换实例整页重建。 */
+/** Web search page: instant actions, no draft; re-read to verify after writes, whole page rebuilds on instance switch. */
 export class CodeWebSearchState {
   phase: "loading" | "ready" | "error" = "loading";
   reading = false;
@@ -16,14 +16,14 @@ export class CodeWebSearchState {
   secret = "";
   private generation = 0;
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, readonly changed: () => void, readonly instanceId: string, private readonly context: () => { instanceId: string | null; online: boolean }) {}
-  /** 服务端 resolveCredential 按名称排序取第一个；此处保持同序以呈现生效凭据。 */
+  /** The server-side resolveCredential takes the first by name order; keep the same order here to show the effective credential. */
   get effective(): Credential | null { return this.credentials.slice().sort((a, b) => a.name.localeCompare(b.name))[0] ?? null; }
   get desktopManaged(): boolean { return this.credentials.some(credential => credential.name === WEB_SEARCH_CREDENTIAL_NAME); }
   get connected(): boolean { const current = this.context(); return current.online && current.instanceId === this.instanceId; }
   get disabled(): boolean { const current = this.context(); return this.reading || this.writing || !current.online || current.instanceId !== this.instanceId; }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("code", op, params) as DesktopResult<T>; }
-    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "未取得宿主应答，请恢复原连接后读取配置。" } }; }
+    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "No host response. Restore the original connection and read the configuration again." } }; }
   }
   private accepts(generation: number): boolean { const current = this.context(); return generation === this.generation && current.online && current.instanceId === this.instanceId; }
   invalidate(): void { ++this.generation; this.secret = ""; this.reading = false; this.writing = false; }
@@ -34,7 +34,7 @@ export class CodeWebSearchState {
     const result = await this.request<Credential[]>("list_credentials", { purpose: TAVILY_CREDENTIAL_PURPOSE });
     if (!this.accepts(generation)) return false;
     this.reading = false;
-    if (!result.ok) { this.phase = "error"; this.message = result.error.message + " 请重新读取。"; this.changed(); return false; }
+    if (!result.ok) { this.phase = "error"; this.message = result.error.message + " Read it again."; this.changed(); return false; }
     this.credentials = result.value;
     this.phase = "ready"; this.message = ""; this.changed();
     return true;
@@ -43,18 +43,18 @@ export class CodeWebSearchState {
   async saveSecret(): Promise<boolean> {
     if (this.disabled) return false;
     this.fieldErrors = {};
-    if (!this.secret || this.secret !== this.secret.trim() || /[\r\n]/.test(this.secret)) { this.fieldErrors.secret = "请输入不含首尾空白或换行的 Tavily API Key。"; this.changed(); return false; }
-    return this.write("web_search_save_credential", { secret: this.secret }, "已保存 Tavily 凭据。");
+    if (!this.secret || this.secret !== this.secret.trim() || /[\r\n]/.test(this.secret)) { this.fieldErrors.secret = "Enter a Tavily API key without leading/trailing whitespace or newlines."; this.changed(); return false; }
+    return this.write("web_search_save_credential", { secret: this.secret }, "Tavily credential saved.");
   }
   async removeCredential(): Promise<boolean> {
     if (this.disabled) return false;
-    return this.write("web_search_remove_credential", {}, "已移除 Tavily 凭据。");
+    return this.write("web_search_remove_credential", {}, "Tavily credential removed.");
   }
   async setWebSearch(enabled: boolean, expectedVersion: number): Promise<boolean> {
     if (this.disabled) return false;
-    return this.write("set_web_search", { enabled, expected_version: expectedVersion }, `Web Search 已${enabled ? "启用" : "停用"}。`, false);
+    return this.write("set_web_search", { enabled, expected_version: expectedVersion }, `Web search ${enabled ? "enabled" : "disabled"}.`, false);
   }
-  /** 写入后重读核实；结果未知时保留原提示并要求重读，不自动重发。 */
+  /** Re-read to verify after writes; on unknown outcome keep the original notice and require a re-read — never auto-resend. */
   private async write(op: string, params: Record<string, unknown>, doneMessage: string, clearSecret = true): Promise<boolean> {
     const generation = this.generation;
     this.writing = true; this.message = ""; this.changed();
@@ -65,13 +65,13 @@ export class CodeWebSearchState {
     this.writing = false;
     if (!result.ok) {
       const unknown = result.error.outcome === "unknown" || result.error.outcome === "disconnected";
-      this.message = unknown ? `操作结果待核实（${result.error.message}），请重新读取；不会自动重发。` : result.error.code === "version_conflict" ? "项目设置已被其他客户端修改，请按当前值重新选择。" : result.error.message;
+      this.message = unknown ? `Outcome unverified (${result.error.message}); read it again. It won't be resent automatically.` : result.error.code === "version_conflict" ? "The project setting was changed by another client. Choose again with the current value." : result.error.message;
       this.phase = "ready"; this.changed();
-      if (unknown) { const read = await this.read(); if (read) { this.message = "操作结果原未知，已读回当前配置，请核对是否生效。"; this.changed(); } }
+      if (unknown) { const read = await this.read(); if (read) { this.message = "The operation outcome was unknown; the current configuration was read back. Check whether it took effect."; this.changed(); } }
       return false;
     }
     const read = await this.read();
-    this.message = read ? doneMessage : `${doneMessage}但读回失败，请重新读取核实。`;
+    this.message = read ? doneMessage : `${doneMessage} Reading back failed; read again to verify.`;
     this.changed();
     return true;
   }

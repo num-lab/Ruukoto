@@ -9,7 +9,7 @@ export interface SettingsScope {
   instanceId: string | null;
 }
 export type SettingsPhase = "loading" | "ready" | "saving" | "conflict" | "unknown" | "error";
-/** 页面保管草稿、读取修订与原提交；容器只决定能否离开。 */
+/** Pages own their drafts, read revisions and original submissions; the container only decides whether navigation may leave. */
 export interface SettingsForm {
   readonly dirty: boolean;
   readonly phase: SettingsPhase;
@@ -18,7 +18,7 @@ export interface SettingsForm {
   discard(): void;
   invalidate(): void;
 }
-/** 把分组类别映射回 PA 页面使用的原始类别。 */
+/** Maps a grouped category back to the original category PA pages use. */
 export function paCategory(category: SettingsCategory): ManagedSettingsCategory | null {
   switch (category) {
     case "pa-models": return "models";
@@ -28,16 +28,16 @@ export function paCategory(category: SettingsCategory): ManagedSettingsCategory 
     default: return null;
   }
 }
-/** 判断类别是否属于 Code 侧 managed 设置。 */
+/** Whether the category belongs to Code-side managed settings. */
 export function isCodeCategory(category: SettingsCategory): category is `code-${ManagedSettingsCategory}` {
   return category.startsWith("code-");
 }
-/** 判断类别是否属于 PA 侧 managed 设置。 */
+/** Whether the category belongs to PA-side managed settings. */
 export function isPaCategory(category: SettingsCategory): category is `pa-${ManagedSettingsCategory}` {
   return category.startsWith("pa-");
 }
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
+// Note: See .agents/notes/implemented/feature/2026-10-25-desktop-computer-websearch-settings.md
 export class SettingsState {
   open = false;
   category: SettingsCategory = "appearance";
@@ -50,13 +50,13 @@ export class SettingsState {
   constructor(readonly changed: () => void) {}
   get message(): string {
     if (!this.blockedNavigation) return "";
-    return this.form?.phase === "saving" ? "正在保存，请等待完成。" : this.form?.phase === "unknown" ? "原配置的保存结果待核实，请先核实结果。" : "";
+    return this.form?.phase === "saving" ? "Saving…" : this.form?.phase === "unknown" ? "The original configuration save is unverified. Verify the outcome first." : "";
   }
   show(target: DesktopTarget, category?: SettingsCategory): void {
     if (!this.open) {
       this.open = true;
       ++this.generation;
-      // 首次打开时按当前聊天目标落到对应分组。
+      // On first open, land on the group matching the current chat target.
       if (!category) this.category = target === "personal" ? "pa-models" : "code-models";
     }
     if (category) this.navigate(() => { this.category = category; });
@@ -85,7 +85,7 @@ export class SettingsState {
     this.invalidate();
     this.changed();
   }
-  /** 仅保存 UI 导航续步；配置请求仍由具体页面发起。 */
+  /** Saves only the UI navigation continuation; configuration requests still come from the specific page. */
   navigate(action: () => void): boolean {
     if (this.form?.phase === "saving" || this.form?.phase === "unknown") {
       if (isPaCategory(this.category)) { this.finish(action); return true; }

@@ -238,7 +238,7 @@ test("Desktop 取消丢答按原取消回执核实，重复点击不入队", asy
     assert.equal(h.transport.requests.filter(request => request.op === "owner_question_cancel").length, 2);
     assert.equal(h.transport.requests.some(request => request.op === "owner_question_answer"), false);
     assert.equal(h.consumed, 1);
-    assert.match(h.questions.message!, /已恢复取消结果/);
+    assert.match(h.questions.message!, /Cancel outcome restored/);
   } finally { fs.rmSync(h.pending.dir, { recursive: true, force: true }); }
 });
 

@@ -11,7 +11,7 @@ export type PersonalOutputRequest = { origin: string; remoteId: string; profileI
 export type PersonalOutputFile = { metadata: PersonalDesktopOutput; bytes: Buffer };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const positive = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0;
-const invalid = () => new DesktopError("personal_output_invalid", "文件传输记录无法核实，请重新读取原文件；原操作未重做。");
+const invalid = () => new DesktopError("personal_output_invalid", "The file-transfer record can't be verified; read the original file again. The original operation wasn't redone.");
 
 export function personalOutputMetadata(value: unknown): value is PersonalDesktopOutput {
   return object(value) && value.v === 1 && positive(value.publication) && positive(value.output) && typeof value.name === "string" && value.name.length > 0 && value.name.length <= 128 && !!value.name.trim() && value.name !== "." && value.name !== ".." && !/[\x00-\x1f\x7f\\/]/.test(value.name) && typeof value.mime === "string" && value.mime.length > 0 && value.mime.length <= 256 && !/[\x00-\x1f\x7f]/.test(value.mime) && typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) && Number.isSafeInteger(value.bytes) && Number(value.bytes) >= 0 && typeof value.partial === "boolean";
@@ -25,7 +25,7 @@ function pageBytes(value: unknown, publication: number, output: number, offset: 
   if (!object(value) || value.offset !== offset || typeof value.base64 !== "string" || value.base64.length > Math.ceil(PERSONAL_OUTPUT_CHUNK_BYTES / 3) * 4 || value.nextOffset !== undefined && !positive(value.nextOffset) || !personalOutputMetadata(value) || value.publication !== publication || value.output !== output) throw invalid();
   const page = value as PersonalDesktopOutputChunk, saved = metadata(page);
   if (original && !sameMetadata(original, saved)) throw invalid();
-  if (saved.partial || saved.bytes > PERSONAL_OUTPUT_BYTES) throw new DesktopError("personal_output_incomplete", "此文件不完整或超过 8 MiB，无法预览或下载；原操作未重做。");
+  if (saved.partial || saved.bytes > PERSONAL_OUTPUT_BYTES) throw new DesktopError("personal_output_incomplete", "This file is incomplete or over 8 MiB and can't be previewed or downloaded; the original operation wasn't redone.");
   const bytes = Buffer.from(page.base64, "base64"), expected = Math.min(PERSONAL_OUTPUT_CHUNK_BYTES, saved.bytes - offset), next = offset + bytes.length;
   if (page.base64 !== bytes.toString("base64") || expected < 0 || bytes.length !== expected || page.nextOffset !== (next < saved.bytes ? next : undefined)) throw invalid();
   return { metadata: saved, bytes, nextOffset: page.nextOffset };
@@ -40,7 +40,7 @@ export async function readPersonalOutput(publication: number, output: number, re
     if (page.nextOffset === undefined) break;
   } while (offset < PERSONAL_OUTPUT_BYTES);
   const bytes = Buffer.concat(chunks);
-  if (!saved || offset !== saved.bytes || createHash("sha256").update(bytes).digest("hex") !== saved.sha256) throw new DesktopError("personal_output_integrity", "文件完整性核实失败，请重新读取原文件；原操作未重做。");
+  if (!saved || offset !== saved.bytes || createHash("sha256").update(bytes).digest("hex") !== saved.sha256) throw new DesktopError("personal_output_integrity", "File integrity verification failed; read the original file again. The original operation wasn't redone.");
   return { metadata: saved, bytes };
 }
 
@@ -50,7 +50,7 @@ export function verifyPersonalOutputAccess(file: PersonalOutputFile, value: unkn
 }
 
 export async function savePersonalOutput(destination: string, bytes: Buffer, check: () => void): Promise<void> {
-  if (!path.isAbsolute(destination) || destination.includes("\0")) throw new DesktopError("personal_output_destination", "保存位置无效，请重新选择。");
+  if (!path.isAbsolute(destination) || destination.includes("\0")) throw new DesktopError("personal_output_destination", "The save location is invalid. Choose another one.");
   const temporary = path.join(path.dirname(destination), `.ruukoto-${randomUUID()}.tmp`);
   let created = false;
   try {
@@ -59,11 +59,11 @@ export async function savePersonalOutput(destination: string, bytes: Buffer, che
     try { await file.writeFile(bytes); await file.sync(); } finally { await file.close(); }
     check();
     try { fs.renameSync(temporary, destination); }
-    catch { throw new DesktopError("personal_output_save_failed", "文件未能完整保存，请检查所选位置后重试下载；原操作未重做。"); }
+    catch { throw new DesktopError("personal_output_save_failed", "The file wasn't saved completely; check the chosen location and retry the download. The original operation wasn't redone."); }
     created = false;
   } catch (error) {
     if (error instanceof DesktopError || error instanceof ControlClientError) throw error;
-    throw new DesktopError("personal_output_save_failed", "文件未能完整保存，请检查所选位置后重试下载；原操作未重做。");
+    throw new DesktopError("personal_output_save_failed", "The file wasn't saved completely; check the chosen location and retry the download. The original operation wasn't redone.");
   } finally {
     if (created) {
       try { await fs.promises.unlink(temporary); }

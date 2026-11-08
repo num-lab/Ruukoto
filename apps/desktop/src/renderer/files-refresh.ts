@@ -1,4 +1,4 @@
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-file-tree-refresh.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-file-tree-refresh.md
 import type { DesktopInspector } from "./inspector.ts";
 
 interface FilesRefreshHost extends Pick<EventTarget, "addEventListener" | "removeEventListener"> {

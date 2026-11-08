@@ -23,14 +23,14 @@ function parseProbe(stdout: string): DesktopEnvironment {
   const marker = "\0RUUKOTO_DESKTOP\0";
   const start = stdout.lastIndexOf(marker);
   const end = stdout.indexOf("\0END\0", start + marker.length);
-  if (start < 0 || end < 0) throw new DesktopError("node_unavailable", "找不到可用的 node；请在登录 shell 中安装 Node ≥ 24.15 后重新连接。");
+  if (start < 0 || end < 0) throw new DesktopError("node_unavailable", "No usable node found; install Node ≥ 24.15 in the login shell and reconnect.");
   let result: unknown;
   try { result = JSON.parse(stdout.slice(start + marker.length, end)); }
-  catch { throw new DesktopError("shell_environment", "登录 shell 返回的环境不可解析；请检查 shell 配置后重新连接。"); }
-  if (!result || typeof result !== "object" || !("node" in result) || typeof result.node !== "string" || !path.isAbsolute(result.node) || !("env" in result) || !result.env || typeof result.env !== "object" || Object.values(result.env).some(value => typeof value !== "string")) throw new DesktopError("shell_environment", "无法读取登录环境；请检查 shell 配置后重新连接。");
-  if (!("version" in result) || typeof result.version !== "string") throw new DesktopError("node_unavailable", "无法核实 node 版本；请安装 Node ≥ 24.15 后重新连接。");
+  catch { throw new DesktopError("shell_environment", "The login shell's environment can't be parsed; check the shell config and reconnect."); }
+  if (!result || typeof result !== "object" || !("node" in result) || typeof result.node !== "string" || !path.isAbsolute(result.node) || !("env" in result) || !result.env || typeof result.env !== "object" || Object.values(result.env).some(value => typeof value !== "string")) throw new DesktopError("shell_environment", "Can't read the login environment; check the shell config and reconnect.");
+  if (!("version" in result) || typeof result.version !== "string") throw new DesktopError("node_unavailable", "Can't verify the node version; install Node ≥ 24.15 and reconnect.");
   const [major, minor] = result.version.split(".").map(Number);
-  if (!(major > 24 || (major === 24 && minor >= 15))) throw new DesktopError("node_unavailable", "node 版本过旧；请安装 Node ≥ 24.15 后重新连接。");
+  if (!(major > 24 || (major === 24 && minor >= 15))) throw new DesktopError("node_unavailable", "The node version is too old; install Node ≥ 24.15 and reconnect.");
   return { node: result.node, env: result.env as NodeJS.ProcessEnv };
 }
 
@@ -38,7 +38,7 @@ async function executeProbe(command: string, args: string[], options: ExecFileOp
   const { signal, ...execution } = options;
   const reading = execute(command, args, { ...execution, encoding: "utf8", killSignal: "SIGKILL" });
   if (!reading.child) return (await reading).stdout;
-  // execFile 未把 killSignal 转给内部 spawn 的取消路径，直接回收读取进程并等 close。
+  // execFile doesn't forward killSignal to the inner spawn's cancel path; reap the read process directly and await close.
   const cancellation = signal ? addAbortListener(signal, () => { reading.child.kill("SIGKILL"); }) : undefined;
   const closed = new Promise<void>(resolve => reading.child.once("close", () => resolve()));
   try { return (await reading).stdout; }
@@ -48,7 +48,7 @@ async function executeProbe(command: string, args: string[], options: ExecFileOp
 export async function readLoginEnvironment(inherited: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<DesktopEnvironment> {
   let stdout: string;
   try { stdout = await executeProbe(inherited.SHELL || "/bin/zsh", ["-ilc", `node -e '${probe}'`], { env: inherited, signal, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }); }
-  catch { throw new DesktopError("shell_environment", "无法从登录 shell 读取 node 与环境；请确认登录 shell 能运行 node（≥ 24.15）后重新连接。"); }
+  catch { throw new DesktopError("shell_environment", "Can't read node and the environment from the login shell; make sure the login shell can run node (≥ 24.15) and reconnect."); }
   return parseProbe(stdout);
 }
 
@@ -56,7 +56,7 @@ export async function selectEnvironment(inherited: NodeJS.ProcessEnv, login = re
   if (inherited.RUUKOTO_DESKTOP_MANAGED !== "1") return login(inherited, signal);
   let stdout: string;
   try { stdout = await executeProbe("node", ["-e", probe], { env: inherited, signal, timeout: 5000 }); }
-  catch { throw new DesktopError("node_unavailable", "开发环境中找不到 node；请修正 PATH 后重启开发启动器。"); }
+  catch { throw new DesktopError("node_unavailable", "No node found in the dev environment; fix PATH and restart the dev launcher."); }
   return { node: parseProbe(stdout).node, env: { ...inherited } };
 }
 
@@ -73,7 +73,7 @@ export interface CodeTargetConfig extends EnsureBackendOptions {
 }
 export function codeTargetConfig(repository: string, source: DesktopEnvironment): CodeTargetConfig {
   const bin = path.join(repository, "apps/ruukoto-code/bin/ruukoto-code.mjs");
-  if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "构建时的仓库路径不可用；请在当前仓库运行 npm run desktop:build（Electron）或 npm run desktop:mygo:build（MyGo）重建应用。");
+  if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "The build-time repository path is unavailable; rebuild with npm run desktop:build (Electron) or npm run desktop:mygo:build (MyGo) in the current repo.");
   const product = "ruukoto-code";
   const dataDir = path.resolve(defaultDataDir(product));
   const controlDir = path.resolve(controlDirFor(dataDir, product));

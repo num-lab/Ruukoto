@@ -11,7 +11,7 @@ export function SearchHighlight({ text, query }: { text: string; query: string }
   const index = query.trim() ? foldSearchText(text).indexOf(foldSearchText(query)) : -1;
   return index < 0 ? <>{text}</> : <>{text.slice(0, index)}<mark>{text.slice(index, index + query.length)}</mark>{text.slice(index + query.length)}</>;
 }
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
 function SearchSnippet({ text, query }: { text: string; query: string }) {
   const preview = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
@@ -28,7 +28,7 @@ function SearchSnippet({ text, query }: { text: string; query: string }) {
   }, [text, query]);
   return <span ref={preview} className="search-snippet search-preview"><SearchHighlight text={text} query={query} /></span>;
 }
-// Note: 见 .agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md
+// Note: See .agents/notes/implemented/simplification/2026-10-21-desktop-search-session-navigation.md
 export function SearchDialog({ model, onOpenSession }: { model: CodeState; onOpenSession: (sessionId: string) => void }) {
   const search = model.search;
   const input = useRef<HTMLInputElement>(null);
@@ -77,25 +77,25 @@ export function SearchDialog({ model, onOpenSession }: { model: CodeState; onOpe
     search.setOpen(false);
     onOpenSession(option.sessionId);
   }
-  const error = !search.online ? "Code 已离线，恢复连接后可重新搜索。" : search.error ?? search.summariesError;
+  const error = !search.online ? "Code is offline; search again once the connection recovers." : search.error ?? search.summariesError;
   return <Dialog open={search.open} onOpenChange={open => search.setOpen(open)}><DialogContent className="search-dialog" showCloseButton={false} onOpenAutoFocus={event => {
     event.preventDefault();
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     navigating.current = false;
     input.current?.focus();
   }} onCloseAutoFocus={event => { event.preventDefault(); if (navigating.current) document.querySelector<HTMLTextAreaElement>(".main-canvas textarea")?.focus(); else previousFocus.current?.focus(); }} onEscapeKeyDown={event => { if (search.composing || event.isComposing) event.preventDefault(); }}>
-    <DialogTitle className="sr-only">搜索 Code 工作区</DialogTitle><DialogDescription className="sr-only">搜索全部工作区的会话与聊天内容，使用方向键选择，回车打开，Esc 或 ⌘K 关闭。</DialogDescription>
-    <div className="search-input-row"><Search aria-hidden="true" /><Input ref={input} aria-label="搜索 Code 会话与聊天内容" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={listId} aria-activedescendant={activeKey ? optionId(activeKey) : undefined} placeholder="搜索会话与聊天内容…" value={search.query} onCompositionStart={() => search.setComposing(true)} onCompositionEnd={event => { search.setQuery(event.currentTarget.value); search.setComposing(false); }} onChange={event => search.setQuery(event.target.value)} onKeyDown={event => {
+    <DialogTitle className="sr-only">Search Code workspaces</DialogTitle><DialogDescription className="sr-only">Search chats and message contents across all workspaces. Use the arrow keys to choose, Enter to open, Esc or ⌘K to close.</DialogDescription>
+    <div className="search-input-row"><Search aria-hidden="true" /><Input ref={input} aria-label="Search Code chats and messages" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={listId} aria-activedescendant={activeKey ? optionId(activeKey) : undefined} placeholder="Search chats and messages…" value={search.query} onCompositionStart={() => search.setComposing(true)} onCompositionEnd={event => { search.setQuery(event.currentTarget.value); search.setComposing(false); }} onChange={event => search.setQuery(event.target.value)} onKeyDown={event => {
       if (search.composing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (options.length) setSelected(options[(active + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length].key); }
       if (event.key === "Enter") { event.preventDefault(); choose(active); }
-    }} />{(search.loading || search.summariesLoading) && <Loader2 className="animate-spin" aria-label="正在搜索" />}<kbd>esc</kbd></div>
-    <div ref={setViewport} id={listId} role="listbox" aria-label="搜索结果" className="search-results" data-scrolling={scrolling || undefined} aria-busy={search.loading || search.summariesLoading} onScroll={() => { setScrolling(true); window.clearTimeout(scrollTimer.current); scrollTimer.current = window.setTimeout(() => setScrolling(false), 700); }}>
-      {sessions.length > 0 && <div role="group" aria-labelledby={`${listId}-sessions`}><h2 id={`${listId}-sessions`}>{search.query.trim() ? "会话" : "最近活动的会话"}</h2>{sessions.map((session, index) => <Button key={session.sessionId} id={optionId(options[index].key)} type="button" variant="ghost" role="option" tabIndex={-1} aria-selected={active === index} className="search-option" onMouseDown={event => event.preventDefault()} onMouseEnter={() => setSelected(options[index].key)} onClick={() => choose(index)}><span className="search-option-text"><span><span className="search-snippet"><SearchHighlight text={session.name ?? "新会话"} query={search.query} /></span>{session.archivedAt && <Badge variant="outline"><Archive data-icon="inline-start" />已存档</Badge>}</span><small className="search-snippet">{workspaceName(session.sessionId)}</small></span></Button>)}</div>}
-      {search.hits.length > 0 && <div role="group" aria-labelledby={`${listId}-messages`}><h2 id={`${listId}-messages`}>聊天内容</h2>{search.hits.map((hit, offset) => {
+    }} />{(search.loading || search.summariesLoading) && <Loader2 className="animate-spin" aria-label="Searching" />}<kbd>esc</kbd></div>
+    <div ref={setViewport} id={listId} role="listbox" aria-label="Search results" className="search-results" data-scrolling={scrolling || undefined} aria-busy={search.loading || search.summariesLoading} onScroll={() => { setScrolling(true); window.clearTimeout(scrollTimer.current); scrollTimer.current = window.setTimeout(() => setScrolling(false), 700); }}>
+      {sessions.length > 0 && <div role="group" aria-labelledby={`${listId}-sessions`}><h2 id={`${listId}-sessions`}>{search.query.trim() ? "Chats" : "Recently active chats"}</h2>{sessions.map((session, index) => <Button key={session.sessionId} id={optionId(options[index].key)} type="button" variant="ghost" role="option" tabIndex={-1} aria-selected={active === index} className="search-option" onMouseDown={event => event.preventDefault()} onMouseEnter={() => setSelected(options[index].key)} onClick={() => choose(index)}><span className="search-option-text"><span><span className="search-snippet"><SearchHighlight text={session.name ?? "New chat"} query={search.query} /></span>{session.archivedAt && <Badge variant="outline"><Archive data-icon="inline-start" />Archived</Badge>}</span><small className="search-snippet">{workspaceName(session.sessionId)}</small></span></Button>)}</div>}
+      {search.hits.length > 0 && <div role="group" aria-labelledby={`${listId}-messages`}><h2 id={`${listId}-messages`}>Messages</h2>{search.hits.map((hit, offset) => {
         const index = sessions.length + offset;
         const relativeTime = hit.timestamp ? relativeSearchTime(hit.timestamp) : "";
-        return <Button key={options[index].key} id={optionId(options[index].key)} type="button" variant="ghost" role="option" tabIndex={-1} aria-selected={active === index} className="search-option search-message-option" onMouseDown={event => event.preventDefault()} onMouseEnter={() => setSelected(options[index].key)} onClick={() => choose(index)}><span className="search-option-text"><span className="search-hit-heading"><span className="search-snippet"><SearchHighlight text={sessionName(hit.sessionId)} query={search.query} /></span>{archived(hit.sessionId) && <Badge variant="outline">已存档</Badge>}</span><SearchSnippet text={hit.snippet} query={search.query} /></span>{hit.timestamp && relativeTime && <time className="search-result-time" dateTime={hit.timestamp} title={new Date(hit.timestamp).toLocaleString()}>{relativeTime}</time>}</Button>;
+        return <Button key={options[index].key} id={optionId(options[index].key)} type="button" variant="ghost" role="option" tabIndex={-1} aria-selected={active === index} className="search-option search-message-option" onMouseDown={event => event.preventDefault()} onMouseEnter={() => setSelected(options[index].key)} onClick={() => choose(index)}><span className="search-option-text"><span className="search-hit-heading"><span className="search-snippet"><SearchHighlight text={sessionName(hit.sessionId)} query={search.query} /></span>{archived(hit.sessionId) && <Badge variant="outline">Archived</Badge>}</span><SearchSnippet text={hit.snippet} query={search.query} /></span>{hit.timestamp && relativeTime && <time className="search-result-time" dateTime={hit.timestamp} title={new Date(hit.timestamp).toLocaleString("en-US")}>{relativeTime}</time>}</Button>;
       })}</div>}
       {search.hasMore && search.hits.length > 0 && <div ref={end} className="search-end" aria-hidden="true" />}
     </div>

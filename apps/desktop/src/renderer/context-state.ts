@@ -16,7 +16,7 @@ class ContextReadError extends Error {
 }
 const emptyState = (): DesktopContextState => ({ loading: false, error: null, missing: false, value: null });
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
+// Note: See .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
 export class DesktopContext {
   private readonly states = new Map<string, DesktopContextState>();
   private readonly requests = new Map<string, Promise<void>>();
@@ -29,7 +29,7 @@ export class DesktopContext {
   private async request<K extends "list_prompt_requests" | "get_context_breakdown">(op: K, params: OpParams<K>): Promise<OpResult<K>> {
     const result = await this.bridge.request(this.target, op, params);
     if (!result.ok) throw new ContextReadError(result.error.code, result.error.message);
-    // 控制面响应由主进程原样转发，在 IPC wire 边界恢复类型。
+    // The main process forwards the control response verbatim; restore types at the IPC boundary.
     return result.value as OpResult<K>;
   }
   update(update: DesktopUpdate): void {
@@ -67,17 +67,17 @@ export class DesktopContext {
       if (!owns()) return;
       const record = page.records[0];
       if (!record) { state.missing = true; return; }
-      if (record.sessionId !== sessionId) throw new ContextReadError("context_mismatch", "上下文记录不属于此会话");
+      if (record.sessionId !== sessionId) throw new ContextReadError("context_mismatch", "Context record does not belong to this chat");
       const value = await this.request("get_context_breakdown", { session_id: sessionId, record_id: record.id });
       if (!owns()) return;
-      if (value.record.sessionId !== sessionId || value.record.id !== record.id) throw new ContextReadError("context_mismatch", "上下文详情与请求记录不一致");
+      if (value.record.sessionId !== sessionId || value.record.id !== record.id) throw new ContextReadError("context_mismatch", "Context details do not match the requested record");
       const { breakdown } = value;
       const systemTokens = breakdown.categories.find(category => category.key === "systemPrompt")?.tokens ?? 0;
       const toolTokens = breakdown.categories.find(category => category.key === "toolSchemas")?.tokens ?? 0;
       const maxTokens = breakdown.window?.contextWindow ?? null;
       state.value = { ...value, display: { systemTokens, toolTokens, messageTokens: breakdown.estimatedTotal - systemTokens - toolTokens, usedTokens: breakdown.estimatedTotal, maxTokens, usedPercent: maxTokens === null ? null : breakdown.estimatedTotal / maxTokens * 100 } };
     })().catch(error => {
-      if (owns()) state.error = error instanceof ContextReadError ? `读取 Context 失败：${error.message}；请重新打开详情重试。` : "读取 Context 失败；请重新打开详情重试。";
+      if (owns()) state.error = error instanceof ContextReadError ? `Couldn't read context: ${error.message} Reopen the details and try again.` : "Couldn't read context. Reopen the details and try again.";
     }).finally(() => {
       if (!owns()) return;
       state.loading = false;

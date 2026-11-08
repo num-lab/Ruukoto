@@ -41,20 +41,20 @@ type NavEntry =
 
 const navigation: ReadonlyArray<NavEntry> = [
   { type: "section", label: "Desktop" },
-  { type: "item", value: "appearance", label: "外观", icon: SunMoon },
-  { type: "item", value: "code-computer", label: "电脑", icon: Monitor },
-  { type: "item", value: "web-search", label: "Web 搜索", icon: Globe },
-  { type: "item", value: "personal", label: "PA 远程连接", icon: Server },
-  { type: "item", value: "archived", label: "已存档会话", icon: Archive },
+  { type: "item", value: "appearance", label: "Appearance", icon: SunMoon },
+  { type: "item", value: "code-computer", label: "Computer", icon: Monitor },
+  { type: "item", value: "web-search", label: "Web search", icon: Globe },
+  { type: "item", value: "personal", label: "Personal connection", icon: Server },
+  { type: "item", value: "archived", label: "Archived chats", icon: Archive },
   { type: "section", label: "Code" },
-  { type: "item", value: "code-models", label: "模型", icon: Brain },
+  { type: "item", value: "code-models", label: "Models", icon: Brain },
   { type: "item", value: "code-skills", label: "Skills", icon: Puzzle },
   { type: "item", value: "code-mcp", label: "MCP", icon: Blocks },
   { type: "section", label: "PA" },
-  { type: "item", value: "pa-models", label: "模型", icon: Brain },
+  { type: "item", value: "pa-models", label: "Models", icon: Brain },
   { type: "item", value: "pa-skills", label: "Skills", icon: Puzzle },
   { type: "item", value: "pa-mcp", label: "MCP", icon: Blocks },
-  { type: "item", value: "pa-computer", label: "电脑", icon: Monitor },
+  { type: "item", value: "pa-computer", label: "Computer", icon: Monitor },
 ];
 
 const codePages: Record<`code-${ManagedSettingsCategory}`, React.ComponentType<SettingsPageProps>> = {
@@ -66,10 +66,10 @@ const codePages: Record<`code-${ManagedSettingsCategory}`, React.ComponentType<S
 
 function AppearancePage({ appearance, onAppearance }: { appearance: DesktopAppearance; onAppearance: (appearance: DesktopAppearance) => void }) {
   return (
-    <SettingsPage title="外观" description="选择桌面客户端的主题。">
-      <SettingsGroup title="界面">
+    <SettingsPage title="Appearance" description="Choose the desktop client theme.">
+      <SettingsGroup title="Interface">
         <SettingsCard>
-          <SettingsRow title="主题" description="跟随系统、浅色或深色。"><SettingsSegmented label="主题" value={appearance} onValueChange={value => onAppearance(value as DesktopAppearance)} options={[{ value: "system", label: <><Monitor aria-hidden="true" />跟随系统</> }, { value: "light", label: <><Sun aria-hidden="true" />浅色</> }, { value: "dark", label: <><Moon aria-hidden="true" />深色</> }]} /></SettingsRow>
+          <SettingsRow title="Theme" description="System, Light or Dark."><SettingsSegmented label="Theme" value={appearance} onValueChange={value => onAppearance(value as DesktopAppearance)} options={[{ value: "system", label: <><Monitor aria-hidden="true" />System</> }, { value: "light", label: <><Sun aria-hidden="true" />Light</> }, { value: "dark", label: <><Moon aria-hidden="true" />Dark</> }]} /></SettingsRow>
         </SettingsCard>
       </SettingsGroup>
     </SettingsPage>
@@ -79,11 +79,11 @@ function AppearancePage({ appearance, onAppearance }: { appearance: DesktopAppea
 function ArchivedPage({ code }: { code: CodeState }) {
   const sessions = code.archivedSessions();
   return (
-    <SettingsPage title="已存档会话" description="存档只把会话从左栏隐藏，历史与任务仍保留。">
-      <SettingsGroup title="存档列表">
-        <SettingsList label="已存档会话" empty="没有已存档的会话。">
+    <SettingsPage title="Archived chats" description="Archiving only hides a chat from the sidebar; history and tasks are kept.">
+      <SettingsGroup title="Archive list">
+        <SettingsList label="Archived chats" empty="No archived chats.">
           {sessions.map(session => <SettingsListItem key={session.id} title={code.sessionName(session.id)} description={`${code.workspaceName(session.workspaceProjectId ?? session.projectId)} · ${session.archivedAt?.slice(0, 10)}`}>
-            <SettingsButton variant="icon" aria-label={`取消存档 ${code.sessionName(session.id)}`} title="取消存档" disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><ArchiveRestore /></SettingsButton>
+            <SettingsButton variant="icon" aria-label={`Unarchive ${code.sessionName(session.id)}`} title="Unarchive" disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><ArchiveRestore /></SettingsButton>
           </SettingsListItem>)}
         </SettingsList>
       </SettingsGroup>
@@ -109,7 +109,7 @@ export function SettingsContents(props: SettingsContentsProps) {
         const Icon = entry.icon;
         return <SettingsNavItem key={entry.value} selected={category === entry.value} aria-label={entry.label} onClick={() => settings.chooseCategory(entry.value)} icon={<Icon aria-hidden="true" />}>{entry.label}</SettingsNavItem>;
       })}
-      action={<SettingsButton variant="icon" aria-label="关闭设置" title="关闭设置" onClick={() => settings.close()}><X /></SettingsButton>}
+      action={<SettingsButton variant="icon" aria-label="Close settings" title="Close settings" onClick={() => settings.close()}><X /></SettingsButton>}
       data-density="comfortable"
     >
       <div ref={contentRef} key={`${category}:${settings.pageKey}`} className="settings-content">
@@ -128,7 +128,7 @@ export function SettingsDialog(props: SettingsContentsProps & { defaultTarget: D
   const { settings } = props;
   const busy = settings.form?.phase === "saving" || settings.form?.phase === "unknown";
   return <><Dialog open={settings.open} onOpenChange={open => { if (open) settings.show(props.defaultTarget); else settings.close(); }}>
-    <DialogTrigger asChild><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="设置"><Settings /></Button></DialogTrigger>
-    <DialogContent className="settings-dialog" showCloseButton={false} onCloseAutoFocus={props.onCloseAutoFocus}><DialogTitle className="sr-only">设置</DialogTitle><DialogDescription className="sr-only">选择左侧类别查看设置项，配置目标独立于聊天。</DialogDescription><SettingsContents {...props} />{settings.message && <p className="settings-notice" role="status">{settings.message}</p>}</DialogContent>
-  </Dialog><Dialog open={!!settings.leave && !settings.form?.confirming} onOpenChange={open => { if (!open) settings.continueEditing(); }}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>保留未保存的更改？</DialogTitle><DialogDescription>保存后继续刚才的操作，或放弃本页草稿。</DialogDescription></DialogHeader><p role="status">{busy ? settings.form?.phase === "saving" ? "正在保存，请等待完成。" : "保存结果待核实，请继续编辑并核实原配置。" : "更改尚未保存。"}</p><DialogFooter><Button type="button" variant="ghost" onClick={() => settings.continueEditing()}>继续编辑</Button><Button type="button" variant="outline" disabled={busy} onClick={() => settings.discardAndLeave()}>放弃更改</Button><Button type="button" disabled={busy} onClick={() => void settings.saveAndLeave()}>保存并继续</Button></DialogFooter></DialogContent></Dialog></>;
+    <DialogTrigger asChild><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="Settings"><Settings /></Button></DialogTrigger>
+    <DialogContent className="settings-dialog" showCloseButton={false} onCloseAutoFocus={props.onCloseAutoFocus}><DialogTitle className="sr-only">Settings</DialogTitle><DialogDescription className="sr-only">Select a category on the left to view its settings; configuration is independent of chats.</DialogDescription><SettingsContents {...props} />{settings.message && <p className="settings-notice" role="status">{settings.message}</p>}</DialogContent>
+  </Dialog><Dialog open={!!settings.leave && !settings.form?.confirming} onOpenChange={open => { if (!open) settings.continueEditing(); }}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>Keep unsaved changes?</DialogTitle><DialogDescription>Save and continue, or discard the draft on this page.</DialogDescription></DialogHeader><p role="status">{busy ? settings.form?.phase === "saving" ? "Saving…" : "Save outcome unverified. Keep editing and verify the original configuration." : "Changes aren't saved."}</p><DialogFooter><Button type="button" variant="ghost" onClick={() => settings.continueEditing()}>Keep editing</Button><Button type="button" variant="outline" disabled={busy} onClick={() => settings.discardAndLeave()}>Discard changes</Button><Button type="button" disabled={busy} onClick={() => void settings.saveAndLeave()}>Save and continue</Button></DialogFooter></DialogContent></Dialog></>;
 }

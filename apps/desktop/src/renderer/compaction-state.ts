@@ -43,7 +43,7 @@ export class DesktopCompactions {
       state.pending = outcome.request.status === "running" ? record : null;
       state.message = null;
     } else if (outcome.kind === "rejected") { state.pending = null; state.message = outcome.message; }
-    else { state.pending = record; state.message = outcome.kind === "foreign_instance" ? "原压缩请求属于另一数据实例，请连接原实例核实。" : outcome.message; }
+    else { state.pending = record; state.message = outcome.kind === "foreign_instance" ? "The compaction request belongs to another data instance. Reconnect to that instance to verify." : outcome.message; }
     this.changed();
   }
   update(update: DesktopUpdate): void {
@@ -91,8 +91,8 @@ export class DesktopCompactions {
         const request = await this.request("get_session_compaction", { session_id: sessionId, ...(state.pending ? { request_id: state.pending.requestId } : {}) });
         if (key !== this.key(sessionId) || knownRequestId !== (state.pending?.requestId ?? state.request?.requestId)) return;
         if (request) this.apply(sessionId, request);
-        else if (state.pending) state.message = "尚未找到原压缩结果，请核实原请求。";
-      } catch (error) { if (key === this.key(sessionId)) state.message = error instanceof Error ? error.message : "无法读取压缩结果，请恢复连接后重试。"; }
+        else if (state.pending) state.message = "The compaction result isn't available yet. Verify the original request.";
+      } catch (error) { if (key === this.key(sessionId)) state.message = error instanceof Error ? error.message : "Couldn't read the compaction result. Restore the connection and try again."; }
       finally { state.loading = false; this.reads.delete(key); this.changed(); }
     })();
     this.reads.set(key, read);
@@ -100,8 +100,8 @@ export class DesktopCompactions {
   }
   async start(sessionId: string, prompt = ""): Promise<boolean> {
     const state = this.get(sessionId), key = this.key(sessionId);
-    if (!this.online() || !this.view.instanceId) { state.message = "请恢复 Code 连接后再压缩上下文。"; this.changed(); return false; }
-    if (this.occupied(sessionId)) { state.message = "原压缩请求仍在进行或待核实，请先查看其结果。"; this.changed(); return false; }
+    if (!this.online() || !this.view.instanceId) { state.message = "Restore the Code connection before compacting context."; this.changed(); return false; }
+    if (this.occupied(sessionId)) { state.message = "The compaction request is still running or unverified. Check its result first."; this.changed(); return false; }
     const requestId = crypto.randomUUID();
     state.request = null;
     state.pending = { requestId, op: "compact_session", instanceId: this.view.instanceId, params: { session_id: sessionId, request_id: requestId, ...(prompt ? { prompt } : {}) }, createdAt: new Date().toISOString() };
@@ -113,7 +113,7 @@ export class DesktopCompactions {
       const value = result.value as DesktopCompactionResult;
       this.accept(value);
       return value.outcome.kind === "accepted" || this.get(sessionId).request?.requestId === value.record.requestId;
-    } catch { state.message = "未取得宿主应答，请重新打开应用以核实原压缩请求。"; return false; }
+    } catch { state.message = "No host response. Reopen the app to verify the compaction request."; return false; }
     finally { this.starting.delete(key); this.changed(); }
   }
   async retry(sessionId: string): Promise<void> {
@@ -125,7 +125,7 @@ export class DesktopCompactions {
       if (key !== this.key(sessionId)) return;
       if (result.ok) this.accept(result.value as DesktopCompactionResult);
       else state.message = result.error.message;
-    } catch { state.message = "未取得宿主应答，请重新打开应用以核实原压缩请求。"; }
+    } catch { state.message = "No host response. Reopen the app to verify the compaction request."; }
     finally { this.starting.delete(key); this.changed(); }
   }
   async stop(sessionId: string): Promise<void> {
@@ -136,7 +136,7 @@ export class DesktopCompactions {
     try {
       const result = await this.request("interrupt_session_compaction", { session_id: sessionId, request_id: request.requestId });
       if (key === this.key(sessionId)) this.apply(sessionId, result);
-    } catch (error) { if (key === this.key(sessionId)) { state.message = error instanceof Error ? error.message : "停止结果待核实，请重新读取原压缩结果。"; await this.load(sessionId); } }
+    } catch (error) { if (key === this.key(sessionId)) { state.message = error instanceof Error ? error.message : "Stop outcome unverified. Read the compaction result again."; await this.load(sessionId); } }
     finally { state.stopping = false; this.changed(); }
   }
 }

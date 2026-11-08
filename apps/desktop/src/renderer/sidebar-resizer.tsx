@@ -49,7 +49,7 @@ export function SidebarResizer({ side, open, onWidthChange }: { side: SidebarSid
     return finishResize;
   }, [open]);
 
-  return <div ref={handle} className={`sidebar-resize-handle resize-${side}`} role="separator" aria-label={side === "left" ? "左侧栏宽度" : "右侧栏宽度"} aria-orientation="vertical" aria-controls={`${side}-sidebar`} aria-valuemin={bounds.min} aria-valuemax={bounds.max} aria-valuenow={Math.max(bounds.min, Math.min(bounds.max, Math.round(bounds.width)))} tabIndex={0} data-dragging={dragging || undefined} onPointerDown={event => {
+  return <div ref={handle} className={`sidebar-resize-handle resize-${side}`} role="separator" aria-label={side === "left" ? "Left sidebar width" : "Right sidebar width"} aria-orientation="vertical" aria-controls={`${side}-sidebar`} aria-valuemin={bounds.min} aria-valuemax={bounds.max} aria-valuenow={Math.max(bounds.min, Math.min(bounds.max, Math.round(bounds.width)))} tabIndex={0} data-dragging={dragging || undefined} onPointerDown={event => {
     if (drag.current || event.button !== 0 || !event.isPrimary) return;
     event.preventDefault();
     event.currentTarget.focus();

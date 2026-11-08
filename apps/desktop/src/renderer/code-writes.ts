@@ -6,7 +6,7 @@ import type { DesktopAttachment, DesktopBridge, DesktopSubmitResult, DesktopTarg
 
 export interface Draft { text: string; attachments?: DesktopAttachment[]; attaching?: boolean }
 
-/** task_queue 回执（coding-message-control）：顺序/修订/资格集合以服务端为准。 */
+/** task_queue receipts (coding-message-control): order/revision/eligibility are server-authoritative. */
 export type QueueDetail = OpResult<"task_queue">;
 export type QueueDecision = { kind: "select_model" } | { kind: "confirm"; count: number; selection: ModelSelection } | { kind: "send"; params: OpParams<"resume_queue"> };
 export function queueDecision(view: ViewState, session: Session, confirmed = false): QueueDecision {
@@ -35,7 +35,7 @@ export type RecallState = OpResult<"message_recall_state">;
 /** The initiating client retains the request key and completion revision to restore its draft. */
 interface HeldRecall { requestId: string; params?: OpParams<"message_recall">; installed?: boolean }
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class CodeWrites {
   entries = new Map<string, PendingInput>();
   corrupt: string[] = [];
@@ -89,7 +89,7 @@ export class CodeWrites {
     const held = this.heldRecall.get(this.key(sessionId));
     return !!held && !held.installed;
   }
-  defer(): void { this.report("原记录仍保留；可稍后恢复输入，发送仍禁用。"); }
+  defer(): void { this.report("The original record is kept; you can restore input later. Sending stays disabled."); }
   blocked(sessionId: string): boolean {
     return !this.online() || this.recallPending(sessionId) || !!this.draft(sessionId).attaching || this.busy.has(sessionId) || this.checking(sessionId) || [...this.entries.values()].some(({ record }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId);
   }
@@ -104,7 +104,7 @@ export class CodeWrites {
     if (record.op !== "submit" || record.instanceId !== this.view.instanceId || typeof record.params.session_id !== "string" || typeof record.params.input !== "string") return;
     const existing = this.held.get(record.requestId);
     if (existing) return existing;
-    // 恢复记录来自主进程校验过的持久 JSON，保留原附件引用，不重新读取本机文件。
+    // Restored records come from main-process-validated persisted JSON; original attachment references are kept and local files aren't re-read.
     const attachments = Array.isArray(record.params.attachments) ? record.params.attachments as DesktopAttachment[] : undefined;
     const input: Draft = { text: record.params.input, attachments };
     const active = this.submitting.get(this.key(record.params.session_id));
@@ -168,7 +168,7 @@ export class CodeWrites {
     }
     if (modelChanged) void this.loadModels();
     if (update.type === "snapshot" || (update.type === "event" && update.kind === "live" && (update.event.body.type === "session.queue_paused" || update.event.body.type === "session.queue_resumed"))) ++this.queueRevision;
-    // 队列/引导事件后惰性刷新面板缓存（面板经 queueRevision 依赖触发 loadQueue）
+    // Lazily refresh the panel cache after queue/guidance events (the panel triggers loadQueue via the queueRevision dependency)
     if (update.type === "event" && update.kind === "live") {
       const body = update.event.body;
       if (body.type === "session.queue_changed" || body.type === "task.guidance") {
@@ -199,8 +199,8 @@ export class CodeWrites {
           const held = this.held.get(record.requestId) ?? (active?.requestId === record.requestId ? active : undefined);
           if (held) this.settle(held, result.kind !== "rejected");
           this.held.delete(record.requestId);
-          if (result.kind === "rejected") { this.merge(record); this.report(`原请求被拒绝，输入已恢复：${result.reason}`); }
-          else this.report("已关联原任务，输入没有重复提交。");
+          if (result.kind === "rejected") { this.merge(record); this.report(`The original request was rejected; input restored: ${result.reason}`); }
+          else this.report("Linked to the original task; the input wasn't resubmitted.");
         }
         if (result.kind !== "rejected" && typeof record.params.session_id === "string") this.finishFirstChat(record.params.session_id);
       } else this.entries.set(record.requestId, { record, result });
@@ -222,23 +222,23 @@ export class CodeWrites {
         const session = this.view.sessions.find(item => item.id === control.sessionId);
         if (control.taskId ? !!task : !!session) {
           this.unknown.delete(key);
-          this.report(control.taskId ? `已核实任务状态：${formatTaskStatus(task!.status)}` : control.op === "resume_queue" ? `已核实队列：${session!.queueState === "paused" ? "仍暂停" : "可运行"}` : "已按后台实际值刷新会话设置。");
+          this.report(control.taskId ? `Task state verified: ${formatTaskStatus(task!.status)}` : control.op === "resume_queue" ? `Queue verified: ${session!.queueState === "paused" ? "still paused" : "runnable"}` : "Chat settings refreshed from backend values.");
         }
       }
     }
   }
   async restore(requestId: string): Promise<void> {
     try {
-      // 已交付过的输入只重试清理确认，避免应答丢失后重复拼接。
+      // Delivered input only retries the cleanup confirmation, to avoid re-sending after a lost response.
       if (!this.restored.has(requestId)) this.merge(await this.request<PendingRequest>("desktop_pending_read", { request_id: requestId }));
-      if (!this.restored.has(requestId)) { this.report("输入尚未交付，请连回原数据实例后重试。"); return; }
+      if (!this.restored.has(requestId)) { this.report("The input wasn't delivered. Reconnect to the original data instance and retry."); return; }
       await this.request("desktop_pending_clear", { request_id: requestId });
       this.entries.delete(requestId);
       this.held.delete(requestId);
-      this.report("输入已恢复，请选择模型后发送。");
-    } catch (error) { this.report(error instanceof Error ? error.message : "恢复输入失败；原记录仍保留，请重试。"); }
+      this.report("Input restored. Select a model and send.");
+    } catch (error) { this.report(error instanceof Error ? error.message : "Couldn't restore input; the original record is kept. Try again."); }
   }
-  /** 队列详情缓存（面板打开与事件时刷新）；实例变化时键自动隔离。 */
+  /** Queue detail cache (refreshed when the panel opens or on events); keys self-isolate on instance switch. */
   async loadQueue(sessionId: string): Promise<void> {
     if (!this.online() || !this.view.instanceId) return;
     const instanceId = this.view.instanceId;
@@ -247,7 +247,7 @@ export class CodeWrites {
       if (instanceId !== this.view.instanceId) return;
       this.queues.set(this.key(sessionId), detail);
       this.changed();
-    } catch (error) { void error; /* 吞掉 task_queue 请求失败（离线或远端拒绝）：面板显示空态，不打扰主流程 */ }
+    } catch (error) { void error; /* Swallow task_queue request failures (offline or remote rejection): the panel shows an empty state without interrupting the main flow */ }
   }
 
   private async submitQueueOrder(sessionId: string, detail: QueueDetail, order: string[]): Promise<void> {
@@ -256,7 +256,7 @@ export class CodeWrites {
       this.queues.set(this.key(sessionId), { ...detail, queue: result });
       this.changed();
     } catch (error) {
-      this.report(error instanceof Error ? error.message : "重排失败，请刷新队列。");
+      this.report(error instanceof Error ? error.message : "Reorder failed. Refresh the queue.");
       await this.loadQueue(sessionId);
     }
   }
@@ -279,13 +279,13 @@ export class CodeWrites {
     if (order) await this.submitQueueOrder(sessionId, detail, order);
   }
 
-  /** 已排队输入转为当前任务引导；错过目标自动回队首（服务端处理）。 */
+  /** Turn queued input into guidance for the current task; a missed target returns to the queue head (handled server-side). */
   async steerQueued(sessionId: string, taskId: string): Promise<void> {
     const revision = this.queueDetail(sessionId)?.queue.revision;
     try {
       await this.request("steer_task", { task_id: taskId, ...(revision !== undefined ? { expected_queue_revision: revision } : {}) });
     } catch (error) {
-      this.report(error instanceof Error ? error.message : "转为引导失败，请重试。");
+      this.report(error instanceof Error ? error.message : "Sending as guidance failed. Try again.");
     }
     await this.loadQueue(sessionId);
   }
@@ -310,7 +310,7 @@ export class CodeWrites {
   private rememberRecall(sessionId: string, held: HeldRecall): void {
     this.heldRecall.set(this.key(sessionId), held);
     try { localStorage.setItem(this.storageKey(sessionId), JSON.stringify({ requestId: held.requestId, ...(held.params ? { params: held.params } : {}) })); }
-    catch { this.heldRecall.delete(this.key(sessionId)); throw new Error("无法保存原撤回请求，本次没有发送；请恢复应用存储后重试。"); }
+    catch { this.heldRecall.delete(this.key(sessionId)); throw new Error("Couldn't save the original recall request; nothing was sent. Restore app storage and retry."); }
   }
   private forgetRecall(sessionId: string): void {
     this.heldRecall.delete(this.key(sessionId));
@@ -331,7 +331,7 @@ export class CodeWrites {
     draft.text = edit.input;
     draft.attachments = edit.attachments.length ? edit.attachments.map(item => ({ id: item.id, name: item.name, size: item.size })) : undefined;
     this.rememberRecall(sessionId, { ...held, installed: true });
-    this.report("已取回输入，可编辑后重新发送。");
+    this.report("Input recalled; edit and send again.");
   }
 
   async retryRecall(sessionId: string): Promise<void> {
@@ -361,11 +361,11 @@ export class CodeWrites {
       if (instanceId !== this.view.instanceId) return;
       // The saved key also recovers completion when the mutation response is lost.
       if (receipt.phase === "rejected") {
-        this.report(`撤回被拒绝：${receipt.error?.message ?? "目标已变化"}`);
+        this.report(`Recall rejected: ${receipt.error?.message ?? "target changed"}`);
         this.forgetRecall(sessionId);
       }
     } catch (error) {
-      this.report(error instanceof Error ? error.message : "撤回失败，请重试。");
+      this.report(error instanceof Error ? error.message : "Recall failed. Try again.");
     } finally { this.busy.delete(sessionId); this.changed(); }
     if (instanceId === this.view.instanceId) await this.loadRecallState(sessionId, requestId);
   }
@@ -378,9 +378,9 @@ export class CodeWrites {
     this.changed();
     try {
       const receipt = await this.request<PublicMessageRecall>("message_recall_verify", { session_id: sessionId, request_id: open.requestId });
-      if (receipt.phase === "blocked") this.report("停止仍未核实，请稍后再次核实");
+      if (receipt.phase === "blocked") this.report("Stop still unverified; verify again later");
     } catch (error) {
-      this.report(error instanceof Error ? error.message : "核实失败，请重试。");
+      this.report(error instanceof Error ? error.message : "Verification failed. Try again.");
     } finally { this.busy.delete(sessionId); this.changed(); }
     await this.loadRecallState(sessionId, open.requestId);
   }
@@ -388,9 +388,9 @@ export class CodeWrites {
   async send(sessionId: string, opts: { guidance?: boolean } = {}): Promise<void> {
     const session = this.view.sessions.find(item => item.id === sessionId);
     const draft = this.draft(sessionId);
-    if (session?.codeScheduleActive) { this.report("定时运行期间请从 Scheduled 查看与处理本轮，结束后可发送普通消息。"); return; }
+    if (session?.codeScheduleActive) { this.report("During a timed run, view and handle this round in Scheduled; ordinary messages can be sent afterwards."); return; }
     if (!session || (!draft.text.trim() && !draft.attachments?.length) || this.blocked(sessionId)) return;
-    if (!session.modelSelection) { this.report("请先选择模型。"); return; }
+    if (!session.modelSelection) { this.report("Select a model first."); return; }
     if (this.heldRecall.get(this.key(sessionId))?.installed) this.forgetRecall(sessionId);
     const input = { ...draft, attachments: draft.attachments ? [...draft.attachments] : undefined };
     const instanceId = this.view.instanceId;
@@ -429,7 +429,7 @@ export class CodeWrites {
       } else if (!this.notices.has(result.requestId)) this.held.set(result.requestId, held);
     } catch (error) {
       this.settle(held, false);
-      if (instanceId === this.view.instanceId) this.report(error instanceof Error ? error.message : "发送失败，输入仍保留。");
+      if (instanceId === this.view.instanceId) this.report(error instanceof Error ? error.message : "Send failed; your input is kept.");
     } finally { this.submitting.delete(key); this.busy.delete(sessionId); this.changed(); }
   }
   private finishFirstChat(sessionId: string): void {
@@ -454,9 +454,9 @@ export class CodeWrites {
         offset = page.nextOffset;
       } while (offset !== null);
       this.models = models;
-      if (!models.length) this.report("后台未配置模型，请先配置模型目录。");
+      if (!models.length) this.report("No model configured on the backend. Configure the model catalog first.");
       this.changed();
-    } catch (error) { if (owns()) { this.models = []; this.report(`模型目录读取失败：${error instanceof Error ? error.message : "请重试。"}`); } }
+    } catch (error) { if (owns()) { this.models = []; this.report(`Couldn't load the model catalog: ${error instanceof Error ? error.message : "Try again."}`); } }
   }
   private applySession(session: Session): void {
     this.view.applySessionModel(session.id, session.modelSelection, session.modelSelectionVersion);
@@ -487,14 +487,14 @@ export class CodeWrites {
       if (op === "resume_queue" && error instanceof WriteFailure && error.failure.code === "stop_unverified") this.stopConfirmations.add(this.key(control.sessionId));
       if (error instanceof WriteFailure && (error.failure.outcome === "unknown" || error.failure.outcome === "disconnected" || error.failure.code === "model_selection_conflict" || error.failure.code === "default_mode_conflict")) {
         this.unknown.set(key, control);
-        this.report("操作结果未知；等待核实后台实际状态。");
+        this.report("Outcome unknown; waiting to verify the actual backend state.");
         if (error.failure.outcome !== "disconnected") {
           try {
             if (control.taskId) {
               const detail = await this.request<OpResult<"get_task">>("get_task", { task_id: control.taskId });
               if (control.instanceId !== this.view.instanceId) return;
               this.view.installTaskDetail(detail.task, detail.toolOps, detail.outputPreview, detail.seq);
-              this.report(`已核实任务状态：${formatTaskStatus(this.view.getTask(detail.task.id)!.status)}`);
+              this.report(`Task state verified: ${formatTaskStatus(this.view.getTask(detail.task.id)!.status)}`);
             } else {
               const revision = this.queueRevision;
               const session = await this.request<Session>("get_session", { session_id: control.sessionId });
@@ -502,16 +502,16 @@ export class CodeWrites {
               this.applySession(session);
               if (control.op === "resume_queue") this.applyQueue(session, revision);
               const current = this.view.sessions.find(item => item.id === session.id);
-              this.report(control.op === "settings" ? "已按后台实际值刷新设置，请确认后再操作。" : `已核实队列：${current?.queueState === "paused" ? "仍暂停" : "可运行"}`);
+              this.report(control.op === "settings" ? "Settings refreshed from backend values. Confirm before acting." : `Queue verified: ${current?.queueState === "paused" ? "still paused" : "runnable"}`);
             }
             this.unknown.delete(key);
-          } catch { this.report("结果未知：状态查询失败，请重新连接后核实。"); }
+          } catch { this.report("Outcome unknown: the state query failed. Reconnect and verify."); }
         }
-      } else this.report(`操作未完成：${error instanceof Error ? error.message : "请重试。"}`);
+      } else this.report(`Operation unfinished: ${error instanceof Error ? error.message : "Try again."}`);
     } finally { this.busy.delete(control.sessionId); this.savingSettings.delete(settingsKey); this.changed(); }
   }
   async setModel(session: Session, selection: ModelSelection): Promise<void> {
-    if (session.codeScheduleActive) { this.report("本轮模型由定时计划固定；请编辑计划以修改未来运行。"); return; }
+    if (session.codeScheduleActive) { this.report("This round's model is fixed by the schedule. Edit the schedule to change future runs."); return; }
     const saved = await this.write("set_session_model", { session_id: session.id, expected_version: session.modelSelectionVersion, model_selection: selection }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applySession(saved); this.changed(); }
   }
@@ -523,7 +523,7 @@ export class CodeWrites {
     this.changed();
   }
   async setMode(session: Session, mode: SessionDefaultMode): Promise<void> {
-    if (session.codeScheduleActive) { this.report("本轮权限由定时计划固定；请编辑计划以修改未来运行。"); return; }
+    if (session.codeScheduleActive) { this.report("This round's permission is fixed by the schedule. Edit the schedule to change future runs."); return; }
     const saved = await this.write("set_session_mode", { session_id: session.id, expected_version: session.defaultAccessModeVersion, mode }, { op: "settings", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applySession(saved); this.changed(); }
   }
@@ -532,7 +532,7 @@ export class CodeWrites {
   }
   stopConfirmationNeeded(sessionId: string): boolean { return this.stopConfirmations.has(this.key(sessionId)); }
   async resume(session: Session, confirmed = false, stopConfirmed = false): Promise<void> {
-    if (this.settingsPending(session.id)) { this.report("会话设置仍在保存或等待核实，请重新连接确认后台实际设置后再恢复队列。"); return; }
+    if (this.settingsPending(session.id)) { this.report("Chat settings are still saving or unverified. Reconnect to confirm the actual backend settings before resuming the queue."); return; }
     const decision = queueDecision(this.view, session, confirmed);
     if (decision.kind !== "send") return;
     const revision = this.queueRevision;

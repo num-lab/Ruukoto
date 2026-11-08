@@ -136,6 +136,7 @@ test("Personal desktop file loop: child cards precede final prose, amendments re
   report.release(); await until(() => entries(live.frames).some(entry => entry.kind === "ruukoto.report-publication"));
   await until(() => state(live.frames).works.items.find(item => item.ref.taskId === work.ref.taskId)?.progress.completed === 2);
   const published = entries(live.frames).filter(entry => entry.kind === "ruukoto.report-publication"); assert.equal(published.length, 1); assert.equal(published[0].text, "CURRENT_PUBLICATION");
+  await until(() => state(live.frames).delegations.items[0]?.report?.publication === published[0].entry);
   const completed = state(live.frames); assert.equal(completed.approvals.items.filter(card => card.started).length, 1); assert.equal(completed.delegations.items[0].report?.publication, published[0].entry);
   assert.deepEqual(completed.works.items[0].progress, { accepted: 2, modelRead: 2, completed: 2, accounted: 2 });
   assert.equal(fs.readFileSync(oldPath, "utf8"), "UNCHANGED"); assert.equal(fs.readFileSync(currentPath, "utf8"), "CURRENT");

@@ -270,7 +270,8 @@ function cmdRestart(hostOpId, expectedPolicyRev, expectedUnitRev, unit) {
   }
 
   const opUnit = opUnitFor(hostOpId);
-  // 「模拟执行」前的受控等待：期间每 50ms 查 stop-requested，发现即中止（不增加 starts）
+  // Claiming precedes prelaunch validation; expose dispatch separately for in-flight stop tests.
+  fs.writeFileSync(path.join(claimDir, "launched"), "");
   let exitCode = 0;
   if (flag("restart-delay-ms")) {
     const delay = Number(fs.readFileSync(path.join(DIR, "restart-delay-ms"), "utf8").trim()) || 0;

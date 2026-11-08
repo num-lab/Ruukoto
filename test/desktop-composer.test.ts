@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createElement, type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type ViteDevServer } from "./helpers/vite.ts";
 import { DropdownMenu } from "radix-ui";
 import react from "@vitejs/plugin-react";
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";

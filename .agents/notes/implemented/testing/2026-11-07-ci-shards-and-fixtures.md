@@ -16,11 +16,14 @@ The missing-required-MCP fixture uses existing one-second connect and list budge
 
 Personal tool corruption prepares one real amended, redisplayed and approved-write history, then restores its clean closed SQLite baseline at the original path before each of twelve independent mutations and actual rejected reopens. Completed-workflow recovery similarly shares one real change/verification chain while preserving four actual Runtime restarts, pause reasons, rejected resumes, unchanged tasks/attempts/executions and source/copy bytes. Each case asserts no additional model calls. Only the database is restored after its owner closes; directory paths/inodes, Git copies, artifacts and execution identities remain in place. This extends the existing closed-baseline method in the suite-reduction decision.
 
+Desktop SSR fixtures disable unused client dependency optimization through a shared post-config hook. React's plugin adds explicit optimization inputs, so the hook clears them after plugin configuration and disables discovery. SSR transforms and module loading remain real. The default cache lives under the protected source tree; concurrent optimizer directory changes correctly reject restricted work-copy startup during its identity scan. Removing these unnecessary test writes preserves the runtime protection checks. Service-helper stop tests wait for dispatch rather than claim creation; report tests wait for the matching projected publication state because timeline entries and state frames travel independently.
+
 ## Alternatives considered
 
 - Delete the report's suggested parameter variants: fewer executions, but the variants cover distinct provenance, snapshot, permission and effect states. Retain them and share only stable preparation. The four-input Coding acceptance also uniquely proves capacity, queue replacement and partial final delivery; the single-step workflow suite cannot replace it.
 - Increase concurrency on one runner: avoids additional setup, but existing worker deadlines and same-UID fixtures already motivated the two-file cap. Independent runners preserve that contention boundary.
 - Balance shards with a maintained timing manifest or distribute built artifacts: potentially improves utilization, but adds stale metadata and cross-platform transfer logic. Round-robin files and the existing cheap build are sufficient initially; revisit if measured shard skew dominates.
+- Move Vite caches to private temporary directories: isolates concurrent source scans, but optimizer writes can outlive server close and recreate a removed directory. These fixtures only load SSR modules, so disable unused client optimization instead of adding cleanup retries. A top-level discovery setting alone is insufficient because React merges its explicit inputs back in.
 
 ## Consequences
 

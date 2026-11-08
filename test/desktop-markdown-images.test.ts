@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer } from "vite";
+import { createServer } from "./helpers/vite.ts";
 import react from "@vitejs/plugin-react";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { PersonalState } from "../apps/desktop/src/renderer/personal-state.ts";

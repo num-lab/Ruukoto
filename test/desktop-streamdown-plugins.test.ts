@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer } from "vite";
+import { createServer } from "./helpers/vite.ts";
 import react from "@vitejs/plugin-react";
 
 test("Desktop 正文插件：KaTeX 数学、Mermaid 图表管线与代码块结构，单美元保持文本", async t => {

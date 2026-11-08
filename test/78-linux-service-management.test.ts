@@ -103,9 +103,9 @@ test("helper：在途 restart 收到停止标记返回 143，服务启动次数�
   f.touch("restart-delay-ms", "1500");
   const pending = f.invoke(["restart", id, rev.policyRevision, rev.unitRevision, UNIT]);
   try {
-    const claim = path.join(f.directory, "ops", id, "claim.json"), deadline = Date.now() + 5000;
-    while (!fs.existsSync(claim) && Date.now() < deadline) await delay(10);
-    assert.ok(fs.existsSync(claim), "原 restart 已认领");
+    const launched = path.join(f.directory, "ops", id, "launched"), deadline = Date.now() + 5000;
+    while (!fs.existsSync(launched) && Date.now() < deadline) await delay(10);
+    assert.ok(fs.existsSync(launched), "原 restart 已启动");
     fs.writeFileSync(path.join(f.directory, "ops", id, "stop-requested"), "stop\n");
     const reply = requireOk((await pending).reply, "restart");
     assert.ok(reply.verb === "restart");

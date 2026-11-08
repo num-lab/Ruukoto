@@ -65,7 +65,7 @@ test("Personal permission responses cannot overwrite a newly selected profile", 
 
 test("Personal permissions SSR identifies actual scope and preserves the granted-range choice", async t => {
   const { createElement } = await import("react"), { renderToStaticMarkup } = await import("react-dom/server");
-  const { createServer } = await import("vite"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
+  const { createServer } = await import("./helpers/vite.ts"), { default: react } = await import("@vitejs/plugin-react"), { fileURLToPath } = await import("node:url");
   const server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   t.after(() => server.close());
   const { PersonalPermissionSettings } = await server.ssrLoadModule("/personal-connection-settings.tsx"), f = fixture(); await f.state.read();

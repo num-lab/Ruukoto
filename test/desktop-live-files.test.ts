@@ -6,7 +6,7 @@ import { before, after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer, type ViteDevServer } from "vite";
+import { createServer, type ViteDevServer } from "./helpers/vite.ts";
 import react from "@vitejs/plugin-react";
 import { resolveDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import type { Project, Session } from "@ruukoto/core/types.ts";

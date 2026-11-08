@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 const root=resolve(process.argv[2] ?? process.cwd());
 const require=createRequire(root+'/package.json');
 const React=require('react');
-const { createServer }=await import(pathToFileURL(root+'/node_modules/vite/dist/node/index.js'));
+const { createServer }=await import(pathToFileURL(root+'/test/helpers/vite.ts'));
 const { default:react }=await import(pathToFileURL(root+'/node_modules/@vitejs/plugin-react/dist/index.js'));
 const server=await createServer({configFile:false,root:root+'/apps/desktop/src/renderer',plugins:[react()],server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
 try {

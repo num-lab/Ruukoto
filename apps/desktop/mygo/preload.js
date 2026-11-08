@@ -1,6 +1,6 @@
 (() => {
   if (window !== window.top || location.href !== "mygo://localhost/") return;
-  const failure = () => ({ ok: false, error: { code: "bridge_disconnected", outcome: "disconnected", message: "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。" } });
+  const failure = () => ({ ok: false, error: { code: "bridge_disconnected", outcome: "disconnected", message: "The MyGo connection closed; reopen the app — the original operation's outcome still needs verification." } });
   const call = (method, ...args) => window.mygo.call(`Desktop.${method}`, ...args).catch(failure);
   window.ruukoto = {
     subscribe(target, listener) {
@@ -9,6 +9,8 @@
       return off;
     },
     request: (target, op, params) => call("Request", target, op, params),
+    appearance: () => call("Appearance"),
+    setAppearance: value => call("SetAppearance", value),
     pickFolder: () => call("PickFolder"),
     pickAttachments: (sessionId, target = "code") => call("PickAttachments", sessionId, target),
     pickDraftAttachments: () => call("PickDraftAttachments"),

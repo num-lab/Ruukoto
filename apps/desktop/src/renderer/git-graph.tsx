@@ -14,17 +14,17 @@ const bendY = (nodeY + rowHeight) / 2;
 export function GitCommitDetails({ commit }: { commit: GitCommit }) {
   return <div className="git-commit-detail-body selectable-text">
     <p>{commit.subject}</p>
-    <dl><dt>作者</dt><dd>{commit.author}</dd><dt>提交时间</dt><dd><time dateTime={commit.date}>{commit.date}</time></dd><dt>短哈希</dt><dd><code>{commit.id.slice(0, 7)}</code></dd><dt>父提交</dt><dd>{commit.parents.length ? commit.parents.map(id => id.slice(0, 7)).join("、") : "根提交"}</dd></dl>
+    <dl><dt>Author</dt><dd>{commit.author}</dd><dt>Committed</dt><dd><time dateTime={commit.date}>{commit.date}</time></dd><dt>Short hash</dt><dd><code>{commit.id.slice(0, 7)}</code></dd><dt>Parents</dt><dd>{commit.parents.length ? commit.parents.map(id => id.slice(0, 7)).join("、") : "Root commit"}</dd></dl>
   </div>;
 }
 
 const laneX = (lane: number) => `${12 + lane * 14}`;
 const laneColor = (lane: number) => `var(--git-lane-${lane % 6})`;
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-17-demo-git-graph.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-17-demo-git-commit-details.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-git-lazy-loading.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md
+// Note: See .agents/notes/implemented/feature/2026-10-17-demo-git-graph.md
+// Note: See .agents/notes/implemented/feature/2026-10-17-demo-git-commit-details.md
+// Note: See .agents/notes/implemented/feature/2026-10-17-desktop-git-lazy-loading.md
+// Note: See .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md
 export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore, loadingMore = false, moreError, error, active }: { name: string; repository: GitRepository & { nextCursor?: string | null }; onRefresh: () => void; loading: boolean; onLoadMore?: () => void; loadingMore?: boolean; moreError?: string; error?: string; active: boolean }) {
   const viewport = useRef<HTMLDivElement>(null), end = useRef<HTMLLIElement>(null);
   const modelRef = useRef<GitGraphModel | null>(null), detailNodes = useRef(new Map<string, HTMLElement>()), detailCallbacks = useRef(new Map<string, (node: HTMLElement | null) => void>());
@@ -91,7 +91,7 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
   const plan = useMemo(() => gitGraphRenderWindow(metrics, scrollTop, viewportSize.height, focusedRow), [metrics, scrollTop, viewportSize.height, focusedRow]);
   const windowRows = useMemo(() => gitGraphWindow(model, commits, plan.first, plan.last), [model, commits, plan.first, plan.last]);
   const pinnedRows = useMemo(() => plan.pinned ? gitGraphWindow(model, commits, plan.pinned.row, plan.pinned.row + 1) : [], [model, commits, plan.pinned]);
-  // 展开行重新进入窗口时要重测：窗口范围或行重新渲染都会改变 DOM 高度。
+  // Expanded rows must be re-measured when re-entering the window: either the window range or re-rendered rows change DOM height.
   useEffect(() => {
     let changed = false;
     const next = new Map(extraHeights);
@@ -103,7 +103,7 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
     }
     if (changed) setExtraHeights(next);
   }, [model, commits, expanded, extraHeights, viewportSize.width, plan.first, plan.last]);
-  // 标题与被渲染行提供自然宽度；缓存单调最大值并放进流内标尺，滚到短行窗口后仍保留横向滚动与哨兵宽度。
+  // Headings and rendered rows provide natural width; cache a monotonic maximum in an in-flow ruler so horizontal scroll and sentinel width survive scrolling to a short-row window.
   useEffect(() => {
     const node = viewport.current;
     if (!node || typeof node.querySelectorAll !== "function") return;
@@ -115,7 +115,7 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
     }
     if (maximum > contentWidth + 1) setContentWidth(maximum);
   }, [windowRows, pinnedRows, viewportSize.width, contentWidth]);
-  // 焦点行滚出窗口后由旁路行保留；窗口换行会移除原 DOM，必要时把焦点接回旁路行。
+  // Once the focused row scrolls out of the window a bypass row keeps it; window re-rows remove the original DOM, so hand focus back to the bypass row when needed.
   useEffect(() => {
     if (!focusId) return;
     const node = viewport.current;
@@ -125,7 +125,7 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
     const row = [...node.querySelectorAll<HTMLElement>(".git-commit")].find(item => item.dataset.commitId === focusId);
     row?.querySelector<HTMLElement>(".git-commit-summary")?.focus({ preventScroll: true });
   }, [focusId, plan.pinned, windowRows]);
-  // 宽度变化或展开行重新测量会改变窗口上方的总高度；保持可视内容位置，浏览器锚定已关闭。
+  // Width changes or expanded-row re-measurements change total height above the window; keep the visible position, browser anchoring is off.
   const anchor = useRef({ first: 0, top: 0 });
   useEffect(() => {
     const top = metrics.top(plan.first), previous = anchor.current;
@@ -156,27 +156,27 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
     const commit = commits[row.row]!;
     return <Collapsible asChild key={commit.id} open={expanded.has(commit.id)} onOpenChange={next => toggle(commit.id, next)}>
       <li className="git-commit" data-commit-id={commit.id} aria-setsize={commits.length} aria-posinset={row.row + 1} style={{ "--git-lane-color": laneColor(row.lane), ...(pinnedTop === undefined ? {} : { position: "absolute" as const, top: `${pinnedTop}px`, left: 0, right: 0 }) } as CSSProperties}>
-        <span className="sr-only">{commit.parents.length ? `父提交：${commit.parents.map(id => `${id.slice(0, 7)}${model.rowById.has(id) ? "" : "（更早提交）"}`).join("、")}` : "根提交"}</span>
+        <span className="sr-only">{commit.parents.length ? `Parents: ${commit.parents.map(id => `${id.slice(0, 7)}${model.rowById.has(id) ? "" : " (earlier commit)"}`).join(", ")}` : "Root commit"}</span>
         <svg className="git-graph-lines" aria-hidden="true">
           {row.incoming.map((edge, index) => <g key={`incoming:${index}`} fill="none" stroke={laneColor(edge.lane)} strokeWidth="1.5" strokeDasharray={edge.continuation ? "3 3" : undefined}><line x1={laneX(edge.lane)} x2={laneX(edge.lane)} y1="0" y2={edge.lane === row.lane ? nodeY : "100%"} /></g>)}
           {row.parents.map((edge, index) => <g key={`parent:${index}`} fill="none" stroke={laneColor(edge.lane)} strokeWidth="1.5" strokeDasharray={edge.continuation ? "3 3" : undefined}><path d={edge.lane === row.lane ? `M ${laneX(row.lane)} ${nodeY} V ${rowHeight}` : `M ${laneX(row.lane)} ${nodeY} C ${laneX(row.lane)} ${bendY} ${laneX(edge.lane)} ${bendY} ${laneX(edge.lane)} ${rowHeight}`} /><line x1={laneX(edge.lane)} x2={laneX(edge.lane)} y1={rowHeight} y2="100%" /></g>)}
           {commit.id === repository.head && <circle cx={laneX(row.lane)} cy={nodeY} r="6" fill="none" stroke="var(--git-lane-color)" strokeWidth="1" />}
-          <circle cx={laneX(row.lane)} cy={nodeY} r="3.5" fill="var(--bg-sidebar)" stroke="var(--git-lane-color)" strokeWidth="1.8" />
+          <circle cx={laneX(row.lane)} cy={nodeY} r="3.5" fill="var(--bg-window)" stroke="var(--git-lane-color)" strokeWidth="1.8" />
         </svg>
         <CollapsibleTrigger asChild><button type="button" className="git-commit-summary" onFocus={() => setFocusId(commit.id)} onBlur={blurRow}>
           <span className="git-commit-refs">{commit.id === repository.head && <Badge variant="outline" className="git-ref"><span className="git-ref-icon"><GitBranch aria-hidden="true" /></span><span className="git-ref-name">HEAD</span></Badge>}{commit.refs.map(ref => {
             const RefIcon = ref.type === "tag" ? Tag : GitBranch;
-            return <Badge variant="outline" className="git-ref" key={`${ref.type}:${ref.remote ?? ""}:${ref.name}`}><span className="sr-only">{ref.type === "tag" ? "标签 " : ref.remote ? "远程分支 " : "分支 "}</span><span className="git-ref-icon"><RefIcon aria-hidden="true" /></span><span className="git-ref-name">{ref.name}</span>{ref.remote && <em className="git-ref-remote">{ref.remote}</em>}</Badge>;
+            return <Badge variant="outline" className="git-ref" key={`${ref.type}:${ref.remote ?? ""}:${ref.name}`}><span className="sr-only">{ref.type === "tag" ? "Tag " : ref.remote ? "Remote branch " : "Branch "}</span><span className="git-ref-icon"><RefIcon aria-hidden="true" /></span><span className="git-ref-name">{ref.name}</span>{ref.remote && <em className="git-ref-remote">{ref.remote}</em>}</Badge>;
           })}</span>
           <span className="git-commit-subject">{commit.subject}</span>
         </button></CollapsibleTrigger>
-        <CollapsibleContent className="git-commit-details" role="region" aria-label={`提交详情 ${commit.subject}`}><div ref={detailRef(commit.id)}><GitCommitDetails commit={commit} /></div></CollapsibleContent>
+        <CollapsibleContent className="git-commit-details" role="region" aria-label={`Commit details ${commit.subject}`}><div ref={detailRef(commit.id)}><GitCommitDetails commit={commit} /></div></CollapsibleContent>
       </li>
     </Collapsible>;
   };
   return <section className="git-graph-panel" aria-label="Git graph">
-    <div className="file-panel-heading"><GitGraph /><span>{name}</span><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="刷新 Git 历史" disabled={loading} onClick={onRefresh}><RefreshCw /></Button></div>
-    {!commits.length ? <p className="file-panel-empty">暂无提交</p> : <div ref={viewport} className="git-graph-log selectable-text" tabIndex={0} role="region" aria-label="Git 提交历史" aria-busy={loadingMore} onScroll={onScroll}>
+    <div className="file-panel-heading"><GitGraph /><span>{name}</span><Button type="button" variant="ghost" size="icon" className="quiet-icon" aria-label="Refresh Git history" disabled={loading} onClick={onRefresh}><RefreshCw /></Button></div>
+    {!commits.length ? <p className="file-panel-empty">No commits yet</p> : <div ref={viewport} className="git-graph-log selectable-text" tabIndex={0} role="region" aria-label="Git commit history" aria-busy={loadingMore} onScroll={onScroll}>
       <ol className="git-graph-body" style={{ "--git-graph-width": `${model.laneCount * 14 + 10}px`, "--git-row-height": `${rowHeight}px` } as CSSProperties}>
         <li aria-hidden="true" style={{ height: 0, width: contentWidth }} />
         <li aria-hidden="true" style={{ height: metrics.top(plan.first) }} />
@@ -187,6 +187,6 @@ export function GitGraphPanel({ name, repository, onRefresh, loading, onLoadMore
         <li ref={end} aria-hidden="true" style={{ height: 1 }} />
       </ol>
     </div>}
-    {(moreError || error) && <div className="browser-note" role="alert"><p>{moreError ?? error}</p>{moreError && onLoadMore && <Button type="button" variant="ghost" disabled={loading || loadingMore} onClick={onLoadMore}>重试</Button>}</div>}
+    {(moreError || error) && <div className="browser-note" role="alert"><p>{moreError ?? error}</p>{moreError && onLoadMore && <Button type="button" variant="ghost" disabled={loading || loadingMore} onClick={onLoadMore}>Retry</Button>}</div>}
   </section>;
 }

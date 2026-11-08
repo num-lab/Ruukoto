@@ -29,7 +29,7 @@ func newNativeCredentials(namespace string) (*nativeCredentials, error) {
 	case "development":
 		return &nativeCredentials{namespace: 1}, nil
 	default:
-		return nil, errors.New("凭据命名空间无效")
+		return nil, errors.New("invalid credential namespace")
 	}
 }
 
@@ -48,14 +48,14 @@ func (s *nativeCredentials) request(op string, value *string) (*string, error) {
 		if status == 0 {
 			defer C.free(bytes)
 			if size > 65536 {
-				return nil, errors.New("凭据载荷超限")
+				return nil, errors.New("credential payload over limit")
 			}
 			result := string(C.GoBytes(bytes, C.int(size)))
 			return &result, nil
 		}
 	case "write":
 		if value == nil || len(*value) > 65536 {
-			return nil, errors.New("凭据载荷无效")
+			return nil, errors.New("invalid credential payload")
 		}
 		bytes := C.CBytes([]byte(*value))
 		defer C.free(bytes)
@@ -66,10 +66,10 @@ func (s *nativeCredentials) request(op string, value *string) (*string, error) {
 			return nil, nil
 		}
 	default:
-		return nil, errors.New("凭据操作无效")
+		return nil, errors.New("invalid credential operation")
 	}
 	if status != 0 {
-		return nil, errors.New("安全存储不可用")
+		return nil, errors.New("secure storage unavailable")
 	}
 	return nil, nil
 }

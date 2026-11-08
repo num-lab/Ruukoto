@@ -17,8 +17,8 @@ import (
 
 const maxFrameBytes = 16 * 1024 * 1024
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
-// 已写入管道的请求无法推断是否执行；传输失败不能降为 not_sent 或自动重放。
+// Note: See .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
+// A request already written to the pipe can't be proven unexecuted; a transport failure must not downgrade to not_sent or auto-replay.
 type sidecar struct {
 	mu       sync.Mutex
 	writeMu  sync.Mutex
@@ -94,7 +94,7 @@ func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(m
 		s.read(output)
 		output.Close()
 		if err := cmd.Wait(); err != nil {
-			os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程已退出；请重新打开应用并核实原操作。\n")
+			os.Stderr.WriteString("[ruukoto:desktop] The MyGo subprocess exited; reopen the app and verify the original operation.\n")
 		}
 		close(s.done)
 	}()
@@ -168,7 +168,7 @@ func (s *sidecar) read(output io.Reader) {
 		}
 	}
 	s.fail()
-	// 坏帧与 EOF 同样停止输入，让 Node 回收 SSH；不继续消费不可信传输。
+	// Bad frames stop input the same as EOF so Node reclaims SSH; don't keep consuming an untrusted transport.
 	s.stdin.Close()
 }
 
@@ -322,7 +322,7 @@ func (s *sidecar) close() {
 	case <-time.After(3 * time.Second):
 	}
 	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程停止失败，正在强制回收。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] The MyGo subprocess stop failed; force-reaping.\n")
 	}
 	select {
 	case <-s.done:
@@ -330,12 +330,12 @@ func (s *sidecar) close() {
 	case <-time.After(3 * time.Second):
 	}
 	if err := s.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程强制回收失败；请检查仍运行的进程。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] The MyGo subprocess force-reap failed; check still-running processes.\n")
 	}
 	select {
 	case <-s.done:
 	case <-time.After(time.Second):
-		os.Stderr.WriteString("[ruukoto:desktop] MyGo 子进程仍未核实退出，实例锁继续保留；请检查仍运行的进程。\n")
+		os.Stderr.WriteString("[ruukoto:desktop] The MyGo subprocess exit is still unverified and the instance lock stays; check still-running processes.\n")
 		<-s.done
 	}
 }

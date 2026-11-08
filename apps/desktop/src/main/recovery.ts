@@ -8,14 +8,14 @@ export function socketLookupCommand(socketPath: string): string {
   return `lsof -nP -a -U -- ${shellQuote(socketPath)}`;
 }
 export function versionRecovery(target: DesktopTarget, versions: { client: number; server: number }, managed: boolean, controlDir: string): string[] {
-  if (versions.client < versions.server) return ["客户端版本较旧；请在当前仓库运行 npm run desktop:build（Electron）或 npm run desktop:mygo:build（MyGo）重建应用后重新打开。"];
-  if (target === "personal") return ["服务器后台版本较旧；请在服务器部署同一 commit 并重启服务后重新连接。"];
-  if (managed) return ["开发后台版本较旧；请重启开发启动器。"];
+  if (versions.client < versions.server) return ["The client version is older; rebuild with npm run desktop:build (Electron) or npm run desktop:mygo:build (MyGo) in the current repo and reopen."];
+  if (target === "personal") return ["The server backend version is older; deploy the same commit on the server, restart the service and reconnect."];
+  if (managed) return ["The dev backend version is older; restart the dev launcher."];
   return [
-    `后台版本较旧。当前控制目录：${controlDir}`,
-    `在终端运行：${socketLookupCommand(path.join(controlDir, "control.sock"))}`,
-    "按 PID 去重后应恰好只有一个 PID（同一个 PID 可能有多行）。运行 ps -o user=,command= -p <PID>，确认属于你自己的用户，完整命令是 ruukoto-code 的 server 进程。",
-    "只对核实后的这一个 PID 运行 kill -TERM <PID>；活动任务会记为中断。然后点击“重新连接”，应用会按需拉起新后台。",
-    `未查到监听进程时，先核对命令是否执行成功，再尝试重新连接；多个不同 PID、命令不是后台或无法核对时，停在这一步，不发信号。请核对控制目录配置与 ${path.join(controlDir, "spawn.log")}。`,
+    `The backend version is older. Current control directory: ${controlDir}`,
+    `Run in a terminal: ${socketLookupCommand(path.join(controlDir, "control.sock"))}`,
+    "After deduping by PID there should be exactly one PID (one PID may appear on multiple lines). Run ps -o user=,command= -p <PID> and confirm it belongs to your user and is the ruukoto-code server process.",
+    "Run kill -TERM <PID> only on the verified PID; active tasks will be recorded as interrupted. Then click \"Reconnect\" — the app starts a new backend on demand.",
+    `If no listening process is found, first check the command ran successfully, then try reconnecting; if there are multiple PIDs, the command isn't the backend, or you can't verify, stop here without signaling. Check the control directory configuration and ${path.join(controlDir, "spawn.log")}.`,
   ];
 }

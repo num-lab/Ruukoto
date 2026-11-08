@@ -62,7 +62,7 @@ test("Spotlight 空页继续推进索引游标，累计来源问题，20条后�
   assert.deepEqual(calls[1].params.cursor, { phase: "index", session_id: "session", byte_offset: -1, read_offset: 1024, query_key: "query", source: { file_dev: 1, file_ino: 2, min_size: 4096 } });
   calls[1].resolve({ ok: true, value: page({ hits: Array.from({ length: 20 }, (_, i) => hit(String(i))), complete: false, cursor: { ...cursor, phase: "scan", byteOffset: 2000 }, sourceIssues: [issue] }) }); await settle(); context.mock.timers.tick(0);
   assert.equal(calls.length, 2); assert.equal(search.hits.length, 20); assert.deepEqual(search.sourceIssues, [issue]); assert.equal(search.uncovered, true);
-  assert.equal(search.status, "向下滚动可继续加载搜索结果。");
+  assert.equal(search.status, "Scroll down to load more results.");
   search.loadMore(); assert.equal(calls.length, 3);
   calls[2].resolve({ ok: true, value: page({ hits: [hit("21")] }) }); await settle();
   assert.equal(search.hits.length, 21); assert.equal(search.complete, true); assert.equal(search.uncovered, true);
@@ -92,7 +92,7 @@ test("Spotlight 不推进游标报可重试错误，来源待落盘与完整零�
   assert.equal(search.complete, true); assert.equal(search.uncovered, true);
   search.retry(); context.mock.timers.tick(180);
   calls[1].resolve({ ok: true, value: page({ complete: false }) }); await settle(); context.mock.timers.tick(0);
-  assert.match(search.error!, /未推进/); assert.equal(calls.length, 2);
+  assert.match(search.error!, /didn.t advance/); assert.equal(calls.length, 2);
 });
 
 test("Spotlight 快捷键在输入区可用，避开其他模态、IME与终端Ctrl+K", () => {
@@ -111,12 +111,12 @@ test("Spotlight 正文扫描结束仍等候标题候选，候选失败不宣称�
   search.setQuery("没有匹配"); context.mock.timers.tick(180);
   calls[0].resolve({ ok: true, value: page() }); await settle();
   assert.equal(search.complete, true); assert.equal(search.summaries, null);
-  assert.equal(search.status, "正在加载会话列表…");
+  assert.equal(search.status, "Loading chats…");
   summaryCalls.at(-1)!({ ok: false, error: { code: "unavailable", outcome: "rejected", message: "候选读取失败" } }); await settle();
-  assert.match(search.status, /会话列表读取失败/); assert.doesNotMatch(search.status, /没有找到/);
+  assert.match(search.status, /Couldn't load the chat list/); assert.doesNotMatch(search.status, /No results/);
   const retry = search.loadSummaries();
   summaryCalls.at(-1)!({ ok: true, value: [] }); await retry;
-  assert.equal(search.status, "没有找到。");
+  assert.equal(search.status, "No results.");
 });
 
 

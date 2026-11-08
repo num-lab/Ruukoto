@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Desktop chrome cleanup](2026-11-08-desktop-chrome-cleanup.md) hides the inspector toggle while no Code conversation exists; the shared header behavior below remains.
+
 ## Problem
 
 The owner requested moving inspector tabs upward, reducing gaps between Thought/SubAgent/tool summaries, moving Effort into the model menu, and a Brain icon when width is limited. Inspector tabs occupied a whole row above content, while a separate Effort control squeezed the composer.

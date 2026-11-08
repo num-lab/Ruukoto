@@ -11,13 +11,13 @@ import { fakeSnapshot } from "./helpers/fake-control.ts";
 const tool = (extra: Partial<DiffTool> = {}): DiffTool => ({ kind: "tool", key: "tool", at: "", seq: 1, name: "write", target: "file", status: "done", entryId: "entry", toolOpId: "op", toolCallId: "call", params: { content: "不得当作结果" }, paramsTruncated: false, summary: null, artifactIds: [], ...extra });
 const result = (extra: Partial<ToolResultView> = {}): ToolResultView => ({ text: "结果", patch: null, writeContent: "已写入", truncated: false, toolName: "write", isError: false, ...extra });
 
-test("差异判定保留失败与效果未知，拒绝用 Write 参数恢复的内容冒充成功", () => {
+test("差异判定保留失败与Outcome unknown，拒绝用 Write 参数恢复的内容冒充成功", () => {
   for (const status of ["error", "effect_unknown"] as const) {
     assert.deepEqual(diffDisplay(tool({ status }), result({ text: "错误正文", isError: true })), { kind: status, text: "错误正文", truncated: false });
     for (const summary of [null, "已有摘要"]) {
       const entry = tool({ status, entryId: null, summary });
       assert.equal(canReadDiff(entry), false);
-      assert.deepEqual(diffDisplay(entry), { kind: status, text: summary ?? (status === "error" ? "失败，详情不可用" : "效果未知"), truncated: false });
+      assert.deepEqual(diffDisplay(entry), { kind: status, text: summary ?? (status === "error" ? "Failed; details unavailable" : "Outcome unknown"), truncated: false });
     }
   }
   assert.equal(diffDisplay(tool(), result({ isError: true })).kind, "error");
@@ -26,10 +26,10 @@ test("差异判定保留失败与效果未知，拒绝用 Write 参数恢复的�
 
 test("差异读取等待历史关联，空文件有效，缺少成功字段不可用", () => {
   assert.equal(canReadDiff(tool({ status: "running" })), false);
-  assert.equal(diffDisplay(tool({ status: "running" })).text, "运行中");
+  assert.equal(diffDisplay(tool({ status: "running" })).text, "Running");
   const pending = tool({ entryId: null });
   assert.equal(canReadDiff(pending), false);
-  assert.equal(diffDisplay(pending).text, "等待结果落盘");
+  assert.equal(diffDisplay(pending).text, "Waiting for the result to persist");
   assert.equal(canReadDiff({ ...pending, entryId: "landed" }), true);
   assert.equal(diffDisplay(tool({ name: "edit" }), result()).kind, "unavailable");
   assert.equal(diffDisplay(tool(), result({ writeContent: null })).kind, "unavailable");
@@ -98,7 +98,7 @@ test("IPC 读取异常可见，重新读取能恢复工作委托", async () => {
   const inspector = new DesktopInspector({ request: async () => { if (reject) throw new Error("IPC closed"); return { ok: true, value: { works: [{ work, agent, tasks: [] }] } }; } }, new ViewState(), async () => {}, () => {});
   inspector.parentSessionId = "parent";
   await inspector.loadWorks();
-  assert.match(inspector.workError!, /连接不可用/);
+  assert.match(inspector.workError!, /unavailable/);
   assert.equal(inspector.loadingWorks, false);
   reject = false;
   await inspector.loadWorks();
@@ -165,7 +165,7 @@ test("more 按 UTF-8 字节续读，失败保留已读正文并可按原偏移�
   await inspector.loadDiff(); await Promise.resolve();
   assert.equal(inspector.result?.value?.writeContent, pieces[0]);
   await inspector.loadMore();
-  assert.match(inspector.result?.moreError ?? "", /不连续/);
+  assert.match(inspector.result?.moreError ?? "", /discontinuous/);
   assert.equal(inspector.result?.value?.writeContent, pieces[0]);
   wrong = false; await inspector.loadMore();
   assert.equal(inspector.result?.value?.writeContent, text);

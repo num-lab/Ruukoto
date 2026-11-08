@@ -5,14 +5,14 @@ import "@xterm/xterm/css/xterm.css";
 import type { CodeState } from "./code-state.ts";
 import type { TerminalTab } from "./inspector.ts";
 
-// 明暗两套完整 16 色；缺省色由 xterm 内置默认补齐。
+// Full 16-color sets for light and dark; missing colors fall back to xterm defaults.
 const terminalThemes = {
   dark: { background: "#171717", foreground: "#e5e5e5", cursor: "#fafafa", cursorAccent: "#171717", selectionBackground: "#ffffff33", black: "#171717", red: "#f87171", green: "#4ade80", yellow: "#facc15", blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#e5e5e5", brightBlack: "#737373", brightRed: "#fca5a5", brightGreen: "#86efac", brightYellow: "#fde047", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe", brightCyan: "#67e8f9", brightWhite: "#fafafa" },
   light: { background: "#ffffff", foreground: "#262626", cursor: "#171717", cursorAccent: "#ffffff", selectionBackground: "#00000022", black: "#ffffff", red: "#dc2626", green: "#16a34a", yellow: "#ca8a04", blue: "#2563eb", magenta: "#9333ea", cyan: "#0e7490", white: "#262626", brightBlack: "#a3a3a3", brightRed: "#ef4444", brightGreen: "#22c55e", brightYellow: "#eab308", brightBlue: "#3b82f6", brightMagenta: "#a855f7", brightCyan: "#06b6d4", brightWhite: "#525252" },
 };
-// 字体栈与全局 --font-mono 一致；必须写具体字体：xterm 用 OffscreenCanvas 的 ctx.font 测量字符尺寸，canvas 字体语法不解析 var()，回退默认比例字体会同时压错行高。
+// The font stack matches the global --font-mono; it must be concrete fonts: xterm measures glyphs via OffscreenCanvas ctx.font, canvas font syntax does not resolve var(), and falling back to a proportional font also mangles line height.
 const terminalFontFamily = '"SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace';
-// Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-integrated-terminal.md
+// Note: See .agents/notes/implemented/feature/2026-10-20-desktop-integrated-terminal.md
 export function TerminalPanel({ model, tab, active }: { model: CodeState; tab: TerminalTab; active: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const activation = useRef<() => void>(() => {});
@@ -33,7 +33,11 @@ export function TerminalPanel({ model, tab, active }: { model: CodeState; tab: T
     };
     const theme = () => {
       const dark = document.documentElement.classList.contains("dark");
-      terminal.options.theme = terminalThemes[dark ? "dark" : "light"];
+      const styles = getComputedStyle(document.documentElement);
+      // The terminal surface follows the inspector; ANSI palettes stay fixed.
+      const surface = styles.getPropertyValue("--bg-inspector").trim();
+      const foreground = styles.getPropertyValue("--text-1").trim();
+      terminal.options.theme = { ...terminalThemes[dark ? "dark" : "light"], background: surface, cursorAccent: surface, black: surface, foreground };
     };
     activation.current = () => { resize(); if (element.getBoundingClientRect().width > 0) terminal.focus(); };
     const observer = new ResizeObserver(resize); observer.observe(element);
@@ -44,5 +48,5 @@ export function TerminalPanel({ model, tab, active }: { model: CodeState; tab: T
     return () => { disposed = true; activation.current = () => {}; unsubscribe(); input.dispose(); observer.disconnect(); appearance.disconnect(); terminal.dispose(); };
   }, [model, tab]);
   useEffect(() => { if (active) activation.current(); }, [active]);
-  return <section className="terminal-panel" aria-label={tab.title}>{tab.error && <p role="alert" className="terminal-status">{tab.error}</p>}{tab.exitCode !== undefined && <p className="terminal-status" role="status">终端已退出（{tab.exitCode}）</p>}<div ref={container} className="terminal-screen" /></section>;
+  return <section className="terminal-panel" aria-label={tab.title}>{tab.error && <p role="alert" className="terminal-status">{tab.error}</p>}{tab.exitCode !== undefined && <p className="terminal-status" role="status">Terminal exited ({tab.exitCode})</p>}<div ref={container} className="terminal-screen" /></section>;
 }

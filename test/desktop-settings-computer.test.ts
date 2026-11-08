@@ -104,7 +104,7 @@ test("Code Cua 恢复绑定实际展示的新截图；旧图片事件、重观�
   h.control.fail = ""; await h.state.refreshCua(); assert.equal(h.state.cuaImages.length, 0); assert.equal(h.state.canAcceptCua, false);
   h.control.status = { ...h.control.status, observation: { id: "retry-observation", artifactIds: ["screenshot"] } };
   h.control.image = { ...h.control.image, taskId: "unrelated-task" }; await h.state.refreshCua();
-  assert.equal(h.state.cuaImages.length, 0); assert.equal(h.state.canAcceptCua, false); assert.match(h.state.cuaError, /归属/);
+  assert.equal(h.state.cuaImages.length, 0); assert.equal(h.state.canAcceptCua, false); assert.match(h.state.cuaError, /ownership or integrity is unverified/);
   h.control.image = { ...h.control.image, taskId: "original-task" }; await h.state.refreshCua(); h.state.imageLoaded("retry-observation", "screenshot", true);
   await h.state.cuaAction("accept"); assert.equal(h.state.cuaStatus?.state, "idle");
   assert.deepEqual(h.calls.find(call => call.op === "mcp_cua_accept")?.params, { observation_id: "retry-observation" });
@@ -113,7 +113,7 @@ test("Code Cua 恢复绑定实际展示的新截图；旧图片事件、重观�
 test("Code Cua 暂停停止未核实仍保持停用，中断原任务后可重新核实停止", async () => {
   const h = cuaSettingsFixture(); await h.state.read(); h.state.select(null); h.state.selectCua(0); await h.state.save(); await h.state.setEnabled(true);
   h.control.fail = "mcp_cua_stop"; await h.state.pauseCua();
-  assert.equal(h.state.service?.enabled, false); assert.match(h.state.cuaError, /未核实/);
+  assert.equal(h.state.service?.enabled, false); assert.match(h.state.cuaError, /Verify the current computer state/);
   h.control.fail = ""; await h.state.pauseCua();
   assert.equal(h.calls.filter(call => call.op === "mcp_cua_stop").length, 2);
   assert.equal(h.calls.filter(call => call.op === "mcp_set_enabled" && call.params.enabled === false).length, 1);
@@ -144,14 +144,14 @@ test("Code 电脑设置页展示程序选择、宿主权限与实际恢复图片
   const { CodeComputerEditor } = await server.ssrLoadModule("/code-computer-settings.tsx");
   const h = cuaSettingsFixture(); await h.state.read(); h.state.select(null); h.state.selectCua(0); await h.state.save(); await h.state.discover(); await h.state.refreshCua();
   const html = renderToStaticMarkup(createElement(CodeComputerEditor, { state: h.state }));
-  assert.match(html, /本机 Cua Driver/); assert.match(html, /辅助功能：未授权/); assert.match(html, /屏幕录制：已授权/);
-  assert.match(html, /<img[^>]+src="data:image\/png;base64,/); assert.match(html, /恢复新截图 1/); assert.match(html, /确认恢复/);
-  assert.doesNotMatch(html, /HTTPS 端点|Bearer 令牌|恢复观察ID|进程代次/);
+  assert.match(html, /Installed Cua Driver/); assert.match(html, /Accessibility: not granted/); assert.match(html, /Screen recording: granted/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,/); assert.match(html, /Recovery screenshot 1/); assert.match(html, /Confirm recovery/);
+  assert.doesNotMatch(html, /HTTPS endpoint|Bearer token|recovery observation|process generation/);
   h.state.closeEditor(); h.state.select(null); h.state.phase = "unknown";
   const adding = renderToStaticMarkup(createElement(CodeComputerEditor, { state: h.state }));
-  assert.match(adding, /settings-subpage/); assert.match(adding, /添加电脑/);
-  assert.doesNotMatch(adding, /重新读取配置/); assert.match(adding, /核实原配置/); assert.doesNotMatch(adding, /disabled=""[^>]*>核实原配置/);
-  assert.match(adding, /disabled=""[^>]*>保存/);
+  assert.match(adding, /settings-subpage/); assert.match(adding, /Add computer/);
+  assert.doesNotMatch(adding, /Read the configuration again/); assert.match(adding, /Verify original configuration/); assert.doesNotMatch(adding, /disabled=""[^>]*>Verify original configuration/);
+  assert.match(adding, /disabled=""[^>]*>Save/);
   h.state.closeEditor(); assert.equal(h.state.editing, true); assert.equal(h.state.phase, "unknown");
 });
 

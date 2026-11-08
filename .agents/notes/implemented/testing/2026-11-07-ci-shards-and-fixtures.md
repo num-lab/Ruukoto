@@ -22,6 +22,8 @@ The HTTP amendment fixture holds the connection through amendment and confirms t
 
 Service inspection cancellation waits for the helper to finish its claim before aborting; the call log precedes that write, and interrupting it cannot provide the complete identity needed for later stop verification. Telegram shutdown checks new client poll dispatches. A controlled server gate lets an already-sent poll appear in the server log after shutdown, retaining that counterexample while requiring no new dispatch and a released profile lock.
 
+History-search source checks consume cursor pages until completion and accumulate every page's hits and source issues. A controlled clock crosses the normal page budget to exercise continuation deterministically, while exact result order, missing/corrupt/pending source classifications and legacy cursor semantics remain asserted. Completion is a protocol fact, not a promise that one request finishes within a CI runner's scheduling window.
+
 ## Alternatives considered
 
 - Delete the report's suggested parameter variants: fewer executions, but the variants cover distinct provenance, snapshot, permission and effect states. Retain them and share only stable preparation. The four-input Coding acceptance also uniquely proves capacity, queue replacement and partial final delivery; the single-step workflow suite cannot replace it.

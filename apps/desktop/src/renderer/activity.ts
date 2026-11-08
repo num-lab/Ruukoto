@@ -20,10 +20,10 @@ export function activitySummary(tools: DiffTool[]): string {
     names.has("edit") ? "edited files" : "",
     names.has("write") ? "wrote files" : "",
   ].filter(Boolean).join(", ");
-  return summary ? summary[0].toUpperCase() + summary.slice(1) : "工具活动";
+  return summary ? summary[0].toUpperCase() + summary.slice(1) : "Tool activity";
 }
-// Note: 见 .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-execution-activity.md
+// Note: See .agents/notes/implemented/architecture/2026-10-16-desktop-trace-migration.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-execution-activity.md
 export function conversationActivity(view: ViewState, sessionId: string, online: boolean, items = view.openSession(sessionId).flow.items) {
   const session = view.openSession(sessionId);
   items = items.filter(item => !(item.kind === "message" && !item.text.trim() && !item.attachments?.length));
@@ -48,7 +48,7 @@ export function conversationActivity(view: ViewState, sessionId: string, online:
 type ActivityPhase = "thinking" | "working";
 export interface ConversationSection { key: string; taskId?: string; groups: FlowEntry[][]; trace: boolean; completed: boolean; tailPhase?: ActivityPhase }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-18-completed-trace.md
+// Note: See .agents/notes/implemented/feature/2026-10-18-completed-trace.md
 export function conversationSections(view: ViewState, items: FlowEntry[], groups: FlowEntry[][], tail?: { taskId: string; phase: ActivityPhase }, historyReady: (taskId: string) => boolean = () => true): ConversationSection[] {
   const latest = new Map<string, FlowEntry>();
   for (const item of items) if (item.taskId && (item.kind === "tool" || item.kind === "thinking" || item.kind === "message" && (item.text.trim() || item.attachments?.length))) latest.set(item.taskId, item);

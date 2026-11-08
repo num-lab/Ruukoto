@@ -1,7 +1,7 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md
+// Note: See .agents/notes/implemented/feature/2026-10-18-desktop-git-graph-windowing.md
 import type { GitCommit } from "./git-graph-data.ts";
 
-// 每页 200 条，窗口从最近巡检点前滚最多这么多行；巡检点只复制车道槽位，不复制边。
+// Pages of 200; the window rolls forward from the latest checkpoint at most this many rows; checkpoints copy lane slots only, not edges.
 export const GIT_GRAPH_CHECKPOINT_ROWS = 128;
 
 export interface GitGraphCheckpoint {
@@ -37,7 +37,7 @@ export function buildGitGraph(commits: readonly GitCommit[]): GitGraphModel {
   return extendGitGraph({ processed: 0, firstId: null, lastId: null, laneAt: [], parentLanes: [], rowById: new Map(), laneCount: 0, checkpoints: [] }, commits);
 }
 
-// 追加页只在前缀与首尾提交不变时成立；刷新换页或变短必须重建。
+// An appended page is valid only when the prefix and boundary commits are unchanged; refresh on page change or shrink must rebuild.
 export function gitGraphCanExtend(model: GitGraphModel, commits: readonly GitCommit[]): boolean {
   if (commits.length < model.processed) return false;
   if (model.processed === 0) return true;
@@ -88,7 +88,7 @@ export function extendGitGraph(model: GitGraphModel, commits: readonly GitCommit
   return model;
 }
 
-// 只产出窗口行的节点车道与穿越边；续行表示父提交尚未加载，虚线语义与旧 edgesByRow 一致。
+// Only emits node lanes and crossing edges for window rows; continuation rows mean the parent commit isn't loaded, matching the old edgesByRow dashed semantics.
 export function gitGraphWindow(model: GitGraphModel, commits: readonly GitCommit[], start: number, end: number): GitGraphWindowRow[] {
   const first = Math.max(0, Math.min(start, end)), last = Math.max(first, Math.min(end, model.processed, commits.length));
   if (first >= last) return [];
@@ -103,7 +103,7 @@ export function gitGraphWindow(model: GitGraphModel, commits: readonly GitCommit
       const id = lanes[lane];
       if (id === null || id === undefined) continue;
       const target = model.rowById.get(id);
-      // 时钟偏移可能让父提交排在子提交之前；旧布局对 to < from 的边不绘制，这里同样跳过。
+      // Clock skew can place a parent before its child; the old layout skipped edges with to < from, and this one does the same.
       if (target !== undefined && target < row) continue;
       incoming.push({ lane, continuation: target === undefined });
     }

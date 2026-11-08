@@ -11,7 +11,7 @@ export function SettingsShell({ navigation, action, footer, children, className 
     <div className={`settings-shell ${className}`} {...props}>
       <aside className="settings-sidebar">
         <div className="settings-sidebar-title">Settings</div>
-        <nav className="settings-navigation" aria-label="设置类别">{navigation}</nav>
+        <nav className="settings-navigation" aria-label="Settings categories">{navigation}</nav>
         {footer}
       </aside>
       <main className="settings-main">

@@ -13,7 +13,7 @@ import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-c
 import { SettingsState, type SettingsForm, type SettingsPhase, type SettingsScope } from "../apps/desktop/src/renderer/settings-state.ts";
 import { fakeSnapshot } from "./helpers/fake-control.ts";
 
-type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: PersonalState; dark: boolean; onDark: (dark: boolean) => void; pages?: Partial<Record<string, ComponentType<{ scope: SettingsScope }>>> };
+type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: PersonalState; appearance: "system" | "light" | "dark"; onAppearance: (appearance: "system" | "light" | "dark") => void; pages?: Partial<Record<string, ComponentType<{ scope: SettingsScope }>>> };
 let server: ViteDevServer;
 let SettingsContents: ComponentType<SettingsContentsProps>;
 before(async () => {
@@ -93,7 +93,7 @@ test("冲突保留读取修订、草稿与当前值，保存中和待核实不�
   for (const phase of ["saving", "unknown"] as const) {
     form.phase = phase; let called = false; form.save = async () => { called = true; return true; };
     assert.equal(settings.close(), false); assert.equal(settings.leave, null);
-    await settings.saveAndLeave(); assert.equal(called, false); assert.equal(settings.open, true); assert.match(settings.message, /保存/);
+    await settings.saveAndLeave(); assert.equal(called, false); assert.equal(settings.open, true); assert.match(settings.message, /Saving|unverified/);
     form.phase = "ready"; assert.equal(settings.message, "", "完成保存或核实后不残留禁止导航的旧状态");
   }
 });
@@ -175,23 +175,23 @@ test("PA原配对恢复：显式动作只使用宿主已有候选，不要求重
 
 test("设置 SSR 保留分组导航与真实内容插槽，MCP 无工作区与来源选择", () => {
   const h = harness();
-  const props: SettingsContentsProps = { ...h, dark: true, onDark() {} };
+  const props: SettingsContentsProps = { ...h, appearance: "dark", onAppearance() {} };
   const render = () => renderToStaticMarkup(createElement(SettingsContents, props));
   let html = render();
-  for (const label of ["外观", "模型", "Skills", "MCP", "电脑", "Web 搜索", "PA 远程连接", "已存档会话"]) assert.ok(html.includes(label));
+  for (const label of ["Appearance", "Models", "Skills", "MCP", "Computer", "Web search", "Personal connection", "Archived chats"]) assert.ok(html.includes(label));
   h.settings.chooseCategory("appearance");
   html = render();
-  assert.match(html, /aria-label="设置类别"/); assert.match(html, /aria-label="主题"/); assert.match(html, />浅色<\/button>/); assert.match(html, />深色<\/button>/);
+  assert.match(html, /aria-label="Settings categories"/); assert.match(html, /aria-label="Theme"/); assert.match(html, /System/); assert.match(html, /Light/); assert.match(html, /Dark/);
   assert.match(html, /settings-nav-section/); assert.match(html, />Code<\/div>/); assert.match(html, />PA<\/div>/);
   h.settings.chooseCategory("code-mcp");
   html = render();
-  assert.doesNotMatch(html, /aria-label="配置目标"/); assert.doesNotMatch(html, /for="settings-target"|仅选择设置的归属，不切换聊天目标。/); assert.doesNotMatch(html, /for="settings-workspace"|for="settings-source"/); assert.match(html, /管理当前 Code 实例共用的 HTTP 服务/);
+  assert.doesNotMatch(html, /aria-label="[Cc]onfiguration target"/); assert.doesNotMatch(html, /for="settings-target"|chat target/); assert.doesNotMatch(html, /for="settings-workspace"|for="settings-source"/); assert.match(html, /Manage HTTP services shared by this Code instance/);
   let seen = "";
   props.pages = { "code-mcp": ({ scope }) => { seen = `${scope.target}/${scope.instanceId}`; return createElement("p", null, "实际页面内容"); } };
   html = render(); assert.match(html, /实际页面内容/); assert.equal(seen, "code/inst-1");
   h.settings.chooseCategory("pa-mcp"); html = render(); assert.doesNotMatch(html, /for="settings-workspace"|for="settings-source"/);
   h.settings.chooseCategory("code-mcp"); h.code.view.projects = []; h.code.view.sessions = []; html = render();
-  assert.match(html, /实际页面内容/); assert.equal(seen, "code/inst-1"); assert.doesNotMatch(html, /先添加工作区|添加工作区/);
+  assert.match(html, /实际页面内容/); assert.equal(seen, "code/inst-1"); assert.doesNotMatch(html, /Add( a)? workspace/);
 });
 
 test("PA 聊天与设置共用一处地址，不再显示SSH字段", () => {
@@ -199,9 +199,9 @@ test("PA 聊天与设置共用一处地址，不再显示SSH字段", () => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: { ruukoto: { request: async () => ok(null) } } });
   try {
     const h = harness(); h.settings.chooseCategory("personal");
-    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {} }));
-    assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /for="personal-origin"/); assert.match(html, /connection-diagram/); assert.match(html, /服务器配对/); assert.match(html, /核实原配对/); assert.match(html, /恢复原配对/);
-    assert.doesNotMatch(html, /SSH|旧聊天连接|PA 连接用途|检测程序|management-/);
+    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, appearance: "system", onAppearance() {} }));
+    assert.match(html, /aria-label="Personal connection"/); assert.match(html, /for="personal-origin"/); assert.match(html, /connection-diagram/); assert.match(html, /Server pairing/); assert.match(html, /Verify original pairing/); assert.match(html, /Restore original pairing/);
+    assert.doesNotMatch(html, /SSH|legacy|purpose|detection|management-/);
     assert.doesNotMatch(html, /name="token"|name="command"/);
   } finally { if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window"); }
 });
@@ -235,9 +235,9 @@ test("PA connection maintenance stays available without a short code after an un
   const state = new PersonalConnectionState({ request: async (_target, op) => { calls.push(op); return ok(op === "desktop_personal_config_read" ? initial : { paths: [] }); } }, () => {});
   await state.read(); state.phase = "unknown";
   const html = renderToStaticMarkup(createElement(PersonalConnectionEditor, { state, personal: harness().personal }));
-  assert.match(html, /disabled=""[^>]*>配对并连接/);
-  assert.doesNotMatch(html, /disabled=""[^>]*>核实原配对/);
-  assert.doesNotMatch(html, /disabled=""[^>]*>恢复原配对/);
+  assert.match(html, /disabled=""[^>]*>Pair and connect/);
+  assert.doesNotMatch(html, /disabled=""[^>]*>Verify original pairing/);
+  assert.doesNotMatch(html, /disabled=""[^>]*>Restore original pairing/);
   await state.pair("reconcile"); assert.equal(calls.filter(op => op === "desktop_personal_pair_reconcile").length, 1);
 });
 
@@ -247,6 +247,6 @@ test("PA address outcome verification remains available with a dirty unknown sub
   await state.read(); state.edit("origin", "https://new.example");
   await state.save(); assert.equal(state.phase, "unknown"); assert.equal(state.dirty, true);
   const html = renderToStaticMarkup(createElement(PersonalConnectionEditor, { state, personal: harness().personal }));
-  assert.doesNotMatch(html, /aria-label="重新读取|刷新/);
-  assert.match(html, />核实原连接</); assert.doesNotMatch(html, /disabled=""[^>]*>核实原连接/);
+  assert.doesNotMatch(html, /aria-label="(Read again|Refresh)/);
+  assert.match(html, />Verify original connection</); assert.doesNotMatch(html, /disabled=""[^>]*>Verify original connection/);
 });

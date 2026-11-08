@@ -4,10 +4,10 @@ import type { DesktopBridge, DesktopCancelQuestionResult, DesktopSubmitResult, D
 import { WriteFailure } from "./code-writes.ts";
 
 export interface QuestionDraft { index: number; answers: OwnerAnswer[]; review: boolean }
-export function questionStatus(status: OwnerQuestionView["status"]): string { return ({ pending: "待回答", answered: "已回答", canceled: "已取消", stale: "已失效" })[status]; }
+export function questionStatus(status: OwnerQuestionView["status"]): string { return ({ pending: "Pending", answered: "Answered", canceled: "Canceled", stale: "Expired" })[status]; }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
 export class DesktopQuestions {
   private readonly drafts = new Map<string, QuestionDraft>();
   private readonly notices = new Set<string>();
@@ -34,7 +34,7 @@ export class DesktopQuestions {
   }
   next(question: OwnerQuestionView, skip = false): void {
     const draft = this.draft(question), answer = draft.answers[draft.index];
-    if (!skip && (!answer.text.trim() || answer.text.length > 4096)) { this.message = "请填写回答或选择 Skip 跳过，最多 4096 字。"; this.changed(); return; }
+    if (!skip && (!answer.text.trim() || answer.text.length > 4096)) { this.message = "Enter an answer or select Skip, 4096 characters max."; this.changed(); return; }
     if (skip) draft.answers[draft.index] = { text: "" };
     if (draft.index + 1 === question.questions.length) draft.review = true; else draft.index++;
     this.message = null;
@@ -48,7 +48,7 @@ export class DesktopQuestions {
         if (entry.record.instanceId !== this.view.instanceId || typeof entry.record.params.question_id !== "string") continue;
         const question = this.view.ownerQuestions.find(item => item.id === entry.record.params.question_id);
         if (!question || !Array.isArray(entry.record.params.answers)) continue;
-        // 完整原回答由主进程的待核实 wire 记录恢复，仍沿原键核实。
+        // The complete original answer is restored from the main process's unverified wire record and verified along the original key.
         const draft = this.draft(question); draft.answers = entry.record.params.answers as OwnerAnswer[]; draft.review = true;
       }
     } else if ((update.type === "submission" && update.record.op === "owner_question_answer") || update.type === "question_cancel") {
@@ -57,9 +57,9 @@ export class DesktopQuestions {
       if (result.kind === "linked" || result.kind === "resent" || result.kind === "rejected") {
         this.notices.add(record.requestId);
         this.entries = this.entries.filter(entry => entry.record.requestId !== record.requestId);
-        this.message = result.kind === "rejected" ? `原问题请求被拒绝：${result.reason}；请查看最新问题状态。` : record.op === "owner_question_cancel" ? "已恢复取消结果。" : "已恢复回答结果。";
-      } else if (result.kind === "foreign_instance") this.message = "原回答属于其他数据实例，请连回原实例核实。";
-      else if (result.kind === "kept") this.message = `原问题请求待核实：${result.reason}`;
+        this.message = result.kind === "rejected" ? `The original question request was rejected: ${result.reason} Check the latest question status.` : record.op === "owner_question_cancel" ? "Cancel outcome restored." : "Answer outcome restored.";
+      } else if (result.kind === "foreign_instance") this.message = "The original answer belongs to another data instance. Reconnect to that instance to verify.";
+      else if (result.kind === "kept") this.message = `The original question request is unverified: ${result.reason}`;
     }
   }
   async send(question: OwnerQuestionView, cancel = false): Promise<void> {
@@ -71,9 +71,9 @@ export class DesktopQuestions {
       const response = await this.bridge.request("code", cancel ? "owner_question_cancel" : "owner_question_answer", params);
       if (!response.ok) throw new WriteFailure(response.error);
       const result = response.value as DesktopSubmitResult | DesktopCancelQuestionResult;
-      this.message = result.kind === "accepted" ? cancel ? "问题已取消。" : "回答已提交。"
-        : result.kind === "pending_existing" || result.kind === "pending_verification" || result.kind === "conflict" ? "正在核实提交结果，连接恢复后会自动更新。" : result.message;
-    } catch (error) { this.message = `问题请求未完成：${(error as Error).message}；请查看最新状态与原回执。`; }
+      this.message = result.kind === "accepted" ? cancel ? "Question canceled." : "Answer submitted."
+        : result.kind === "pending_existing" || result.kind === "pending_verification" || result.kind === "conflict" ? "Verifying the submission outcome; it updates automatically once the connection recovers." : result.message;
+    } catch (error) { this.message = `The question request didn't finish: ${(error as Error).message} Check the latest status and the original receipt.`; }
     this.busy.delete(question.id); this.changed();
   }
 }

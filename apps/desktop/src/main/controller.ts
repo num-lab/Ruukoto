@@ -21,12 +21,12 @@ export interface ControllerDeps {
 export function serializeFailure(error: unknown, token?: string): DesktopFailure {
   const failure: DesktopFailure = error instanceof ControlClientError
     ? { code: error.code, outcome: error.outcome, message: error.message, ...(error.versions ? { versions: error.versions } : {}) }
-    : { code: error instanceof DesktopError ? error.code : "desktop_failed", outcome: "not_sent", message: error instanceof Error ? error.message : "桌面操作失败；请重新连接。" };
-  if (token) failure.message = failure.message.replaceAll(token, "[令牌已隐藏]");
+    : { code: error instanceof DesktopError ? error.code : "desktop_failed", outcome: "not_sent", message: error instanceof Error ? error.message : "The desktop operation failed; reconnect." };
+  if (token) failure.message = failure.message.replaceAll(token, "[token hidden]");
   return failure;
 }
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class CodeController {
   private connection: Connection | null = null;
   private pending: Promise<void> | null = null;
@@ -35,7 +35,7 @@ export class CodeController {
   private token: string | undefined;
   submissions: DesktopSubmissions | null = null;
   status: Extract<DesktopUpdate, { type: "state" }> = { type: "state", state: "connecting" };
-  /** MyGo 原生浏览器桥：仅 MyGo 外壳注入；登记、窄命令应答与事件上行经当前连接。 */
+  /** MyGo native-browser bridge: injected only by the MyGo shell; registration, narrow-command replies and event uplink go through the current connection. */
   private readonly browserBridge: DesktopBrowserBridge | null;
 
   constructor(readonly config: CodeTargetConfig, private readonly publish: (update: DesktopUpdate) => void, private readonly deps: ControllerDeps = {
@@ -51,7 +51,7 @@ export class CodeController {
   }
   private failed(failure: DesktopFailure): void {
     const secret = this.token ?? this.config.env?.RUUKOTO_OWNER_TOKEN ?? readOwnerToken(this.config.controlDir);
-    if (secret) failure = { ...failure, message: failure.message.replaceAll(secret, "[令牌已隐藏]") };
+    if (secret) failure = { ...failure, message: failure.message.replaceAll(secret, "[token hidden]") };
     this.state({ type: "state", state: "failed", error: failure, detail: failure.message, ...(failure.versions ? { recovery: versionRecovery("code", failure.versions, this.config.managed, this.config.controlDir) } : {}) });
   }
   reconnect(): Promise<void> {
@@ -77,7 +77,7 @@ export class CodeController {
       }
     }
     this.token = this.config.managed ? readOwnerToken(this.config.controlDir) ?? undefined : resolveOwnerToken(this.config.controlDir);
-    if (!this.token) throw new DesktopError("owner_token_missing", "开发档案的 owner.token 不可读；请重启开发启动器。");
+    if (!this.token) throw new DesktopError("owner_token_missing", "The dev archive's owner.token is unreadable; restart the dev launcher.");
     this.connection = this.deps.connection({
       socketPath: this.config.socketPath, token: this.token, expectedProduct: "ruukoto-code",
       ...(this.browserBridge ? { callHandler: (op: string, params: Record<string, unknown>, callId: string) => this.browserBridge!.handleCall(op, params, callId, () => this.connection) } : {}),
@@ -85,7 +85,7 @@ export class CodeController {
       onState: (state, detail, error) => {
         if (this.stopped || generation !== this.generation) return;
         if (state === "failed" && error) this.failed(serializeFailure(error, this.token));
-        else this.state({ type: "state", state, detail: detail?.replaceAll(this.token!, "[令牌已隐藏]") });
+        else this.state({ type: "state", state, detail: detail?.replaceAll(this.token!, "[token hidden]") });
       },
       onSnapshot: (result, context) => {
         if (this.stopped || generation !== this.generation) return;
@@ -102,7 +102,7 @@ export class CodeController {
     if (this.pendingStore && !this.submissions) this.submissions = new DesktopSubmissions(this.pendingStore, () => this.connection, this.publish, (op, params) => this.request(op, params));
     try { await this.connection.start(); }
     catch (error) {
-      // 传输失败由 ControlConnection 退避重连；明确拒绝已由 onState 报告并停止重试。
+      // Transport failures are retried by ControlConnection's backoff; explicit rejections were already reported via onState and stop retrying.
       if (this.status.state !== "reconnecting" && this.status.state !== "failed") this.failed(serializeFailure(error, this.token));
     }
 
@@ -110,35 +110,35 @@ export class CodeController {
   close(): void { this.stopped = true; ++this.generation; this.submissions?.close(); this.connection?.close(); }
   async dispatch(op: DesktopOp, params: OpParams<DesktopOp>): Promise<unknown> {
     if (op === "code_schedule_save" || op === "code_schedule_control") {
-      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再保存计划。");
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before saving the schedule.");
       return this.submissions.schedule(op, params as OpParams<"code_schedule_save" | "code_schedule_control">);
     }
     if (op === "compact_session") {
-      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再压缩上下文。");
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before compacting context.");
       return this.submissions.compact(params as OpParams<"compact_session">);
     }
     if (op === "session_background_end") {
-      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再结束会话后台。");
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before ending the chat's background.");
       return this.submissions.endBackground(params);
     }
     if (op === "submit" || op === "owner_question_answer") {
-      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再发送。");
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before sending.");
       return this.submissions.submit(op, params);
     }
     if (op === "owner_question_cancel") {
-      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再取消问题。");
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before canceling the question.");
       return this.submissions.cancelQuestion(params);
     }
     return this.request(op, params);
   }
-  /** 页面事实上行到控制面（闸门/导航/关闭）；MyGo 外壳限定。 */
+  /** Page facts uplinked to the control plane (gating/navigation/close); MyGo shell only. */
   browserEvent(event: DesktopBrowserEvent): void {
     this.browserBridge?.event(this.connection, event);
   }
   instanceId(): string | null { return this.connection?.instanceId ?? null; }
   connectionIdentity(): object | null { return this.connection; }
   async request<K extends TuiOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
-    if (!this.connection || this.stopped) throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
+    if (!this.connection || this.stopped) throw new ControlClientError("connection_unavailable", "Connection unavailable: request not sent", "not_sent");
     try { return await this.connection.request(op, params); }
     catch (error) {
       const failure = serializeFailure(error, this.token);

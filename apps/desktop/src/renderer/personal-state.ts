@@ -196,7 +196,7 @@ export class PersonalState {
     } else {
       if (!this.ready || frame.runId !== this.runId || frame.subscription !== this.subscription) return;
       if (frame.seq <= this.seq) return;
-      if (frame.seq !== this.seq + 1) { this.ready = false; this.message = "消息观察流需要重新同步。"; this.timers(); void this.request("reconnect", {}); return; }
+      if (frame.seq !== this.seq + 1) { this.ready = false; this.message = "The message observation stream needs resyncing."; this.timers(); void this.request("reconnect", {}); return; }
       this.seq = frame.seq;
       for (const event of frame.events) this.event(event);
       if (frame.events.some(event => event.type === "run_end" || event.type === "tool_execution_end" || event.type === "submission")) void this.refreshQueries();
@@ -238,7 +238,7 @@ export class PersonalState {
   }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("personal", op, params) as DesktopResult<T>; }
-    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "宿主应答丢失，请核实原请求；不会自动重新提交。" } }; }
+    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "The host response was lost; verify the original request. It won't be resubmitted automatically." } }; }
   }
   private remote<T>(method: "GET" | "POST", path: string, body?: unknown) { return this.request<T>("desktop_personal_request", { method, path, ...(body === undefined ? {} : { body }) }); }
   async output(value: PersonalDesktopOutput, action: "preview" | "save") {
@@ -249,7 +249,7 @@ export class PersonalState {
     this.outputBusy = false;
     if (generation !== this.generation) { this.changed(); return; }
     if (!result.ok) this.outputStatus.set(key, result.error.message);
-    else if (result.value.state === "saved") this.outputStatus.set(key, "文件已保存");
+    else if (result.value.state === "saved") this.outputStatus.set(key, "File saved");
     this.changed();
   }
   private installDraft(value: PersonalInputDraft) {
@@ -286,7 +286,7 @@ export class PersonalState {
       await this.draftWrites;
       if (!this.draftId) {
         const result = await this.request<PersonalInputDraft>("desktop_personal_draft_read", {});
-        if (!result.ok || !result.value) { this.attachmentFailed = true; this.message = result.ok ? "原草稿不可用，请重新连接后选择附件。" : result.error.message; return; }
+        if (!result.ok || !result.value) { this.attachmentFailed = true; this.message = result.ok ? "The original draft is unavailable. Reconnect and choose attachments again." : result.error.message; return; }
         if (generation !== this.generation) return;
         const text = this.draft; this.installDraft(result.value);
         if (text !== this.draft) { this.draft = text; const saved = await this.request<PersonalInputDraft>("desktop_personal_draft_save", { id: this.draftId, text }); if (!saved.ok) { this.attachmentFailed = true; this.message = saved.error.message; return; } }
@@ -299,9 +299,9 @@ export class PersonalState {
         const saved = await this.request<PersonalInputDraft>("desktop_personal_draft_read", {});
         if (generation !== this.generation) return;
         if (saved.ok && saved.value) this.installDraft(saved.value);
-        else { this.attachmentFailed = true; this.message = saved.ok ? "附件状态未能核实，请重新连接后读取原草稿。" : saved.error.message; }
+        else { this.attachmentFailed = true; this.message = saved.ok ? "Attachment state unverified. Reconnect and read the original draft." : saved.error.message; }
       }
-    } catch { if (generation === this.generation) { this.attachmentFailed = true; this.message = "附件准备中断，本条输入未发送；请重新选择附件。"; } }
+    } catch { if (generation === this.generation) { this.attachmentFailed = true; this.message = "Attachment preparation interrupted; this input wasn't sent. Choose the attachments again."; } }
     finally { this.attaching = false; this.changed(); }
   }
   async removeAttachment(attachmentId: string) {
@@ -314,7 +314,7 @@ export class PersonalState {
   }
   async send() {
     if (!this.canSend) return;
-    if (new TextEncoder().encode(this.draft).byteLength > 16384) { this.message = "每条输入最多16 KiB，请缩短后再发送。"; this.changed(); return; }
+    if (new TextEncoder().encode(this.draft).byteLength > 16384) { this.message = "Each input is limited to 16 KiB. Shorten it and send again."; this.changed(); return; }
     const text = this.draft, attachments = structuredClone(this.attachments), generation = this.generation;
     const submitting: LocalInput = { text, attachments, timestamp: Date.now(), anchor: this.inputAnchor(), status: "checking" };
     if (this.messagesVisible && this.projection) this.messageAnimations.add(submitting.anchor);
@@ -374,7 +374,7 @@ export class PersonalState {
       const result: DesktopResult<HistoryBody> = await this.remote<HistoryBody>("GET", `/history/entry?entry=${entry}&offset=${offset}`);
       if (generation !== this.generation) return;
       if (!result.ok) { this.message = result.error.message; break; }
-      if (result.value.entry !== entry || result.value.offset !== offset || result.value.nextOffset !== undefined && result.value.nextOffset <= offset) { this.message = "消息正文不属于原读取，请重新同步。"; break; }
+      if (result.value.entry !== entry || result.value.offset !== offset || result.value.nextOffset !== undefined && result.value.nextOffset <= offset) { this.message = "The message body doesn't belong to the original read. Resync."; break; }
       text += result.value.text; offset = result.value.nextOffset;
       if (offset === undefined) this.bodies.set(entry, text);
     }
@@ -414,7 +414,7 @@ export class PersonalState {
     const generation = this.generation, requestId = crypto.randomUUID(); this.actionBusy = true; this.changed();
     const result = await this.remote("POST", cancel ? "/question/cancel" : "/question/answer", { question: question.id, version: question.version, requestId, ...(cancel ? {} : { answers: this.answers }) });
     if (generation !== this.generation) { this.actionBusy = false; return; }
-    if (!result.ok) { const receipt = await this.remote("GET", `/question/receipt?requestId=${requestId}`); this.message = receipt.ok && receipt.value ? "原问题决定已登记。" : result.error.message; }
+    if (!result.ok) { const receipt = await this.remote("GET", `/question/receipt?requestId=${requestId}`); this.message = receipt.ok && receipt.value ? "The original question decision is recorded." : result.error.message; }
     else this.question = null;
     this.actionBusy = false; await this.refreshQueries(); this.changed();
   }
@@ -439,7 +439,7 @@ export class PersonalState {
     const route = value.kind === "services" ? `/service/decide?service=${value.ref!.taskId}` : value.kind === "tools" ? "/tools/decide" : `/${value.kind}/decide?operation=${value.operation}`;
     const result = await this.remote("POST", route, { decision, ...(value.kind === "tools" ? { operation: value.operation } : {}) });
     if (generation !== this.generation) { this.actionBusy = false; return; }
-    this.message = result.ok ? "本次决定已登记，请核实实际操作结果。" : result.error.message;
+    this.message = result.ok ? "This decision is recorded; verify the actual operation outcome." : result.error.message;
     if (!result.ok && result.error.outcome === "not_sent") this.uncertainApprovals.delete(value.key);
     this.actionBusy = false; await this.selectApproval(value); await this.refreshQueries(); this.changed();
   }
@@ -481,7 +481,7 @@ export class PersonalState {
       const result = await this.remote<{ v: 1; revision: number; entry: PersonalTimelineEntry | null }>("GET", `/desktop/input?requestId=${encodeURIComponent(entry.input!.requestId)}`);
       if (generation !== this.generation) return;
       if (result.ok && result.value.entry?.input?.requestId === entry.input!.requestId) this.installEntry(result.value.entry);
-      else if (result.ok) this.message = result.value.entry === null ? "原消息的接纳记录缺失，请核实原后台档案。" : "原消息显示记录与请求不符，请重新同步。";
+      else if (result.ok) this.message = result.value.entry === null ? "The original message's admission record is missing. Verify the original backend archive." : "The original message display record doesn't match the request. Resync.";
       else if (!result.ok) this.message = result.error.message;
     })];
     for (let index = 0; index < reads.length && generation === this.generation; index += 4) await Promise.all(reads.slice(index, index + 4).map(read => read()));
@@ -515,8 +515,8 @@ export class PersonalState {
       let verified = false;
       this.detailLoading.delete(key);
       if (!result.ok) this.details.set(key, { text: previous?.text ?? "", complete: false, admission: value.admission ?? previous?.admission ?? 0, family, error: result.error.message });
-      else if (result.value.operation !== operation || result.value.summary.operation !== operation || personalCardKey(result.value.summary) !== key || result.value.summary.admission !== result.value.admission || value.admission !== undefined && result.value.admission !== value.admission || result.value.offset !== offset || result.value.nextOffset !== undefined && result.value.nextOffset <= offset) this.message = "操作记录不属于原读取，请重新核实。";
-      else if (offset && previous?.admission !== result.value.admission) this.details.set(key, { text: "", complete: false, admission: result.value.admission, family, error: "操作内容的原记录不一致，请重新读取。" });
+      else if (result.value.operation !== operation || result.value.summary.operation !== operation || personalCardKey(result.value.summary) !== key || result.value.summary.admission !== result.value.admission || value.admission !== undefined && result.value.admission !== value.admission || result.value.offset !== offset || result.value.nextOffset !== undefined && result.value.nextOffset <= offset) this.message = "The operation record doesn't belong to the original read. Verify again.";
+      else if (offset && previous?.admission !== result.value.admission) this.details.set(key, { text: "", complete: false, admission: result.value.admission, family, error: "The operation content's original record is inconsistent. Read it again." });
       else {
         if (result.value.revision >= (this.cardRevisions.get(key) ?? -1)) { this.installCard(result.value.summary, result.value.revision); this.refreshingCards.delete(key); }
         this.details.set(key, { text: (offset ? previous?.text ?? "" : "") + result.value.text, complete: result.value.nextOffset === undefined, admission: result.value.admission, family, nextOffset: result.value.nextOffset });
@@ -550,9 +550,9 @@ export class PersonalState {
       if (!result.ok) { this.message = result.error.message; this.changed(); return false; }
       const detail = result.value;
       const canonical = [...this.questionCards.values()].find(question => question.id === value.id), status = detail.status;
-      if (detail.id !== value.id || detail.admission !== value.admission || !Number.isSafeInteger(detail.version) || detail.version < Math.max(value.version, canonical?.version ?? 0) || !["pending", "answered", "canceled", "stale"].includes(status)) { this.message = "问题状态已变化，请刷新原卡片。"; this.changed(); return false; }
+      if (detail.id !== value.id || detail.admission !== value.admission || !Number.isSafeInteger(detail.version) || detail.version < Math.max(value.version, canonical?.version ?? 0) || !["pending", "answered", "canceled", "stale"].includes(status)) { this.message = "The question state changed. Refresh the original card."; this.changed(); return false; }
       try { detail.questions = parseOwnerQuestions(detail.questions); if (detail.answer) detail.answer.answers = parseOwnerAnswers(detail.answer.answers, detail.questions); }
-      catch { this.message = "原问题内容无法核实，请保留卡片并重新读取。"; this.changed(); return false; }
+      catch { this.message = "The original question content is unverified. Keep the card and read it again."; this.changed(); return false; }
       this.installQuestion({ ...(canonical ?? { id: detail.id, admission: value.admission, occurrence: value.admission, question: Array.from(detail.questions[0].question).slice(0, 140).join("") }), version: detail.version, status: status as PersonalDesktopQuestion["status"], canAnswer: status === "pending" && !detail.origin.telegram, canCancel: status === "pending" }, this.questionRevisions.get(value.id) ?? this.revision);
       this.questionDetails.set(value.id, detail);
       const draft = this.questionDrafts.get(`${value.id}:${detail.version}`);
@@ -594,7 +594,7 @@ export class PersonalState {
     const detail = this.questionDetails.get(value.id);
     if (!cancel && (!detail || detail.version !== value.version || detail.admission !== value.admission)) return;
     let answers: OwnerAnswer[] | undefined;
-    if (!cancel) { try { answers = parseOwnerAnswers(this.questionDraft(value).answers, detail!.questions); } catch { this.message = "请核对原问题的回答。"; this.changed(); return; } }
+    if (!cancel) { try { answers = parseOwnerAnswers(this.questionDraft(value).answers, detail!.questions); } catch { this.message = "Check the original question's answers."; this.changed(); return; } }
     await this.performAction({ v: 1, requestId: crypto.randomUUID(), family: "questions", operation: Number(value.id), admission: value.admission, occurrence: value.occurrence, action: cancel ? "cancel_question" : "answer", questionVersion: value.version, ...(answers ? { answers } : {}) });
     await this.refreshQuestionState();
   }
@@ -611,8 +611,8 @@ export class PersonalState {
     this.acting.delete(key);
     if (generation !== this.generation) return;
     if (!result.ok) { this.message = result.error.message; if (["not_sent", "rejected"].includes(result.error.outcome)) this.uncertainActions.delete(key); }
-    else if (!sameAction(result.value.request, request)) this.message = "选择回执不属于原卡片，请核实原请求。";
-    else if (result.value.state !== "admitted") { await this.refreshAction(request); if (generation !== this.generation) return; this.message = result.value.state === "failed" ? "本次选择未完成，请核实原记录。" : result.value.state === "effect_unknown" ? "本次选择结果待核实，请查看原记录。" : this.message; }
+    else if (!sameAction(result.value.request, request)) this.message = "The selection receipt doesn't belong to the original card. Verify the original request.";
+    else if (result.value.state !== "admitted") { await this.refreshAction(request); if (generation !== this.generation) return; this.message = result.value.state === "failed" ? "This selection didn't finish. Verify the original record." : result.value.state === "effect_unknown" ? "This selection's outcome is unverified. Check the original record." : this.message; }
     if (this.uncertainActions.has(key)) await this.inspectAction(request);
     this.changed();
   }
@@ -667,7 +667,7 @@ export class PersonalState {
   cuaImageLoaded(value: PersonalDesktopApproval, id: string, loaded: boolean) {
     const images = this.cuaImages.get(value.operation); if (!images || images.observation !== value.observation) return;
     const image = images.images.find(image => image.id === id); if (!image) return;
-    image.loaded = loaded; if (!loaded) this.message = "新截图无法显示，请重新观察。";
+    image.loaded = loaded; if (!loaded) this.message = "The new screenshot can't be displayed. Observe again.";
     this.changed();
   }
   async loadCuaImages(value: PersonalDesktopApproval) {
@@ -680,13 +680,13 @@ export class PersonalState {
       const settings = await this.request<Pick<PersonalSettingsSnapshot, "profile" | "revisions">>("desktop_personal_settings_request", { request: { v: 1, op: "settings.read", limit: 1 } });
       if (!current()) return;
       if (!settings.ok) { this.message = settings.error.message; return; }
-      if (settings.value.profile.id !== profile.id || settings.value.profile.directory !== profile.directory) throw new Error("新截图不属于原档案，请重新连接。");
+      if (settings.value.profile.id !== profile.id || settings.value.profile.directory !== profile.directory) throw new Error("The new screenshot doesn't belong to the original archive. Reconnect.");
       const expectedRevision = settings.value.revisions.mcp;
       for (const image of value.images ?? []) {
         const src = await loadPersonalCuaImage(image, observation, async offset => {
           const result = await this.request<CuaImagePage & { profile: Identity["profile"] }>("desktop_personal_settings_request", { request: { v: 1, op: "mcp.cua-image", profile, expectedRevision, operation: value.operation, observation, image: image.id, offset } });
           if (!result.ok) { this.message = result.error.message; return null; }
-          if (result.value.profile.id !== profile.id || result.value.profile.directory !== profile.directory) throw new Error("新截图不属于原档案，请重新连接。");
+          if (result.value.profile.id !== profile.id || result.value.profile.directory !== profile.directory) throw new Error("The new screenshot doesn't belong to the original archive. Reconnect.");
           return result.value;
         }, current);
         if (!src || !current()) return;
@@ -729,6 +729,6 @@ export class PersonalState {
     if (result.ok) this.work = { ...result.value, result: { ...result.value.result, text: (offset ? this.work?.result.text ?? "" : "") + (result.value.result.text ?? "") } }; else this.message = result.error.message;
     this.changed();
   }
-  async cancelWork(value: Work) { if (this.actionBusy || value.cancelRequested) return; this.actionBusy = true; const generation = this.generation, result = await this.remote("POST", `/work/cancel?work=${value.ref.taskId}`); if (generation !== this.generation) { this.actionBusy = false; return; } this.message = result.ok ? "已请求取消原工作，停止状态仍需核实。" : result.error.message; this.actionBusy = false; await this.refreshQueries(); this.changed(); }
+  async cancelWork(value: Work) { if (this.actionBusy || value.cancelRequested) return; this.actionBusy = true; const generation = this.generation, result = await this.remote("POST", `/work/cancel?work=${value.ref.taskId}`); if (generation !== this.generation) { this.actionBusy = false; return; } this.message = result.ok ? "Cancel requested for the original work; the stop state still needs verification." : result.error.message; this.actionBusy = false; await this.refreshQueries(); this.changed(); }
   async setMode(mode: PermissionMode) { const generation = this.generation, result = await this.remote("POST", "/permissions", { mode }); if (generation !== this.generation) return; if (result.ok) this.mode = mode; else this.message = result.error.message; this.changed(); }
 }

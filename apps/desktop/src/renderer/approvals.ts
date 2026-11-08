@@ -10,7 +10,7 @@ class ApprovalFailure extends Error {
   constructor(readonly failure: DesktopFailure) { super(failure.message); }
 }
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopApprovals {
   readonly details = new Map<string, ApprovalDetail>();
   readonly decisions = new Map<string, Decision>();
@@ -40,15 +40,15 @@ export class DesktopApprovals {
     this.details.clear();
     for (const [id, decision] of this.decisions) {
       this.decisions.delete(id);
-      if (decision.instanceId !== this.view.instanceId) this.report("原审批目标已经变化，旧操作结果已丢弃；请查看原目标。");
-      else this.report(this.view.pendingApprovals().some(item => item.id === id) ? "结果未知，审批仍待处理；请重新查看后决定是否操作。" : "新快照已核实：原审批已处理或失效。");
+      if (decision.instanceId !== this.view.instanceId) this.report("The approval target changed; the old outcome was discarded. Check the original target.");
+      else this.report(this.view.pendingApprovals().some(item => item.id === id) ? "Outcome unknown; the approval is still pending. Review it again before acting." : "Verified by the new snapshot: the original approval was handled or expired.");
     }
   }
   async refresh(): Promise<void> {
     let result;
     try { result = await this.bridge.request(this.target, "reconnect", {}); }
-    catch { this.report("刷新审批状态失败；请重新打开应用后核实。"); return; }
-    if (!result.ok) this.report(`刷新审批状态失败：${result.error.message}`);
+    catch { this.report("Couldn't refresh the approval status. Reopen the app to verify."); return; }
+    if (!result.ok) this.report(`Couldn't refresh the approval status: ${result.error.message}`);
   }
   async load(id: string): Promise<void> {
     if (!this.view.pendingApprovals().some(item => item.id === id) || this.details.get(id)?.loading) return;
@@ -63,10 +63,10 @@ export class DesktopApprovals {
       do {
         const page = await this.request("get_confirmation_params", { confirmation_id: id, offset, length: 64 * 1024 });
         if (generation !== this.generation || !this.view.pendingApprovals().some(item => item.id === id && item.permissionVersion === version)) return;
-        if (page.confirmation.status !== "pending") { this.remove(id); this.report(`审批已${page.confirmation.status === "approved" ? "批准" : page.confirmation.status === "rejected" ? "拒绝" : "失效"}。`); return; }
-        if (page.confirmation.permissionVersion !== version) { detail.error = "权限版本已变化，请重新连接刷新审批后再决定。"; return; }
+        if (page.confirmation.status !== "pending") { this.remove(id); this.report(`Approval ${page.confirmation.status === "approved" ? "approved" : page.confirmation.status === "rejected" ? "denied" : "expired"}.`); return; }
+        if (page.confirmation.permissionVersion !== version) { detail.error = "The permission version changed. Reconnect to refresh the approval before deciding."; return; }
         if (page.params.offset !== offset || (total !== undefined && total !== page.params.totalBytes) || (!page.params.text && offset < page.params.totalBytes)) {
-          detail.error = "参数分页不连续，当前内容不完整；请重新读取。";
+          detail.error = "Parameter pages are discontinuous; the current content is incomplete. Read it again.";
           return;
         }
         total = page.params.totalBytes;
@@ -77,7 +77,7 @@ export class DesktopApprovals {
       detail.complete = true;
     } catch (error) {
       if (generation !== this.generation) return;
-      detail.error = `参数读取失败，当前内容不完整：${error instanceof Error ? error.message : "请重试。"}`;
+      detail.error = `Couldn't read the parameters; the current content is incomplete: ${error instanceof Error ? error.message : "Try again."}`;
     } finally { detail.loading = false; this.changed(); }
   }
   async respond(approval: ConfirmationRequestView, decision: "approve" | "reject"): Promise<void> {
@@ -92,36 +92,36 @@ export class DesktopApprovals {
       if (generation === this.generation) { this.remove(approval.id); this.decisions.delete(approval.id); this.changed(); }
     } catch (error) {
       if (generation !== this.generation) return;
-      const failure = error instanceof ApprovalFailure ? error.failure : { code: "ipc_failed", outcome: "unknown", message: "审批应答未收到" };
-      if (failure.outcome === "disconnected") { this.report("结果未知；等待同一实例的新快照核实，请勿重复操作。"); return; }
+      const failure = error instanceof ApprovalFailure ? error.failure : { code: "ipc_failed", outcome: "unknown", message: "Approval response not received" };
+      if (failure.outcome === "disconnected") { this.report("Outcome unknown; wait for a new snapshot from the same instance to verify. Don't repeat the action."); return; }
       this.decisions.delete(approval.id);
-      if (failure.outcome === "rejected" && (failure.code === "stale_confirmation" || failure.code === "not_found")) { this.remove(approval.id); this.report(`审批已经失效：${failure.message}`); }
+      if (failure.outcome === "rejected" && (failure.code === "stale_confirmation" || failure.code === "not_found")) { this.remove(approval.id); this.report(`The approval already expired: ${failure.message}`); }
       else if (failure.outcome === "rejected" && failure.code === "permission_version_mismatch") {
-        this.report("权限版本不符，正在刷新详情；请查看新版本后重新决定。");
+        this.report("Permission version mismatch; refreshing details. Review the new version before deciding again.");
         await this.verify(approval.id, bound, generation);
         if (generation === this.generation) { this.details.delete(approval.id); await this.load(approval.id); }
       } else if (failure.outcome === "unknown") {
         this.decisions.set(approval.id, bound);
-        this.report("结果未知；正在查询原审批状态。");
+        this.report("Outcome unknown; querying the original approval status.");
         await this.verify(approval.id, bound, generation);
-      } else this.report(failure.outcome === "not_sent" ? `请求没有发出：${failure.message}；可再次操作。` : `审批被拒绝：${failure.message}`);
+      } else this.report(failure.outcome === "not_sent" ? `The request wasn't sent: ${failure.message} You can act again.` : `Approval denied: ${failure.message}`);
     }
   }
   private async verify(id: string, bound: Decision, generation: number): Promise<void> {
     let detail: OpResult<"get_task">;
     try { detail = await this.request("get_task", { task_id: bound.taskId }); }
     catch {
-      if (generation === this.generation) this.report("结果未知：查询失败，请等待新快照或重新连接刷新。");
+      if (generation === this.generation) this.report("Outcome unknown: the query failed. Wait for a new snapshot or reconnect to refresh.");
       return;
     }
     if (generation !== this.generation || bound.instanceId !== this.view.instanceId) return;
-    if (detail.seq < this.seq) { this.report("结果未知：查询早于最新事件，请等待新快照或重新连接刷新。"); return; }
+    if (detail.seq < this.seq) { this.report("Outcome unknown: the query predates the latest event. Wait for a new snapshot or reconnect to refresh."); return; }
     this.view.installTaskDetail(detail.task, detail.toolOps, detail.outputPreview, detail.seq);
     this.view.confirmations = this.view.confirmations.filter(item => item.taskId !== bound.taskId).concat(detail.confirmations);
     this.decisions.delete(id);
     const approval = detail.confirmations.find(item => item.id === id);
     if (approval && approval.permissionVersion !== bound.version) this.details.delete(id);
-    if (this.view.pendingApprovals().some(item => item.id === id)) this.report(approval!.permissionVersion !== bound.version ? "权限版本已刷新，请查看新版本后重新决定。" : "结果未知，审批仍待处理；由你决定是否再次操作。");
-    else { this.details.delete(id); this.report(`已核实：审批${approval?.status === "approved" ? "已批准" : approval?.status === "rejected" ? "已拒绝" : "已失效"}。`); }
+    if (this.view.pendingApprovals().some(item => item.id === id)) this.report(approval!.permissionVersion !== bound.version ? "The permission version refreshed. Review the new version before deciding again." : "Outcome unknown; the approval is still pending. It's your call whether to act again.");
+    else { this.details.delete(id); this.report(`Verified: approval ${approval?.status === "approved" ? "approved" : approval?.status === "rejected" ? "denied" : "expired"}.`); }
   }
 }

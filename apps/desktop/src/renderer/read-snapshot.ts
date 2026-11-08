@@ -1,4 +1,4 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-read-snapshot.md
+// Note: See .agents/notes/implemented/feature/2026-10-17-desktop-read-snapshot.md
 export const FILE_PAGE_BYTES = 256 * 1024;
 export type PreviewFile = { path: string; size: number } & ({ kind: "text" | "markdown"; content: string } | { kind: "image"; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; dataUrl: string } | { kind: "unsupported" });
 export interface ReadSnapshotState { loading: boolean; file?: PreviewFile; error?: string; partial?: boolean }

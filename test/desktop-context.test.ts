@@ -81,7 +81,7 @@ test("Desktop Context 读取错误可见且可手动重试，不保留过期数�
   await h.context.load("a");
   assert.equal(h.context.get("a").loading, false);
   assert.equal(h.context.get("a").value, null);
-  assert.match(h.context.get("a").error!, /读取 Context 失败.*重试/);
+  assert.match(h.context.get("a").error!, /Couldn't read context/);
   fail = false;
   await h.context.load("a");
   assert.equal(h.context.get("a").error, null);
@@ -142,7 +142,7 @@ test("Desktop Context 拒绝会话或记录不匹配的 wire 响应", async () =
     const h = harness(handlers);
     await h.context.load("a");
     assert.equal(h.context.get("a").value, null);
-    assert.match(h.context.get("a").error!, /不属于|不一致/);
+    assert.match(h.context.get("a").error!, /does not belong|do not match/);
   }
 });
 

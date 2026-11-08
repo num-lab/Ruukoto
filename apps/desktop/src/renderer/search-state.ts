@@ -1,4 +1,4 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-desktop-spotlight-search.md
 import type { HistorySearchWireCursor, OpResult } from "@ruukoto/control/ops.ts";
 import type { DesktopBridge, DesktopUpdate } from "../shared/bridge.ts";
 
@@ -13,7 +13,7 @@ function searchCursorParams(cursor: SearchCursor): HistorySearchWireCursor {
 }
 
 export const foldSearchText = (text: string): string => text.replace(/[A-Z]/g, letter => letter.toLowerCase());
-const relativeTimeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const relativeTimeFormat = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
 export function relativeSearchTime(timestamp: string, now = Date.now()): string {
   const elapsed = Date.parse(timestamp) - now;
   if (!Number.isFinite(elapsed)) return "";
@@ -28,7 +28,7 @@ export function isSearchShortcut(event: { key: string; metaKey: boolean; ctrlKey
 export function searchSessions(summaries: SearchSummary[], query: string): SearchSummary[] {
   const needle = foldSearchText(query);
   const rank = (name: string) => name === needle ? 0 : name.startsWith(needle) ? 1 : 2;
-  return summaries.filter(item => !query.trim() || foldSearchText(item.name ?? "新会话").includes(needle)).sort((a, b) => (query.trim() ? rank(foldSearchText(a.name ?? "新会话")) - rank(foldSearchText(b.name ?? "新会话")) : 0) || b.lastActiveAt.localeCompare(a.lastActiveAt) || a.sessionId.localeCompare(b.sessionId)).slice(0, 8);
+  return summaries.filter(item => !query.trim() || foldSearchText(item.name ?? "New chat").includes(needle)).sort((a, b) => (query.trim() ? rank(foldSearchText(a.name ?? "New chat")) - rank(foldSearchText(b.name ?? "New chat")) : 0) || b.lastActiveAt.localeCompare(a.lastActiveAt) || a.sessionId.localeCompare(b.sessionId)).slice(0, 8);
 }
 
 export class DesktopSearch {
@@ -60,15 +60,15 @@ export class DesktopSearch {
   get uncovered(): boolean { return this.sourceIssues.length > 0 || this.unindexedSessionIds.length > 0; }
   get hasMore(): boolean { return !!this.query.trim() && !this.complete && !this.error; }
   get status(): string {
-    if (!this.online) return "Code 已离线，恢复连接后可重新搜索。";
-    if (this.summariesError) return `会话列表读取失败：${this.summariesError} 请重试。`;
-    if (this.summariesLoading || this.summaries === null) return "正在加载会话列表…";
+    if (!this.online) return "Code is offline. Search again once the connection recovers.";
+    if (this.summariesError) return `Couldn't load the chat list: ${this.summariesError} Try again.`;
+    if (this.summariesLoading || this.summaries === null) return "Loading chats…";
     if (this.error) return this.error;
-    if (this.loading) return this.hits.length ? "继续搜索中…" : "暂未找到，继续搜索中…";
+    if (this.loading) return this.hits.length ? "Searching…" : "No matches yet; searching…";
     if (!this.query.trim()) return "";
-    if (!this.complete) return this.hits.length ? "向下滚动可继续加载搜索结果。" : "输入关键词搜索聊天内容。";
-    if (this.hits.length || this.sessions.length) return "搜索完成。";
-    return this.uncovered ? "部分历史未覆盖，当前可读范围未找到结果。" : "没有找到。";
+    if (!this.complete) return this.hits.length ? "Scroll down to load more results." : "Type a keyword to search chat content.";
+    if (this.hits.length || this.sessions.length) return "Search complete.";
+    return this.uncovered ? "Some history isn't covered; nothing found in the readable range." : "No results.";
   }
   setOpen(open: boolean): void {
     if (this.open === open) return;
@@ -141,7 +141,7 @@ export class DesktopSearch {
     this.changed();
     let response;
     try { response = await this.bridge.request("code", "list_session_summaries", { scope: "workspace_chats" }); }
-    catch { if (generation === this.summariesGeneration) { this.summariesLoading = false; this.summariesError = "读取会话列表失败，请重试。"; this.changed(); } return; }
+    catch { if (generation === this.summariesGeneration) { this.summariesLoading = false; this.summariesError = "Couldn't load the chat list. Try again."; this.changed(); } return; }
     if (generation !== this.summariesGeneration) return;
     this.summariesLoading = false;
     if (!response.ok) this.summariesError = response.error.message;
@@ -157,7 +157,7 @@ export class DesktopSearch {
     this.changed();
     let response;
     try { response = await this.bridge.request("code", "search_history", { query: this.query, scope: "workspace_chats", limit: Math.min(20, this.targetCount - this.hits.length), ...(cursor ? { cursor: searchCursorParams(cursor) } : {}) }); }
-    catch { if (generation === this.generation) this.error = "聊天搜索失败，请重试。"; }
+    catch { if (generation === this.generation) this.error = "Chat search failed. Try again."; }
     this.busy = false;
     if (generation !== this.generation) { void this.pump(); return; }
     if (response && !response.ok) this.error = response.error.message;
@@ -167,7 +167,7 @@ export class DesktopSearch {
       this.hits.push(...page.hits.filter(hit => !known.has(JSON.stringify([hit.sessionId, hit.entryId]))));
       this.complete = page.complete;
       this.cursor = page.cursor;
-      if (!page.complete && (!page.cursor || JSON.stringify(page.cursor) === JSON.stringify(cursor))) this.error = "搜索进度未推进，请重新搜索。";
+      if (!page.complete && (!page.cursor || JSON.stringify(page.cursor) === JSON.stringify(cursor))) this.error = "Search didn't advance. Search again.";
       for (const issue of page.sourceIssues ?? []) if (!this.sourceIssues.some(item => item.sessionId === issue.sessionId && item.code === issue.code)) this.sourceIssues.push(issue);
       for (const id of page.unindexedSessionIds) if (!this.unindexedSessionIds.includes(id)) this.unindexedSessionIds.push(id);
       if (page.progress) { this.progress.indexedBytes += page.progress.indexedBytes; this.progress.scannedBytes += page.progress.scannedBytes; }

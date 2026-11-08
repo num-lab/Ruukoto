@@ -53,7 +53,7 @@ test("Web 搜索凭据保存只发密钥，校验失败不发，成功后清空�
   assert.equal(await h.state.saveSecret(), true, h.state.message);
   assert.equal(h.state.secret, "");
   assert.equal(h.state.desktopManaged, true);
-  assert.match(h.state.message, /已保存/);
+  assert.match(h.state.message, /saved/);
   assert.ok(!JSON.stringify([h.state.credentials, h.state.message]).includes("tvly-secret"), "秘密不进任何读取结果或提示");
   assert.deepEqual(h.requests.at(-1)?.op, "list_credentials", "保存后重读核实");
 });
@@ -68,18 +68,18 @@ test("Web 搜索移除凭据走专用 op；全局开关带期望版本", async (
   assert.equal(await h.state.removeCredential(), true, h.state.message);
   assert.equal(await h.state.setWebSearch(false, 1), true, h.state.message);
   assert.deepEqual(h.requests.find(request => request.op === "set_web_search")?.params, { enabled: false, expected_version: 1 });
-  assert.match(h.state.message, /已停用/);
+  assert.match(h.state.message, /disabled/);
 });
 
 test("Web 搜索全局开关版本冲突提示重选，丢答保留待核实并读回核对", async () => {
   const h = webSearchFixture(); await h.state.read();
   h.hooks.reply = () => { throw new ControlClientError("version_conflict", "设置已被其他客户端修改", "rejected"); };
   assert.equal(await h.state.setWebSearch(false, 1), false);
-  assert.match(h.state.message, /重新选择/);
+  assert.match(h.state.message, /Choose again/);
   h.hooks.reply = () => { throw new ControlClientError("request_timeout", "合成丢答", "unknown"); };
   assert.equal(await h.state.setWebSearch(false, 1), false);
   assert.equal(h.requests.filter(request => request.op === "set_web_search").length, 2);
-  assert.match(h.state.message, /核对|待核实/);
+  assert.match(h.state.message, /Check|unverified/);
   h.context.online = false;
   assert.equal(await h.state.setWebSearch(false, 1), false);
   assert.equal(await h.state.read(), false);
@@ -113,11 +113,11 @@ test("Web 搜索页 SSR 呈现凭据状态与项目开关", async t => {
     code.view.applySnapshot({ snapshot: fakeSnapshot({}), replay: [], seq: 0 }, false);
     code.status = { type: "state", state: "online" };
     let html = renderToStaticMarkup(createElement(CodeWebSearchSettings, { code }));
-    assert.match(html, /Tavily 凭据/); assert.match(html, /尚未核实/); assert.match(html, /aria-label="修改密钥"[^>]*disabled/);
-    assert.match(html, /所有项目共用/); assert.match(html, /role="switch"/); assert.match(html, /从下一任务生效/);
+    assert.match(html, /Tavily credential/); assert.match(html, /Unverified/); assert.match(html, /aria-label="Change key"[^>]*disabled/);
+    assert.match(html, /Shared across all projects/); assert.match(html, /role="switch"/); assert.match(html, /from the next task/);
     code.view.instanceId = null;
     html = renderToStaticMarkup(createElement(CodeWebSearchSettings, { code }));
-    assert.match(html, /Code 已离线/);
+    assert.match(html, /Code is offline/);
   } finally {
     if (original) Object.defineProperty(globalThis, "window", original); else Reflect.deleteProperty(globalThis, "window");
   }

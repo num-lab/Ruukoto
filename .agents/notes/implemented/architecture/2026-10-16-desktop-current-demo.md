@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Desktop design tokens](../feature/2026-11-08-desktop-design-tokens.md) ends byte-for-byte tracing of the production theme to v2; primitives still trace to it.
+
 [Direct Markdown images](../simplification/2026-10-25-desktop-markdown-images.md) owns embedded-image loading; preview-file reads still use the backend. [Directory paging](../feature/2026-10-24-directory-pages-lazy-git.md) removes the 200-total directory limit. [Read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) permits ordinary hardlinks. [Owner browsing](../feature/2026-10-24-owner-workspace-browsing.md) removes browsing protected-root scans. [Complete chunked transfer](../feature/2026-10-18-complete-reasoning-and-preview.md) removes the preview-total limit. Registered roots, paths, read consistency, and original access scope remain.
 
 ## Problem

@@ -26,34 +26,34 @@ export function CodeWebSearchEditor({ state, code }: { state: CodeWebSearchState
   const save = () => void state.saveSecret().then(saved => { if (saved) setReplacing(false); });
   const webSearch = code.view.webSearch;
   return (
-    <SettingsPage title="Web 搜索" description="管理 Code 的 Tavily 凭据与实例开关。">
-      <SettingsGroup title="Tavily 凭据">
+    <SettingsPage title="Web search" description="Manage the Tavily credential and per-instance switch for Code.">
+      <SettingsGroup title="Tavily credential">
         <SettingsCard className="web-search-credential-card">
           <SettingsRow title={secretField
-            ? <input className="settings-plain-input web-search-key-input" id="web-search-secret" type="password" aria-label="Tavily API Key" autoComplete="new-password" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); save(); } }} placeholder="输入新的 Tavily API Key" />
-            : <code className="web-search-credential">{state.reading ? "正在读取…" : state.phase !== "ready" ? "尚未核实" : effective ? "已配置 · ••••••••••••" : "未配置"}</code>}
-            error={state.fieldErrors.secret} description={effective && effective.name !== WEB_SEARCH_CREDENTIAL_NAME ? "由 CLI 创建，请用 ruukoto credentials 命令管理。" : undefined}>
-            <SettingsButton variant="icon" aria-label={secretField ? "保存密钥" : "修改密钥"} title={secretField ? "保存密钥" : "修改密钥"} disabled={state.disabled || !editable || secretField && !state.secret} onClick={() => { if (secretField) save(); else { setReplacing(true); state.editSecret(""); } }}>{secretField ? <Save /> : <SquarePen />}</SettingsButton>
-            {replacing && <SettingsButton variant="icon" aria-label="取消更换" title="取消更换" disabled={state.disabled} onClick={() => { setReplacing(false); state.editSecret(""); }}><X /></SettingsButton>}
-            <SettingsButton className="settings-danger-icon" variant="icon" aria-label="移除密钥" title="移除密钥" disabled={state.disabled || !editable || !effective} onClick={() => setConfirmRemove(true)}><Trash2 /></SettingsButton>
+            ? <input className="settings-plain-input web-search-key-input" id="web-search-secret" type="password" aria-label="Tavily API Key" autoComplete="new-password" value={state.secret} disabled={state.disabled} aria-invalid={!!state.fieldErrors.secret} onChange={event => state.editSecret(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); save(); } }} placeholder="Enter a new Tavily API key" />
+            : <code className="web-search-credential">{state.reading ? "Loading…" : state.phase !== "ready" ? "Unverified" : effective ? "Configured · ••••••••••••" : "Not configured"}</code>}
+            error={state.fieldErrors.secret} description={effective && effective.name !== WEB_SEARCH_CREDENTIAL_NAME ? "Created by the CLI; manage it with the ruukoto credentials command." : undefined}>
+            <SettingsButton variant="icon" aria-label={secretField ? "Save key" : "Change key"} title={secretField ? "Save key" : "Change key"} disabled={state.disabled || !editable || secretField && !state.secret} onClick={() => { if (secretField) save(); else { setReplacing(true); state.editSecret(""); } }}>{secretField ? <Save /> : <SquarePen />}</SettingsButton>
+            {replacing && <SettingsButton variant="icon" aria-label="Cancel replacement" title="Cancel replacement" disabled={state.disabled} onClick={() => { setReplacing(false); state.editSecret(""); }}><X /></SettingsButton>}
+            <SettingsButton className="settings-danger-icon" variant="icon" aria-label="Remove key" title="Remove key" disabled={state.disabled || !editable || !effective} onClick={() => setConfirmRemove(true)}><Trash2 /></SettingsButton>
           </SettingsRow>
-          {state.credentials.length > 1 && <SettingsRow title="凭据绑定" description={`共 ${state.credentials.length} 条绑定，取名称排序第一个生效。`} />}
+          {state.credentials.length > 1 && <SettingsRow title="Credential bindings" description={`${state.credentials.length} bindings; the first by name order applies.`} />}
         </SettingsCard>
       </SettingsGroup>
-      <SettingsGroup title="实例开关">
+      <SettingsGroup title="Instance switch">
         <SettingsCard>
-          <SettingsRow title="所有项目共用" description="停用立即阻止后续调用，启用从下一任务生效。" htmlFor="web-search-toggle"><SettingsSwitch id="web-search-toggle" checked={webSearch.state === "enabled"} disabled={state.disabled} onChange={event => void state.setWebSearch(event.target.checked, webSearch.version)} /></SettingsRow>
+          <SettingsRow title="Shared across all projects" description="Disabling blocks later calls immediately; enabling applies from the next task." htmlFor="web-search-toggle"><SettingsSwitch id="web-search-toggle" checked={webSearch.state === "enabled"} disabled={state.disabled} onChange={event => void state.setWebSearch(event.target.checked, webSearch.version)} /></SettingsRow>
         </SettingsCard>
       </SettingsGroup>
       {state.message && <SettingsNotice>{state.message}</SettingsNotice>}
-      {state.phase === "error" && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.read()}>重试读取凭据</SettingsButton>}
-      <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>移除 Tavily 凭据？</DialogTitle><DialogDescription>移除后 web_search 调用会直接返回未配置错误。</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)}>取消</Button><Button type="button" disabled={state.disabled} onClick={() => { setConfirmRemove(false); void state.removeCredential(); }}>移除</Button></DialogFooter></DialogContent></Dialog>
+      {state.phase === "error" && <SettingsButton variant="ghost" disabled={state.disabled} onClick={() => void state.read()}>Retry reading the credential</SettingsButton>}
+      <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>Remove the Tavily credential?</DialogTitle><DialogDescription>After removal, web_search calls return a not-configured error.</DialogDescription></DialogHeader><DialogFooter><Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)}>Cancel</Button><Button type="button" disabled={state.disabled} onClick={() => { setConfirmRemove(false); void state.removeCredential(); }}>Remove</Button></DialogFooter></DialogContent></Dialog>
     </SettingsPage>
   );
 }
 
 export function CodeWebSearchSettings({ code }: { code: CodeState }) {
   const instanceId = code.view.instanceId;
-  if (!instanceId) return <SettingsPage title="Web 搜索" description="管理 Code 的 Tavily 凭据与实例开关。"><SettingsNotice>Code 已离线，请恢复连接后管理 Web 搜索。</SettingsNotice></SettingsPage>;
+  if (!instanceId) return <SettingsPage title="Web search" description="Manage the Tavily credential and per-instance switch for Code."><SettingsNotice>Code is offline. Restore the connection to manage Web search.</SettingsNotice></SettingsPage>;
   return <WebSearchForm key={instanceId} code={code} />;
 }

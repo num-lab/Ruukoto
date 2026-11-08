@@ -1,4 +1,4 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
+// Note: See .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
 import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
@@ -42,7 +42,7 @@ interface PendingBranch {
   waitGeneration: number | null;
 }
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class CodeState {
   readonly view = new ViewState();
   readonly summaries = new Map<string, OpResult<"list_session_summaries">>();
@@ -60,7 +60,7 @@ export class CodeState {
   private generation = 0;
   private questionRead = 0;
   private defaultModelRead = 0;
-  /** 恢复窗口内累计的变更只画一次：中间投影会把已收起 trace 画成展开态。 */
+  /** Accumulated changes within a restore window draw once: intermediate projections would paint collapsed traces as expanded. */
   private quiet = 0;
   private dirty = false;
   private creationSourceId: string | null = null;
@@ -79,7 +79,7 @@ export class CodeState {
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
   notificationSelection: { sessionId: string; taskId: string } | null = null;
   refresh(): void { this.mark(); }
-  // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md
+  // Note: See .agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
     this.compactions = new DesktopCompactions(bridge, this.view, () => this.status.state === "online", changed);
     this.context = new DesktopContext(bridge, this.view, changed, target);
@@ -93,17 +93,17 @@ export class CodeState {
     this.history = new HistoryRecovery({
       state: this.view, request: (op, params) => this.request(op, params), entryPageBytes: 64 * 1024,
       completeEntry: () => true, isMissingEntry: error => error instanceof DesktopRequestError && error.code === "entry_not_found",
-      changed: () => this.mark(), entryFailed: error => { this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`; },
+      changed: () => this.mark(), entryFailed: error => { this.readError = `Couldn't load the chat: ${error instanceof Error ? error.message : "Reconnect and try again."}`; },
     });
   }
 
   private async request<K extends DesktopOp>(op: K, params: OpParams<K>): Promise<OpResult<K>> {
     const result = await this.bridge.request(this.target, op, params);
     if (!result.ok) throw new DesktopRequestError(result.error);
-    // preload 的响应是 IPC wire 数据，主进程只转发同仓控制面返回值。
+    // Preload responses are IPC wire data; the main process only forwards same-repo control-plane returns.
     return result.value as OpResult<K>;
   }
-  /** 恢复期间合并重绘；最外层结束后才把最终投影交给界面。 */
+  /** Merge redraws during restore; only hand the final projection to the UI when the outermost finishes. */
   private settle<T>(action: () => Promise<T>): Promise<T> {
     const generation = this.generation;
     ++this.quiet;
@@ -113,7 +113,7 @@ export class CodeState {
       this.changed();
     });
   }
-  /** 恢复窗口内只记下需要重绘，窗口关闭时统一发出。 */
+  /** Within a restore window only record the need to redraw; emit once when the window closes. */
   private mark(): void {
     if (this.quiet > 0) { this.dirty = true; return; }
     this.changed();
@@ -149,8 +149,8 @@ export class CodeState {
         this.notificationSelection = null;
         this.creationSourceId = null;
         this.recoveredChats = [];
-        // 旧实例里的分支无法在新实例核实，不能继续按原键重发。
-        if (this.pendingBranch) { this.pendingBranch = null; this.message = "分支结果未知：数据实例已改变，请查看原实例的会话列表。"; }
+        // A branch in the old instance can't be verified in the new one — stop resending along the original key.
+        if (this.pendingBranch) { this.pendingBranch = null; this.message = "Branch outcome unknown: the data instance changed. Check the original instance's chat list."; }
       }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
       if (this.target === "code") void this.loadSummaries();
@@ -184,7 +184,7 @@ export class CodeState {
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {
     this.navigation = update;
     if (!this.view.instanceId) return;
-    if (update.instanceId !== this.view.instanceId) { this.navigation = null; this.message = "通知所属的原目标已经变化，请查看原实例。"; return; }
+    if (update.instanceId !== this.view.instanceId) { this.navigation = null; this.message = "The notification's original target changed. Check the original instance."; return; }
     const child = this.view.subAgents.find(agent => agent.sessionId === update.navigation.sessionId);
     this.notificationSelection = update.navigation;
     this.openSession(child?.parentSessionId ?? update.navigation.sessionId);
@@ -202,7 +202,7 @@ export class CodeState {
       this.view.defaultModel = { provider: selection.provider, id: selection.modelId, name: model?.name ?? selection.modelId, thinkingLevel: selection.thinkingLevel };
       this.defaultModelKnown = true;
       this.mark();
-    } catch { if (generation === this.generation && read === this.defaultModelRead) this.report("后台默认模型刷新失败，请重新连接核实后再创建会话。"); }
+    } catch { if (generation === this.generation && read === this.defaultModelRead) this.report("Backend default model refresh failed. Reconnect to verify before creating a chat."); }
   }
   newChatSelection(explicit: ModelSelection | null): ModelSelection | null {
     if (explicit) return explicit;
@@ -212,7 +212,7 @@ export class CodeState {
     const level = option?.thinkingLevels.find(level => level === thinkingLevel);
     return level ? { provider, modelId, thinkingLevel: level } : null;
   }
-  /** 工作区树只列未存档的普通会话；存档只影响这份列表，历史与任务仍按会话 id 读取。 */
+  /** The workspace tree lists only unarchived ordinary chats; archiving affects only this list — history and tasks still read by session id. */
   sessionsFor(workspaceId: string): Session[] {
     return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev" && session.archivedAt === null);
   }
@@ -221,7 +221,7 @@ export class CodeState {
   }
   workspaceName(workspaceId: string): string {
     const workspace = this.view.projects.find(project => project.id === workspaceId);
-    return workspace?.managed ? "No workspace" : workspace?.name ?? "未知工作区";
+    return workspace?.managed ? "No workspace" : workspace?.name ?? "Unknown workspace";
   }
   async revealWorkspace(workspaceId: string): Promise<void> {
     const result = await this.bridge.request(this.target, "desktop_workspace_path", { workspace_id: workspaceId, instance_id: this.view.instanceId });
@@ -230,16 +230,16 @@ export class CodeState {
     try {
       const revealed = await window.ruukoto.reveal(folder.path);
       if (!revealed.ok) this.report(revealed.error.message);
-    } catch { this.report("未能打开文件夹，请重新打开应用后重试。"); }
+    } catch { this.report("Couldn't open the folder. Reopen the app and try again."); }
   }
-  /** 设置页的已存档会话：同一批普通开发会话，只看存档状态。 */
+  /** The settings page's archived chats: the same ordinary dev chats, filtered by archive state. */
   archivedSessions(): Session[] {
     return this.view.sessions.filter(session => session.archivedAt !== null && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id)).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
   }
-  /** 存档或取消存档；失败按既有设置写入的提示呈现。 */
+  /** Archive or unarchive; failures surface through the existing settings-write notice. */
   async setArchived(sessionId: string, archived: boolean): Promise<void> {
     await this.writes.setArchived(sessionId, archived);
-    // 存档的会话不该留在打开的标签里，否则列表与标签互相矛盾。
+    // An archived chat must not stay in open tabs, or the list and tabs contradict each other.
     if (archived && this.tabs.includes(sessionId)) this.closeSession(sessionId);
   }
   sessionName(id: string): string {
@@ -247,7 +247,7 @@ export class CodeState {
       const summary = summaries.find(item => item.sessionId === id);
       if (summary?.name) return summary.name;
     }
-    return this.view.sessions.find(session => session.id === id)?.name ?? "新会话";
+    return this.view.sessions.find(session => session.id === id)?.name ?? "New chat";
   }
   sessionNeedsDecision(id: string): boolean {
     return this.view.pendingApprovals().some(item => item.sessionId === id) || this.view.ownerQuestions.some(item => item.sessionId === id && item.status === "pending");
@@ -258,7 +258,7 @@ export class CodeState {
     const current = () => read === this.questionRead && generation === this.generation && sessionId === this.view.currentSessionId && instanceId === this.view.instanceId;
     let result: OpResult<"owner_questions">;
     try { result = await this.request("owner_questions", { session_id: sessionId }); }
-    catch (error) { if (current()) { this.questions.message = `拥有者问题查询失败：${(error as Error).message}；请重新选择会话查询。`; this.mark(); } return; }
+    catch (error) { if (current()) { this.questions.message = `Owner question query failed: ${(error as Error).message} Select the chat again to query.`; this.mark(); } return; }
     if (!current()) return;
     const known = this.view.ownerQuestions.filter(question => question.sessionId === sessionId);
     const questions = result.questions.map(question => {
@@ -311,7 +311,7 @@ export class CodeState {
   private read(action: (generation: number) => Promise<void>): Promise<void> {
     const generation = this.generation;
     return action(generation).catch(error => {
-      if (generation === this.generation) this.readError = `读取会话失败：${error instanceof Error ? error.message : "请重新连接后再试。"}`;
+      if (generation === this.generation) this.readError = `Couldn't load the chat: ${error instanceof Error ? error.message : "Reconnect and try again."}`;
     }).finally(() => {
       if (generation !== this.generation) return;
       this.inspector.seedTabs(); void this.inspector.loadDiff(); this.mark();
@@ -335,9 +335,9 @@ export class CodeState {
       if (generation !== this.generation) return;
       const branchTaskIds = new Set(this.view.sessions.find(item => item.id === sessionId)?.branchSource?.taskIds ?? []);
       const branchTasks = [...new Set(page.entries.map(entry => entry.taskId).filter((taskId): taskId is string => !!taskId))].filter(taskId => branchTaskIds.has(taskId));
-      // 有界快照只带近期任务；旧任务状态晚到会让历史页首次渲染把已完成 trace 当成展开态再收起。
-      // 状态读取失败时仍先装历史页，保持原先「历史可见、错误报到 readError」的降级。
-      // Note: 见 .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
+      // The bounded snapshot only carries recent tasks; late task state makes the first history render treat completed traces as expanded then collapse them.
+      // On state-read failure still load the history page first, keeping the original "history visible, errors reported to readError" degradation.
+      // Note: See .agents/notes/implemented/bug-fix/2026-10-19-trace-hydration-flash.md
       let relevant: Set<string> | null = null;
       await this.settle(async () => {
         relevant = await this.history.readTasks(sessionId, page.entries, recoveryGeneration).catch(error => {
@@ -371,15 +371,15 @@ export class CodeState {
   /** The native journal retains the first-send identity through creation and upload failures. */
   async startChat(input: { requestId?: string; workspaceId: string; text: string; attachments: DesktopAttachment[]; mode: SessionDefaultMode; modelSelection: ModelSelection | null }, upload: (sessionId: string, tokens: string[]) => Promise<DesktopAttachment[]>, ownsDraft: () => boolean = () => true): Promise<string | null> {
     if (!input.text.trim() && !input.attachments.length) return null;
-    if (!input.modelSelection) { this.report("请选择模型后再发送。"); return null; }
+    if (!input.modelSelection) { this.report("Select a model before sending."); return null; }
     const workspace = this.view.projects.find(project => project.id === input.workspaceId && project.rootDir !== null && !project.managed);
-    if (input.workspaceId && !workspace?.rootDir) { this.report("所选工作区已不可用，请重新选择。"); return null; }
-    if (this.pendingCreation) { this.report("上一个创建仍在核实，请稍后再发送。"); return null; }
-    if (this.pendingBranch) { this.report("正在建立分支，请稍后再发送。"); return null; }
+    if (input.workspaceId && !workspace?.rootDir) { this.report("The selected workspace is unavailable. Select another one."); return null; }
+    if (this.pendingCreation) { this.report("The previous creation is still being verified. Send again later."); return null; }
+    if (this.pendingBranch) { this.report("A branch is being created. Send again later."); return null; }
     if (this.chatBusy || !this.view.instanceId || this.status.state !== "online") return null;
     const requestId = input.requestId ?? this.startingChat?.requestId ?? crypto.randomUUID();
     const instanceId = this.startingChat?.requestId === requestId ? this.startingChat.instanceId : this.view.instanceId;
-    if (instanceId !== this.view.instanceId) { this.report("首条消息属于原数据实例，请连回原实例后重试。"); return null; }
+    if (instanceId !== this.view.instanceId) { this.report("The first message belongs to the original data instance. Reconnect to it and retry."); return null; }
     this.startingChat = { requestId, instanceId };
     this.chatBusy = true;
     this.chatNotCreated = false;
@@ -392,10 +392,10 @@ export class CodeState {
       this.chatBusy = false;
       this.chatNotCreated = error instanceof DesktopRequestError && error.code === "chat_not_created";
       if (this.chatNotCreated) this.startingChat = null;
-      this.report(error instanceof Error ? error.message : "首条消息创建待核实，请恢复连接后重试。");
+      this.report(error instanceof Error ? error.message : "First-message creation unverified. Restore the connection and retry.");
       return null;
     }
-    if (instanceId !== this.view.instanceId) { this.chatBusy = false; this.report("首条消息属于原数据实例，请连回原实例后重试。"); return null; }
+    if (instanceId !== this.view.instanceId) { this.chatBusy = false; this.report("The first message belongs to the original data instance. Reconnect to it and retry."); return null; }
     const { session, project, draft } = created;
     if (!this.view.projects.some(item => item.id === project.id)) this.view.projects.push(project);
     if (!this.view.sessions.some(item => item.id === session.id)) this.view.sessions.push(session);
@@ -404,10 +404,10 @@ export class CodeState {
     let attachments = draft.uploadedAttachments;
     if (!attachments) {
       try { attachments = await upload(session.id, input.attachments.map(item => item.id)); }
-      catch (error) { this.chatBusy = false; this.report(error instanceof Error ? error.message : "附件未能上传，请重试。"); return null; }
+      catch (error) { this.chatBusy = false; this.report(error instanceof Error ? error.message : "The attachment couldn't upload. Try again."); return null; }
     }
     this.chatBusy = false;
-    if (instanceId !== this.view.instanceId) { this.report("首条消息属于原数据实例，请连回原实例后重试。"); return null; }
+    if (instanceId !== this.view.instanceId) { this.report("The first message belongs to the original data instance. Reconnect to it and retry."); return null; }
     if (!ownsDraft()) { this.startingChat = null; this.mark(); return null; }
     this.writes.installFirstChat(session.id, draft.text, attachments, draft.submissionRequestId, requestId, draft.mode, draft.modelSelection);
     this.startingChat = null;
@@ -433,7 +433,7 @@ export class CodeState {
   // Note: See .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
   /** Branch from persisted history or a completed task; reconcile a lost response with its original key. */
   async branch(sessionId: string, taskId?: string, name?: string): Promise<boolean> {
-    if (this.pendingCreation) { this.report("会话创建仍在核实，请稍后再建立分支。"); return false; }
+    if (this.pendingCreation) { this.report("Chat creation is still being verified. Branch again later."); return false; }
     if (this.pendingBranch) {
       if (this.pendingBranch.sessionId === sessionId && this.pendingBranch.taskId === taskId && this.pendingBranch.name === name) {
         // An explicit retry keeps the original source, name and request key.
@@ -441,14 +441,14 @@ export class CodeState {
         this.pendingBranch.waitGeneration = null;
         return this.reconcileBranch();
       }
-      this.report("另一个分支操作仍在进行，请稍后重试。");
+      this.report("Another branch operation is still running. Try again later.");
       return false;
     }
-    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再建立分支。"); return false; }
+    if (!this.view.instanceId || this.status.state !== "online") { this.report("Wait for the connection to recover before branching."); return false; }
     const session = this.view.sessions.find(item => item.id === sessionId);
     const task = taskId ? this.view.tasks.get(taskId) : undefined;
-    if (!session || taskId && (task?.status !== "completed" || (task.sessionId !== sessionId && !session.branchSource?.taskIds.includes(taskId)))) { this.report("任务尚未完成或不属于当前会话，无法建立分支。"); return false; }
-    if (this.writes.settingsPending(sessionId)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再建立分支。"); return false; }
+    if (!session || taskId && (task?.status !== "completed" || (task.sessionId !== sessionId && !session.branchSource?.taskIds.includes(taskId)))) { this.report("The task isn't finished or doesn't belong to this chat; can't branch."); return false; }
+    if (this.writes.settingsPending(sessionId)) { this.report("Chat settings are still saving or unverified. Confirm the actual backend settings before branching."); return false; }
     const pending: PendingBranch = { sessionId, taskId, name, requestId: crypto.randomUUID(), target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingBranch = pending;
     this.message = null;
@@ -457,14 +457,14 @@ export class CodeState {
   }
   private ownsBranch(pending: PendingBranch): boolean {
     if (pending.target === this.target && pending.instanceId === this.view.instanceId) return true;
-    this.report("原分支结果仍未知；请连回原数据实例后核实左栏工作区树。当前实例不会重发原操作。");
+    this.report("The original branch outcome is still unknown; reconnect to the original data instance and check the left workspace tree. This instance won't resend the original operation.");
     return false;
   }
   private completeBranch(pending: PendingBranch, session: Session): boolean {
     if (!this.ownsBranch(pending)) return false;
     if (!this.view.sessions.some(item => item.id === session.id)) this.view.sessions.push(session);
     this.pendingBranch = null;
-    this.message = `已建立分支：${session.name ?? "新会话"}`;
+    this.message = `Branched: ${session.name ?? "New chat"}`;
     this.openSession(session.id);
     void this.loadSummaries();
     return true;
@@ -476,7 +476,7 @@ export class CodeState {
     const session = this.view.sessions.find(item => item.createRequestId === pending.requestId);
     if (session) return this.completeBranch(pending, session);
     if (this.status.state !== "online") return false;
-    if (pending.retried) { this.report("分支结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return false; }
+    if (pending.retried) { this.report("Branch outcome unknown; check the left workspace tree for whether the chat was created, and verify once connected."); return false; }
     pending.retried = true;
     return this.sendBranch(pending);
   }
@@ -496,24 +496,24 @@ export class CodeState {
           if (found.session) return this.completeBranch(pending, found.session);
           if (found.status === "failed") {
             this.pendingBranch = null;
-            this.report(`建立分支失败：${found.error ?? error.message}`);
+            this.report(`Branch failed: ${found.error ?? error.message}`);
             return false;
           }
           if (found.status === "not_found") {
             this.pendingBranch = null;
-            this.report(`建立分支失败：${error.message}`);
+            this.report(`Branch failed: ${error.message}`);
             return false;
           }
-          this.report(`分支尚未发布${found.error ? `：${found.error}` : ""}；再次点击分支按钮按原请求重试。`);
+          this.report(`Branch not yet published${found.error ? `: ${found.error}` : ""}; click the branch button again to retry along the original request.`);
           return false;
         } catch {
-          this.report("分支结果待核实；连接恢复后将按原操作核实，请查看左栏工作区树。");
+          this.report("Branch outcome unverified; it will be verified along the original operation once connected. Check the left workspace tree.");
           return false;
         }
       }
       if (error instanceof DesktopRequestError && error.failure.outcome === "unknown") return this.reconcileBranch();
       pending.waitGeneration = generation;
-      this.report("分支结果待核实；连接恢复后将按原操作核实，请在左栏工作区树查看会话。");
+      this.report("Branch outcome unverified; it will be verified along the original operation once connected. Check the left workspace tree.");
       if (this.generation > generation) return this.reconcileBranch();
       return false;
     }
@@ -523,10 +523,10 @@ export class CodeState {
 
   async create(op: PendingCreation["op"], params: { cwd: string; project_id?: string }, settingsOverride?: { mode: SessionDefaultMode; modelSelection: ModelSelection | null }): Promise<boolean> {
     if (this.pendingCreation) return this.reconcileCreation();
-    if (this.pendingBranch) { this.report("正在建立分支，请稍后再创建会话。"); return false; }
-    if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再创建会话。"); return false; }
+    if (this.pendingBranch) { this.report("A branch is being created. Create a chat again later."); return false; }
+    if (!this.view.instanceId || this.status.state !== "online") { this.report("Wait for the connection to recover before creating a chat."); return false; }
     const source = this.creationSource();
-    if (source && this.writes.settingsPending(source.id)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再创建会话。"); return false; }
+    if (source && this.writes.settingsPending(source.id)) { this.report("Chat settings are still saving or unverified. Confirm the actual backend settings before creating a chat."); return false; }
     const settings = settingsOverride ? { mode: settingsOverride.mode, ...(settingsOverride.modelSelection ? { model_selection: { ...settingsOverride.modelSelection } } : {}) } : source ? { mode: source.defaultAccessMode, ...(source.modelSelection ? { model_selection: { ...source.modelSelection } } : {}) } : {};
     const pending: PendingCreation = { op, params: { ...params, ...settings, request_id: crypto.randomUUID() }, target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingCreation = pending;
@@ -536,7 +536,7 @@ export class CodeState {
   }
   private owns(pending: PendingCreation): boolean {
     if (pending.target === this.target && pending.instanceId === this.view.instanceId) return true;
-    this.report("原操作结果仍未知；请连回原数据实例后核实左栏工作区树。当前实例不会重发原操作。");
+    this.report("The original operation outcome is still unknown; reconnect to the original data instance and check the left workspace tree. This instance won't resend it.");
     return false;
   }
   private complete(pending: PendingCreation, session: Session): boolean {
@@ -555,7 +555,7 @@ export class CodeState {
     const session = this.view.sessions.find(item => item.createRequestId === pending.params.request_id);
     if (session) return this.complete(pending, session);
     if (this.status.state !== "online") return false;
-    if (pending.retried) { this.report("创建结果未知；请在左栏工作区树查看会话是否已建好，恢复连接后继续核实。"); return false; }
+    if (pending.retried) { this.report("Create outcome unknown; check the left workspace tree for whether the chat was created, and verify once connected."); return false; }
     pending.retried = true;
     return this.sendCreation(pending);
   }
@@ -571,12 +571,12 @@ export class CodeState {
       if (!this.owns(pending)) return false;
       if (error instanceof DesktopRequestError && error.failure.outcome === "rejected") {
         this.pendingCreation = null;
-        this.report(`会话创建失败：${error.message}`);
+        this.report(`Chat creation failed: ${error.message}`);
         return false;
       }
       if (error instanceof DesktopRequestError && error.failure.outcome === "unknown") return this.reconcileCreation();
       pending.waitGeneration = generation;
-      this.report("创建结果待核实；连接恢复后将按原操作核实，请在左栏工作区树查看会话。");
+      this.report("Create outcome unverified; it will be verified along the original operation once connected. Check the left workspace tree.");
       if (this.generation > generation) return this.reconcileCreation();
       return false;
     }

@@ -246,28 +246,30 @@ test("断线打开 Git 不冒充非仓库，恢复后仍需读取结果", async 
   const h = harness({ read_workspace_git: params => ({ workspaceId: params.workspace_id, repository: null }) });
   h.inspector.openParent("a"); h.model.update({ type: "state", state: "reconnecting" }); h.inspector.openGit();
   const render = () => renderToStaticMarkup(createElement(InspectorPanel, { model: h.model, open: true, onWidthChange() {} }));
-  assert.match(render(), /等待连接/); assert.doesNotMatch(render(), /没有 Git 仓库/);
+  assert.match(render(), /Waiting for connection/); assert.doesNotMatch(render(), /Git repository/);
   assert.equal(h.transport.requests.filter(request => request.op === "read_workspace_git").length, 0);
   h.model.update({ type: "state", state: "online" }); h.snapshot();
   await waitFor("恢复后仓库读取完成", () => h.inspector.repositories.get("w1")?.loading === false);
-  assert.match(render(), /没有 Git 仓库/);
+  assert.match(render(), /Git repository/);
 });
 
 test("Git 入口始终可见，新标签和同步不预取，点击后区分非仓库与空仓库", async () => {
   const h = harness({ read_workspace_git: params => ({ workspaceId: params.workspace_id, repository: null }) });
   const render = () => renderToStaticMarkup(createElement(InspectorPanel, { model: h.model, open: true, onWidthChange() {} }));
-  assert.match(render(), /disabled=""[^>]*><span class="new-tab-icon"><svg[^]*?<strong>Git graph<\/strong>/);
+  const markup = render();
+  assert.match(markup, /new-tab-option[^>]*disabled[^>]*><svg[^]*?<span>Git graph<\/span>/);
+  assert.doesNotMatch(markup, /<h1>|new-tab-icon|Select a file|description/);
   h.inspector.openParent("a"); h.inspector.newTab(); h.snapshot();
   h.inspector.update({ type: "state", state: "reconnecting" }); h.inspector.update({ type: "state", state: "online" });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(h.transport.requests.filter(request => request.op === "read_workspace_git").length, 0);
-  assert.match(render(), /<strong>Git graph<\/strong>/);
+  assert.match(render(), /<span>Git graph<\/span>/);
   h.inspector.openGit();
   await waitFor("点击后读取 Git", () => h.inspector.repositories.get("w1")?.value !== undefined);
   assert.deepEqual(h.transport.requests.filter(request => request.op === "read_workspace_git").map(request => request.params), [{ workspace_id: "w1" }]);
-  assert.match(render(), /此工作区没有 Git 仓库。/);
+  assert.match(render(), /This workspace has no Git repository./);
   h.inspector.repositories.set("w1", { loading: false, value: { workspaceId: "w1", repository: { head: null, commits: [], nextCursor: null } } });
-  assert.match(render(), /暂无提交/); assert.doesNotMatch(render(), /没有 Git 仓库/);
+  assert.match(render(), /No commits yet/); assert.doesNotMatch(render(), /Git repository/);
 });
 after(async () => { await server?.close(); });
 
@@ -276,16 +278,16 @@ test("浏览器实际组件保持空初始页、sandbox、无 referrer，非法�
   assert.match(blank, /src="about:blank"/);
   assert.match(blank, /sandbox="allow-scripts allow-forms"/);
   assert.match(blank, /referrerPolicy="no-referrer"/);
-  assert.doesNotMatch(blank, /部分网站不允许嵌入|请输入 http/);
+  assert.doesNotMatch(blank, /allow embedding|Enter a web address/);
   const local = renderToStaticMarkup(createElement(BrowserPanel, { navigation: browserNavigation("file:///tmp/document.html"), onChange() {} }));
-  assert.match(local, /正在打开本地文档/);
+  assert.match(local, /Opening the local document/);
   assert.doesNotMatch(local, /<iframe/);
   assert.doesNotMatch(blank, /allow-same-origin|allow-top-navigation|allow-popups|allow-downloads|车票|浏览成功/);
   const invalid = renderToStaticMarkup(createElement(BrowserPanel, { navigation: navigateBrowser(browserNavigation("about:blank"), "javascript:evil"), onChange() {} }));
   assert.match(invalid, /role="alert"/);
   assert.match(invalid, /aria-invalid="true"/);
   const self = renderToStaticMarkup(createElement(BrowserPanel, { navigation: browserNavigation("http://127.0.0.1:9999/"), onChange() {} }));
-  assert.match(self, /此地址是桌面界面本身/);
+  assert.match(self, /This address is the desktop UI itself/);
   assert.doesNotMatch(self, /<iframe/);
 });
 
@@ -295,10 +297,10 @@ test("真实目录组件只展示后台返回的目录，不迁入样例或写�
   const html = renderToStaticMarkup(createElement(WorkspaceFiles, { model: h.model, workspaceId: "w1" }));
   assert.match(html, /真实工作区 w1/);
   assert.match(html, /aria-label="真实目录"/);
-  assert.match(html, /aria-label="预览 真实文档.md"/);
-  assert.match(html, /加载更多/);
-  assert.doesNotMatch(html, /此目录只显示前/);
-  assert.doesNotMatch(html, /只读样例|pass\.svg|indexeddb\.ts|编辑文件|下载/);
+  assert.match(html, /aria-label="Preview 真实文档.md"/);
+  assert.match(html, /Load more/);
+  assert.doesNotMatch(html, /Only the first/);
+  assert.doesNotMatch(html, /只读样例|pass\.svg|indexeddb\.ts|Edit file|Download/);
 });
 
 test("文件预览使用真实正文，Markdown 和源码安全渲染，空文本保持零行", () => {
@@ -312,15 +314,15 @@ test("文件预览使用真实正文，Markdown 和源码安全渲染，空文�
   assert.match(preview, /<img[^>]*alt="远端图片"[^>]*src="https:\/\/example\.com\/remote\.png"/);
   assert.doesNotMatch(preview, /<script|<a /);
   const source = render(markdown, "source");
-  assert.match(source, /aria-label="文件源码"/);
+  assert.match(source, /aria-label="File source"/);
   assert.match(source, /hljs-tag/);
   assert.match(source, /&lt;/);
   assert.doesNotMatch(source, /<h1>|<script/);
   const empty = render({ path: "empty.txt", kind: "text", size: 0, content: "" });
   assert.match(empty, /<pre><code><\/code><\/pre>/);
-  assert.doesNotMatch(empty, /class="file-line"|文件不可用|空文件/);
-  assert.match(render({ path: "archive.bin", kind: "unsupported", size: 12 }), /暂不支持预览此文件/);
-  assert.match(render(undefined), /文件不可用/);
+  assert.doesNotMatch(empty, /class="file-line"|File unavailable|Empty file/);
+  assert.match(render({ path: "archive.bin", kind: "unsupported", size: 12 }), /Preview isn.*t supported for this file/);
+  assert.match(render(undefined), /File unavailable/);
   assert.match(render({ path: "actual.png", kind: "image", mimeType: "image/png", size: 4, dataUrl: "data:image/png;base64,iVBORw==" }), /src="data:image\/png;base64,iVBORw=="/);
 });
 
@@ -363,8 +365,8 @@ test("加载和空态占位不消耗消息滚动器的首次 start 定位", () =
     const content = nodes(parseFragment(html)).find(node => node.attrs.some(attr => attr.name === "data-slot" && attr.value === "message-scroller-content"))!;
     assert.ok(content);
     assert.equal(nodes(content).filter(node => node.attrs.some(attr => attr.name === "class" && attr.value.includes("new-session-empty"))).length, 0);
-    if (loaded) assert.doesNotMatch(html, /开始一个新的会话|在下方描述|new-session-empty/);
-    else assert.match(html, /正在加载会话/);
+    if (loaded) assert.doesNotMatch(html, /Start a new|Describe what|new-session-empty/);
+    else assert.match(html, /Loading chat/);
   }
 });
 
@@ -461,7 +463,7 @@ for (const mismatch of ["workspace", "duplicate", "cursor", "head"] as const) te
   } });
   await h.inspector.loadGit("w1"); await h.inspector.loadMoreGit("w1");
   assert.deepEqual(h.inspector.repositories.get("w1")!.value!.repository!.commits.map(commit => commit.id), ["a"]);
-  assert.match(h.inspector.repositories.get("w1")!.moreError!, /刷新/);
+  assert.match(h.inspector.repositories.get("w1")!.moreError!, /Refresh to keep browsing|请刷新文件树/);
 });
 
 function directoryPage(names: string[], nextCursor: string | null, directoryPath = "", workspaceId = "w1"): OpResult<"list_workspace_files"> {
@@ -515,7 +517,7 @@ for (const mismatch of ["workspace", "path", "duplicate", "cursor", "empty-page"
   } });
   await h.inspector.loadDirectory("w1", ""); await h.inspector.loadMoreDirectory("w1", "");
   const state = h.inspector.directories.get("w1:")!;
-  assert.deepEqual(state.value!.entries.map(entry => entry.name), ["a"]); assert.match(state.error!, /刷新/);
+  assert.deepEqual(state.value!.entries.map(entry => entry.name), ["a"]); assert.match(state.error!, /Refresh to keep browsing|请刷新文件树/);
   const count = h.transport.requests.length; await h.inspector.loadMoreDirectory("w1", ""); assert.equal(h.transport.requests.length, count);
 });
 

@@ -8,17 +8,17 @@ export type DiffDisplay = { kind: "status" | "error" | "effect_unknown" | "unava
 export function isDiffTool(tool: DiffTool): boolean { return tool.name.toLowerCase() === "edit" || tool.name.toLowerCase() === "write"; }
 export function canReadDiff(tool: DiffTool): boolean { return tool.status !== "running" && tool.entryId !== null; }
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export function diffDisplay(tool: DiffTool, result?: ToolResultView): DiffDisplay {
   const display = (kind: DiffDisplay["kind"], text: string): DiffDisplay => ({ kind, text, truncated: result?.truncated ?? false });
-  if (tool.status === "running") return display("status", "运行中");
-  if (tool.status === "effect_unknown") return display("effect_unknown", result?.text || tool.summary || "效果未知");
-  if (tool.status === "error" || result?.isError === true) return display("error", result?.text || tool.summary || "失败，详情不可用");
-  if (!tool.entryId) return display("status", "等待结果落盘");
-  if (!result) return display("status", "正在读取结果…");
-  if (result.isError !== false) return display("unavailable", "差异不可用");
+  if (tool.status === "running") return display("status", "Running");
+  if (tool.status === "effect_unknown") return display("effect_unknown", result?.text || tool.summary || "Outcome unknown");
+  if (tool.status === "error" || result?.isError === true) return display("error", result?.text || tool.summary || "Failed; details unavailable");
+  if (!tool.entryId) return display("status", "Waiting for the result to persist");
+  if (!result) return display("status", "Loading result…");
+  if (result.isError !== false) return display("unavailable", "Diff unavailable");
   const content = tool.name.toLowerCase() === "edit" ? result.patch : result.writeContent;
-  if (content === null || content === undefined) return display("unavailable", "差异不可用");
+  if (content === null || content === undefined) return display("unavailable", "Diff unavailable");
   return display(tool.name.toLowerCase() === "edit" ? "patch" : "write", content);
 }
 

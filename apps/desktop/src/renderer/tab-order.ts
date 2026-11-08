@@ -1,5 +1,5 @@
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-drag-source.md
-// Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-hover.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-drag-source.md
+// Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-tab-hover.md
 import { useEffect, useState, type CSSProperties, type DragEvent, type KeyboardEvent } from "react";
 
 export function reorderTab<T>(items: T[], from: number, to: number): T[] {
@@ -16,7 +16,7 @@ export function tabDragOffset(order: string[], sourceId: string, targetId: strin
   return reorderTab(order, order.indexOf(sourceId), order.indexOf(targetId)).indexOf(id) - index;
 }
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-17-desktop-demo-v4.md
+// Note: See .agents/notes/implemented/architecture/2026-10-17-desktop-demo-v4.md
 export function useTabOrder(scope: string, order: string[], move: (from: string, to: string) => void, title: (id: string) => string) {
   const [drag, setDrag] = useState<{ id: string; targetId?: string; previewed?: boolean } | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -26,7 +26,7 @@ export function useTabOrder(scope: string, order: string[], move: (from: string,
   function reorder(from: string, to: string) {
     if (from === to || !order.includes(from) || !order.includes(to)) return;
     move(from, to);
-    setAnnouncement(`${title(from)}已移至第 ${order.indexOf(to) + 1} 位，共 ${order.length} 个。`);
+    setAnnouncement(`${title(from)}moved to position ${order.indexOf(to) + 1} of ${order.length}.`);
   }
   function targetAt(event: DragEvent<HTMLDivElement>) {
     const list = event.currentTarget;
@@ -67,7 +67,7 @@ export function useTabOrder(scope: string, order: string[], move: (from: string,
     trigger(id: string) { return {
       draggable: true,
       "data-dragging": drag?.id === id ? "true" : undefined,
-      "aria-description": "可拖动排序，也可按 Alt+Shift+左右方向键调整顺序。",
+      "aria-description": "Drag to reorder, or press Alt+Shift+Left/Right.",
       "aria-keyshortcuts": "Alt+Shift+ArrowLeft Alt+Shift+ArrowRight",
       onDragStart(event: DragEvent<HTMLButtonElement>) { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-ruukoto-tab", id); setHoverPaused(true); setDrag({ id }); },
       onDragEnd() { setDrag(null); setHoverPaused(true); },

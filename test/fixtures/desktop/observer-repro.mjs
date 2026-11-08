@@ -105,7 +105,7 @@ function find(node, predicate) {
   return predicate(node) ? node : find(node.props?.children, predicate);
 }
 const failureTree = render();
-find(failureTree, node => node.props?.children === '重试').props.onClick();
+find(failureTree, node => node.props?.children === 'Retry').props.onClick();
 assert.equal(calls, 21, '追加错误允许显式重试');
 render({ moreError: undefined, loadingMore: true });
 render({ loadingMore: false, repository: { ...props.repository, nextCursor: 'page3' } });
@@ -116,7 +116,7 @@ render(); assert.equal(observers.length, pausedCount);
 render({ active: true }); observers.at(-1).notify(); assert.equal(calls, 23, '重新打开继续观察');
 render({ error: '刷新失败' });
 const refreshTree = render();
-assert.equal(find(refreshTree, node => node.props?.children === '重试'), undefined, '刷新失败沿用刷新入口');
+assert.equal(find(refreshTree, node => node.props?.children === 'Retry'), undefined, '刷新失败沿用刷新入口');
 const errorCount = observers.length;
 render(); assert.equal(observers.length, errorCount);
 render({ error: undefined, loading: true });

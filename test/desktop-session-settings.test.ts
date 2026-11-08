@@ -100,7 +100,7 @@ for (const state of ["saving", "unknown"] as const) {
     assert.equal(await model.create("create_session", { project_id: source.projectId, cwd: work[0] }), false);
     assert.equal(creations.length, 0);
     assert.equal(model.view.currentSessionId, source.id);
-    assert.match(model.message!, /设置/);
+    assert.match(model.message!, /Chat settings/);
     release.resolve(); await saving;
   });
 }

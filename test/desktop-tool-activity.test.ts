@@ -111,7 +111,7 @@ test("inline 结果复用字节分页，失配可重试，迟到快照应答无�
   });
   const entry = tool(); await h.inspector.loadTool("a", entry);
   await h.inspector.moreTool("a", entry);
-  assert.match(h.inspector.toolResult("a", entry)?.moreError ?? "", /不连续/);
+  assert.match(h.inspector.toolResult("a", entry)?.moreError ?? "", /discontinuous/);
   assert.equal(h.inspector.toolResult("a", entry)?.value?.text, "中文");
   wrong = false; await h.inspector.moreTool("a", entry);
   assert.equal(h.inspector.toolResult("a", entry)?.value?.text, "中文👩‍💻");
@@ -134,7 +134,7 @@ test("完整命令按 UTF-8 分页，核实来源后解析，不把截断参数�
   assert.deepEqual(offsets, [0, Buffer.byteLength(first)]);
   const bad = harness(async () => ({ ok: true, value: { ...paramPage('{}'), toolOp: { ...paramPage('{}').toolOp, taskId: "other" } } }));
   await bad.inspector.loadToolParams("a", entry);
-  assert.match(bad.inspector.toolParams("a", entry)?.error ?? "", /来源/);
+  assert.match(bad.inspector.toolParams("a", entry)?.error ?? "", /source|inconsistent/);
   assert.equal(bad.inspector.toolParams("a", entry)?.value, undefined);
 });
 
@@ -185,19 +185,19 @@ test("Trace 详情显示真实 patch／完整失败命令，Read 不折叠，按
   const agentError = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [{ ...entry, name: "subagent_delegate" }] }));
   assert.match(agentError, /Failed to subagent_delegate/); assert.match(agentError, /错误正文/);
   const uncertain = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [{ ...entry, status: "effect_unknown" }] }));
-  assert.match(uncertain, /效果未知/); assert.doesNotMatch(uncertain, /Failed to run|data-variant="destructive"/);
+  assert.match(uncertain, /Outcome unknown/); assert.doesNotMatch(uncertain, /Failed to run|data-variant="destructive"/);
   const waiting = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ status: "running", toolOpId: "pending-op", toolCallId: "pending-call", entryId: null })] }));
-  assert.doesNotMatch(waiting, /等待结果/); assert.match(waiting, /Running/);
+  assert.doesNotMatch(waiting, /Waiting|Loading result/); assert.match(waiting, /Running/);
   const next = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [{ ...entry, taskId: "next", toolOpId: "next-op" }] }));
   assert.doesNotMatch(next, /\$ echo 完整命令/);
   const withoutOp = { ...props, tools: [{ ...entry, toolOpId: null }], expanded: { group: true, "a:task:tool:call": true } };
   assert.match(renderToStaticMarkup(createElement(ToolActivity, withoutOp)), /\$ echo 完整命令/);
   assert.doesNotMatch(renderToStaticMarkup(createElement(ToolActivity, { ...withoutOp, tools: [{ ...entry, toolOpId: null, taskId: "next" }] })), /\$ echo 完整命令/);
   const read = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ name: "read", params: { path: "actual.ts" }, target: "actual.ts" })] }));
-  assert.match(read, /aria-label="打开文件 actual.ts"/);
+  assert.match(read, /aria-label="Open file actual.ts"/);
   assert.equal((read.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0);
   const preview = renderToStaticMarkup(createElement(ToolActivity, { ...props, tools: [tool({ name: "present", status: "done", params: { path: "actual.ts" }, target: "actual.ts" })] }));
-  assert.match(preview, /aria-label="打开预览 actual.ts"/);
+  assert.match(preview, /aria-label="Open preview actual.ts"/);
   assert.equal((preview.match(/data-slot="trace-collapsible-trigger"/g) ?? []).length, 0);
   const edit = tool({ name: "write", status: "done", entryId: "write" });
   const patch = "@@ -1 +1 @@\n-old\n+new\n";
@@ -208,7 +208,7 @@ test("Trace 详情显示真实 patch／完整失败命令，Read 不折叠，按
   assert.match(diff, /data-variant="added"/); assert.match(diff, /data-variant="removed"/);
   verified = false; await writeModel.inspector.loadTool("a", edit, true);
   const unverified = renderToStaticMarkup(createElement(ToolActivity, { ...props, model: writeModel, tools: [edit] }));
-  assert.match(unverified, /未记录可核实的成功结果/); assert.doesNotMatch(unverified, /data-variant="added"/);
+  assert.match(unverified, /recorded no verifiable successful result/); assert.doesNotMatch(unverified, /data-variant="added"/);
 });
 
 test("源码高亮保留全部文本、空行与转义，未知扩展名不猜测", async () => {
@@ -225,7 +225,7 @@ test("Thinking 展示原文，平铺工具前可展开 reasoning 且只出现一
   const model = new CodeState({ request: async () => ({ ok: true, value: {} }) }, () => {});
   const props = { model, sessionId: "a", tools: [tool()], thinking: thinking(), stateKey: "group", expanded: { group: true, "thinking:reasoning": true }, onExpand() {} };
   const active = renderToStaticMarkup(createElement(ToolActivity, { ...props, phase: "thinking" }));
-  assert.match(active, /role="region" aria-label="思考内容"/); assert.match(active, /tabindex="0"/); assert.match(active, /Thinking/); assert.match(active, /实际记录的 reasoning/); assert.match(active, /保留原有换行/); assert.doesNotMatch(active, /Thought for/);
+  assert.match(active, /role="region" aria-label="Reasoning content"/); assert.match(active, /tabindex="0"/); assert.match(active, /Thinking/); assert.match(active, /实际记录的 reasoning/); assert.match(active, /保留原有换行/); assert.doesNotMatch(active, /Thought for/);
   const historical = renderToStaticMarkup(createElement(ToolActivity, props));
   assert.ok(historical.indexOf("Thought for 5s") < historical.indexOf("Ran <code>"));
   assert.equal((historical.match(/实际记录的 reasoning/g) ?? []).length, 1);

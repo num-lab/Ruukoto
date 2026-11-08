@@ -71,14 +71,14 @@ test("SSR 大量已加载提交只渲染初始窗口，ARIA 与占位高度正�
     assert.match(html, /height:1px/);
     assert.doesNotMatch(html, /position:absolute/);
     const empty = panel([]);
-    assert.match(empty, /暂无提交/); assert.doesNotMatch(empty, /class="git-commit"/);
+    assert.match(empty, /No commits yet/); assert.doesNotMatch(empty, /class="git-commit"/);
     const short = panel(linear(3));
     assert.equal((short.match(/class="git-commit"/g) ?? []).length, 3);
     assert.match(short, /aria-setsize="3"/); assert.match(short, /aria-posinset="3"/);
     const clipped = renderToStaticMarkup(createElement(GitGraphPanel, { active: true, name: "window", repository: { head: null, commits: [{ id: "a", parents: ["older"], subject: "a", author: "author", date: "2026-10-17", refs: [] }], nextCursor: null }, loading: false, onRefresh() {} }));
-    assert.match(clipped, /（更早提交）/);
+    assert.match(clipped, /\(earlier commit\)/);
     const firstRow = html.slice(html.indexOf('class="git-commit"'), html.indexOf('class="git-commit"', html.indexOf('class="git-commit"') + 1));
-    assert.doesNotMatch(firstRow, /（更早提交）/, "已加载但不在窗口内的父提交不应标记为更早");
+    assert.doesNotMatch(firstRow, /\(earlier commit\)/, "已加载但不在窗口内的父提交不应标记为更早");
     assert.match(html, /aria-posinset="2"/);
   } finally { await server.close(); }
 });

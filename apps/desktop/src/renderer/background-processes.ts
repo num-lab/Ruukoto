@@ -64,7 +64,7 @@ export class DesktopBackgroundProcesses {
       this.processes = result.processes.map(process => { const known = this.view.backgroundProcesses.find(item => item.id === process.id); return known && known.version > process.version ? known : process; });
       this.offset = offset; this.nextOffset = result.nextOffset; this.totalCount = result.totalCount;
       if (this.selected) this.selected = this.processes.find(process => process.id === this.selected!.id) ?? this.selected;
-    } catch { if (generation === this.generation) this.message = "后台状态读取失败；请恢复连接后刷新。"; }
+    } catch { if (generation === this.generation) this.message = "Couldn't read the background status. Restore the connection and refresh."; }
     finally { if (generation === this.generation) { this.reading = false; this.changed(); } }
   }
   select(process: BackgroundProcessView): void { this.selected = process; this.previousOffsets = []; this.stream = "stdout"; this.raw = false; this.output = null; this.changed(); void this.read(0); }
@@ -77,7 +77,7 @@ export class DesktopBackgroundProcesses {
       const output = await this.request("background_process_output", { session_id: sessionId, process_id: processId, stream, offset });
       if (read !== this.outputRead || sessionId !== this.sessionId || processId !== this.selected?.id || instanceId !== this.view.instanceId) return;
       this.output = output;
-    } catch { if (read === this.outputRead) this.message = "后台日志读取失败；请刷新状态后重试。"; }
+    } catch { if (read === this.outputRead) this.message = "Couldn't read the background log. Refresh the status and try again."; }
     finally { if (read === this.outputRead) { this.reading = false; this.changed(); } }
   }
   nextOutput(): void { if (this.output) { this.previousOffsets.push(this.output.offset); void this.read(this.output.nextOffset); } }
@@ -90,8 +90,8 @@ export class DesktopBackgroundProcesses {
     this.busy = true; this.changed();
     try {
       const result = await this.request("background_process_stop", { session_id: sessionId, process_id: process.id });
-      if (sessionId === this.sessionId && instanceId === this.view.instanceId) this.message = result.stopVerified ? "已核实停止。" : "停止请求已接纳；请刷新状态核实。";
-    } catch { if (sessionId === this.sessionId && instanceId === this.view.instanceId) this.message = "停止结果尚未核实；请刷新后台状态。"; }
+      if (sessionId === this.sessionId && instanceId === this.view.instanceId) this.message = result.stopVerified ? "Stop verified." : "Stop request accepted. Refresh the status to verify.";
+    } catch { if (sessionId === this.sessionId && instanceId === this.view.instanceId) this.message = "Stop outcome unverified. Refresh the background status."; }
     finally { this.busy = false; if (sessionId === this.sessionId && instanceId === this.view.instanceId) await this.load(); this.changed(); }
   }
   async end(): Promise<void> {
@@ -101,11 +101,11 @@ export class DesktopBackgroundProcesses {
     try {
       const response = await this.bridge.request("code", "session_background_end", { session_id: sessionId, ...(pending ? { request_id: pending.requestId } : {}) });
       if (sessionId !== this.sessionId || instanceId !== this.view.instanceId) return;
-      if (!response.ok) { this.message = "结束后台未完成；请刷新状态核实。"; return; }
+      if (!response.ok) { this.message = "Stop didn't finish. Refresh the status to verify."; return; }
       const outcome = response.value as BackgroundEndOutcome;
       if (outcome.kind === "pending") { this.pending = [...this.pending.filter(record => record.requestId !== outcome.record.requestId), outcome.record]; this.message = outcome.message; }
-      else { this.pending = this.pending.filter(record => record.params.session_id !== sessionId || record.instanceId !== instanceId); this.message = outcome.result.stopVerified ? "本次结束请求涉及的后台已核实停止。" : "结束请求已接纳；仍有后台停止待核实，请刷新状态。"; }
-    } catch { if (sessionId === this.sessionId && instanceId === this.view.instanceId) this.message = "结束后台应答尚未核实；原请求保留，请刷新状态后重核原结束请求。"; }
+      else { this.pending = this.pending.filter(record => record.params.session_id !== sessionId || record.instanceId !== instanceId); this.message = outcome.result.stopVerified ? "The background processes covered by this stop request verified stopped." : "Stop request accepted; some stops are still unverified. Refresh the status."; }
+    } catch { if (sessionId === this.sessionId && instanceId === this.view.instanceId) this.message = "Stop response unverified; the request is kept. Refresh the status and recheck the original stop request."; }
     finally { this.busy = false; this.endConfirm = false; if (sessionId === this.sessionId && instanceId === this.view.instanceId) await this.load(); this.changed(); }
   }
 }

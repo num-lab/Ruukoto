@@ -12,6 +12,8 @@ const bridge: DesktopBridge = {
   pickAttachments: (sessionId, target) => ipcRenderer.invoke("desktop:pick-attachments", sessionId, target ?? "code"),
   pickDraftAttachments: () => ipcRenderer.invoke("desktop:pick-draft-attachments"),
   uploadDraftAttachments: (sessionId, tokens, target = "code") => ipcRenderer.invoke("desktop:upload-draft-attachments", sessionId, tokens, target),
+  appearance: () => ipcRenderer.invoke("desktop:appearance"),
+  setAppearance: value => ipcRenderer.invoke("desktop:set-appearance", value),
   pickFolder: () => ipcRenderer.invoke("desktop:pick-folder"),
   reveal: path => ipcRenderer.invoke("desktop:reveal", path),
   openTerminal: (id, workspaceId, instanceId, cols, rows) => ipcRenderer.invoke("desktop:request", "code", "desktop_terminal_open", { id, workspace_id: workspaceId, instance_id: instanceId, cols, rows }),

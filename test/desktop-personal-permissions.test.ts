@@ -70,6 +70,6 @@ test("Personal permissions SSR identifies actual scope and preserves the granted
   t.after(() => server.close());
   const { PersonalPermissionSettings } = await server.ssrLoadModule("/personal-connection-settings.tsx"), f = fixture(); await f.state.read();
   const html = renderToStaticMarkup(createElement(PersonalPermissionSettings, { state: f.state }));
-  assert.match(html, /桌面、本机与 Telegram/); assert.match(html, /QQ（独立默认）/); assert.match(html, /按已授权范围/); assert.match(html, /超出范围时请求批准/);
-  assert.doesNotMatch(html, /事事问我/);
+  assert.match(html, /Desktop, local and Telegram/); assert.match(html, /QQ \(independent default\)/); assert.match(html, /Authorized scope/); assert.match(html, /request approval/);
+  assert.doesNotMatch(html, /ask me everything/i);
 });

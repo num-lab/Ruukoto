@@ -56,11 +56,11 @@ export class CodeMcpState implements SettingsForm {
   get disabled(): boolean { const current = this.context(); return this.reading || this.checking || this.phase === "loading" || this.phase === "saving" || this.phase === "unknown" || !current.online || current.instanceId !== this.instanceId; }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("code", op, params) as DesktopResult<T>; }
-    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "未取得宿主应答，请恢复原连接后读回配置。" } }; }
+    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "No host response. Restore the original connection and read back the configuration." } }; }
   }
   invalidate(): void {
     ++this.generation; this.secret = ""; this.reading = false; this.checking = false; this.check = null; this.cuaImages = [];
-    if (this.pending) { this.phase = "unknown"; this.message = "原实例的操作结果待核实，请恢复原 Code 实例后重新读取。"; }
+    if (this.pending) { this.phase = "unknown"; this.message = "The original instance's operation outcome is unverified. Restore the original Code instance and read again."; }
   }
   discard(): void { this.secret = ""; this.draft = this.service ? draftFor(this.service) : fresh(this.mode); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; if (this.phase === "conflict") this.phase = "ready"; this.changed(); }
   select(id: string | null): void {
@@ -87,7 +87,7 @@ export class CodeMcpState implements SettingsForm {
   async read(preserveDraft = this.dirty, committed = false): Promise<boolean> {
     const current = this.context();
     if (this.reading || this.phase === "saving") return false;
-    if (!current.online || current.instanceId !== this.instanceId) { this.message = "请恢复原 Code 实例连接后读取配置。"; this.changed(); return false; }
+    if (!current.online || current.instanceId !== this.instanceId) { this.message = "Restore the original Code instance connection and read the configuration."; this.changed(); return false; }
     const generation = ++this.generation;
     this.reading = true; this.checking = false; this.check = null; this.cuaImages = []; this.changed();
     const [services, credentials, targets] = await Promise.all([
@@ -97,7 +97,7 @@ export class CodeMcpState implements SettingsForm {
     ]);
     if (!this.accepts(generation)) return false;
     this.reading = false;
-    if (!services.ok || !credentials.ok) { this.phase = this.pending ? "unknown" : "error"; this.message = (!services.ok ? services.error.message : !credentials.ok ? credentials.error.message : "") + " 请重新读取原配置。"; this.changed(); return false; }
+    if (!services.ok || !credentials.ok) { this.phase = this.pending ? "unknown" : "error"; this.message = (!services.ok ? services.error.message : !credentials.ok ? credentials.error.message : "") + " Read the original configuration again."; this.changed(); return false; }
     this.services = services.value.services; this.credentials = credentials.value;
     this.cuaTargets = targets.ok ? targets.value.targets.filter(target => target.config.kind === "cua-mac") : [];
     this.cuaIssues = targets.ok ? targets.value.issues : [{ code: targets.error.code, message: targets.error.message }];
@@ -109,20 +109,20 @@ export class CodeMcpState implements SettingsForm {
     if (this.editing && (!preserveDraft || committed)) { this.draft = this.service ? draftFor(this.service) : fresh(this.mode); this.baseline = structuredClone(this.draft); }
     this.secret = ""; this.pending = null;
     this.phase = preserveDraft && !committed && this.dirty ? "conflict" : "ready";
-    if (this.selectedId && !this.service && !committed && pending?.op !== "mcp_remove") { this.phase = "conflict"; this.message = "原服务已删除或替换，草稿仍保留。请放弃草稿后重新选择服务，原编辑不会自动新增服务。"; }
-    else if (pending) this.message = "已读回原实例的当前配置，请比较原操作是否生效；秘密内容未验证，不会自动重发。";
+    if (this.selectedId && !this.service && !committed && pending?.op !== "mcp_remove") { this.phase = "conflict"; this.message = "The original service was deleted or replaced; your draft is kept. Discard the draft and select a service again — the original edit won't auto-create a service."; }
+    else if (pending) this.message = "The original instance's current configuration was read back. Compare whether the original operation took effect; secret contents weren't verified and won't be resent.";
     this.changed(); return true;
   }
   async save(): Promise<boolean> {
     if (this.disabled || !this.editing || !this.dirty) return false;
     this.fieldErrors = {};
-    if (!/^[a-z0-9][a-z0-9_-]{0,29}$/.test(this.draft.name)) this.fieldErrors.name = "服务名称使用 1–30 位小写字母、数字、下划线或连字符，首位为字母或数字。";
-    if (this.draft.kind === "cua-mac" && !this.draft.cua) this.fieldErrors.cua = "请选择已检测到的本机 Cua Driver。";
-    if (this.draft.kind === "http") try { const endpoint = new URL(this.draft.endpoint); if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) || endpoint.username || endpoint.password) this.fieldErrors.endpoint = "请输入 HTTPS 端点；HTTP 仅限本机回环测试，地址不能携带用户名或密码。"; }
-    catch { this.fieldErrors.endpoint = "请输入完整的 HTTPS 端点。"; }
-    if (!this.draft.auth) this.fieldErrors.auth = "请选择凭据或显式选择匿名。";
-    if (this.draft.auth === "existing" && !this.draft.credential) this.fieldErrors.auth = "请选择所需凭据。";
-    if (this.draft.auth === "new" && (!this.secret || this.secret !== this.secret.trim() || /[\r\n]/.test(this.secret))) this.fieldErrors.secret = "请输入不含首尾空白或换行的 Bearer 令牌。";
+    if (!/^[a-z0-9][a-z0-9_-]{0,29}$/.test(this.draft.name)) this.fieldErrors.name = "Use 1–30 lowercase letters, digits, underscores or hyphens; the first character must be a letter or digit.";
+    if (this.draft.kind === "cua-mac" && !this.draft.cua) this.fieldErrors.cua = "Select a detected local Cua Driver.";
+    if (this.draft.kind === "http") try { const endpoint = new URL(this.draft.endpoint); if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname)) || endpoint.username || endpoint.password) this.fieldErrors.endpoint = "Enter an HTTPS endpoint; HTTP is allowed only for local loopback testing and the address can't carry a username or password."; }
+    catch { this.fieldErrors.endpoint = "Enter a complete HTTPS endpoint."; }
+    if (!this.draft.auth) this.fieldErrors.auth = "Select a credential or explicitly choose anonymous.";
+    if (this.draft.auth === "existing" && !this.draft.credential) this.fieldErrors.auth = "Select the required credential.";
+    if (this.draft.auth === "new" && (!this.secret || this.secret !== this.secret.trim() || /[\r\n]/.test(this.secret))) this.fieldErrors.secret = "Enter a Bearer token without leading/trailing whitespace or newlines.";
     if (Object.keys(this.fieldErrors).length) { this.changed(); return false; }
     const expectedVersion = this.service?.configVersion ?? 0;
     if (this.draft.auth === "new") {
@@ -132,7 +132,7 @@ export class CodeMcpState implements SettingsForm {
     }
     const service = this.service;
     const saved = await this.write("mcp_configure", { ...(this.selectedId ? { service_id: this.selectedId } : {}), name: this.draft.name, ...(this.draft.kind === "cua-mac" ? { cua: this.draft.cua } : { endpoint: this.draft.endpoint }), tool_allowlist: this.draft.toolAllowlist, enabled: service?.enabled ?? false, expected_version: expectedVersion, ...(this.draft.kind === "cua-mac" || this.draft.auth === "keep" ? {} : { credential: this.draft.auth === "anonymous" ? null : this.draft.credential }) });
-    if (!saved && this.draft.auth === "existing") { this.message += " 已创建的 MCP 凭据仍仅限本实例的 MCP 用途；可在解除引用后清理。"; this.changed(); }
+    if (!saved && this.draft.auth === "existing") { this.message += " The created MCP credential still applies only to MCP use in this instance; it can be cleaned up once unreferenced."; this.changed(); }
     return saved;
   }
   private async write(op: Write, params: Record<string, unknown>, name?: string, committed = true): Promise<boolean> {
@@ -147,13 +147,13 @@ export class CodeMcpState implements SettingsForm {
       const unknown = result.error.outcome === "unknown" || result.error.outcome === "disconnected";
       this.phase = unknown ? "unknown" : result.error.code === "version_conflict" ? "conflict" : "error";
       if (!unknown) this.pending = null;
-      this.message = unknown ? "操作结果待核实。请重新读取原实例，不会自动重发。" : `${result.error.outcome === "not_sent" ? "请求未送出。" : "操作被拒绝。"}${result.error.message}`;
-      if (this.phase === "conflict") { const read = await this.read(true); this.phase = "conflict"; this.message = read ? this.selectedId && !this.service ? "原服务已删除或替换，草稿保留。请放弃草稿后重新选择，原编辑不会自动新增服务。" : "配置已被其他客户端修改。草稿已保留，请比较当前值后保存或放弃。" : "配置冲突且读回失败，请重新读取后比较草稿。"; }
+      this.message = unknown ? "Outcome unverified. Read the original instance again — it won't be resent." : `${result.error.outcome === "not_sent" ? "The request wasn't sent." : "The operation was rejected."}${result.error.message}`;
+      if (this.phase === "conflict") { const read = await this.read(true); this.phase = "conflict"; this.message = read ? this.selectedId && !this.service ? "The original service was deleted or replaced; your draft is kept. Discard the draft and select again — the original edit won't auto-create a service." : "The configuration was changed by another client. Your draft is kept; compare the current value before saving or discarding." : "Configuration conflict and reading back failed. Read again and compare the draft."; }
       this.changed(); return false;
     }
     this.phase = "ready";
     const read = await this.read(!committed, committed);
-    if (!read) { this.phase = "unknown"; this.message = "后台已应答成功，但读回失败，请核实原配置后继续。"; }
+    if (!read) { this.phase = "unknown"; this.message = "The backend acknowledged success but reading back failed. Verify the original configuration before continuing."; }
     else this.message = "";
     this.changed(); return read;
   }
@@ -167,13 +167,13 @@ export class CodeMcpState implements SettingsForm {
     if (!this.accepts(generation)) return;
     this.checking = false;
     if (result.ok && result.value.service.configVersion === this.service?.configVersion) { this.check = result.value; this.message = ""; }
-    else this.message = "工具发现未完成或配置已变更，请重新读取配置后检查。";
+    else this.message = "Tool discovery didn't finish or the configuration changed. Read the configuration again before checking.";
     this.changed();
   }
   imageLoaded(observationId: string, id: string, loaded: boolean): void {
     if (this.cuaStatus?.observation?.id !== observationId) return;
     this.cuaImages = this.cuaImages.map(image => image.id === id ? { ...image, loaded } : image);
-    if (!loaded) this.cuaError = "新截图无法显示，请重新读取恢复截图；当前不能接受现场。";
+    if (!loaded) this.cuaError = "The new screenshot can't be displayed. Read the recovery screenshots again; the state can't be accepted now.";
     this.changed();
   }
   private async readCuaImages(status: CuaStatus, generation: number): Promise<CuaImage[] | null> {
@@ -187,22 +187,22 @@ export class CodeMcpState implements SettingsForm {
         if (!this.accepts(generation)) return null;
         if (!result.ok) { this.cuaError = result.error.message; return null; }
         const { artifact, encoding, data } = result.value;
-        if (artifact.id !== id || artifact.taskId !== original.taskId || artifact.sessionId !== original.sessionId || artifact.status !== "complete" || !Number.isSafeInteger(artifact.byteCount) || artifact.byteCount < 1 || artifact.byteCount > 8 * 1024 * 1024 || !artifact.contentHash || !/^[0-9a-f]{64}$/.test(artifact.contentHash) || bytes && (artifact.byteCount !== bytes.length || artifact.contentHash !== contentHash || artifact.mimeType !== mimeType) || encoding !== "base64" || typeof data !== "string" || data.length > Math.ceil(Math.min(FILE_PAGE_BYTES, artifact.byteCount - offset) / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) { this.cuaError = "恢复截图的归属或完整性无法核实，请重新取得新截图。"; return null; }
+        if (artifact.id !== id || artifact.taskId !== original.taskId || artifact.sessionId !== original.sessionId || artifact.status !== "complete" || !Number.isSafeInteger(artifact.byteCount) || artifact.byteCount < 1 || artifact.byteCount > 8 * 1024 * 1024 || !artifact.contentHash || !/^[0-9a-f]{64}$/.test(artifact.contentHash) || bytes && (artifact.byteCount !== bytes.length || artifact.contentHash !== contentHash || artifact.mimeType !== mimeType) || encoding !== "base64" || typeof data !== "string" || data.length > Math.ceil(Math.min(FILE_PAGE_BYTES, artifact.byteCount - offset) / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) { this.cuaError = "The recovery screenshot's ownership or integrity is unverified. Get a new screenshot."; return null; }
         const page = Uint8Array.from(atob(data), character => character.charCodeAt(0));
-        if (page.length !== Math.min(FILE_PAGE_BYTES, artifact.byteCount - offset)) { this.cuaError = "恢复截图未完整读回，请重新取得新截图。"; return null; }
+        if (page.length !== Math.min(FILE_PAGE_BYTES, artifact.byteCount - offset)) { this.cuaError = "The recovery screenshot wasn't fully read back. Get a new screenshot."; return null; }
         bytes ??= new Uint8Array(artifact.byteCount); contentHash = artifact.contentHash; mimeType = artifact.mimeType ?? null; bytes.set(page, offset); offset += page.length;
       } while (offset < bytes.length);
       const file = readSnapshotFile(id, bytes, bytes.length);
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes))), hash = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("");
       if (!this.accepts(generation)) return null;
-      if (file.kind !== "image" || file.mimeType !== mimeType || hash !== contentHash) { this.cuaError = "恢复截图不是可显示的完整图片，请重新取得新截图。"; return null; }
+      if (file.kind !== "image" || file.mimeType !== mimeType || hash !== contentHash) { this.cuaError = "The recovery screenshot isn't a displayable complete image. Get a new screenshot."; return null; }
       images.push({ id, source: file.dataUrl, loaded: false });
     }
     return images;
   }
   private async adoptCua(status: CuaStatus, generation: number): Promise<void> {
     this.cuaStatus = status; this.cuaImages = []; this.cuaEvidence = "";
-    if (status.observation?.id === this.invalidatedObservation) { this.cuaError = "这张旧恢复截图已失效，请重新取得新截图后再接受现场。"; return; }
+    if (status.observation?.id === this.invalidatedObservation) { this.cuaError = "This old recovery screenshot expired. Get a new screenshot before accepting the state."; return; }
     this.invalidatedObservation = null;
     if (status.original) {
       const evidence = await this.request<OpResult<"get_tool_op_mcp">>("get_tool_op_mcp", { tool_op_id: status.original.opId, length: 8192 });
@@ -234,7 +234,7 @@ export class CodeMcpState implements SettingsForm {
     const result = await this.request<CuaStatus>(operation, action === "accept" ? { observation_id: observationId } : action === "stop" && serviceId ? { service_id: serviceId } : {});
     if (!this.accepts(generation)) return;
     if (result.ok) await this.adoptCua(result.value, generation);
-    else { this.cuaUnknown = result.error.outcome === "unknown" || result.error.outcome === "disconnected"; this.cuaError = result.error.message + (this.cuaUnknown ? " 请读取电脑状态核实；不会自动重发。" : " 请核实当前电脑状态后继续。"); }
+    else { this.cuaUnknown = result.error.outcome === "unknown" || result.error.outcome === "disconnected"; this.cuaError = result.error.message + (this.cuaUnknown ? " Read the computer state to verify; it won't be resent." : " Verify the current computer state before continuing."); }
     if (!this.accepts(generation)) return;
     this.checking = false; this.changed();
   }

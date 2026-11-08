@@ -50,6 +50,7 @@ export interface DesktopFailure {
 }
 export type DesktopResult<T> = { ok: true; value: T } | { ok: false; error: DesktopFailure };
 export interface DesktopNavigation { sessionId: string; taskId: string }
+export type DesktopAppearance = "system" | "light" | "dark";
 export type DesktopUpdate =
   | DesktopTerminalUpdate
   | { type: "personal_frame"; frame: PersonalDesktopFrame }
@@ -77,6 +78,8 @@ export interface DesktopBridge {
   /** Register local selections until the new Coding conversation exists. */
   pickDraftAttachments(): Promise<DesktopResult<DesktopAttachment[]>>;
   uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
+  appearance(): Promise<DesktopResult<DesktopAppearance>>;
+  setAppearance(value: DesktopAppearance): Promise<DesktopResult<void>>;
   pickFolder(): Promise<DesktopResult<string | null>>;
   reveal(path: string): Promise<DesktopResult<void>>;
   openTerminal(id: DesktopTerminalId, workspaceId: string, instanceId: string, cols: number, rows: number): Promise<DesktopResult<{ id: DesktopTerminalId; cwd: string }>>;

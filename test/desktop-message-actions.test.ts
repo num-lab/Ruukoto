@@ -40,11 +40,11 @@ const source: Session = { id: "s1", projectId: "workspace", kind: "dev", workspa
 
 test("agent 消息只在对应任务完成时显示复制与分支操作", () => {
   const completed = renderToStaticMarkup(createElement(Conversation, { model: model("completed"), sessionId: "s1" }));
-  assert.match(completed, /aria-label="复制消息"/);
-  assert.match(completed, /aria-label="从当前任务建立分支"/);
+  assert.match(completed, /aria-label="Copy message"/);
+  assert.match(completed, /aria-label="Branch from this task"/);
   for (const status of ["running", "failed", "canceled", "interrupted"] as const) {
     const html = renderToStaticMarkup(createElement(Conversation, { model: model(status), sessionId: "s1" }));
-    assert.doesNotMatch(html, /aria-label="复制消息"|aria-label="从当前任务建立分支"/, status);
+    assert.doesNotMatch(html, /aria-label="Copy message"|aria-label="Branch from this task"/, status);
   }
 });
 
@@ -52,23 +52,23 @@ test("任务内多条 assistant 消息各自显示操作，定时会话不显示
   const state = model("completed");
   state.view.openSession("s1").flow.addHistory({ entryId: "earlier", taskId: "task", inputPurpose: "user", parentId: null, role: "assistant", text: "中间步骤", timestamp: "2026-10-27T00:00:00.000Z", offset: 0, totalBytes: Buffer.byteLength("中间步骤"), truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: false, hasNonTextContent: false });
   const html = renderToStaticMarkup(createElement(Conversation, { model: state, sessionId: "s1" }));
-  assert.equal((html.match(/aria-label="复制消息"/g) ?? []).length, 2);
-  assert.equal((html.match(/aria-label="从当前任务建立分支"/g) ?? []).length, 2);
+  assert.equal((html.match(/aria-label="Copy message"/g) ?? []).length, 2);
+  assert.equal((html.match(/aria-label="Branch from this task"/g) ?? []).length, 2);
   state.view.sessions[0]!.codeScheduleRunId = "run";
   const scheduled = renderToStaticMarkup(createElement(Conversation, { model: state, sessionId: "s1" }));
-  assert.match(scheduled, /aria-label="复制消息"/);
-  assert.doesNotMatch(scheduled, /aria-label="从当前任务建立分支"/);
+  assert.match(scheduled, /aria-label="Copy message"/);
+  assert.doesNotMatch(scheduled, /aria-label="Branch from this task"/);
 });
 
 test("用户消息显示复制，子会话不提供建立分支", () => {
   for (const status of ["completed", "running"] as const) {
     const user = renderToStaticMarkup(createElement(Conversation, { model: model(status, "user"), sessionId: "s1" }));
-    assert.match(user, /aria-label="复制消息"/);
-    assert.doesNotMatch(user, /aria-label="从当前任务建立分支"/);
+    assert.match(user, /aria-label="Copy message"/);
+    assert.doesNotMatch(user, /aria-label="Branch from this task"/);
   }
   const child = renderToStaticMarkup(createElement(Conversation, { model: model("completed"), sessionId: "s1", child: true }));
-  assert.match(child, /aria-label="复制消息"/);
-  assert.doesNotMatch(child, /aria-label="从当前任务建立分支"/);
+  assert.match(child, /aria-label="Copy message"/);
+  assert.doesNotMatch(child, /aria-label="Branch from this task"/);
 });
 
 test("建立分支携带任务身份，成功后切换到新会话", async () => {
@@ -103,7 +103,7 @@ test("分支明确拒绝时按原请求核实，确认未发布才清除待办",
   assert.equal(await state.branch("s1", "task"), false);
   assert.equal(found, 1);
   assert.equal(state.pendingBranch, null);
-  assert.match(state.message!, /建立分支失败/);
+  assert.match(state.message!, /Branch failed/);
 });
 
 test("分支会话加载历史时恢复来源任务的思考与工具 trace", async () => {
@@ -178,8 +178,8 @@ test("分支准备未完成保留原键，可再次点击重试并在明确失�
   state.view.tasks.set("task", task("completed"));
   assert.equal(await state.branch("s1", "task"), false);
   assert.ok(state.pendingBranch);
-  assert.match(state.message!, /再次点击/);
+  assert.match(state.message!, /click the branch button again/);
   assert.equal(await state.branch("s1", "task"), false);
   assert.equal(state.pendingBranch, null);
-  assert.match(state.message!, /建立分支失败/);
+  assert.match(state.message!, /Branch failed/);
 });

@@ -6,9 +6,9 @@ import type { PersonalCredentialStorage } from "./personal-credentials.ts";
 
 type SafeStorage = Pick<Electron.SafeStorage, "isAsyncEncryptionAvailable" | "encryptStringAsync" | "decryptStringAsync">;
 const LIMIT = 64 * 1024;
-const unavailable = () => new DesktopError("personal_credentials_unavailable", "安全存储不可用；请解锁钥匙串或检查应用授权后重新连接并核实原凭据。");
+const unavailable = () => new DesktopError("personal_credentials_unavailable", "Secure storage unavailable; unlock the keychain or check app authorization, then reconnect and verify the original credentials.");
 
-// Note: 见 .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
+// Note: See .agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md
 export function electronPersonalCredentialStorage(userData: string, packaged: boolean, storage: SafeStorage, ready: () => Promise<unknown>): PersonalCredentialStorage {
   const directory = path.join(userData, "personal-credentials");
   const filename = path.join(directory, packaged ? "production.v1.enc" : "development.v1.enc");
@@ -61,7 +61,7 @@ export function electronPersonalCredentialStorage(userData: string, packaged: bo
       syncDirectory();
     } finally {
       try { fs.unlinkSync(temporary); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") process.stderr.write("[ruukoto:desktop] 安全存储临时密文未清理；请检查应用数据目录权限。\n"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") process.stderr.write("[ruukoto:desktop] Secure-storage temp ciphertext not cleaned up; check app data directory permissions.\n"); }
     }
   };
   return {

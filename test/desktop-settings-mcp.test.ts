@@ -212,7 +212,7 @@ test("Code MCP 配置丢答后只读核实原实例，不重发且读回失败�
   assert.equal(await h.state.read(), true);
   assert.equal(h.state.pending, null); assert.equal(h.state.services[0].name, "docs");
   assert.equal(h.requests.filter(request => request.op === "mcp_configure").length, writes);
-  assert.match(h.state.message, /读回|比较/);
+  assert.match(h.state.message, /read back|compare/);
 });
 
 test("Code MCP 启停和凭据丢答分别核实，不连带重发服务配置或秘密", async () => {
@@ -356,20 +356,20 @@ test("Code MCP 页与新增表单只呈现 HTTPS 服务，不再含电脑入口�
   await h.state.read(); h.state.select(null);
   assert.equal(h.state.draft.kind, "http");
   const list = renderToStaticMarkup(createElement(CodeMcpEditor, { state: h.state }));
-  assert.match(list, /添加服务/);
-  assert.doesNotMatch(list, /computer|Cua|电脑|恢复|服务类型/);
+  assert.match(list, /Add service/);
+  assert.doesNotMatch(list, /computer|Cua|Computer|recovery|Service type/);
   const form = renderToStaticMarkup(createElement(AddServicePage, { state: h.state, onCancel: () => {}, onSaved: () => {} }));
-  assert.match(form, /服务名称/); assert.match(form, /HTTPS 端点/); assert.match(form, /认证/);
-  assert.doesNotMatch(form, /保存草稿|computer|Cua|电脑|恢复/);
+  assert.match(form, /Service name/); assert.match(form, /HTTPS endpoint/); assert.match(form, /Auth/);
+  assert.doesNotMatch(form, /Save draft|computer|Cua|Computer|recovery/);
   h.state.select(h.service.id);
   const details = renderToStaticMarkup(createElement(CodeMcpEditor, { state: h.state }));
-  assert.match(details, /HTTPS 端点/);
-  assert.doesNotMatch(details, /computer|Cua|电脑|恢复|服务类型/);
+  assert.match(details, /HTTPS endpoint/);
+  assert.doesNotMatch(details, /computer|Cua|Computer|recovery|Service type/);
   h.state.select(null);
   h.state.edit("endpoint", "not-a-url");
   assert.equal(await h.state.save(), false);
   const invalid = renderToStaticMarkup(createElement(AddServicePage, { state: h.state, onCancel: () => {}, onSaved: () => {} }));
   assert.match(invalid, /settings-row-error/);
-  assert.match(invalid, /请输入完整的 HTTPS 端点。/);
+  assert.match(invalid, /Enter a complete HTTPS endpoint./);
   assert.doesNotMatch(invalid, /settings-row-title"><\/div>/);
 });

@@ -118,7 +118,7 @@ test("截图分块：乱序补齐、重复与篡改拒绝、迟到分块按 unkn
     const dup = (await t.runtime.desktopBrowserCall!(connectionId, { op: "screenshot", session: "s1" })) as { value: { transfer: { data: Buffer } } };
     assert.deepEqual(dup.value.transfer.data, Buffer.from("abcd"));
 
-    // 内容被篡改：声明与字节不符 → 装配校验失败，效果未知
+    // 内容被篡改：声明与字节不符 → 装配校验失败，Outcome unknown
     client.onCall(async (_op, _p, callId) => {
       await client.request("desktop_browser_chunk", { command_id: callId, index: 0, total: 1, total_bytes: 4, sha256: createHash("sha256").update("abcd").digest("hex"), data: "eHh4eA==" });
       return { ok: true, value: { transfer: { kind: "screenshot", sha256: createHash("sha256").update("abcd").digest("hex"), total_bytes: 4, total: 1 } } };

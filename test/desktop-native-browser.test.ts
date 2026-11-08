@@ -22,17 +22,17 @@ test("Native browser controls distinguish idle, Agent use and explicit takeover"
   const render = () => renderToStaticMarkup(createElement(Panel, { model, sessionId: "current", visible: true }));
   const control = (markup: string, label: string) => markup.match(new RegExp(`<[^>]+aria-label="${label}"[^>]*>`))?.[0] ?? "";
   let markup = render();
-  assert.doesNotMatch(control(markup, "网页地址"), / disabled=""/); assert.match(control(markup, "接管浏览器"), / disabled=""/);
+  assert.doesNotMatch(control(markup, "Web address"), / disabled=""/); assert.match(control(markup, "Take over the browser"), / disabled=""/);
   model.browser.update({ type: "browser_event", event: { session: "other", kind: "gate", owned: true, source: "host", generation: 1 } });
-  assert.doesNotMatch(control(render(), "网页地址"), / disabled=""/, "another page cannot lock this browser");
+  assert.doesNotMatch(control(render(), "Web address"), / disabled=""/, "another page cannot lock this browser");
   model.browser.update({ type: "browser_event", event: { session: "current", kind: "gate", owned: true, source: "host", generation: 2 } });
   markup = render();
-  assert.match(control(markup, "网页地址"), / disabled=""/); assert.doesNotMatch(control(markup, "接管浏览器"), / disabled=""/);
-  assert.match(markup, /aria-label="接管浏览器"[^>]*><svg/); assert.doesNotMatch(markup, />接管<|browser-gate-note/);
+  assert.match(control(markup, "Web address"), / disabled=""/); assert.doesNotMatch(control(markup, "Take over the browser"), / disabled=""/);
+  assert.match(markup, /aria-label="Take over the browser"[^>]*><svg/); assert.doesNotMatch(markup, />Take over<|browser-gate-note/);
   model.browser.update({ type: "browser_event", event: { session: "current", kind: "gate", owned: false, source: "owner", generation: 3 } });
-  markup = render(); assert.doesNotMatch(control(markup, "网页地址"), / disabled=""/); assert.match(markup, /aria-label="交还 Agent"[^>]*><svg/);
+  markup = render(); assert.doesNotMatch(control(markup, "Web address"), / disabled=""/); assert.match(markup, /aria-label="Hand back to Agent"[^>]*><svg/);
   model.browser.update({ type: "browser_event", event: { session: "current", kind: "gate", owned: false, source: "host", generation: 4 } });
-  markup = render(); assert.doesNotMatch(control(markup, "网页地址"), / disabled=""/); assert.match(control(markup, "接管浏览器"), / disabled=""/); assert.doesNotMatch(markup, /交还 Agent/);
+  markup = render(); assert.doesNotMatch(control(markup, "Web address"), / disabled=""/); assert.match(control(markup, "Take over the browser"), / disabled=""/); assert.doesNotMatch(markup, />Hand back/);
 });
 
 test("Late native browser gates cannot undo a newer takeover or reopened page", () => {

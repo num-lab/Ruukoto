@@ -22,40 +22,40 @@ export function draftForSchedule(config: CodeScheduleConfig): ScheduleDraft {
     repeat: rule.kind, date: once?.toPlainDate().toString() ?? "", time: once?.toPlainTime().toString({ smallestUnit: "minute" }) ?? (rule.kind === "once" ? "" : rule.time), weekdays: rule.kind === "weekly" ? [...rule.weekdays] : [1], timeZone: rule.timeZone };
 }
 export function configForSchedule(draft: ScheduleDraft, now = Date.now()): { config: CodeScheduleConfig } | { error: string } {
-  if (!draft.title.trim()) return { error: "请填写 Title。" };
-  if (!draft.instructions.trim()) return { error: "请填写 Instructions。" };
-  if (new TextEncoder().encode(draft.instructions).byteLength > 64 * 1024) return { error: "Instructions 过长，请缩短后保存（最多 64 KiB）。" };
-  if (!draft.workspaceId) return { error: "请选择工作区。" };
-  if (!draft.modelSelection) return { error: "请选择可用模型与 Effort。" };
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time)) return { error: "请选择有效时间。" };
+  if (!draft.title.trim()) return { error: "Enter a title." };
+  if (!draft.instructions.trim()) return { error: "Enter instructions." };
+  if (new TextEncoder().encode(draft.instructions).byteLength > 64 * 1024) return { error: "Instructions are too long; shorten before saving (64 KiB max)." };
+  if (!draft.workspaceId) return { error: "Select a workspace." };
+  if (!draft.modelSelection) return { error: "Select an available model and effort." };
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time)) return { error: "Enter a valid time." };
   const base = { timeZone: draft.timeZone, disambiguation: "compatible" as const };
   let rule: CodeScheduleConfig["rule"];
   if (draft.repeat === "once") {
     let at: Temporal.ZonedDateTime;
     try { at = Temporal.PlainDateTime.from(`${draft.date}T${draft.time}`).toZonedDateTime(draft.timeZone, { disambiguation: "compatible" }); }
-    catch { return { error: "请选择有效日期与时间。" }; }
-    if (at.epochMilliseconds <= now) return { error: "一次性计划须选择未来时间。" };
+    catch { return { error: "Enter a valid date and time." }; }
+    if (at.epochMilliseconds <= now) return { error: "A one-time schedule needs a future time." };
     rule = { kind: "once", at: new Date(at.epochMilliseconds).toISOString(), ...base };
   } else if (draft.repeat === "weekly") {
-    if (!draft.weekdays.length) return { error: "请至少选择一个星期。" };
+    if (!draft.weekdays.length) return { error: "Select at least one weekday." };
     rule = { kind: "weekly", time: draft.time, weekdays: [...draft.weekdays].sort((a, b) => a - b), ...base };
   } else rule = { kind: "daily", time: draft.time, ...base };
   return { config: { title: draft.title.trim(), instructions: draft.instructions, workspaceId: draft.workspaceId, permission: draft.permission, modelSelection: draft.modelSelection, rule } };
 }
 export function scheduleTime(instant: string | null, timeZone: string): string {
-  return instant ? new Intl.DateTimeFormat(undefined, { timeZone, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(instant)) : "—";
+  return instant ? new Intl.DateTimeFormat("en-US", { timeZone, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(instant)) : "—";
 }
 export function scheduleSummary(config: CodeScheduleConfig): string {
   const rule = config.rule;
-  return rule.kind === "once" ? `一次性 · ${scheduleTime(rule.at, rule.timeZone)}` : rule.kind === "daily" ? `每天 ${rule.time}` : `每周 ${rule.weekdays.map(day => "一二三四五六日"[day - 1]).join("、")} · ${rule.time}`;
+  return rule.kind === "once" ? `Once · ${scheduleTime(rule.at, rule.timeZone)}` : rule.kind === "daily" ? `Daily ${rule.time}` : `Weekly ${rule.weekdays.map(day => "MTWTFSS"[day - 1]).join("")} · ${rule.time}`;
 }
 export function runStatus(run: CodeScheduleRun): string {
-  if (run.reason === "effect_unknown") return run.closedAt ? "结果未知，已结束" : "结果未知，已暂停";
-  return ({ active: "运行中", completed: "已完成", failed: "失败", canceled: "已取消", interrupted: "已中断" })[run.status];
+  if (run.reason === "effect_unknown") return run.closedAt ? "Outcome unknown, ended" : "Outcome unknown, paused";
+  return ({ active: "Running", completed: "Completed", failed: "Failed", canceled: "Canceled", interrupted: "Interrupted" })[run.status];
 }
 export function scheduleReason(reason: string | null): string {
   if (!reason) return "";
-  return ({ running: "运行中", waiting_workspace: "等待工作区", queue_paused: "队列暂停，等待恢复", awaiting_confirmation: "等待审批", awaiting_answer: "等待回答", background_running: "后台进程尚未结束", awaiting_workflow: "工作流尚未结束", awaiting_report: "等待工作报告", awaiting_result: "等待派生工作结果", effect_unknown: "结果未知，已暂停；请检查原运行记录后恢复", stop_unverified: "停止尚未核实；请先在原会话核实停止", schedule_canceled: "计划已取消", workflow_failed: "工作流失败，请查看运行记录", schedule_workspace_invalid: "工作区不可用或已被替换，请核对目录后保存计划", model_unavailable: "模型不可用，请检查模型配置", model_auth_missing: "模型认证不可用，请检查模型配置", model_not_found: "模型已不在目录中，请重新选择", thinking_level_invalid: "Effort 不可用，请重新选择" } as Record<string, string>)[reason] ?? "计划需要处理，请核对配置与原运行记录。";
+  return ({ running: "Running", waiting_workspace: "Waiting for workspace", queue_paused: "Queue paused, waiting to resume", awaiting_confirmation: "Awaiting approval", awaiting_answer: "Awaiting answer", background_running: "Background process still running", awaiting_workflow: "Workflow still running", awaiting_report: "Awaiting work report", awaiting_result: "Awaiting derived work result", effect_unknown: "Outcome unknown, paused; check the run record before resuming", stop_unverified: "Stop unverified; verify the stop in the original chat first", schedule_canceled: "Schedule canceled", workflow_failed: "Workflow failed; check the run record", schedule_workspace_invalid: "The workspace is unavailable or was replaced; check the directory and save the schedule", model_unavailable: "Model unavailable; check the model configuration", model_auth_missing: "Model auth unavailable; check the model configuration", model_not_found: "The model is no longer in the catalog; select again", thinking_level_invalid: "Effort unavailable; select again" } as Record<string, string>)[reason] ?? "The schedule needs attention; check the configuration and the original run record.";
 }
 
 function occurrenceOn(rule: CodeScheduleConfig["rule"], date: Temporal.PlainDate): number | null {
@@ -129,8 +129,8 @@ export class DesktopScheduled {
     } else if (update.type === "schedule_submission") {
       if (update.record.instanceId !== this.model.view.instanceId) return;
       const result = update.result;
-      if (result.kind === "linked") { this.selectedId = result.receipt.plan.id; this.draft = null; this.entries = this.entries.filter(item => item.record.requestId !== result.requestId); this.message = "已核实原保存结果。"; void this.load(); void this.open(result.receipt.plan.id); }
-      else { this.message = result.kind === "foreign_instance" ? "原保存属于其他实例，请连回原实例核实。" : result.reason; if (result.kind === "rejected") { this.entries = this.entries.filter(item => item.record.requestId !== result.requestId); this.reviewConflict(result.code); } }
+      if (result.kind === "linked") { this.selectedId = result.receipt.plan.id; this.draft = null; this.entries = this.entries.filter(item => item.record.requestId !== result.requestId); this.message = "Original save verified."; void this.load(); void this.open(result.receipt.plan.id); }
+      else { this.message = result.kind === "foreign_instance" ? "The original save belongs to another instance. Reconnect to that instance to verify." : result.reason; if (result.kind === "rejected") { this.entries = this.entries.filter(item => item.record.requestId !== result.requestId); this.reviewConflict(result.code); } }
     }
   }
   async load(more = false): Promise<void> {
@@ -144,7 +144,7 @@ export class DesktopScheduled {
       this.plans = more ? [...this.plans, ...page.plans.filter(plan => !this.plans.some(item => item.id === plan.id))] : page.plans;
       for (const run of page.latestRuns ?? []) this.acceptRun(run);
       this.nextOffset = page.nextOffset;
-    } catch (error) { if (generation === this.generation && reading === this.reading) this.message = `计划读取失败：${(error as Error).message}`; }
+    } catch (error) { if (generation === this.generation && reading === this.reading) this.message = `Couldn't load schedules: ${(error as Error).message}`; }
     finally { if (generation === this.generation && reading === this.reading) { this.loading = false; this.changed(); } }
   }
   private acceptRun(run: CodeScheduleRun): void {
@@ -154,7 +154,7 @@ export class DesktopScheduled {
   create(): void { if (this.blocked) return; this.selectedId = null; this.detail = null; this.draft = newScheduleDraft(this.model.newChatSelection(null)); this.draftVersion = null; this.needsReview = false; this.message = null; this.changed(); }
   edit(): void { if (this.detail && !this.blocked) { this.draft = draftForSchedule(this.detail.plan.config); this.draftVersion = this.detail.plan.version; this.needsReview = false; this.changed(); } }
   private reviewConflict(code: string): void {
-    if (code === "schedule_version_conflict" && this.draft && this.selectedId) { this.needsReview = true; this.detail = null; this.message = "计划已被其他操作修改；草稿仍保留，请核对当前已保存配置后继续。"; void this.open(this.selectedId, true); }
+    if (code === "schedule_version_conflict" && this.draft && this.selectedId) { this.needsReview = true; this.detail = null; this.message = "The schedule was changed by another operation; your draft is kept. Check the saved configuration before continuing."; void this.open(this.selectedId, true); }
   }
   reviewed(): void { if (this.detail && this.draft && this.detail.plan.id === this.selectedId) { this.draftVersion = this.detail.plan.version; this.needsReview = false; this.message = null; this.changed(); } }
   async open(id: string, preserveDraft = false, more = false): Promise<void> {
@@ -166,7 +166,7 @@ export class DesktopScheduled {
       const detail = await this.request("code_schedule", { plan_id: id, run_offset: offset });
       if (generation !== this.generation || reading !== this.detailRead || this.selectedId !== id) return;
       this.detail = more && this.detail ? { ...detail, runs: [...this.detail.runs, ...detail.runs] } : detail;
-    } catch (error) { if (generation === this.generation && reading === this.detailRead) this.message = `计划详情读取失败：${(error as Error).message}`; }
+    } catch (error) { if (generation === this.generation && reading === this.detailRead) this.message = `Couldn't load the schedule details: ${(error as Error).message}`; }
     this.changed();
   }
   async save(): Promise<void> {
@@ -174,7 +174,7 @@ export class DesktopScheduled {
     const config = configForSchedule(this.draft);
     if ("error" in config) { this.message = config.error; this.changed(); return; }
     const plan = this.selectedId ? this.detail?.plan : null;
-    if (this.selectedId && plan?.id !== this.selectedId) { this.message = "请先重新读取当前计划。"; this.changed(); return; }
+    if (this.selectedId && plan?.id !== this.selectedId) { this.message = "Read the current schedule again first."; this.changed(); return; }
     await this.write("code_schedule_save", { request_id: crypto.randomUUID(), ...(plan ? { plan_id: plan.id, expected_version: this.draftVersion ?? plan.version } : {}), config: config.config });
   }
   async control(control: "pause" | "resume" | "cancel", acknowledgeRun?: CodeScheduleRun): Promise<void> {
@@ -191,8 +191,8 @@ export class DesktopScheduled {
       if (!response.ok) { this.message = response.error.message; return; }
       const result = response.value as CodeScheduleWriteOutcome;
       if (result.kind === "accepted") { this.selectedId = result.receipt.plan.id; this.draft = null; this.message = null; await this.load(); await this.open(result.receipt.plan.id); }
-      else { this.message = result.kind === "pending_existing" ? "原保存结果待核实，草稿仍保留。" : result.reason; if (result.kind === "rejected") this.reviewConflict(result.code); }
-    } catch { if (generation === this.generation) this.message = "保存结果待核实；请恢复连接后查看原请求，草稿仍保留。"; }
+      else { this.message = result.kind === "pending_existing" ? "Original save outcome unverified; your draft is kept." : result.reason; if (result.kind === "rejected") this.reviewConflict(result.code); }
+    } catch { if (generation === this.generation) this.message = "Save outcome unverified; check the original request after the connection recovers. Your draft is kept."; }
     finally { if (generation === this.generation) { this.busy = false; this.changed(); } }
   }
 }

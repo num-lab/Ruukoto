@@ -9,23 +9,23 @@ function documentHandle(value: unknown): BrowserDocumentHandle | null {
   return url.protocol === "http:" && url.hostname === "127.0.0.1" && !!url.port && !url.username && !url.password ? { id: value.id, url: url.href } : null;
 }
 
-// Note: 见 .agents/notes/implemented/feature/2026-10-17-desktop-local-browser.md
+// Note: See .agents/notes/implemented/feature/2026-10-17-desktop-local-browser.md
 export function startBrowserDocument(request: DesktopBridge["request"], target: DesktopTarget, url: string, changed: (state: BrowserDocumentState) => void): () => void {
   let active = true, document: BrowserDocumentHandle | null = null;
   const release = async (id: string) => {
     try {
       const result = await request(target, "desktop_browser_release", { id });
       if (!result.ok && active) changed({ error: result.error.message });
-      // 卸载后无可更新的组件；传输已断开的遗留能力由宿主退出统一回收。
-    } catch { if (active) changed({ error: "本地预览连接已关闭，请重新打开文档。" }); }
+      // Nothing to update after unload; capabilities left by a broken transport are reclaimed on host exit.
+    } catch { if (active) changed({ error: "The local preview connection closed. Reopen the document." }); }
   };
   void (async () => {
     let result: Awaited<ReturnType<DesktopBridge["request"]>>;
     try { result = await request(target, "desktop_browser_open", { url }); }
-    catch { if (active) changed({ error: "本地预览连接已关闭，请重新打开文档。" }); return; }
+    catch { if (active) changed({ error: "The local preview connection closed. Reopen the document." }); return; }
     if (!result.ok) { if (active) changed({ error: result.error.message }); return; }
     document = documentHandle(result.value);
-    if (!document) { if (active) changed({ error: "本地预览返回了无效地址，请重新打开应用。" }); return; }
+    if (!document) { if (active) changed({ error: "The local preview returned an invalid address. Reopen the app." }); return; }
     if (!active) { await release(document.id); return; }
     changed({ document });
   })();

@@ -22,7 +22,7 @@ function validDirectoryPage(page: OpResult<"list_workspace_files">, workspaceId:
 export type TerminalTab = { id: DesktopTerminalId; kind: "terminal"; title: string; workspaceId: string; cwd: string; instanceId: string; error?: string; exitCode?: number };
 export type InspectorTab = TerminalTab | { id: string; kind: "read-snapshot"; title: string; path: string; sessionId: string; taskId: string; artifactId: string; mode: "preview" | "source" } | { id: string; kind: "git"; title: string; workspaceId: string } | { id: string; kind: "diff"; title: string; selection: DiffSelection } | { id: string; kind: "agent"; title: string; sessionId: string } | { id: string; kind: "new"; title: string } | { id: string; kind: "browser"; title: string; navigation: BrowserNavigation } | { id: string; kind: "files"; title: string; workspaceId: string } | { id: string; kind: "file"; title: string; workspaceId: string; path: string; mode: "preview" | "source" } | { id: string; kind: "background"; title: string };
 
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export class DesktopInspector {
   tab: "agents" | "diff" = "agents";
   visible = false;
@@ -61,8 +61,8 @@ export class DesktopInspector {
   private async request<K extends "work_list" | "work_get" | "read_tool_result" | "read_artifact" | "get_tool_op_params" | "list_workspace_files" | "read_workspace_file" | "read_workspace_git">(op: K, params: OpParams<K>): Promise<DesktopResult<OpResult<K>>> {
     let result;
     try { result = await this.bridge.request(this.target, op, params); }
-    catch { return { ok: false, error: { code: "ipc_unavailable", outcome: "not_sent", message: "桌面连接不可用，请重新连接后再读取。" } }; }
-    // 控制面响应经主进程转发，类型在 IPC wire 边界还原。
+    catch { return { ok: false, error: { code: "ipc_unavailable", outcome: "not_sent", message: "Desktop connection unavailable. Reconnect and read again." } }; }
+    // Control-plane responses are forwarded through the main process; types are restored at the IPC wire boundary.
     return result as DesktopResult<OpResult<K>>;
   }
 
@@ -101,7 +101,7 @@ export class DesktopInspector {
   }
   openParent(sessionId: string): void {
     if (this.parentSessionId === sessionId) return;
-    // 后台状态只属于一个会话；换父会话时先清，活动标签若是后台页会立即重开新会话的状态。
+    // Background state belongs to one session; clear it on parent-session switch — an active background tab immediately re-opens the new session's state.
     if (this.background?.sessionId) this.background.close();
     this.parentSessionId = sessionId; this.childSessionId = null; this.workId = null;
     if (this.pendingPresentations.delete(sessionId)) this.visible = true;
@@ -136,7 +136,7 @@ export class DesktopInspector {
     if (tab.kind === "agent") { this.tab = "agents"; this.childSessionId = tab.sessionId; void this.history(tab.sessionId); }
     this.changed();
   }
-  newTab(): void { this.addTab({ id: crypto.randomUUID(), kind: "new", title: "新标签" }); }
+  newTab(): void { this.addTab({ id: crypto.randomUUID(), kind: "new", title: "New tab" }); }
   closeTab(id: string): void {
     const tabs = this.tabs();
     const index = tabs.findIndex(tab => tab.id === id);
@@ -147,7 +147,7 @@ export class DesktopInspector {
     if (closing?.kind === "file") this.files.delete(this.fileKey(closing.workspaceId, closing.path));
     if (closing?.kind === "read-snapshot") this.snapshots.delete(id);
     if (closing?.kind === "background") this.background?.close();
-    if (!rest.length) rest.push({ id: crypto.randomUUID(), kind: "new", title: "新标签" });
+    if (!rest.length) rest.push({ id: crypto.randomUUID(), kind: "new", title: "New tab" });
     const active = this.activeTab();
     this.tabsByParent.set(this.parentSessionId ?? "", rest);
     if (active?.id === id) this.selectTab(rest[Math.max(0, index - 1)].id);
@@ -166,7 +166,7 @@ export class DesktopInspector {
   openTerminal(workspaceId = this.workspace()?.id): void {
     const workspace = this.view.projects.find(project => project.id === workspaceId);
     if (this.target !== "code" || !workspace?.rootDir || !this.view.instanceId) return;
-    this.addTab({ id: crypto.randomUUID(), kind: "terminal", title: `终端 · ${workspace.managed ? "No workspace" : workspace.name}`, workspaceId: workspace.id, cwd: workspace.rootDir.cwdReal, instanceId: this.view.instanceId });
+    this.addTab({ id: crypto.randomUUID(), kind: "terminal", title: `Terminal · ${workspace.managed ? "No workspace" : workspace.name}`, workspaceId: workspace.id, cwd: workspace.rootDir.cwdReal, instanceId: this.view.instanceId });
   }
   listenTerminal(id: DesktopTerminalId, listener: (update: DesktopTerminalUpdate) => void): () => void {
     this.terminalListeners.set(id, listener);
@@ -175,7 +175,7 @@ export class DesktopInspector {
   async startTerminal(tab: TerminalTab, cols: number, rows: number): Promise<boolean> {
     let result: DesktopResult<unknown>;
     try { result = await this.bridge.request("code", "desktop_terminal_open", { id: tab.id, workspace_id: tab.workspaceId, instance_id: tab.instanceId, cols, rows }); }
-    catch { result = { ok: false, error: { code: "ipc_unavailable", outcome: "not_sent", message: "终端连接不可用，请关闭标签后重新打开应用。" } }; }
+    catch { result = { ok: false, error: { code: "ipc_unavailable", outcome: "not_sent", message: "Terminal connection unavailable. Close the tab and reopen the app." } }; }
     if (!this.terminalTabs().includes(tab)) { if (result.ok) this.releaseTerminal(tab.id); return false; }
     if (!result.ok) { tab.error = result.error.message; this.changed(); return false; }
     return true;
@@ -185,7 +185,7 @@ export class DesktopInspector {
       if (!this.terminalTabs().includes(tab) || tab.error || tab.exitCode !== undefined) return;
       let result: DesktopResult<unknown>;
       try { result = await this.bridge.request("code", op, { id: tab.id, ...params }); }
-      catch { result = { ok: false, error: { code: "ipc_unavailable", outcome: "unknown", message: "终端输入或尺寸更新未能核实，请关闭标签后重新打开终端。" } }; }
+      catch { result = { ok: false, error: { code: "ipc_unavailable", outcome: "unknown", message: "Terminal input or size update unverified. Close the tab and reopen the terminal." } }; }
       if (!result.ok && this.terminalTabs().includes(tab)) { tab.error = result.error.message; this.changed(); }
     });
     this.terminalWrites.set(tab.id, sending);
@@ -199,7 +199,7 @@ export class DesktopInspector {
       if (result.ok) this.terminalStopFailures.delete(id);
       else this.terminalStopFailures.set(id, { message: result.error.message, retrying: false });
       this.changed();
-    }).catch(() => { this.terminalStopFailures.set(id, { message: "终端回收无法核实，请在系统活动监视器中检查仍运行的命令。", retrying: false }); this.changed(); });
+    }).catch(() => { this.terminalStopFailures.set(id, { message: "Terminal reclaim unverified. Check still-running commands in the system Activity Monitor.", retrying: false }); this.changed(); });
   }
   retryTerminalStop(id: DesktopTerminalId): void { this.releaseTerminal(id); this.changed(); }
   closeParent(sessionId: string): void {
@@ -224,7 +224,7 @@ export class DesktopInspector {
     if (generation !== this.generation || this.repositories.get(workspaceId) !== state) return;
     state.loading = false;
     if (result.ok && result.value.workspaceId === workspaceId) state.value = result.value;
-    else state.error = result.ok ? "Git 仓库响应不属于此工作区，请重试。" : result.error.message;
+    else state.error = result.ok ? "The Git repository response doesn't belong to this workspace. Try again." : result.error.message;
     this.changed();
   }
   async loadMoreGit(workspaceId: string): Promise<void> {
@@ -236,10 +236,10 @@ export class DesktopInspector {
     const result = await this.request("read_workspace_git", { workspace_id: workspaceId, cursor });
     if (generation !== this.generation || this.repositories.get(workspaceId) !== state || state.value?.repository?.nextCursor !== cursor) return;
     state.loadingMore = false;
-    if (!result.ok) state.moreError = `读取更早提交失败：${result.error.message}`;
+    if (!result.ok) state.moreError = `Couldn't load earlier commits: ${result.error.message}`;
     else {
       const page = result.value.repository, ids = new Set(repository.commits.map(commit => commit.id));
-      if (result.value.workspaceId !== workspaceId || !page || page.head !== repository.head || page.nextCursor === cursor || page.commits.some(commit => ids.has(commit.id))) state.moreError = "Git 历史分页不一致，请刷新后继续浏览。";
+      if (result.value.workspaceId !== workspaceId || !page || page.head !== repository.head || page.nextCursor === cursor || page.commits.some(commit => ids.has(commit.id))) state.moreError = "Git history pages are inconsistent. Refresh to keep browsing.";
       else state.value = { ...result.value, repository: { ...page, commits: [...repository.commits, ...page.commits] } };
     }
     this.changed();
@@ -261,14 +261,14 @@ export class DesktopInspector {
   }
   openFiles(): void {
     const workspace = this.workspace();
-    if (this.target === "code" && workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "文件树", workspaceId: workspace.id });
+    if (this.target === "code" && workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "Files", workspaceId: workspace.id });
   }
   openBackground(): void {
     if (this.target !== "code" || !this.parentSessionId) return;
-    this.addTab({ id: "background", kind: "background", title: "后台进程" });
+    this.addTab({ id: "background", kind: "background", title: "Background" });
   }
   openFile(workspaceId: string, path: string): void { if (this.target !== "code") return; this.addTab({ id: `file:${workspaceId}:${path}`, kind: "file", title: path.split("/").at(-1) ?? path, workspaceId, path, mode: "preview" }); }
-  // Note: 见 .agents/notes/implemented/feature/2026-10-25-code-present.md
+  // Note: See .agents/notes/implemented/feature/2026-10-25-code-present.md
   async openPresentation(sessionId: string, tool: DiffTool): Promise<boolean | null> {
     if (this.target !== "code" || tool.name !== "present" || tool.status !== "done" || !tool.taskId) return false;
     const generation = this.generation, version = (this.presentationVersions.get(sessionId) ?? 0) + 1;
@@ -282,11 +282,11 @@ export class DesktopInspector {
       if (!url) return false;
       const existing = this.tabsByParent.get(sessionId)?.find(tab => tab.kind === "browser");
       if (existing?.kind === "browser") existing.navigation = navigateBrowser(existing.navigation, url);
-      this.addTab(existing ?? { id: "browser", kind: "browser", title: "浏览器", navigation: browserNavigation(url) }, sessionId);
+      this.addTab(existing ?? { id: "browser", kind: "browser", title: "Browser", navigation: browserNavigation(url) }, sessionId);
       return true;
     }
     if (typeof params.path !== "string" || !params.path.trim() || tool.artifactIds.length !== 1) return false;
-    this.addTab({ id: `present:${sessionId}:${tool.toolOpId ?? tool.entryId ?? tool.key}`, kind: "read-snapshot", title: params.path.split("/").at(-1) || "文件预览",
+    this.addTab({ id: `present:${sessionId}:${tool.toolOpId ?? tool.entryId ?? tool.key}`, kind: "read-snapshot", title: params.path.split("/").at(-1) || "File preview",
       path: params.path, sessionId, taskId: tool.taskId, artifactId: tool.artifactIds[0], mode: "preview" }, sessionId);
     return true;
   }
@@ -306,7 +306,7 @@ export class DesktopInspector {
     const workspace = this.view.projects.filter(project => project.rootDir && absolute.startsWith(`${project.rootDir.cwdReal.replace(/\/$/, "")}/`)).sort((a, b) => b.rootDir!.cwdReal.length - a.rootDir!.cwdReal.length)[0];
     if (!workspace) {
       if (tool.name !== "read" || tool.status !== "done" || !tool.taskId || tool.artifactIds.length !== 1) return false;
-      this.addTab({ id: `read:${sessionId}:${tool.toolOpId ?? tool.entryId ?? tool.key}`, kind: "read-snapshot", title: absolute.split("/").at(-1) || "Read 快照", path: absolute, sessionId, taskId: tool.taskId, artifactId: tool.artifactIds[0], mode: "preview" });
+      this.addTab({ id: `read:${sessionId}:${tool.toolOpId ?? tool.entryId ?? tool.key}`, kind: "read-snapshot", title: absolute.split("/").at(-1) || "Read snapshot", path: absolute, sessionId, taskId: tool.taskId, artifactId: tool.artifactIds[0], mode: "preview" });
       return true;
     }
     this.openFile(workspace.id, absolute.slice(workspace.rootDir!.cwdReal.replace(/\/$/, "").length + 1));
@@ -316,9 +316,9 @@ export class DesktopInspector {
     if (address && !browserAddress(address)) return;
     const existing = this.tabs().find(tab => tab.kind === "browser");
     if (existing?.kind === "browser" && address) existing.navigation = navigateBrowser(existing.navigation, address);
-    this.addTab(existing ?? { id: "browser", kind: "browser", title: "浏览器", navigation: browserNavigation(address ? browserAddress(address)! : "about:blank") });
+    this.addTab(existing ?? { id: "browser", kind: "browser", title: "Browser", navigation: browserNavigation(address ? browserAddress(address)! : "about:blank") });
   }
-  // Note: 见 .agents/notes/implemented/feature/2026-10-24-directory-pages-lazy-git.md
+  // Note: See .agents/notes/implemented/feature/2026-10-24-directory-pages-lazy-git.md
   async loadDirectory(workspaceId: string, path: string, retry = false, canContinue?: () => boolean): Promise<void> {
     if (this.target !== "code" || !this.online) return;
     const key = this.fileKey(workspaceId, path);
@@ -335,7 +335,7 @@ export class DesktopInspector {
       const result = await this.request("list_workspace_files", { workspace_id: workspaceId, path, ...(cursor ? { cursor } : {}) });
       if (generation !== this.generation || this.directories.get(key) !== state) return;
       if (!result.ok) { state.error = result.error.message; break; }
-      if (!validDirectoryPage(result.value, workspaceId, path, value?.entries ?? [], cursors)) { state.error = "目录分页不一致，请刷新后继续浏览。"; break; }
+      if (!validDirectoryPage(result.value, workspaceId, path, value?.entries ?? [], cursors)) { state.error = "Directory pages are inconsistent. Refresh to keep browsing."; break; }
       value = { ...result.value, entries: [...(value?.entries ?? []), ...result.value.entries] };
       cursor = value.nextCursor ?? undefined;
       if (cursor) cursors.add(cursor);
@@ -364,7 +364,7 @@ export class DesktopInspector {
     if (!result.ok) {
       if (result.error.code === "workspace_file_changed") state.error = result.error.message;
       else state.moreError = result.error.message;
-    } else if (!validDirectoryPage(result.value, workspaceId, path, directory.entries, state.cursors ?? new Set([cursor]))) state.error = "目录分页不一致，请刷新后继续浏览。";
+    } else if (!validDirectoryPage(result.value, workspaceId, path, directory.entries, state.cursors ?? new Set([cursor]))) state.error = "Directory pages are inconsistent. Refresh to keep browsing.";
     else {
       state.value = { ...result.value, entries: [...directory.entries, ...result.value.entries] };
       if (result.value.nextCursor) (state.cursors ??= new Set([cursor])).add(result.value.nextCursor);
@@ -407,15 +407,15 @@ export class DesktopInspector {
       if (!result.ok) { state.error = result.error.message; break; }
       const page = result.value;
       if (page.workspaceId !== workspaceId || page.path !== path || page.offset !== offset || page.encoding !== "base64" || !Number.isSafeInteger(page.size) || page.size < offset || typeof page.version !== "string" || !page.version || version !== undefined && (page.version !== version || page.size !== bytes!.length) || typeof page.data !== "string" || page.data.length > Math.ceil(Math.min(page.size - offset, FILE_PAGE_BYTES) / 3) * 4) {
-        state.error = "文件分页来源或修订无法核实，请重新打开。"; break;
+        state.error = "File page source or revision unverified. Reopen it."; break;
       }
       let chunk: Uint8Array;
       try { chunk = Uint8Array.from(atob(page.data), character => character.charCodeAt(0)); }
-      catch { state.error = "文件分页内容无法解析，请重试。"; break; }
-      if (chunk.length !== Math.min(page.size - offset, FILE_PAGE_BYTES)) { state.error = "文件分页内容不完整，请重试。"; break; }
+      catch { state.error = "Couldn't parse file page content. Try again."; break; }
+      if (chunk.length !== Math.min(page.size - offset, FILE_PAGE_BYTES)) { state.error = "File page content incomplete. Try again."; break; }
       if (!bytes) {
         try { bytes = new Uint8Array(page.size); }
-        catch { state.error = "当前窗口无法分配文件预览所需的内存。"; break; }
+        catch { state.error = "This window can't allocate the memory the file preview needs."; break; }
         version = page.version;
       }
       bytes.set(chunk, offset); offset += chunk.length;
@@ -423,7 +423,7 @@ export class DesktopInspector {
     state.loading = false;
     if (!state.error && bytes) {
       try { state.value = readSnapshotFile(path, bytes, bytes.length); }
-      catch (cause) { if (!(cause instanceof RangeError)) throw cause; state.error = "当前窗口无法处理文件预览所需的内存，请关闭其他预览后重试。"; }
+      catch (cause) { if (!(cause instanceof RangeError)) throw cause; state.error = "This window can't handle the memory the file preview needs. Close other previews and try again."; }
     }
     this.changed();
   }
@@ -436,18 +436,18 @@ export class DesktopInspector {
     do {
       const result = await this.request("read_artifact", { task_id: tab.taskId, artifact_id: tab.artifactId, session_id: tab.sessionId, offset, length: FILE_PAGE_BYTES });
       if (generation !== this.generation || this.snapshots.get(tab.id) !== state || !this.tabs().includes(tab)) return;
-      if (!result.ok) { state.error = `读取 Read 快照失败：${result.error.message}`; break; }
+      if (!result.ok) { state.error = `Couldn't load the Read snapshot: ${result.error.message}`; break; }
       const { artifact, data, encoding } = result.value, size = artifact.byteCount;
       if (artifact.id !== tab.artifactId || artifact.taskId !== tab.taskId || artifact.sessionId !== tab.sessionId || !["partial", "complete"].includes(artifact.status) || !Number.isSafeInteger(size) || size < offset || bytes && (size !== bytes.length || artifact.status !== status) || encoding !== "base64" || typeof data !== "string" || data.length > Math.ceil(Math.min(size - offset, FILE_PAGE_BYTES) / 3) * 4) {
-        state.error = "Read 快照来源或大小无法核实，请重试。"; break;
+        state.error = "Read snapshot source or size unverified. Try again."; break;
       }
       let chunk: Uint8Array;
       try { chunk = Uint8Array.from(atob(data), character => character.charCodeAt(0)); }
-      catch { state.error = "Read 快照内容无法解析，请重试。"; break; }
-      if (chunk.length !== Math.min(size - offset, FILE_PAGE_BYTES)) { state.error = "Read 快照内容不完整，请重试。"; break; }
+      catch { state.error = "Couldn't parse Read snapshot content. Try again."; break; }
+      if (chunk.length !== Math.min(size - offset, FILE_PAGE_BYTES)) { state.error = "Read snapshot content incomplete. Try again."; break; }
       if (!bytes) {
         try { bytes = new Uint8Array(size); }
-        catch { state.error = "当前窗口无法分配 Read 快照所需的内存。"; break; }
+        catch { state.error = "This window can't allocate the memory the Read snapshot needs."; break; }
         status = artifact.status;
       }
       bytes.set(chunk, offset); offset += chunk.length;
@@ -455,7 +455,7 @@ export class DesktopInspector {
     state.loading = false;
     if (!state.error && bytes) {
       try { state.file = readSnapshotFile(tab.path, bytes, bytes.length); }
-      catch (cause) { if (!(cause instanceof RangeError)) throw cause; state.error = "当前窗口无法处理 Read 快照所需的内存，请关闭其他预览后重试。"; }
+      catch (cause) { if (!(cause instanceof RangeError)) throw cause; state.error = "This window can't handle the memory the Read snapshot needs. Close other previews and try again."; }
       state.partial = status === "partial";
     }
     this.changed();
@@ -488,7 +488,7 @@ export class DesktopInspector {
     const result = await this.request("work_list", { session_id: sessionId });
     if (generation !== this.generation || read !== this.workRead || sessionId !== this.parentSessionId) return;
     this.loadingWorks = false;
-    if (!result.ok) this.workError = `读取工作委托失败：${result.error.message}；请刷新重试。`;
+    if (!result.ok) this.workError = `Couldn't load the work delegation: ${result.error.message} Refresh and try again.`;
     else {
       this.works = result.value.works;
       const agents = new Map(this.view.subAgents.map(agent => [agent.id, agent]));
@@ -508,7 +508,7 @@ export class DesktopInspector {
     const detailRead = ++this.detailRead;
     const result = await this.request("work_get", { work_id: workId });
     if (generation !== this.generation || read !== this.workRead || detailRead !== this.detailRead || this.workId !== workId) return;
-    if (!result.ok) this.workError = `读取工作详情失败：${result.error.message}；请刷新重试。`;
+    if (!result.ok) this.workError = `Couldn't load the work details: ${result.error.message} Refresh and try again.`;
     else this.detail = result.value;
     this.changed();
   }
@@ -580,16 +580,16 @@ export class DesktopInspector {
     while (true) {
       const result: DesktopResult<OpResult<"get_tool_op_params">> = await this.request("get_tool_op_params", { tool_op_id: tool.toolOpId, offset, length: 64 * 1024 });
       if (generation !== this.generation || this.params.get(key) !== state) return;
-      if (!result.ok) { state.error = `读取参数失败：${result.error.message}`; break; }
+      if (!result.ok) { state.error = `Couldn't load the parameters: ${result.error.message}`; break; }
       const page = result.value.params;
       const next = toolPage(page, offset, total);
-      if (result.value.toolOp.id !== tool.toolOpId || result.value.toolOp.taskId !== tool.taskId || result.value.toolOp.toolName.toLowerCase() !== tool.name.toLowerCase() || this.view.tasks.get(tool.taskId ?? "")?.sessionId !== sessionId || !next) { state.error = "工具参数来源或分页不一致，请重试。"; break; }
+      if (result.value.toolOp.id !== tool.toolOpId || result.value.toolOp.taskId !== tool.taskId || result.value.toolOp.toolName.toLowerCase() !== tool.name.toLowerCase() || this.view.tasks.get(tool.taskId ?? "")?.sessionId !== sessionId || !next) { state.error = "Tool parameter source or pages inconsistent. Try again."; break; }
       text += page.text; offset = next.nextOffset; total = next.totalBytes;
       if (offset < total) continue;
       let parsed: unknown;
       try { parsed = JSON.parse(text); }
-      catch { state.error = "工具参数无法解析，请重试。"; break; }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) state.error = "工具参数格式无效，请重试。";
+      catch { state.error = "Couldn't parse tool parameters. Try again."; break; }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) state.error = "Tool parameter format invalid. Try again.";
       else state.value = parsed as Record<string, unknown>;
       break;
     }
@@ -606,11 +606,11 @@ export class DesktopInspector {
     }
     state.loading = false;
     let error: string | undefined;
-    if (!result.ok) error = `读取差异失败：${result.error.message}`;
+    if (!result.ok) error = `Couldn't load the diff: ${result.error.message}`;
     else {
       const page = result.value.content;
       const next = toolPage(page, offset, state.totalBytes);
-      if (!next) error = "工具结果分页不连续，请重试。";
+      if (!next) error = "Tool result pages are discontinuous. Try again.";
       else {
         const previous = offset ? state.value?.[field] ?? "" : "";
         state.value = { ...result.value, [field]: page == null ? null : previous + page.text, truncated: next.nextOffset < next.totalBytes };

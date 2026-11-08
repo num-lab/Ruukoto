@@ -45,6 +45,7 @@ class Bot {
   edits: Record<string, unknown>[] = [];
   documents: { body: Record<string, unknown>; name: string; mime: string; bytes: Buffer }[] = [];
   responses: string[] = [];
+  beforePoll?: () => Promise<void>;
   private server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -62,6 +63,7 @@ class Bot {
       reply({ message_id: 2000 + this.documents.length, chat: { id: Number(body.chat_id), type: "private" }, document: { file_id: `file-${this.documents.length}`, file_name: file.name, file_size: file.size } }); return;
     }
     if (req.url === `/bot${TOKEN}/getUpdates`) {
+      await this.beforePoll?.();
       this.polls.push(body);
       if (typeof body.offset === "number") this.updates = body.offset === -1 ? this.updates.slice(-1) : this.updates.filter(item => item.update_id >= Number(body.offset));
       await delay(20);
@@ -360,12 +362,22 @@ test("Telegram：在线向导使用后台配对身份和接管边界，同一后
 
 test("Telegram：真实本机后台装配轮询，停止收齐后释放档案锁", async t => {
   const f = await fixture(t), profile = lockPersonalProfile(f.options.directory);
+  const requests = t.mock.method(globalThis, "fetch");
+  const pollsStarted = () => requests.mock.calls.filter(call => call.arguments[0] === `${f.telegram.apiBase}/bot${TOKEN}/getUpdates`).length;
   try { fs.writeFileSync(path.join(profile.directory, "model.json"), JSON.stringify(f.config) + "\n", { mode: 0o600 }); fs.writeFileSync(path.join(profile.directory, "telegram.json"), JSON.stringify(f.telegram) + "\n", { mode: 0o600 }); } finally { profile.release(); }
   const server = await startPersonalServer(f.options.directory); t.after(() => server.stop());
   f.bot.updates.push(update(11)); await until(() => f.bot.sends.length === 1);
   const state = await personalControl<{ enabled: boolean; recent: { delivery: string }[] }>(f.options.directory, "GET", "/telegram"); assert.equal(state.enabled, true); assert.equal(state.recent[0].delivery, "sent");
-  await server.stop(); lockPersonalProfile(f.options.directory).release();
-  const count = f.bot.polls.length; await delay(60); assert.equal(f.bot.polls.length, count);
+  let release!: () => void, received = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  f.bot.beforePoll = async () => { received = true; await gate; };
+  try {
+    await until(() => received);
+    await server.stop(); lockPersonalProfile(f.options.directory).release();
+    const count = pollsStarted(), observed = f.bot.polls.length;
+    release(); await until(() => f.bot.polls.length > observed);
+    await delay(60); assert.equal(pollsStarted(), count);
+  } finally { release(); }
 });
 
 test("Telegram：配对身份选择过期，不发送旧确认水位或保存绑定", async t => {

@@ -394,8 +394,10 @@ test("durable 检查：迟到 I1 停止应答只留证据，不能清除 I2 占�
 
 test("durable 检查：工具取消仍保存停止证据，未核实的终态不能释放占用", async t => {
   const f = await fixture(t); fs.writeFileSync(path.join(f.helper, "inspect-delay-ms"), "60000"); fs.writeFileSync(path.join(f.helper, "inspection-stop-fails"), "");
+  const started = path.join(f.helper, "inspection-started");
+  f.script(fs.readFileSync(f.service.helperPath, "utf8").replace('if (flag("inspect-delay-ms"))', `fs.writeFileSync(${JSON.stringify(started)}, ""); if (flag("inspect-delay-ms"))`));
   const p = await f.open({ service: { ...f.service, timeouts: { inspectMs: 90000, stopMs: 1000 } } });
-  const work = await startInspection(p, "检查", "cancel-tool"); await until(() => f.calls().some(call => call[0] === "inspect-op"));
+  const work = await startInspection(p, "检查", "cancel-tool"); await until(() => fs.existsSync(started));
   const child = (await p.harness.conversation(work.agentId, context))!;
   await child.abort(context);
   const pending = (await p.inspections!.list())[0]; assert.ok(pending);

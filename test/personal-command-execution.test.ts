@@ -31,6 +31,11 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
   const realSpawn = childProcess.spawn, readFile = nodeFs.readFileSync, exists = nodeFs.existsSync, access = nodeFs.accessSync, open = nodeFs.openSync, stat = nodeFs.statSync;
   let stopSignalError: string | undefined;
   const alive = () => !!child && child.exitCode === null && child.signalCode === null;
+  const groupAlive = () => {
+    if (!child?.pid) return false;
+    try { process.kill(-child.pid, 0); return true; }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ESRCH") return false; throw error; }
+  };
   t.mock.method(nodeFs, "readFileSync", (target: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
     if (target === "/etc/machine-id") return machineId + "\n";
     if (target === "/proc/sys/kernel/random/boot_id") return bootId + "\n";
@@ -39,7 +44,7 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
       return `${child!.pid} (worker) ${["S", "1", String(child!.pid), ...Array(16).fill("0"), "123"].join(" ")}`;
     }
     if (target === `/proc/${child?.pid}/cgroup`) return `0::${group}\n`;
-    if (/^\/proc\/self\/fd\/\d+\/cgroup.events$/.test(String(target))) return `populated ${alive() ? 1 : 0}\n`;
+    if (/^\/proc\/self\/fd\/\d+\/cgroup.events$/.test(String(target))) return `populated ${groupAlive() ? 1 : 0}\n`;
     return readFile(target, options);
   });
   t.mock.method(nodeFs, "existsSync", (target: fs.PathLike) => {
@@ -56,7 +61,7 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
   t.mock.method(nodeFs, "openSync", (target: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
     if (target === `/sys/fs/cgroup${group}`) return open(groupPath, flags, mode);
     if (/^\/proc\/self\/fd\/\d+\/cgroup.kill$/.test(String(target))) {
-      if (alive()) {
+      if (groupAlive()) {
         try { process.kill(-child!.pid!, "SIGKILL"); }
         catch (error) {
           stopSignalError = error instanceof Error && "code" in error ? String(error.code) : String(error);
@@ -74,8 +79,8 @@ async function fixture(t: TestContext, mode: LaunchSpec["mode"] = "confirm") {
     if (args.includes("is-system-running")) { beforeManager?.(); callback(null, "running\n", ""); }
     else {
       const claim = JSON.parse(readFile(path.join(directory, ref.executionId, "claim.json"), "utf8"));
-      callback(stopFails && !alive() ? new Error("query failed") : null,
-        `LoadState=loaded\nActiveState=${alive() ? "active" : "inactive"}\nControlGroup=${group}\nInvocationID=${"c".repeat(32)}\nDescription=ruukoto-execution-${claim.token}\n`, "");
+      callback(stopFails && !groupAlive() ? new Error("query failed") : null,
+        `LoadState=loaded\nActiveState=${groupAlive() ? "active" : "inactive"}\nControlGroup=${group}\nInvocationID=${"c".repeat(32)}\nDescription=ruukoto-execution-${claim.token}\n`, "");
     }
     return new childProcess.ChildProcess();
   });
@@ -242,6 +247,40 @@ test("独立停止正在执行的命令不发布完成回执", async t => {
   assert.equal((await stopPersonalCommand(f.options.directory, f.options.ref)).exited, true);
   await rejected;
   assert.equal(await readPersonalCommandReceipt(f.options.directory, f.options.ref), undefined);
+});
+
+test("command fixture keeps the scope active after its launcher exits with a live descendant", async t => {
+  const f = await fixture(t), kill = process.kill;
+  const outcome = f.run("sleep 30 & printf started; wait").catch(error => error);
+  let originalGroup: number | undefined;
+  let cleanupError: unknown;
+  try {
+    const deadline = Date.now() + 5000;
+    while (!fs.existsSync(path.join(f.record, "stdout")) || fs.statSync(path.join(f.record, "stdout")).size === 0) {
+      assert.ok(Date.now() < deadline, "The command did not start");
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    t.mock.method(process, "kill", (pid: number, signal?: NodeJS.Signals | number) => {
+      if (pid < 0 && signal === "SIGKILL" && originalGroup === undefined) {
+        originalGroup = pid;
+        return kill(-pid, signal);
+      }
+      return kill(pid, signal);
+    });
+    const stopped = await stopPersonalCommand(f.options.directory, f.options.ref);
+    assert.notEqual(originalGroup, undefined);
+    assert.equal(stopped.exited, true); assert.equal(stopped.cleaned, true);
+    assert.throws(() => kill(originalGroup!, 0), { code: "ESRCH" });
+    const error = await outcome;
+    assert.ok(error instanceof PersonalError && error.code === "command_result_unknown");
+  } finally {
+    if (originalGroup !== undefined) {
+      try { kill(originalGroup, "SIGKILL"); }
+      catch (error) { cleanupError = error; }
+    }
+    await outcome;
+  }
+  if (cleanupError !== undefined) assert.ok(cleanupError instanceof Error && "code" in cleanupError && cleanupError.code === "ESRCH");
 });
 
 test("坏命令、混用完全访问准备及可见证据目录在启动前拒绝", async t => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { createElement, type ComponentType, type ReactNode } from "react";
+import { createElement, isValidElement, type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createServer, type ViteDevServer } from "vite";
@@ -42,9 +42,11 @@ let OwnerQuestionCard: ComponentType<{ model: CodeState; question: OwnerQuestion
 let Conversation: ComponentType<{ model: CodeState; sessionId: string; child?: boolean }>;
 let QueuePanel: ComponentType<{ model: CodeState; session: Session; defaultOpen?: boolean }>;
 let MessageScrollerProvider: ComponentType<{ children?: ReactNode }>;
+let useComposerCommands: (props: { model: CodeState; session?: Session; text: string; edit: (text: string) => void; input: { current: HTMLTextAreaElement | null }; locked: boolean; onNew?: () => void; onSkills?: () => void }) => { execute: () => Promise<void>; help: ReactNode };
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL("../apps/desktop/src/renderer/", import.meta.url)), plugins: [react()], server: { middlewareMode: true, hmr: false }, appType: "custom" });
   ({ Composer, composerInputHeight, selectionForModel, EffortSlider } = await server.ssrLoadModule("/composer.tsx"));
+  ({ useComposerCommands } = await server.ssrLoadModule("/composer-commands.tsx"));
   ({ Scheduled } = await server.ssrLoadModule("/scheduled.tsx"));
   ({ QueuePanel } = await server.ssrLoadModule("/queue-panel.tsx"));
   ({ NewChatDraft, filterWorkspaces, showsNewChat } = await server.ssrLoadModule("/new-chat.tsx"));
@@ -521,7 +523,7 @@ test("Scheduled edits the whole plan on one page and validates every field befor
   assert.equal(transport.requests.length, 0);
 });
 
-test("活动定时会话禁止普通输入、模型与权限修改", async () => {
+test("active scheduled conversations retain draft editing and commands while blocking ordinary sends and setting changes", async () => {
   const { model, current, transport } = harness();
   current.codeScheduleActive = true; current.codeScheduleRunId = "run";
   model.writes.edit(current.id, "普通输入");
@@ -529,9 +531,13 @@ test("活动定时会话禁止普通输入、模型与权限修改", async () =>
   assert.equal(transport.requests.length, 0);
   const render = () => renderToStaticMarkup(createElement(Composer, { model, session: current }));
   let html = render();
-  assert.ok(hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"));
+  assert.equal(hasAttr(elements(html).find(element => element.tagName === "textarea")!, "readonly"), false);
+  assert.equal(hasAttr(button(html, "发送消息"), "disabled"), true);
   assert.ok(hasAttr(button(html, "会话默认模式"), "disabled")); assert.ok(hasAttr(button(html, "会话模型"), "disabled"));
   assert.doesNotMatch(html, /正在继续中断的任务|发送并继续/);
+  current.modelSelection = null;
+  model.writes.edit(current.id, "/help");
+  assert.equal(hasAttr(button(render(), "发送消息"), "disabled"), false, "local command does not require a model or ordinary-task eligibility");
 });
 
 
@@ -622,4 +628,105 @@ test("text and attachment submissions preserve a paused queue without resuming i
   assert.equal(requests[0].input, "normal queued input");
   assert.equal(requests[1].input, "");
   assert.deepEqual(requests[1].attachments, [attachment]);
+});
+
+function commandHandler(model: CodeState, current: Session, actions = { onNew() {}, onSkills() {} }) {
+  let execute!: () => Promise<void>;
+  function Capture() {
+    const commands = useComposerCommands({ model, session: current, text: model.writes.draft(current.id).text, edit: text => model.writes.edit(current.id, text), input: { current: null }, locked: false, ...actions });
+    execute = commands.execute;
+    return null;
+  }
+  renderToStaticMarkup(createElement(Capture));
+  return execute;
+}
+
+test("closing command help returns keyboard focus to the composer", () => {
+  const h = harness();
+  let help: ReactNode, focused = 0, prevented = 0;
+  const textarea = { focus() { ++focused; } } as HTMLTextAreaElement;
+  function Capture() {
+    help = useComposerCommands({ model: h.model, session: h.current, text: "/help", edit() {}, input: { current: textarea }, locked: false }).help;
+    return null;
+  }
+  renderToStaticMarkup(createElement(Capture));
+  assert.ok(isValidElement<{ children?: ReactNode }>(help));
+  const content = help.props.children;
+  assert.ok(isValidElement<{ onCloseAutoFocus: (event: { preventDefault(): void }) => void }>(content));
+  content.props.onCloseAutoFocus({ preventDefault() { ++prevented; } });
+  assert.equal(focused, 1);
+  assert.equal(prevented, 1);
+});
+
+test("application commands preserve attachments and never submit an owner task", async () => {
+  const h = harness();
+  const attachment = { id: "file", name: "notes.txt", size: 12 };
+  const draft = h.model.writes.draft(h.current.id);
+  draft.attachments = [attachment];
+  h.current.modelSelection = null;
+  let openedNew = 0, openedSkills = 0;
+  for (const text of ["/help", "/model", "/mode", "/new", "/skills"]) {
+    draft.text = text;
+    await commandHandler(h.model, h.current, { onNew() { ++openedNew; }, onSkills() { ++openedSkills; } })();
+    assert.equal(draft.text, "");
+    assert.deepEqual(draft.attachments, [attachment]);
+  }
+  assert.equal(openedNew, 1); assert.equal(openedSkills, 1);
+  assert.equal(h.transport.requests.length, 0);
+});
+
+test("invalid and unavailable commands retain text and attachments with feedback", async () => {
+  const h = harness(), draft = h.model.writes.draft(h.current.id);
+  const attachment = { id: "file", name: "notes.txt", size: 12 };
+  draft.attachments = [attachment];
+  for (const text of ["/model extra", "/new extra", "/skill:"]) {
+    draft.text = text;
+    await commandHandler(h.model, h.current)();
+    assert.equal(draft.text, text);
+    assert.ok(h.model.writes.message);
+    assert.deepEqual(draft.attachments, [attachment]);
+  }
+  for (const text of ["/model", "/compact keep details", "/branch named"]) {
+    h.model.status = { type: "state", state: "reconnecting" };
+    draft.text = text;
+    await commandHandler(h.model, h.current)();
+    assert.equal(draft.text, text);
+    assert.match(h.model.writes.message!, /Reconnect/);
+  }
+  h.model.status = { type: "state", state: "online" };
+  h.current.codeScheduleActive = true;
+  for (const text of ["/model", "/mode", "/compact", "/branch named"]) {
+    draft.text = text;
+    await commandHandler(h.model, h.current)();
+    assert.equal(draft.text, text);
+    assert.ok(h.model.writes.message);
+  }
+  h.current.codeScheduleActive = false;
+  for (const status of ["queued", "running"] as const) {
+    h.model.view.tasks.set("busy", { ...queuedTask("busy", "earlier input", 1), status });
+    draft.text = "/compact keep details";
+    await commandHandler(h.model, h.current)();
+    assert.equal(draft.text, "/compact keep details");
+    assert.match(h.model.writes.message!, /idle ordinary conversation/);
+  }
+  assert.equal(h.transport.requests.length, 0);
+});
+
+for (const command of ["compact", "branch"] as const) test(`late /${command} admission preserves replacement input and executes once`, async () => {
+  const h = harness(), draft = h.model.writes.draft(h.current.id);
+  draft.text = `/${command} focus`;
+  draft.attachments = [{ id: "file", name: "notes.txt", size: 12 }];
+  let calls = 0, release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  if (command === "compact") h.model.compactions.start = async (_sessionId, prompt) => { assert.equal(prompt, "focus"); ++calls; await hold; return true; };
+  else h.model.branch = async (_sessionId, taskId, name) => { assert.equal(taskId, undefined); assert.equal(name, "focus"); ++calls; await hold; return true; };
+  const execute = commandHandler(h.model, h.current);
+  const pending = execute();
+  await execute();
+  h.model.writes.edit(h.current.id, "next task\nwith details");
+  release(); await pending;
+  assert.equal(calls, 1);
+  assert.equal(draft.text, "next task\nwith details");
+  assert.equal(draft.attachments?.[0].id, "file");
+  assert.equal(h.transport.requests.length, 0);
 });

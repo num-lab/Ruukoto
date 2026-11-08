@@ -3,7 +3,7 @@ import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import type { RequestOutcome } from "@ruukoto/control/client.ts";
 import type { ConnectionState } from "@ruukoto/control/connection.ts";
 import type { ConnectResult, DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
-import type { ModelSelection, PersistentEvent, Project, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
+import type { ModelSelection, PersistentEvent, Project, Session, SessionDefaultMode, SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome, OwnerQuestionAnswerOutcome } from "@ruukoto/control/submission.ts";
@@ -11,6 +11,12 @@ import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput
 import type { PersonalDesktopAttachment } from "@ruukoto/view/personal-protocol.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
+export type DesktopCompactionOutcome =
+  | { kind: "accepted"; request: SessionCompactionRequest }
+  | { kind: "pending_verification"; message: string }
+  | { kind: "rejected"; message: string }
+  | { kind: "foreign_instance" };
+export interface DesktopCompactionResult { record: PendingRequest; outcome: DesktopCompactionOutcome }
 
 export type DesktopCancelQuestionResult = OwnerQuestionCancelOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type DesktopSubmitResult = SubmitOutcome | OwnerQuestionAnswerOutcome | { kind: "pending_existing"; record: PendingRequest };
@@ -59,6 +65,7 @@ export type DesktopUpdate =
   | { type: "pending"; entries: PendingInput[]; corrupt: string[]; dir: string }
   | { type: "schedule_submission"; record: PendingRequest; result: CodeScheduleReconcileOutcome }
   | { type: "question_cancel"; record: PendingRequest; result: OwnerQuestionCancelReconcileOutcome }
+  | { type: "compaction"; result: DesktopCompactionResult }
   | { type: "submission"; record: PendingRequest; result: ReconcileOutcome }
   | { type: "chat_drafts"; drafts: DesktopChatDraft[]; error?: string }
   /** 原生浏览器页面事实（闸门/导航/标题/关闭）；经 Go→Node→前端转发。 */

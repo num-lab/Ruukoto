@@ -1,12 +1,12 @@
 import { CodeScheduleRequestGuard, type CodeScheduleReconcileOutcome, type CodeScheduleWriteOp, type CodeScheduleWriteOutcome } from "@ruukoto/control/code-schedule-requests.ts";
 import type { OpParams } from "@ruukoto/control/ops.ts";
 import { BackgroundEndGuard, type BackgroundEndOutcome } from "@ruukoto/control/background-end.ts";
-import { ControlClientError } from "@ruukoto/control/client.ts";
+import { ControlClientError, requestOutcome } from "@ruukoto/control/client.ts";
 import type { ControlConnection } from "@ruukoto/control/connection.ts";
 import { PendingRequestStore, type PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import { OwnerQuestionCancelGuard, type OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import { SubmissionGuard, type ReconcileOutcome } from "@ruukoto/control/submission.ts";
-import type { DesktopCancelQuestionResult, DesktopSubmitResult, DesktopUpdate, PendingOp } from "../shared/bridge.ts";
+import type { DesktopCancelQuestionResult, DesktopCompactionResult, DesktopSubmitResult, DesktopUpdate, PendingOp } from "../shared/bridge.ts";
 import { DesktopError } from "./environment.ts";
 
 type Connection = Pick<ControlConnection, "request"> & { instanceId?: string | null };
@@ -35,6 +35,62 @@ export class DesktopSubmissions {
     if (this.stopped) return;
     const { records, corrupt } = this.store.list();
     this.publish({ type: "pending", entries: records.filter(record => record.op !== "desktop_start_chat" && record.op !== "create_managed_session").map(record => ({ record, result: this.results.get(record.requestId) })), corrupt, dir: this.store.dir });
+  }
+  // Note: See .agents/notes/implemented/feature/2026-11-08-desktop-slash-commands.md
+  /** The host retains the original request until its terminal receipt is known. */
+  async compact(params: OpParams<"compact_session">): Promise<DesktopCompactionResult> {
+    if (typeof params.session_id !== "string" || !params.session_id.trim() || typeof params.request_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(params.request_id) || params.prompt !== undefined && typeof params.prompt !== "string") throw new DesktopError("invalid_params", "请选择会话并提供有效的压缩请求。");
+    const connection = this.guardConnection();
+    if (!connection.instanceId) throw new DesktopError("connection_unavailable", "请等待连接恢复后再压缩上下文。");
+    const saved = this.store.list(true);
+    if (saved.corrupt.length) throw new DesktopError("pending_corrupt", "待核实记录损坏，请先检查桌面应用数据目录。");
+    const existing = saved.records.find(record => record.op === "compact_session" && record.instanceId === connection.instanceId && record.params.session_id === params.session_id);
+    if (existing) {
+      if (this.sending.has(existing.requestId)) return this.compactionResult(existing, { kind: "pending_verification", message: "原压缩请求正在发送，请等待核实。" });
+      const result = await this.reconcileCompaction(existing, existing.requestId === params.request_id);
+      if (existing.requestId !== params.request_id) return { record: existing, outcome: { kind: "pending_verification", message: "已核实原压缩请求，请查看结果后再提交新命令。" } };
+      return result;
+    }
+    const previous = this.store.read(params.request_id);
+    if (previous.kind !== "absent") throw new DesktopError("request_conflict", "压缩请求标识已被占用，请先核实原操作。");
+    const record: PendingRequest = { requestId: params.request_id, op: "compact_session", instanceId: connection.instanceId, params: { ...params }, createdAt: new Date().toISOString() };
+    this.store.save(record);
+    const result = await this.sendCompaction(record);
+    if (result.outcome.kind !== "rejected") void this.reconcile();
+    return result;
+  }
+  private compactionResult(record: PendingRequest, outcome: DesktopCompactionResult["outcome"]): DesktopCompactionResult {
+    const result = { record, outcome };
+    this.publish({ type: "compaction", result });
+    return result;
+  }
+  private async sendCompaction(record: PendingRequest): Promise<DesktopCompactionResult> {
+    const connection = this.guardConnection();
+    if (record.instanceId !== connection.instanceId) return this.compactionResult(record, { kind: "foreign_instance" });
+    this.sending.add(record.requestId); this.refresh();
+    try {
+      const request = await connection.request("compact_session", record.params as OpParams<"compact_session">);
+      if (request.status !== "running") this.store.clear(record.requestId);
+      return this.compactionResult(record, { kind: "accepted", request });
+    } catch (error) {
+      const outcome = requestOutcome(error);
+      if (outcome === "rejected" || outcome === "not_sent") {
+        this.store.clear(record.requestId);
+        return this.compactionResult(record, { kind: "rejected", message: error instanceof Error ? error.message : "压缩请求未被接收，请重试。" });
+      }
+      return this.compactionResult(record, { kind: "pending_verification", message: "压缩结果待核实；恢复连接后将查询原请求。" });
+    } finally { this.sending.delete(record.requestId); this.refresh(); }
+  }
+  private async reconcileCompaction(record: PendingRequest, retry = false): Promise<DesktopCompactionResult> {
+    const connection = this.guardConnection();
+    if (record.instanceId !== connection.instanceId) return this.compactionResult(record, { kind: "foreign_instance" });
+    let request;
+    try { request = await connection.request("get_session_compaction", { session_id: String(record.params.session_id), request_id: record.requestId }); }
+    catch (error) { return this.compactionResult(record, { kind: "pending_verification", message: error instanceof Error ? error.message : "无法核实原压缩请求，请恢复连接后重试。" }); }
+    if (record.instanceId !== this.connection()?.instanceId) return this.compactionResult(record, { kind: "foreign_instance" });
+    if (!request) return retry ? this.sendCompaction(record) : this.compactionResult(record, { kind: "pending_verification", message: "未找到原压缩请求；点击核实原压缩请求可按原参数重试。" });
+    if (request.status !== "running") this.store.clear(record.requestId);
+    return this.compactionResult(record, { kind: "accepted", request });
   }
   async submit(op: "submit" | "owner_question_answer", params: Record<string, unknown>): Promise<DesktopSubmitResult> {
     if (typeof params.session_id !== "string" || (op !== "owner_question_answer" && typeof params.input !== "string") || (op === "owner_question_answer" && typeof params.question_id !== "string")) throw new DesktopError("invalid_params", "请选择会话后再发送。");
@@ -105,6 +161,7 @@ export class DesktopSubmissions {
         if (this.stopped || this.connection() !== connection || connection?.instanceId !== instanceId) break;
         if (this.sending.has(record.requestId)) continue;
         if (record.op === "desktop_start_chat" || record.op === "create_managed_session") continue;
+        if (record.op === "compact_session") { await this.reconcileCompaction(record); continue; }
         this.results.delete(record.requestId);
         let result: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome;
         if (record.op === "code_schedule_save" || record.op === "code_schedule_control") {

@@ -36,6 +36,23 @@ Idle native pages accept owner input directly. Actual Agent browser use claims o
 | Code/PA MCP settings | Coding instance services; Personal remote services, effect classes and original calls |
 | Computer settings | Select fixed computer program/Linux sandbox, pause, verify stop and accept a fresh recovery image |
 
+### Code Slash Commands
+
+Type `/` at the start of the conversation or New chat input to search applicable commands. Arrow keys move the selection; Enter, Tab or a pointer selection completes it without executing. Submit the completed input to run it. Escape dismisses the menu, and Shift+Enter inserts a newline. Unregistered slash-leading text, including filesystem paths, remains ordinary message input.
+
+| Command | Behavior |
+| --- | --- |
+| `/skill [name] [arguments]` | Discover a skill or prepare its explicit input; submission normalizes to `/skill:name` while preserving arguments and attachments |
+| `/skills` | Open the Code skill library |
+| `/model` | Open model and effort selection for this conversation or local New chat draft |
+| `/mode` | Open access-mode selection for this conversation or local New chat draft |
+| `/new` | Open New chat; workspace selection follows the existing first-send creation flow |
+| `/branch [name]` | Branch the current conversation's persisted history using existing source and eligibility rules |
+| `/compact [guidance]` | Start manual compaction for an eligible idle ordinary conversation |
+| `/help` | Show commands and arguments |
+
+Application commands use existing UI actions without an Agent task or owner-history message. They retain attachments in their draft. New chat selector changes create no session. Registered invalid or unavailable commands retain input and explain the next action; the menu filters actions by the draft, conversation and connection state. An open Code conversation keeps its composer and unsent input visible while disconnected; local help remains available, and backend actions require reconnection. Skill invocations remain normal task input with backend validation and queueing. Personal uses its own composer.
+
 ## Data and State
 
 ```mermaid
@@ -54,6 +71,8 @@ Coding state binds to local `controlDir` and `ViewState`; drafts stay client-sid
 New chat starts with No workspace selected and accepts text or attachments. Before first send it creates no persistent workspace/session. Managed chats share the No workspace sidebar group while search, reopening, file inspection, Git, terminals and archive resolve each chat's actual registered workspace. The folder action reveals its real root. Branches reuse that root and files while history continues independently.
 
 Once first send begins, a private native journal retains original creation/submission keys, attachment snapshots and uploaded references. Creation, upload or submission retry reuses the same workspace/session. Resume first message restores an unfinished input after navigation or application restart, requiring explicit send. Verified nonacceptance permits correcting the submission to the visible composer settings; an unknown submission keeps its original parameters until verified. Closing or archiving preserves files and history.
+
+Manual compaction saves its original request identity in the native journal before sending. Reconnect, lost-response recovery and application reopening query that operation in its original data instance. The result panel shows running, succeeded, no-op, failed, canceled or interrupted outcomes, with available before/after estimates and Stop while running. Switching conversations or closing the client does not cancel it. Unsent input stays visible while compaction occupies the conversation, and backend admission rules still apply. Original history is unchanged; the Context indicator continues to describe the most recent actual model request.
 
 Coding question cards stay at their original `ask_user` operation, including repeated batches in one task. Answers return receipts for that task; closing a card window does not cancel it. The activity indicator shows pending-answer waiting. Interruption persists an owner pause; resume confirms retained stopping separately when required.
 
@@ -152,6 +171,8 @@ Acceptance requires every current image to be complete, hash verified and succes
 - Personal decisions share canonical operation identity across cards and paired devices. Pending response-loss records block connection switching and survive restart; late results cannot clear another profile's record.
 
 ## Design Rationale
+
+- [Desktop slash commands](../../.agents/notes/implemented/feature/2026-11-08-desktop-slash-commands.md): explicit command routing, local draft actions and original-key compaction recovery.
 
 - [Idle desktop browser input](../../.agents/notes/implemented/simplification/2026-11-07-idle-desktop-browser.md): task claims, direct owner browsing and icon-only takeover.
 

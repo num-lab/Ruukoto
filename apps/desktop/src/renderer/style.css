@@ -142,7 +142,15 @@ code, pre { font-family: var(--font-mono); }
 .trace-step + .trace-step { margin-top: -8px; }
 .composer-wrap { padding: 4px 24px 20px; flex-shrink: 0; }
 .composer-width { max-width: 650px; margin: 0 auto; }
-.composer { border-radius: 22px; padding: 12px 10px 10px; container-type: inline-size; }
+.composer { position: relative; border-radius: 22px; padding: 12px 10px 10px; container-type: inline-size; }
+.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; max-height: min(320px, 50vh); overflow-y: auto; padding: 6px; border: 1px solid var(--border); border-radius: 14px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 8px 24px color-mix(in oklch, var(--foreground), transparent 90%); }
+.slash-menu .slash-option { display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 9px 10px; height: auto; text-align: left; white-space: normal; }
+.slash-option[aria-selected="true"] { background: var(--accent); }
+.slash-option > span:first-child { flex-shrink: 0; }
+.slash-option > span:last-child, .slash-menu p, .slash-help dd { color: var(--muted-foreground); font-size: 12px; }
+.slash-menu p { padding: 8px 10px; }
+.slash-help { display: grid; gap: 14px; }
+.slash-help dt { font-size: 13px; }
 .attached-files { display: flex; flex-wrap: wrap; gap: 6px; max-height: 92px; overflow-y: auto; margin-bottom: 8px; }
 .attachment-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; border-radius: 6px; background: var(--bg-surface-active); padding: 3px 5px 3px 7px; color: var(--text-secondary); font-size: 11px; }
 .attachment-chip > svg { height: 12px; width: 12px; }

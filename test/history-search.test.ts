@@ -94,7 +94,7 @@ test("普通正文：中文单字、ASCII忽略大小写、展示文本拼接，
   } finally { f.close(); }
 });
 
-test("搜索来源：待落盘、已登记丢失、损坏分别报告，其他来源继续；旧游标按扫描语义", async () => {
+test("搜索来源：待落盘、已登记丢失、损坏分别报告，其他来源继续；旧游标按扫描语义", async t => {
   const f = fixture();
   try {
     const good = f.candidate("good", [record("g1", "needle"), record("g2", "needle")]);
@@ -102,12 +102,26 @@ test("搜索来源：待落盘、已登记丢失、损坏分别报告，其他�
     fs.appendFileSync(corrupt.filePath!, "{broken}\n");
     const missing = f.candidate("missing", [record("m1", "old")]);
     f.index.sync(missing.sessionId, missing.filePath!); fs.unlinkSync(missing.filePath!);
-    const result = await searchWorkspaceHistory(f.db, [good, corrupt, missing, { sessionId: "pending", filePath: null, historyExpected: false }, { sessionId: "expected", filePath: null, historyExpected: true }], { query: "needle" });
-    assert.equal(result.complete, true);
-    assert.deepEqual(result.hits.map(hit => hit.entryId), ["g1", "g2"]);
-    assert.deepEqual(result.sourceIssues.map(issue => [issue.sessionId, issue.code]), [["corrupt", "history_corrupt"], ["expected", "history_missing"], ["missing", "history_missing"], ["pending", "history_pending"]]);
+    const candidates: WorkspaceHistoryCandidate[] = [good, corrupt, missing, { sessionId: "pending", filePath: null, historyExpected: false }, { sessionId: "expected", filePath: null, historyExpected: true }];
+    let cursor: WorkspaceHistoryCursor | undefined;
+    const hits: string[] = [], sourceIssues: Array<[string, string]> = [];
+    let pages = 0, complete = false;
+    let clock = 0; t.mock.method(performance, "now", () => clock += 40);
+    for (; pages < 10 && !complete; pages++) {
+      const result = await searchWorkspaceHistory(f.db, candidates, { query: "needle", cursor });
+      hits.push(...result.hits.map(hit => hit.entryId));
+      sourceIssues.push(...result.sourceIssues.map(issue => [issue.sessionId, issue.code] as [string, string]));
+      complete = result.complete;
+      if (!complete) {
+        assert.ok(result.cursor); assert.notDeepEqual(result.cursor, cursor);
+        cursor = result.cursor;
+      }
+    }
+    assert.ok(pages > 1); assert.equal(complete, true);
+    assert.deepEqual(hits, ["g1", "g2"]);
+    assert.deepEqual(sourceIssues, [["corrupt", "history_corrupt"], ["expected", "history_missing"], ["missing", "history_missing"], ["pending", "history_pending"]]);
     const legacy = await searchWorkspaceHistory(f.db, [good], { query: "needle", cursor: { sessionId: "good", byteOffset: f.index.getEntry("good", "g1")!.byteOffset } });
-    assert.deepEqual(legacy.hits.map(hit => hit.entryId), ["g2"]);
+    assert.deepEqual(legacy.hits.map(hit => hit.entryId), ["g2"]); assert.equal(legacy.complete, true);
   } finally { f.close(); }
 });
 

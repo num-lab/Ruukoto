@@ -18,6 +18,8 @@ Personal tool corruption prepares one real amended, redisplayed and approved-wri
 
 Desktop SSR fixtures disable unused client dependency optimization through a shared post-config hook. React's plugin adds explicit optimization inputs, so the hook clears them after plugin configuration and disables discovery. SSR transforms and module loading remain real. The default cache lives under the protected source tree; concurrent optimizer directory changes correctly reject restricted work-copy startup during its identity scan. Removing these unnecessary test writes preserves the runtime protection checks. Service-helper stop tests wait for dispatch rather than claim creation; report tests wait for the matching projected publication state because timeline entries and state frames travel independently.
 
+The HTTP amendment fixture holds the connection through amendment and confirms that effect resolution is rejected while the operation is still `started`. After disconnecting, it awaits the persisted observation before resolving the unknown effect and independently verifying remote stop. Request arrival alone proves neither local completion nor an observation; a fixed delay would leave the same race under load. This follows [observable async phases](2026-10-11-await-observed-async-phases.md) and preserves the production resolution guard.
+
 ## Alternatives considered
 
 - Delete the report's suggested parameter variants: fewer executions, but the variants cover distinct provenance, snapshot, permission and effect states. Retain them and share only stable preparation. The four-input Coding acceptance also uniquely proves capacity, queue replacement and partial final delivery; the single-step workflow suite cannot replace it.

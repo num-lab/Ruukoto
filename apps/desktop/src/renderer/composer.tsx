@@ -13,6 +13,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioG
 import { ContextIndicator } from "./context-indicator.tsx";
 import { QueuePanel } from "./queue-panel.tsx";
 import { IconButton } from "./ui.tsx";
+import { useComposerCommands, type ComposerCommandActions } from "./composer-commands.tsx";
+import { CompactionPanel } from "./compaction-panel.tsx";
 
 export const composerModes = [
   { value: "confirm", label: "Ask for approval", icon: MessageCircleQuestion },
@@ -33,9 +35,10 @@ export function selectionForModel(option: ModelOption, current: ModelSelection |
   const thinkingLevel = current && option.thinkingLevels.includes(current.thinkingLevel) ? current.thinkingLevel : option.thinkingLevels[0];
   return option.available && thinkingLevel ? { provider: option.provider, modelId: option.modelId, thinkingLevel } : null;
 }
-export function ModeSelector({ value, modes: availableModes, disabled, onChange, label = "会话默认模式" }: { value: SessionDefaultMode; modes: typeof composerModes; disabled: boolean; onChange: (mode: SessionDefaultMode) => void; label?: string }) {
+export function ModeSelector({ value, modes: availableModes, disabled, onChange, label = "会话默认模式", open, onOpenChange }: { value: SessionDefaultMode; modes: typeof composerModes; disabled: boolean; onChange: (mode: SessionDefaultMode) => void; label?: string; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [localOpen, setLocalOpen] = useState(false);
   const current = availableModes.find(mode => mode.value === value) ?? availableModes[0];
-  return <Select value={value} onValueChange={next => { const mode = availableModes.find(mode => mode.value === next); if (mode) onChange(mode.value); }} disabled={disabled}><SelectTrigger className="mode-selector" aria-label={label} aria-description={current.label}><SelectValue><current.icon className="mode-icon" aria-hidden="true" /><span className="mode-selector-label">{current.label}</span></SelectValue></SelectTrigger><SelectContent className="composer-menu" position="popper" side="top" align="start" sideOffset={6}>{availableModes.map(mode => <SelectItem key={mode.value} value={mode.value} textValue={mode.label}><mode.icon className="mode-icon" aria-hidden="true" /><span>{mode.label}</span></SelectItem>)}</SelectContent></Select>;
+  return <Select open={open ?? localOpen} onOpenChange={next => { setLocalOpen(next); onOpenChange?.(next); }} value={value} onValueChange={next => { const mode = availableModes.find(mode => mode.value === next); if (mode) onChange(mode.value); }} disabled={disabled}><SelectTrigger className="mode-selector" aria-label={label} aria-description={current.label}><SelectValue><current.icon className="mode-icon" aria-hidden="true" /><span className="mode-selector-label">{current.label}</span></SelectValue></SelectTrigger><SelectContent className="composer-menu" position="popper" side="top" align="start" sideOffset={6}>{availableModes.map(mode => <SelectItem key={mode.value} value={mode.value} textValue={mode.label}><mode.icon className="mode-icon" aria-hidden="true" /><span>{mode.label}</span></SelectItem>)}</SelectContent></Select>;
 }
 // Note: See .agents/notes/implemented/feature/2026-11-07-desktop-visual-alignment.md
 export function EffortSlider({ levels, current, disabled, onChange }: { levels: ThinkingLevel[]; current: ThinkingLevel | null; disabled: boolean; onChange: (level: ThinkingLevel) => void }) {
@@ -76,12 +79,13 @@ export function EffortSlider({ levels, current, disabled, onChange }: { levels: 
     </div>
   </div>;
 }
-export function ModelSelector({ models, selected, loading, disabled, onChange }: { models: ModelOption[]; selected: ModelSelection | null; loading: () => void; disabled: boolean; onChange: (selection: ModelSelection) => void }) {
-  const [open, setOpen] = useState(false);
+export function ModelSelector({ models, selected, loading, disabled, onChange, open: commandedOpen, onOpenChange }: { models: ModelOption[]; selected: ModelSelection | null; loading: () => void; disabled: boolean; onChange: (selection: ModelSelection) => void; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [localOpen, setOpen] = useState(false);
+  const open = commandedOpen ?? localOpen;
   const value = selected ? modelKey(selected) : "";
   const option = models.find(item => modelKey(item) === value);
   const levels = option?.thinkingLevels ?? [];
-  return <DropdownMenu open={open} onOpenChange={next => { setOpen(next); if (next) loading(); }}><DropdownMenuTrigger asChild><Button type="button" variant="ghost" className="model-selector" aria-label="会话模型" aria-description={`${option?.name ?? selected?.modelId ?? "选择模型"} · Effort: ${selected ? effortLabel(selected.thinkingLevel) : "—"}`} disabled={disabled}><Brain className="model-selector-icon" />{open ? <span className="model-selector-name">Select Model</span> : <><span className="model-selector-name">{option?.name ?? selected?.modelId ?? "选择模型"}</span>{selected && <span className="model-selector-effort">{effortLabel(selected.thinkingLevel)}</span>}</>}</Button></DropdownMenuTrigger><DropdownMenuContent className="composer-menu model-menu" side="top" align="end" sideOffset={6} aria-label="模型与 Effort"><DropdownMenuRadioGroup aria-label="会话模型" value={value} onValueChange={next => { const item = models.find(item => modelKey(item) === next); const selection = item && selectionForModel(item, selected); if (!disabled && selection) onChange(selection); }}>{selected && !option && <DropdownMenuRadioItem className="model-option" value={value} disabled aria-description="当前模型未在目录中，可用性未知">{selected.modelId}<Check className="model-option-check" aria-hidden="true" /></DropdownMenuRadioItem>}{models.map(item => <DropdownMenuRadioItem className="model-option" key={modelKey(item)} value={modelKey(item)} disabled={disabled || !item.available || !item.thinkingLevels.length}>{item.name}{!item.available && " · 认证不可用"}{modelKey(item) === value && <Check className="model-option-check" aria-hidden="true" />}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup><DropdownMenuSeparator /><EffortSlider levels={levels} current={selected?.thinkingLevel ?? null} disabled={disabled || !option?.available} onChange={level => { if (selected) onChange({ ...selected, thinkingLevel: level }); }} /></DropdownMenuContent></DropdownMenu>;
+  return <DropdownMenu open={open} onOpenChange={next => { setOpen(next); onOpenChange?.(next); if (next) loading(); }}><DropdownMenuTrigger asChild><Button type="button" variant="ghost" className="model-selector" aria-label="会话模型" aria-description={`${option?.name ?? selected?.modelId ?? "选择模型"} · Effort: ${selected ? effortLabel(selected.thinkingLevel) : "—"}`} disabled={disabled}><Brain className="model-selector-icon" />{open ? <span className="model-selector-name">Select Model</span> : <><span className="model-selector-name">{option?.name ?? selected?.modelId ?? "选择模型"}</span>{selected && <span className="model-selector-effort">{effortLabel(selected.thinkingLevel)}</span>}</>}</Button></DropdownMenuTrigger><DropdownMenuContent className="composer-menu model-menu" side="top" align="end" sideOffset={6} aria-label="模型与 Effort"><DropdownMenuRadioGroup aria-label="会话模型" value={value} onValueChange={next => { const item = models.find(item => modelKey(item) === next); const selection = item && selectionForModel(item, selected); if (!disabled && selection) onChange(selection); }}>{selected && !option && <DropdownMenuRadioItem className="model-option" value={value} disabled aria-description="当前模型未在目录中，可用性未知">{selected.modelId}<Check className="model-option-check" aria-hidden="true" /></DropdownMenuRadioItem>}{models.map(item => <DropdownMenuRadioItem className="model-option" key={modelKey(item)} value={modelKey(item)} disabled={disabled || !item.available || !item.thinkingLevels.length}>{item.name}{!item.available && " · 认证不可用"}{modelKey(item) === value && <Check className="model-option-check" aria-hidden="true" />}</DropdownMenuRadioItem>)}</DropdownMenuRadioGroup><DropdownMenuSeparator /><EffortSlider levels={levels} current={selected?.thinkingLevel ?? null} disabled={disabled || !option?.available} onChange={level => { if (selected) onChange({ ...selected, thinkingLevel: level }); }} /></DropdownMenuContent></DropdownMenu>;
 }
 export function composerInputHeight(scrollHeight: number, viewportHeight: number, minHeight = 48): number {
   return Math.max(minHeight, Math.min(scrollHeight, Math.floor(viewportHeight / 3)));
@@ -97,7 +101,7 @@ export function resizeComposerInput(input: HTMLTextAreaElement | null, minHeight
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-10-16-desktop-current-demo.md
-export function Composer({ model, session }: { model: CodeState; session: Session }) {
+export function Composer({ model, session, onNew, onSkills }: { model: CodeState; session: Session } & ComposerCommandActions) {
   const writes = model.writes;
   const draft = writes.draft(session.id);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -109,6 +113,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   const checking = writes.checking(session.id);
   const blocked = writes.blocked(session.id);
   const scheduled = !!session.codeScheduleActive;
+  const commands = useComposerCommands({ model, session, text: draft.text, edit: text => writes.edit(session.id, text), input, locked: writes.checking(session.id) || writes.busy.has(session.id) || picking, onNew, onSkills });
   const inputLocked = scheduled;
   const attachments = draft.attachments ?? [];
   const hasInput = !!draft.text.trim() || attachments.length > 0;
@@ -121,7 +126,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   const decision = queueDecision(model.view, session);
   const hasQueue = model.view.queuedTasksFor(session.id).length > 0;
   const resuming = session.queueState === "paused" && hasQueue && !hasInput && !active && !scheduled;
-  const canSend = !blocked && !picking && (stopping || resuming || !inputLocked && hasInput && !!selected);
+  const canSend = commands.application ? !checking && !writes.busy.has(session.id) && !picking : !blocked && !picking && !model.compactions.occupied(session.id) && (stopping || resuming || !inputLocked && hasInput && !!selected);
   useEffect(() => { if (online) void writes.loadModels(); }, [writes, online, model.view.instanceId, writes.modelGeneration]);
   useEffect(() => { resizeComposerInput(input.current); }, [draft.text]);
   useEffect(() => {
@@ -131,8 +136,10 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
   }, []);
   useEffect(() => { if (model.view.openSession(session.id).historyLoaded && model.view.openSession(session.id).flow.items.length === 0) input.current?.focus(); }, [model, session.id, model.view.openSession(session.id).historyLoaded]);
   useEffect(() => { void writes.preparePending(session.id); }, [writes, session.id, writes.entries, model.view.instanceId, online]);
+  useEffect(() => { if (online) void model.compactions.load(session.id); }, [model, session.id, online, model.view.instanceId]);
   function send() {
     if (!canSend) return;
+    if (commands.application) { void commands.execute(); return; }
     if (stopping) { void writes.control("interrupt", session.id, active!.id); return; }
     if (resuming) {
       if (writes.stopConfirmationNeeded(session.id)) setStopConfirm(true);
@@ -141,6 +148,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
       else void writes.resume(session);
       return;
     }
+    if (commands.parsed?.kind === "skill") writes.edit(session.id, commands.parsed.input);
     void writes.send(session.id, { guidance: guidance && canSteer });
     setGuidance(false);
   }
@@ -159,6 +167,7 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
     finally { draft.attaching = false; model.refresh(); }
   }
   return <div className="composer-wrap"><div className="composer-width">
+    <CompactionPanel model={model} sessionId={session.id} />
     {scheduled && <div className="task-notice"><span>定时运行由 Scheduled 管理；本轮结束后可发送普通消息。</span></div>}
     {writes.recallPending(session.id) && <div className="task-notice"><span>取回结果待核实</span><Button variant="ghost" size="sm" disabled={!online || writes.busy.has(session.id)} onClick={() => void writes.retryRecall(session.id)}>核实原取回请求</Button></div>}
     {writes.recallState(session.id)?.open?.phase === "blocked" && <div className="task-notice"><span>撤回停止结果未核实，队列保持暂停</span><Button variant="ghost" size="sm" disabled={!online || blocked} onClick={() => void writes.verifyRecall(session.id)}>重新核实</Button></div>}
@@ -166,11 +175,12 @@ export function Composer({ model, session }: { model: CodeState; session: Sessio
       <QueuePanel model={model} session={session} />
       <form className="composer" onSubmit={event => { event.preventDefault(); send(); }}>
         {attachments.length > 0 && <div className="attached-files" aria-label="已附加文件">{attachments.map(attachment => <span className="attachment-chip" key={attachment.id}><FileCode2 /><span>{attachment.name}</span><button type="button" disabled={checking} aria-label={`移除附件 ${attachment.name}`} onClick={() => { draft.attachments = attachments.filter(item => item.id !== attachment.id); model.refresh(); }}><X /></button></span>)}</div>}
-        <Textarea ref={input} aria-label="输入消息" rows={2} readOnly={checking || inputLocked} value={draft.text} placeholder="描述你想做的事…" onChange={event => writes.edit(session.id, event.target.value)} onKeyDown={event => submitOnEnter(event, canSend && !stopping, send)} />
-        <div className="composer-actions"><div className="composer-left"><IconButton className="attachment-button" label="附加文件" disabled={blocked || picking || inputLocked || attachments.length >= MAX_ATTACHMENTS} onClick={() => void attach()}><Plus /></IconButton><ModeSelector value={session.defaultAccessMode} modes={availableModes} disabled={blocked || scheduled} onChange={mode => void writes.setMode(session, mode)} /></div>
-          <div className="composer-right"><ContextIndicator context={model.context.get(session.id)} onOpen={() => void model.context.load(session.id)} /><ModelSelector models={writes.models} selected={selected} loading={() => void writes.loadModels()} disabled={blocked || scheduled} onChange={selection => void writes.setModel(session, selection)} />{canSteer && <IconButton className={guidance ? "steer-toggle is-on" : "steer-toggle"} label={guidance ? "引导模式：将接入当前任务（点击取消）" : "发送为引导：接入当前任务下一边界"} disabled={blocked || picking} onClick={() => setGuidance(!guidance)}><Waypoints /></IconButton>}<Button size="icon" className="send-button" type="submit" disabled={!canSend} aria-label={checking ? "正在核实输入" : stopping ? "停止任务" : resuming ? "恢复队列" : guidance && canSteer ? "发送为引导" : "发送消息"} aria-busy={checking}>{checking ? <Loader2 className="animate-spin" /> : stopping ? <Square fill="currentColor" /> : resuming ? <Play fill="currentColor" /> : <ArrowUp />}</Button></div>
+        {commands.menu}
+        <Textarea ref={input} {...commands.inputProps} aria-label="输入消息" rows={2} readOnly={checking} value={draft.text} placeholder="描述你想做的事…" onChange={event => writes.edit(session.id, event.target.value)} onKeyDown={event => { if (!commands.keyDown(event)) submitOnEnter(event, canSend && !stopping, send); }} />
+        <div className="composer-actions"><div className="composer-left"><IconButton className="attachment-button" label="附加文件" disabled={blocked || picking || inputLocked || attachments.length >= MAX_ATTACHMENTS} onClick={() => void attach()}><Plus /></IconButton><ModeSelector value={session.defaultAccessMode} modes={availableModes} disabled={blocked || scheduled} open={commands.selector === "mode" ? true : undefined} onOpenChange={open => { if (!open) commands.closeSelector(); }} onChange={mode => void writes.setMode(session, mode)} /></div>
+          <div className="composer-right"><ContextIndicator context={model.context.get(session.id)} onOpen={() => void model.context.load(session.id)} /><ModelSelector models={writes.models} selected={selected} loading={() => void writes.loadModels()} disabled={blocked || scheduled} open={commands.selector === "model" ? true : undefined} onOpenChange={open => { if (!open) commands.closeSelector(); }} onChange={selection => void writes.setModel(session, selection)} />{canSteer && <IconButton className={guidance ? "steer-toggle is-on" : "steer-toggle"} label={guidance ? "引导模式：将接入当前任务（点击取消）" : "发送为引导：接入当前任务下一边界"} disabled={blocked || picking} onClick={() => setGuidance(!guidance)}><Waypoints /></IconButton>}<Button size="icon" className="send-button" type="submit" disabled={!canSend} aria-label={checking ? "正在核实输入" : stopping ? "停止任务" : resuming ? "恢复队列" : guidance && canSteer ? "发送为引导" : "发送消息"} aria-busy={checking}>{checking ? <Loader2 className="animate-spin" /> : stopping ? <Square fill="currentColor" /> : resuming ? <Play fill="currentColor" /> : <ArrowUp />}</Button></div>
         </div>
       </form>
     </div>
-  </div><Dialog open={queueConfirm && resuming && decision.kind === "confirm"} onOpenChange={setQueueConfirm}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>恢复队列</DialogTitle><DialogDescription>{decision.kind === "confirm" ? `为 ${decision.count} 个旧任务补齐 ${decision.selection.modelId} · ${decision.selection.thinkingLevel}，然后恢复队列。` : ""}</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setQueueConfirm(false)}>取消</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setQueueConfirm(false); void writes.resume(session, true); }}>补齐模型并恢复</Button></DialogFooter></DialogContent></Dialog><Dialog open={stopConfirm && resuming} onOpenChange={setStopConfirm}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>核实旧执行已停止</DialogTitle><DialogDescription>请先在运行环境核实旧任务及其受管理进程均已退出。确认后释放保留占用并恢复队列。</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setStopConfirm(false)}>返回核实</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setStopConfirm(false); void writes.resume(session, true, true); }}>已核实停止并恢复</Button></DialogFooter></DialogContent></Dialog></div>;
+  </div>{commands.help}<Dialog open={queueConfirm && resuming && decision.kind === "confirm"} onOpenChange={setQueueConfirm}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>恢复队列</DialogTitle><DialogDescription>{decision.kind === "confirm" ? `为 ${decision.count} 个旧任务补齐 ${decision.selection.modelId} · ${decision.selection.thinkingLevel}，然后恢复队列。` : ""}</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setQueueConfirm(false)}>取消</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setQueueConfirm(false); void writes.resume(session, true); }}>补齐模型并恢复</Button></DialogFooter></DialogContent></Dialog><Dialog open={stopConfirm && resuming} onOpenChange={setStopConfirm}><DialogContent className="demo-dialog"><DialogHeader><DialogTitle>核实旧执行已停止</DialogTitle><DialogDescription>请先在运行环境核实旧任务及其受管理进程均已退出。确认后释放保留占用并恢复队列。</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setStopConfirm(false)}>返回核实</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setStopConfirm(false); void writes.resume(session, true, true); }}>已核实停止并恢复</Button></DialogFooter></DialogContent></Dialog></div>;
 }

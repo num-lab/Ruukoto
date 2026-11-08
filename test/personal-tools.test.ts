@@ -895,8 +895,9 @@ test("durable 要求更新：延后的旧模型调用在边界被拒绝且新旧
 });
 
 test("durable 要求更新：待批准与已批准 HTTP 旧操作不发出请求，已开始未知效果保留核实", { timeout: 90_000 }, async t => {
+  const disconnect = held(); t.after(disconnect.release);
   let hits = 0, unknownServed = false;
-  const endpoint = await remote(t, (request, response) => { hits++; if (request.url === "/die") { unknownServed = true; request.resume(); request.once("end", () => request.socket.destroy()); } else response.end("ok"); });
+  const endpoint = await remote(t, (request, response) => { hits++; if (request.url === "/die") { unknownServed = true; request.resume(); request.once("end", () => { void disconnect.gate.then(() => request.socket.destroy()); }); } else response.end("ok"); });
   const f = await fixture(t), p = await f.open(); await mode(p, "confirm"); await p.answer("工具来源", "tools-src");
   const firstHttp = invoke("http_request", { url: `${endpoint}/one`, method: "POST", body: "1" });
   const answerA = invoked(p, firstHttp, "http-a", "tools-src"); void answerA.catch(() => undefined);
@@ -926,6 +927,12 @@ test("durable 要求更新：待批准与已批准 HTTP 旧操作不发出请求
   const preserved = await record(p, unknown.operation);
   assert.equal(preserved.superseded, undefined); assert.equal(preserved.effect, "effect_unknown"); assert.equal(preserved.stopped, false); assert.equal(preserved.started, true); assert.equal(unknownServed, true);
   assert.ok(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "die-src"), context));
+  assert.equal(preserved.code, "started");
+  await assert.rejects(p.harness.commit(tx => toolResolve(tx, unknown.operation, "applied", "核实已生效"), context), code("tool_resolution_invalid"));
+  disconnect.release();
+  await until(async () => (await record(p, unknown.operation)).observation !== undefined);
+  const observed = await record(p, unknown.operation);
+  assert.equal(observed.effect, "effect_unknown"); assert.equal(observed.stopped, false); assert.equal(observed.superseded, undefined);
   await p.harness.commit(tx => toolResolve(tx, unknown.operation, "applied", "核实已生效"), context);
   await p.harness.commit(tx => toolVerifyStop(tx, unknown.operation, "远端已结束"), context);
   assert.equal(await p.harness.commit(tx => personalServiceSourceBlocker(tx, "die-src"), context), undefined);

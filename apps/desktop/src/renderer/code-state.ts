@@ -15,6 +15,7 @@ import { DesktopInspector } from "./inspector.ts";
 import { DesktopSearch } from "./search-state.ts";
 import { NativeBrowserState } from "./native-browser.ts";
 import { DesktopScheduled } from "./scheduled-state.ts";
+import { DesktopCompactions } from "./compaction-state.ts";
 
 export class DesktopRequestError extends Error {
   readonly code: string;
@@ -31,7 +32,8 @@ interface PendingCreation {
 }
 interface PendingBranch {
   sessionId: string;
-  taskId: string;
+  taskId?: string;
+  name?: string;
   requestId: string;
   target: DesktopTarget;
   instanceId: string;
@@ -71,6 +73,7 @@ export class CodeState {
   readonly inspector: DesktopInspector;
   readonly browser = new NativeBrowserState();
   readonly context: DesktopContext;
+  readonly compactions: DesktopCompactions;
   readonly search: DesktopSearch;
   readonly scheduled: DesktopScheduled;
   navigation: Extract<DesktopUpdate, { type: "navigate" }> | null = null;
@@ -78,6 +81,7 @@ export class CodeState {
   refresh(): void { this.mark(); }
   // Note: 见 .agents/notes/implemented/feature/2026-10-20-desktop-creation-spinner.md
   constructor(private readonly bridge: Pick<DesktopBridge, "request">, private readonly changed: () => void, readonly target: DesktopTarget = "code") {
+    this.compactions = new DesktopCompactions(bridge, this.view, () => this.status.state === "online", changed);
     this.context = new DesktopContext(bridge, this.view, changed, target);
     this.approvals = new DesktopApprovals(bridge, this.view, changed, target);
     this.search = new DesktopSearch(bridge, changed);
@@ -168,6 +172,7 @@ export class CodeState {
     }
     if (update.type === "navigate") this.navigate(update);
     if (this.target === "code") this.search.update(update);
+    if (this.target === "code") this.compactions.update(update);
     this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);
@@ -425,13 +430,13 @@ export class CodeState {
     return true;
   }
 
-  // Note: 见 .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
-  /** 从已完成任务建立分支；应答丢失后按原请求键核实，不重复创建。 */
-  async branch(sessionId: string, taskId: string): Promise<boolean> {
+  // Note: See .agents/notes/implemented/feature/2026-10-28-desktop-message-actions.md
+  /** Branch from persisted history or a completed task; reconcile a lost response with its original key. */
+  async branch(sessionId: string, taskId?: string, name?: string): Promise<boolean> {
     if (this.pendingCreation) { this.report("会话创建仍在核实，请稍后再建立分支。"); return false; }
     if (this.pendingBranch) {
-      if (this.pendingBranch.sessionId === sessionId && this.pendingBranch.taskId === taskId) {
-        // 上次发布未完成时保留原键；用户再次点击即按原键重试。
+      if (this.pendingBranch.sessionId === sessionId && this.pendingBranch.taskId === taskId && this.pendingBranch.name === name) {
+        // An explicit retry keeps the original source, name and request key.
         this.pendingBranch.retried = false;
         this.pendingBranch.waitGeneration = null;
         return this.reconcileBranch();
@@ -441,10 +446,10 @@ export class CodeState {
     }
     if (!this.view.instanceId || this.status.state !== "online") { this.report("请等待连接恢复后再建立分支。"); return false; }
     const session = this.view.sessions.find(item => item.id === sessionId);
-    const task = this.view.tasks.get(taskId);
-    if (!session || task?.status !== "completed" || (task.sessionId !== sessionId && !session.branchSource?.taskIds.includes(taskId))) { this.report("任务尚未完成或不属于当前会话，无法建立分支。"); return false; }
+    const task = taskId ? this.view.tasks.get(taskId) : undefined;
+    if (!session || taskId && (task?.status !== "completed" || (task.sessionId !== sessionId && !session.branchSource?.taskIds.includes(taskId)))) { this.report("任务尚未完成或不属于当前会话，无法建立分支。"); return false; }
     if (this.writes.settingsPending(sessionId)) { this.report("会话设置仍在保存或等待核实，请确认后台实际设置后再建立分支。"); return false; }
-    const pending: PendingBranch = { sessionId, taskId, requestId: crypto.randomUUID(), target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
+    const pending: PendingBranch = { sessionId, taskId, name, requestId: crypto.randomUUID(), target: this.target, instanceId: this.view.instanceId, busy: false, retried: false, waitGeneration: null };
     this.pendingBranch = pending;
     this.message = null;
     this.mark();
@@ -481,7 +486,7 @@ export class CodeState {
     this.mark();
     const generation = this.generation;
     let session: Session;
-    try { session = await this.request("branch_session", { session_id: pending.sessionId, task_id: pending.taskId, request_id: pending.requestId }); }
+    try { session = await this.request("branch_session", { session_id: pending.sessionId, ...(pending.taskId ? { task_id: pending.taskId } : {}), ...(pending.name !== undefined ? { name: pending.name } : {}), request_id: pending.requestId }); }
     catch (error) {
       pending.busy = false;
       if (!this.ownsBranch(pending)) return false;

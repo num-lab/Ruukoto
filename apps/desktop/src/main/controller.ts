@@ -93,7 +93,11 @@ export class CodeController {
         void this.submissions?.reconcile();
         this.browserBridge?.register(this.connection);
       },
-      onEvent: (event, kind) => { if (!this.stopped && generation === this.generation) this.publish({ type: "event", event, kind }); },
+      onEvent: (event, kind) => {
+        if (this.stopped || generation !== this.generation) return;
+        this.publish({ type: "event", event, kind });
+        if (event.body.type === "session.context_compaction") void this.submissions?.reconcile();
+      },
     });
     if (this.pendingStore && !this.submissions) this.submissions = new DesktopSubmissions(this.pendingStore, () => this.connection, this.publish, (op, params) => this.request(op, params));
     try { await this.connection.start(); }
@@ -108,6 +112,10 @@ export class CodeController {
     if (op === "code_schedule_save" || op === "code_schedule_control") {
       if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再保存计划。");
       return this.submissions.schedule(op, params as OpParams<"code_schedule_save" | "code_schedule_control">);
+    }
+    if (op === "compact_session") {
+      if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再压缩上下文。");
+      return this.submissions.compact(params as OpParams<"compact_session">);
     }
     if (op === "session_background_end") {
       if (!this.submissions) throw new DesktopError("connection_unavailable", "请等待连接恢复后再结束会话后台。");

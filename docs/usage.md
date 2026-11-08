@@ -105,6 +105,8 @@ For paused computer work, choose `观察原电脑现场`, then `查看原电脑�
 
 ### Desktop Client
 
+In Code conversations and New chat, type `/` to search [composer commands](modules/desktop.md#code-slash-commands). Select with the keyboard or pointer to complete the input, then submit to execute; `/help` shows commands and arguments. Model and access-mode changes in New chat stay local until first send. Manual compaction shows its original result and token estimates above the composer, with Stop while running; reconnect or reopen the application to inspect the same operation after a lost response.
+
 On the server, use `ruukoto remote` to manage pairing, then connect the PA desktop to the verified Tailscale HTTPS origin using the generated one-time code. HTTPS/WSS terminates at Tailscale Serve and reaches the private remote service; the local Unix socket is not a public network endpoint. See [deployment](../deploy/systemd/README.md) for backend/remote-service ownership and [desktop](modules/desktop.md) for credential isolation.
 
 Personal decisions, work questions and recovery choices appear in the conversation timeline. Read the original target and parameters before approving a one-shot operation. IM-origin approvals, answers and continuation choices stay with the original verified entry; native cards offer the inspection and cancellation actions available for that item.

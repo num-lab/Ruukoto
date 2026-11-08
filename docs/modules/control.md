@@ -26,7 +26,8 @@ Each frame ends in `\n`.
 | `owner_question_answer`, `owner_question_cancel`, `owner_question_receipt` | Commit/query original-task receipts; answers carry no new-task model, mode or paths |
 | `get_task`, `list_tasks`, `read_task_events` | Task/event reads |
 | `respond_confirmation`, `get_confirmation_params` | Owner decisions and bounded parameter reads |
-| `open_workspace`, `create_session`, `branch_session`, `compact_session` | Workspace identity, new/branched conversations and explicit compaction |
+| `open_workspace`, `create_session`, `branch_session` | Workspace identity and new/branched conversations |
+| `compact_session`, `get_session_compaction`, `interrupt_session_compaction` | Admit, inspect and explicitly stop the original manual compaction operation |
 | `create_managed_session`, `find_managed_session` | First-send managed workspace/session creation and original-request recovery; creation accepts only request key, model and mode |
 | `find_created_session` | Query a completed session by its original creation key, including selected-workspace first sends |
 | `open_side_chat`, `find_side_chat`, `submit_side_chat` | Prepare/reopen side chat, verify original request, submit plain text |
@@ -79,6 +80,8 @@ Version validation precedes authentication and dispatch. Authentication precedes
 
 Managed creation returns both the registered Project and Session. The optional managed flag appears in snapshots and creation events. Local first-send journals retain input and upload state in private client storage; those fields never enter the backend creation request. Original creation keys cannot be reused for ordinary workspace creation, branches or side chat.
 
+Desktop exposes manual compaction through its [Code composer commands](desktop.md#code-slash-commands). The native host journals original parameters and data-instance identity before sending, then queries the same request after reconnect, application reopening or a lost response. Client closure sends no interruption. Backend admission, model fallback, history preservation and restart outcomes remain those of the existing session operation.
+
 Computer recovery forwards the original recovery identity and fresh observation through **verify stop → observe → accept**. Runtime verifies real execution, image persistence and acceptance eligibility.
 
 ## Invariants and Failure Handling
@@ -93,6 +96,7 @@ Computer recovery forwards the original recovery identity and fresh observation 
 
 ## Design Rationale
 
+- [Desktop slash commands](../../.agents/notes/implemented/feature/2026-11-08-desktop-slash-commands.md)
 - [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Split agent and human docs](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)

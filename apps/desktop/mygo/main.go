@@ -300,6 +300,13 @@ func (d *Desktop) view(c *ui.Context) {
 }
 
 func (d *Desktop) ready() {
+	// Applied before the window so the vibrancy material and the page's
+	// prefers-color-scheme already match the saved preference on first paint.
+	if dir, err := appearanceDir(); err == nil {
+		mygo.Theme.SetSource(loadAppearance(dir))
+	} else {
+		os.Stderr.WriteString("[ruukoto:desktop] 无法定位偏好目录，外观将跟随系统。\n")
+	}
 	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, TrafficLightPosition: &mygo.Point{X: 18, Y: 17}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
 	frontend, err := d.window.NewWebView(mygo.WebViewOptions{URL: "/", Transparent: true, Page: mygo.PageOptions{PreloadScript: preload}})
 	if err != nil {

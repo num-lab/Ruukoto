@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ToggleGroup } from "radix-ui";
-import { ArrowUp, File, Loader2, Plus, Sparkles, X } from "lucide-react";
+import { ArrowUp, File, Loader2, MessagesCircle, Plus, X } from "lucide-react";
 import type { PersonalDesktopActionName, PersonalDesktopApproval, PersonalDesktopOutput, PersonalDesktopQuestion } from "@ruukoto/view/personal-protocol.ts";
 import { personalCardKey, type PersonalPresentedMessage, type PersonalState } from "./personal-state.ts";
 import { MarkdownText } from "./markdown.tsx";
@@ -192,7 +192,7 @@ export function PersonalChat({ model, onConnect }: { model: PersonalState; onCon
     window.addEventListener("resize", resize);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", resize); };
   }, [model, model.draft, model.attachments.length, model.identity]);
-  if (!model.identity) return <div className="empty-state"><div className="empty-symbol"><Sparkles /></div><h1>连接你的个人 Agent</h1><p>{model.status.error?.message ?? model.status.detail ?? "在设置中输入个人 Agent 地址并配对。"}</p><Button onClick={onConnect}>PA 远程连接</Button></div>;
+  if (!model.identity) return <div className="empty-state"><div className="empty-symbol"><MessagesCircle /></div><h1>连接你的个人 Agent</h1><p>{model.status.error?.message ?? model.status.detail ?? "在设置中输入个人 Agent 地址并配对。"}</p><Button onClick={onConnect}>PA 远程连接</Button></div>;
   const groups = personalMessageGroups(model.timeline, [...model.cards.values()], [...model.questionCards.values()]);
   return <><MessageScrollerProvider autoScroll defaultScrollPosition="start"><MessageScroller className="conversation"><MessageScrollerViewport className="stream-scroll selectable-text" preserveScrollOnPrepend aria-label="个人会话消息" onScroll={event => { if (event.currentTarget.scrollTop < 40) void model.older(); }}><MessageScrollerContent className="agent-stream native-message-stream selectable-text">
     {model.historyMore && <MessageScrollerItem><Button variant="ghost" disabled={!model.online || model.loadingHistory} onClick={() => void model.older()}>加载更早消息</Button></MessageScrollerItem>}

@@ -13,7 +13,7 @@ import { PersonalConnectionState } from "../apps/desktop/src/renderer/personal-c
 import { SettingsState, type SettingsForm, type SettingsPhase, type SettingsScope } from "../apps/desktop/src/renderer/settings-state.ts";
 import { fakeSnapshot } from "./helpers/fake-control.ts";
 
-type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: PersonalState; dark: boolean; onDark: (dark: boolean) => void; pages?: Partial<Record<string, ComponentType<{ scope: SettingsScope }>>> };
+type SettingsContentsProps = { settings: SettingsState; code: CodeState; personal: PersonalState; appearance: "system" | "light" | "dark"; onAppearance: (appearance: "system" | "light" | "dark") => void; pages?: Partial<Record<string, ComponentType<{ scope: SettingsScope }>>> };
 let server: ViteDevServer;
 let SettingsContents: ComponentType<SettingsContentsProps>;
 before(async () => {
@@ -175,13 +175,13 @@ test("PA原配对恢复：显式动作只使用宿主已有候选，不要求重
 
 test("设置 SSR 保留分组导航与真实内容插槽，MCP 无工作区与来源选择", () => {
   const h = harness();
-  const props: SettingsContentsProps = { ...h, dark: true, onDark() {} };
+  const props: SettingsContentsProps = { ...h, appearance: "dark", onAppearance() {} };
   const render = () => renderToStaticMarkup(createElement(SettingsContents, props));
   let html = render();
   for (const label of ["外观", "模型", "Skills", "MCP", "电脑", "Web 搜索", "PA 远程连接", "已存档会话"]) assert.ok(html.includes(label));
   h.settings.chooseCategory("appearance");
   html = render();
-  assert.match(html, /aria-label="设置类别"/); assert.match(html, /aria-label="主题"/); assert.match(html, />浅色<\/button>/); assert.match(html, />深色<\/button>/);
+  assert.match(html, /aria-label="设置类别"/); assert.match(html, /aria-label="主题"/); assert.match(html, /跟随系统/); assert.match(html, /浅色/); assert.match(html, /深色/);
   assert.match(html, /settings-nav-section/); assert.match(html, />Code<\/div>/); assert.match(html, />PA<\/div>/);
   h.settings.chooseCategory("code-mcp");
   html = render();
@@ -199,7 +199,7 @@ test("PA 聊天与设置共用一处地址，不再显示SSH字段", () => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: { ruukoto: { request: async () => ok(null) } } });
   try {
     const h = harness(); h.settings.chooseCategory("personal");
-    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, dark: false, onDark() {} }));
+    const html = renderToStaticMarkup(createElement(SettingsContents, { ...h, appearance: "system", onAppearance() {} }));
     assert.match(html, /aria-label="PA 远程连接"/); assert.match(html, /for="personal-origin"/); assert.match(html, /connection-diagram/); assert.match(html, /服务器配对/); assert.match(html, /核实原配对/); assert.match(html, /恢复原配对/);
     assert.doesNotMatch(html, /SSH|旧聊天连接|PA 连接用途|检测程序|management-/);
     assert.doesNotMatch(html, /name="token"|name="command"/);

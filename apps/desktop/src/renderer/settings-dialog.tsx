@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun, X } from "lucide-react";
-import type { DesktopTarget } from "../shared/bridge.ts";
+import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun, SunMoon, X } from "lucide-react";
+import type { DesktopAppearance, DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
 import type { PersonalState } from "./personal-state.ts";
 import { SettingsState, paCategory, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope } from "./settings-state.ts";
@@ -30,8 +30,8 @@ export interface SettingsContentsProps {
   settings: SettingsState;
   code: CodeState;
   personal: Pick<PersonalState, "view" | "status" | "identity">;
-  dark: boolean;
-  onDark: (dark: boolean) => void;
+  appearance: DesktopAppearance;
+  onAppearance: (appearance: DesktopAppearance) => void;
   pages?: Partial<Record<SettingsCategory, React.ComponentType<SettingsPageProps>>>;
 }
 
@@ -41,7 +41,7 @@ type NavEntry =
 
 const navigation: ReadonlyArray<NavEntry> = [
   { type: "section", label: "Desktop" },
-  { type: "item", value: "appearance", label: "外观", icon: Sun },
+  { type: "item", value: "appearance", label: "外观", icon: SunMoon },
   { type: "item", value: "code-computer", label: "电脑", icon: Monitor },
   { type: "item", value: "web-search", label: "Web 搜索", icon: Globe },
   { type: "item", value: "personal", label: "PA 远程连接", icon: Server },
@@ -64,12 +64,12 @@ const codePages: Record<`code-${ManagedSettingsCategory}`, React.ComponentType<S
   "code-computer": CodeComputerSettings,
 };
 
-function AppearancePage({ dark, onDark }: { dark: boolean; onDark: (dark: boolean) => void }) {
+function AppearancePage({ appearance, onAppearance }: { appearance: DesktopAppearance; onAppearance: (appearance: DesktopAppearance) => void }) {
   return (
     <SettingsPage title="外观" description="选择桌面客户端的主题。">
       <SettingsGroup title="界面">
         <SettingsCard>
-          <SettingsRow title="主题" description="浅色或深色。"><SettingsSegmented label="主题" value={dark ? "dark" : "light"} onValueChange={value => onDark(value === "dark")} options={[{ value: "light", label: <><Sun aria-hidden="true" />浅色</> }, { value: "dark", label: <><Moon aria-hidden="true" />深色</> }]} /></SettingsRow>
+          <SettingsRow title="主题" description="跟随系统、浅色或深色。"><SettingsSegmented label="主题" value={appearance} onValueChange={value => onAppearance(value as DesktopAppearance)} options={[{ value: "system", label: <><Monitor aria-hidden="true" />跟随系统</> }, { value: "light", label: <><Sun aria-hidden="true" />浅色</> }, { value: "dark", label: <><Moon aria-hidden="true" />深色</> }]} /></SettingsRow>
         </SettingsCard>
       </SettingsGroup>
     </SettingsPage>
@@ -94,7 +94,7 @@ function ArchivedPage({ code }: { code: CodeState }) {
 // Note: See .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
 // Note: See .agents/notes/implemented/feature/2026-11-07-desktop-visual-alignment.md
 export function SettingsContents(props: SettingsContentsProps) {
-  const { settings, code, personal, dark, onDark } = props;
+  const { settings, code, personal, appearance, onAppearance } = props;
   const scope = settings.scope(code, personal);
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -106,14 +106,14 @@ export function SettingsContents(props: SettingsContentsProps) {
     <SettingsShell
       navigation={navigation.map(entry => {
         if (entry.type === "section") return <SettingsNavSection key={`section-${entry.label}`} label={entry.label} />;
-        const Icon = entry.value === "appearance" && dark ? Moon : entry.icon;
+        const Icon = entry.icon;
         return <SettingsNavItem key={entry.value} selected={category === entry.value} aria-label={entry.label} onClick={() => settings.chooseCategory(entry.value)} icon={<Icon aria-hidden="true" />}>{entry.label}</SettingsNavItem>;
       })}
       action={<SettingsButton variant="icon" aria-label="关闭设置" title="关闭设置" onClick={() => settings.close()}><X /></SettingsButton>}
       data-density="comfortable"
     >
       <div ref={contentRef} key={`${category}:${settings.pageKey}`} className="settings-content">
-        {category === "appearance" && <AppearancePage dark={dark} onDark={onDark} />}
+        {category === "appearance" && <AppearancePage appearance={appearance} onAppearance={onAppearance} />}
         {category === "web-search" && <CodeWebSearchSettings code={code} />}
         {category === "personal" && <PersonalConnectionSettings settings={settings} personal={personal} />}
         {category === "archived" && <ArchivedPage code={code} />}

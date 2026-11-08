@@ -1,10 +1,11 @@
-import { app, BrowserWindow, Notification, dialog, ipcMain, safeStorage, session, shell } from "electron";
+import { app, BrowserWindow, nativeTheme, Notification, dialog, ipcMain, safeStorage, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DesktopError } from "./environment.ts";
 import { ipcResult } from "./ipc.ts";
 import { browserFrameAllowed, cspFor, denyBrowserPermissions, externalUrl, isRendererReload } from "./security.ts";
 import { DesktopHost } from "./host.ts";
+import { appearanceValue, loadAppearance, saveAppearance } from "./appearance.ts";
 import { electronPersonalCredentialStorage } from "./personal-credential-storage.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { DesktopNotice } from "./notifications.ts";
@@ -64,6 +65,9 @@ function openExternal(value: string): void {
 }
 
 async function createWindow(): Promise<void> {
+  // Applied before the window so the vibrancy material and the page's
+  // prefers-color-scheme already match the saved preference on first paint.
+  nativeTheme.themeSource = loadAppearance(app.getPath("userData"));
   denyBrowserPermissions(session.defaultSession);
   session.defaultSession.on("will-download", event => event.preventDefault());
   session.defaultSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
@@ -97,6 +101,17 @@ async function createWindow(): Promise<void> {
   else await window.loadFile(fileURLToPath(new URL("../renderer/index.html", import.meta.url)));
 }
 
+ipcMain.handle("desktop:appearance", event => ipcResult(() => {
+  assertTrusted(event);
+  return loadAppearance(app.getPath("userData"));
+}));
+ipcMain.handle("desktop:set-appearance", (event, value: unknown) => ipcResult(() => {
+  assertTrusted(event);
+  const appearance = appearanceValue(value);
+  if (!appearance) throw new DesktopError("invalid_params", "外观取值无效，请重新选择。");
+  saveAppearance(app.getPath("userData"), appearance);
+  nativeTheme.themeSource = appearance;
+}));
 ipcMain.on("desktop:subscribe", (event, target: unknown) => {
   if (!trusted(event) || (target !== "code" && target !== "personal")) return;
   host.subscribe(target);

@@ -9,6 +9,8 @@
       return off;
     },
     request: (target, op, params) => call("Request", target, op, params),
+    appearance: () => call("Appearance"),
+    setAppearance: value => call("SetAppearance", value),
     pickFolder: () => call("PickFolder"),
     pickAttachments: (sessionId, target = "code") => call("PickAttachments", sessionId, target),
     pickDraftAttachments: () => call("PickDraftAttachments"),

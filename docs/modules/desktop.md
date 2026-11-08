@@ -35,6 +35,7 @@ Idle native pages accept owner input directly. Actual Agent browser use claims o
 | Code/PA Skills settings | Read-only paged catalog and diagnostics from that backend account's `$HOME/.agents/skills/` |
 | Code/PA MCP settings | Coding instance services; Personal remote services, effect classes and original calls |
 | Computer settings | Select fixed computer program/Linux sandbox, pause, verify stop and accept a fresh recovery image |
+| Appearance settings | System/Light/Dark selection, persisted per host in `desktop-preferences.json`; the native window material and the page's `prefers-color-scheme` follow the selection |
 
 ### Code Slash Commands
 

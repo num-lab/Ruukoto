@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Desktop chrome cleanup](2026-11-08-desktop-chrome-cleanup.md) moves the toast to the top, enters it from above and adds a `toast-out` exit; the other transitions below remain.
+
 ## Problem
 
 Desktop's shadcn primitives already provide color/general transitions and popup motion. Handwritten CSS instead switched workspace arrows, clickable-row hover, hidden buttons, and toast appearance instantly. The frozen prefix defined transitions only for established features such as sidebar width, filtering, and tab ordering, leaving custom buttons without a shared source.

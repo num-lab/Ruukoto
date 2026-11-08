@@ -80,8 +80,8 @@ async function fixture(t: TestContext) {
   const mcp = parsePersonalMcp({ version: 3, generation: "original-telegram-cua", services: [{ id: "desktop", label: "Original computer", enabled: true, cua: { kind: "cua-linux", executable: "/usr/local/bin/cua", version: "0.7.0", sha256: "a".repeat(64), sandbox: "local:desktop", sandboxId: "b".repeat(64) }, tools: definitions }] });
   const identity = fs.statSync(workspace), tools = parsePersonalTools({ version: 1, generation: "original-tools", workspace, identity: { dev: identity.dev, ino: identity.ino }, credentials: [] });
   let p: PersonalHarness | undefined, inputId = 10;
-  const open = async () => {
-    p = await openPersonalHarness({ directory, provider, modelId: "mock-model", telegram, mcp, tools, mcpCuaHost: host, mcpTimeouts: { callTimeoutMs: 100 } });
+  const open = async (mcpTimeouts?: { callTimeoutMs: number }) => {
+    p = await openPersonalHarness({ directory, provider, modelId: "mock-model", telegram, mcp, tools, mcpCuaHost: host, mcpTimeouts });
     // The SDK registry erases task types; gate before the canonical action-start transaction.
     const task = p.desktopActions.extension.tasks![0] as Task<{ requestId: string }, { phase: "run" }, null, object>, run = task.definition.phases.run;
     Object.defineProperty(task.definition.phases, "run", { value: async (...args: Parameters<typeof run>) => { if (holdActions) { actionEntered = true; await new Promise<void>(resolve => { releaseAction = resolve; }); } return run(...args); } });
@@ -116,7 +116,7 @@ async function fixture(t: TestContext) {
   const calls = () => fs.readFileSync(callsFile, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line) as { method: string }).filter(item => item.method === "tools/call");
   const hold = (value: boolean) => { holdActions = value; if (value) actionEntered = false; else { releaseAction?.(); releaseAction = undefined; } };
   t.after(async () => { closing = true; releaseChild?.(); hold(false); await p?.close(); bot.closeAllConnections(); await new Promise<void>(resolve => bot.close(() => resolve())); await model.close(); for (const [index, key] of [tokenEnv, modelEnv].entries()) if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; fs.rmSync(root, { recursive: true, force: true }); });
-  return { open, begin, card, messageId, receive, raw, callback, waitAction, operation, view, calls, stops, sends, documents, telegram, hold, directory, loseDocument: () => { loseDocument = true; }, actionEntered: () => actionEntered, get personal() { return p!; } };
+  return { open, begin, card, messageId, receive, raw, callback, waitAction, operation, view, calls, callsFile, stops, sends, documents, telegram, hold, directory, loseDocument: () => { loseDocument = true; }, actionEntered: () => actionEntered, get personal() { return p!; } };
 }
 
 test("Telegram Cua callbacks accept the displayed scene and typed resume retains the original IM actor", { timeout: 30000 }, async t => {
@@ -145,7 +145,7 @@ test("Telegram Cua callbacks accept the displayed scene and typed resume retains
 });
 
 test("Telegram Cua sandbox stopping needs an exact original-card choice and preserves its IM admission", { timeout: 30000 }, async t => {
-  const f = await fixture(t), p = await f.open(), original = await f.begin(true), id = original.operation, card = await f.card(id, "停止原电脑沙箱"), messageId = await f.messageId(card);
+  const f = await fixture(t), p = await f.open({ callTimeoutMs: 100 }), original = await f.begin(true), id = original.operation, card = await f.card(id, "停止原电脑沙箱"), messageId = await f.messageId(card);
   assert.match(card.text, /停止整个电脑沙箱可能丢失其他未保存内容/);
   for (const extra of [{ forward_origin: { type: "user" } }, { reply_to_message: { message_id: messageId, from: { id: 789, is_bot: true } } }]) assert.equal((await f.receive("停止原电脑沙箱", messageId, extra)).receipt?.cuaAction, undefined);
   const ordinary = (await f.receive("好的", messageId)).receipt!;
@@ -216,7 +216,15 @@ test("Telegram accepts a recovery scene only after exact image delivery and pres
 
 test("Telegram rejects orphan recovery-image deliveries before dispatch and reopen", { timeout: 30000 }, async t => {
   const f = await fixture(t), p = await f.open(), original = await f.begin(), id = original.operation; await p.mcp!.pauseCua(true);
-  await f.waitAction((await f.callback(await f.card(id, "观察原电脑现场"), "观察原电脑现场")).receipt); const viewed = await f.view(id), source = { botId: f.telegram.botId, ownerId: f.telegram.ownerId, generation: f.telegram.generation }, before = f.documents.length;
+  fs.writeFileSync(f.callsFile + ".hold", "");
+  const observing = f.callback(await f.card(id, "观察原电脑现场"), "观察原电脑现场");
+  try {
+    await until(() => f.calls().length === 2);
+    await delay(150);
+  } finally { fs.writeFileSync(f.callsFile + ".release", ""); }
+  const observation = await f.waitAction((await observing).receipt);
+  assert.equal(observation.receipt.state, "completed");
+  const viewed = await f.view(id), source = { botId: f.telegram.botId, ownerId: f.telegram.ownerId, generation: f.telegram.generation }, before = f.documents.length;
   const image = (await f.operation(id)).takeover!.observation!.images[0], orphan = await p.harness.commit(tx => p.imDelivery.request(tx, { key: "telegram-cua-images:telegram:123:456:999", source, messageId: 999, text: "Unrequested scene", outputs: [{ recovery: { requestId: "telegram:123:456:999", image: image.id } }] }), context);
   p.harness.resume(); const task = await p.harness.waitForTask(orphan.taskId, context); assert.equal(task.state.outcome.status, "faulted"); assert.equal(f.documents.length, before);
   await assert.rejects(p.close().then(() => f.open()), { code: "telegram_cua_images_invalid" });

@@ -101,7 +101,7 @@ Compatible transient predecessor exclusion covers coherent copied SQLite/WAL ins
 - Terminal tasks never become active again. A conditional transition prevents competing finalizers from claiming the same change.
 - State and event updates share one SQLite transaction; JSONL is not atomically committed with SQLite.
 - Restart recovery interrupts unfinished tasks and reconciles execution occupancy; unverified execution must not be treated as safely stopped.
-- One backend owns a profile. Lock conflicts reject startup; process identity must be checked rather than trusting a PID alone.
+- One backend owns a profile. Lock conflicts reject startup; process identity must be checked rather than trusting a PID alone. If owner inspection fails, confirmed exit permits takeover; a live or inaccessible PID remains unverifiable.
 - Lock publication and retirement keep a complete owner protected from predecessor deletion. Linux uses directory permissions; macOS seals `owner.json` with user immutability so the containing directory remains renameable. Cleanup clears protection only after atomic retirement.
 - Schema versions increase monotonically. Required role, parent, layout and instance bindings are verified before current writers/clients proceed; corrupt active roles are errors, never automatic resets.
 

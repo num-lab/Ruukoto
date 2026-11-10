@@ -86,6 +86,54 @@ test("真实子进程改名后仍持锁，退出后允许接管", { timeout: 10_
   }
 });
 
+for (const inspection of ["process identity", "legacy command"] as const) {
+  test(`owner exit during ${inspection} inspection permits verified takeover`, { timeout: 10_000 }, async (ctx) => {
+    const f = fixture();
+    let taken: ReturnType<typeof acquireInstanceLock> | undefined;
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+      import { acquireInstanceLock } from ${JSON.stringify(new URL("../packages/core/src/instance-lock.ts", import.meta.url).href)};
+      acquireInstanceLock(${JSON.stringify(f.root)});
+    `], { cwd: new URL("../", import.meta.url), stdio: ["ignore", "ignore", "pipe"] });
+    const exited = once(child, "exit");
+    let stderr = "";
+    child.stderr.on("data", chunk => { stderr += chunk.toString(); });
+    const kill = process.kill;
+    let observedAlive = true;
+    const liveness = ctx.mock.method(process, "kill", (...args: Parameters<typeof process.kill>) => {
+      if (args[0] === child.pid && args[1] === 0 && observedAlive) {
+        // Pin the observation immediately before exit; later probes use the real, reaped PID.
+        observedAlive = false;
+        return true;
+      }
+      return kill(...args);
+    });
+    try {
+      const [code] = await exited;
+      assert.equal(code, 0, stderr);
+      if (inspection === "legacy command") {
+        const owner = JSON.parse(fs.readFileSync(f.ownerFile, "utf8"));
+        delete owner.processIdentity;
+        makeOwnerWritable(f.ownerFile);
+        fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
+      }
+      const original = fs.readFileSync(f.ownerFile);
+      const probe = probeLockHolder(f.lockDir);
+      assert.equal(probe.held, false);
+      assert.equal(probe.unverifiable, false);
+      assert.deepEqual(fs.readFileSync(f.ownerFile), original);
+      observedAlive = true;
+      taken = acquireInstanceLock(f.root);
+      assert.equal(JSON.parse(fs.readFileSync(f.ownerFile, "utf8")).pid, process.pid);
+    } finally {
+      liveness.mock.restore();
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await exited;
+      taken?.release();
+      f.cleanup();
+    }
+  });
+}
+
 test("相同 PID 的启动标识不同表示遗留锁，损坏的新身份保持待核实", () => {
   const f = fixture();
   let held = acquireInstanceLock(f.root);

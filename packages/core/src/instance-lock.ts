@@ -74,6 +74,12 @@ export function probeLockHolder(lockDir: string): LockProbe {
   return probeOwner(lockSnapshot(lockDir));
 }
 
+function failedOwnerInspection(pid: number, detail: string): LockProbe {
+  // The owner can exit between the initial liveness check and process inspection.
+  const held = isAlive(pid);
+  return { held, pid, command: null, unverifiable: held, detail: held ? detail : `Owner pid ${pid} has exited` };
+}
+
 function probeOwner(snapshot: LockSnapshot | null | undefined): LockProbe {
   if (snapshot === undefined) return { held: false, pid: null, command: null, unverifiable: false, detail: "No lock directory" };
   if (snapshot === null) return { held: true, pid: null, command: null, unverifiable: true, detail: "Lock owner is missing, malformed or replaced" };
@@ -85,13 +91,13 @@ function probeOwner(snapshot: LockSnapshot | null | undefined): LockProbe {
   const hasIdentity = Object.hasOwn(owner, "processIdentity");
   if (hasIdentity) {
     const identity = processIdentity(owner.pid);
-    if (identity === null) return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `Cannot verify process identity for pid ${owner.pid}` };
+    if (identity === null) return failedOwnerInspection(owner.pid, `Cannot verify process identity for pid ${owner.pid}`);
     if (identity !== owner.processIdentity) {
       return { held: false, pid: owner.pid, command: processCommand(owner.pid), unverifiable: false, detail: `Pid ${owner.pid} was reused` };
     }
   }
   const command = processCommand(owner.pid);
-  if (command === null) return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `Cannot inspect pid ${owner.pid}` };
+  if (command === null) return failedOwnerInspection(owner.pid, `Cannot inspect pid ${owner.pid}`);
   if (hasIdentity || command.includes("ruukoto") || command.includes("cli.ts") || command.includes("dev.ts")) {
     return { held: true, pid: owner.pid, command, unverifiable: false, detail: `Live owner: pid ${owner.pid}` };
   }

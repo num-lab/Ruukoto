@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as net from "node:net";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
@@ -151,20 +152,25 @@ test("endpoint repair rejects changed runtime lock ownership", async () => {
   const fixture = await startEndpointRuntime();
   const ownerPath = path.join(fixture.profile.dataDir, "runtime.lock", "owner.json");
   const owner = fs.readFileSync(ownerPath);
-  try {
+  const replaceOwner = (bytes: string | Buffer): void => {
+    if (process.platform === "darwin") execFileSync("chflags", ["nouchg", ownerPath]);
     fs.chmodSync(ownerPath, 0o600);
-    fs.writeFileSync(ownerPath, "{}\n");
-    fs.chmodSync(ownerPath, 0o400);
+    try { fs.writeFileSync(ownerPath, bytes); }
+    finally {
+      fs.chmodSync(ownerPath, 0o400);
+      if (process.platform === "darwin") execFileSync("chflags", ["uchg", ownerPath]);
+    }
+  };
+  try {
+    replaceOwner("{}\n");
     fs.rmSync(path.dirname(fixture.profile.socketPath), { recursive: true });
     await delay(1200);
     assert.equal(fs.existsSync(path.dirname(fixture.profile.socketPath)), false);
     assert.equal(fixture.runtime.stopping, false);
     assert.equal(fixture.runtime.instanceId(), fixture.profile.instanceId);
   } finally {
-    fs.chmodSync(ownerPath, 0o600);
-    fs.writeFileSync(ownerPath, owner);
-    fs.chmodSync(ownerPath, 0o400);
-    await fixture.shutdown();
+    try { replaceOwner(owner); }
+    finally { await fixture.shutdown(); }
   }
 });
 

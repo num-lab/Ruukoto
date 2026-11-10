@@ -30,3 +30,5 @@ This supports the [single-product cutover](https://github.com/num-lab/Ruukoto/is
 ## Consequences
 
 Lock acquisition needs Python and the supported OS rename/flock primitives before persistent application state is opened; macOS also requires user-settable file immutability. Failure to establish protection rejects publication. Failed private staging is unsealed only while its original inode remains at the staging name; published owners remain protected. A killed staging writer can leave an unreferenced private directory; it never qualifies as a lock and is not adopted. Unverifiable legacy locks require owner inspection. Process identity errors reject rather than guessing. The public lock shape remains a directory with `owner.json`, allowing transient exclusion against recognized predecessor profiles.
+
+Tests that deliberately corrupt a current owner clear the macOS immutable flag only for that owned fixture, restore its bytes and protection afterward, and run runtime shutdown even if restoration fails. Ordinary teardown uses lock release; it must not bypass successor identity checks.

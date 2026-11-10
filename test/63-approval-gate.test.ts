@@ -26,7 +26,6 @@ const TOOL = "request_file_access";
 function kit(opts: {
   accessMode?: AccessMode;
   reviewer?: ApprovalReviewer;
-  notifyConfirmation?: (confirmation: ConfirmationRequest, task: Task) => void;
   consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-gate-"));
@@ -45,7 +44,7 @@ function kit(opts: {
   store.transitionTask(task.id, ["queued"], "running", {});
   const gate = new ApprovalGate({
     store, ledger: new ToolOpLedger(store), reviewer: () => opts.reviewer,
-    notifyConfirmation: opts.notifyConfirmation, consumeRecheck: opts.consumeRecheck,
+    consumeRecheck: opts.consumeRecheck,
   });
   let n = 0;
   /** 记录一次执行意图并提交审批（不 await：审批已同步登记）。 */
@@ -68,10 +67,9 @@ function kit(opts: {
   return { store, task, gate, ask, status, approval, summary, events, cleanup };
 }
 
-test("完全访问：真实授权与本地效果同事务，零等待、通知和自动审查，重开数据库可核实", async () => {
-  let notifications = 0;
+test("Full access commits authority and local effects together without waiting or automatic review, verifiable after reopen", async () => {
   let reviews = 0;
-  const k = kit({ accessMode: "full_access", notifyConfirmation: () => { notifications++; },
+  const k = kit({ accessMode: "full_access",
     reviewer: { review: async () => { reviews++; return { decision: "approve", reason: "不应调用", model: "mock" }; } } });
   try {
     const { result, hostOpId } = k.ask<string>({ commit: (id, source) => {
@@ -86,7 +84,6 @@ test("完全访问：真实授权与本地效果同事务，零等待、通知�
     assert.equal(grant.value, "committed");
     assert.equal(k.status(), "running");
     assert.equal(k.store.listConfirmationsByTask(k.task.id).length, 0);
-    assert.equal(notifications, 0);
     assert.equal(reviews, 0);
     assert.equal(k.events("task.tool_authorized").length, 1);
     assert.equal(k.events("task.awaiting_confirmation").length, 0);
@@ -346,50 +343,19 @@ test("等待中信号中止：按失效返回，等待结束后移除监听", as
 });
 
 
-test("IM 创建通知接线在审批登记事务内：抛错则审批整笔回滚（issue 08）", async () => {
-  const seen: string[] = [];
-  let failing = true;
-  const k = kit({
-    notifyConfirmation: (c) => {
-      if (!failing) return;
-      seen.push(c.id);
-      assert.ok(k.store.getConfirmation(c.id), "同事务内可见新审批");
-      throw new Error("outbox 写失败");
-    },
-  });
-  try {
-    const hostOpId = "op_notify_fail";
-    k.store.recordToolIntent({ id: hostOpId, taskId: k.task.id, sessionId: k.task.sessionId, toolName: TOOL, params: {} });
-    await assert.rejects(
-      k.gate.request({ task: k.task, hostOpId, toolName: TOOL, params: {}, scope: FILE_READ }),
-      /outbox 写失败/,
-    );
-    assert.equal(seen.length, 1);
-    assert.equal(k.store.listConfirmationsByTask(k.task.id).length, 0, "通知失败不留审批");
-    assert.equal(k.status(), "running", "任务未停留在等待确认");
-    // 撤掉失败源后重新申请正常登记（含通知）
-    failing = false;
-    const { result, id } = k.ask();
-    assert.equal(k.approval(id).status, "pending");
-    k.gate.resolve(id, "rejected");
-    await result;
-  } finally {
-    k.cleanup();
-  }
-});
 
-test("IM 消费前复核：原因即放弃消费、批准失效、零执行（issue 08）", async () => {
+test("Consumption revalidation rejects stale authority without execution and allows a new request", async () => {
   let active = true;
-  const k = kit({ consumeRecheck: () => (active ? `批准已失效（IM 入口停用或绑定/配置版本已变化），${TOOL} 未执行` : null) });
+  const k = kit({ consumeRecheck: () => (active ? "Source authority changed; operation not executed" : null) });
   try {
     const { result, id } = k.ask();
     assert.equal(k.gate.resolve(id, "approved"), true);
-    assert.deepEqual(await result, { approved: false, text: `批准已失效（IM 入口停用或绑定/配置版本已变化），${TOOL} 未执行` });
+    assert.deepEqual(await result, { approved: false, text: "Source authority changed; operation not executed" });
     assert.equal(k.approval(id).status, "stale");
     assert.equal(k.approval(id).consumedAt, null, "复核失败不得消费");
     assert.equal(k.events("task.approval_consumed").length, 0);
     assert.equal(k.events("task.confirmation_resolved").length, 1, "决定与事件仍同事务落盘");
-    // 撤掉复核后再次申请可正常获批执行（旧批准不可用，但新申请不受影响）
+    // Removing the block permits a new approval, never reuse of the stale one.
     active = false;
     const ok = k.ask();
     k.gate.resolve(ok.id, "approved");
@@ -399,30 +365,6 @@ test("IM 消费前复核：原因即放弃消费、批准失效、零执行（is
   }
 });
 
-test("合并决定事务：txExtra 与决定/事件同事务提交；抛错则决定回滚（issue 08）", async () => {
-  const k = kit();
-  try {
-    const { result, id } = k.ask();
-    assert.throws(
-      () => k.gate.resolve(id, "approved", {
-        txExtra: () => {
-          assert.equal(k.store.getConfirmation(id)!.status, "approved", "txExtra 内决定已可见（同事务）");
-          throw new Error("回执写失败");
-        },
-      }),
-      /回执写失败/,
-    );
-    assert.equal(k.approval(id).status, "pending", "决定随回执一起回滚");
-    assert.equal(k.events("task.confirmation_resolved").length, 0);
-    let extraCommitted = false;
-    assert.equal(k.gate.resolve(id, "approved", { txExtra: () => { extraCommitted = true; } }), true);
-    assert.ok(extraCommitted);
-    assert.ok((await result).approved);
-    assert.equal(k.events("task.confirmation_resolved").length, 1);
-  } finally {
-    k.cleanup();
-  }
-});
 
 test("定向解除：只解除指定审批的等待，其他审批照常（issue 08）", async () => {
   const k = kit();

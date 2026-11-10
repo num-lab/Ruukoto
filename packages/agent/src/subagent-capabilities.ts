@@ -21,8 +21,7 @@ export function subAgentAccessPolicy(sourceMode: AccessMode, definition: SubAgen
 export function subAgentSourceProfile(source: WorkflowSource, options: { tools?: string[]; verify?: boolean; workflow?: boolean } = {}): WorkflowExecutionProfile {
   const authority = source.authority;
   if (!authority?.toolClass) throw new SubAgentExecutionError("authority_missing");
-  const categories = authority.categories.filter(category => !["subagent", "delegation", "workflow", "browser"].includes(category));
-  if (authority.categories.includes("subagent") && !categories.includes("coding")) categories.push("coding");
+  const categories = authority.categories.filter(category => !["subagent", "workflow", "browser"].includes(category));
   return { toolClass: authority.toolClass, sourceProjectId: source.projectId, categories: options.verify ? ["coding"] as ToolCategory[] : categories,
     grantIds: authority.grantIds, tools: options.tools, verifyTarget: true, hostVerify: options.verify,
     collaboration: !options.workflow && !options.verify && authority.categories.includes("subagent") };

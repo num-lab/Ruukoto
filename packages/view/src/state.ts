@@ -26,7 +26,7 @@ import type { BackgroundProcessView } from "@ruukoto/core/background-processes.t
 import type { OwnerQuestionView } from "@ruukoto/core/owner-questions.ts";
 import { EventFlow } from "./event-flow.ts";
 import { utf8ByteLength } from "./utf8.ts";
-import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
+
 
 /** 每个会话在内存中保留的已加载历史条目上限（超出丢弃最旧；原文可翻页找回）。 */
 export const MAX_LOADED_ENTRIES = 300;
@@ -64,9 +64,6 @@ export class ViewState {
   artifacts = new Map<string, Artifact>();
   instanceId: string | null = null;
   execution: { backend: string; note: string } = { backend: "", note: "" };
-  /** 逻辑角色绑定的会话（快照提供；角色只在后台启动时引导，不随事件新增）。 */
-  roleSessionIds: string[] = [];
-  mainSessionId: string | null = null;
   /** SubAgent 的内部工作会话（快照 + work_delegation.created 事件补齐；普通工作区入口排除）。 */
   subAgentSessionIds: string[] = [];
   /** 工作委托（issue 11；快照 + work_delegation.created 事件补齐）。 */
@@ -120,8 +117,6 @@ export class ViewState {
     this.execution = result.snapshot.execution;
     this.defaultModel = result.snapshot.defaultModel ?? this.defaultModel;
     this.webSearch = result.snapshot.webSearch ?? this.webSearch;
-    this.roleSessionIds = result.snapshot.roleSessionIds ?? [];
-    this.mainSessionId = result.snapshot.mainSessionId;
     this.subAgentSessionIds = result.snapshot.subAgentSessionIds ?? [];
     this.workDelegations = result.snapshot.workDelegations ?? [];
     this.guidance = new Map((result.snapshot.taskGuidance ?? []).map(route => [route.sourceTaskId, route]));
@@ -224,11 +219,6 @@ export class ViewState {
           this.projects.push({ id: body.projectId, name: body.name, createRequestId: body.createRequestId ?? null, rootDir: body.rootDir ?? null, ...(body.managed ? { managed: true } : {}), instructionFiles: [], settingsVersion: 1, createdAt: event.createdAt });
         }
         return;
-      case "project.root_attached": {
-        const project = this.projects.find((p) => p.id === body.projectId);
-        if (project && !project.rootDir) project.rootDir = body.rootDir;
-        return;
-      }
       case "project.settings_changed": {
         const project = this.projects.find((p) => p.id === body.projectId);
         if (project) {
@@ -253,7 +243,7 @@ export class ViewState {
             name: null,
             branchSource: null,
             projectId: body.projectId,
-            workspaceProjectId: null,
+
             kind: body.kind ?? "dev",
             cwd: body.cwd,
             cwdReal: body.cwd,
@@ -299,9 +289,7 @@ export class ViewState {
           errorMessage: null,
           historyEntryIds: [],
           resumesTaskId: null,
-          agentId: null,
           parentTaskId: body.parentTaskId ?? null,
-          sourceEventId: null,
           deadline: null,
           resultSummary: null,
           resultRef: null,
@@ -311,12 +299,6 @@ export class ViewState {
           endedAt: null,
         });
         return;
-      case "session.workspace_mapped": {
-        // agent-direction issue 07：仅组织展示归属；资料身份仍是 projectId
-        const session = this.sessions.find((s) => s.id === body.sessionId);
-        if (session) session.workspaceProjectId = body.workspaceProjectId;
-        return;
-      }
       case "session.model_selection_changed":
         this.applySessionModel(body.sessionId, body.modelSelection, body.modelSelectionVersion);
         return;
@@ -340,9 +322,6 @@ export class ViewState {
       }
       case "task.guidance":
         this.guidance.set(body.guidance.sourceTaskId, body.guidance);
-        return;
-      case "tasks.model_selection_recorded":
-        for (const taskId of body.taskIds) this.patchTask(taskId, { modelSelection: body.modelSelection });
         return;
       case "task.started":
         this.patchTask(body.taskId, { status: "running", startedAt: event.createdAt });
@@ -417,8 +396,6 @@ export class ViewState {
             reviewModel: body.reviewModel ?? null,
             reviewPolicyVersion: body.reviewPolicyVersion ?? null,
             decisionSource: null,
-            standingPermissionId: null,
-            standingPermissionVersion: null,
           });
           // 新审批提示（不抢输入焦点；计数同时显示在状态行）
           this.note(
@@ -568,29 +545,6 @@ export class ViewState {
         this.note(body.parentSessionId, `SubAgent 任务${label}：${body.workId.slice(0, 12)}…（SubAgent ${body.subAgentId.slice(0, 12)}…）`, event.createdAt);
         return;
       }
-      // issue 17：github.* 事件已随专用模块退役，仅为历史事件重放的只读展示保留
-      case "github.draft_saved":
-        this.note(body.sessionId, `GitHub 草稿（历史记录）：${body.draftId.slice(0, 12)} v${body.version}（${body.kind}，${body.bodyBytes} 字节）`);
-        return;
-      case "github.draft_stale":
-        this.note(null, `GitHub 草稿（历史记录）${body.draftId.slice(0, 12)} v${body.version} 已标记过时：${body.reason}`);
-        return;
-      case "github.publish_requested":
-        this.note(body.sessionId, `GitHub 发布请求（历史记录）：${body.publishOpId.slice(0, 12)}（草稿 ${body.draftId.slice(0, 12)} v${body.draftVersion}）`);
-        return;
-      case "github.publish_settled": {
-        const text =
-          body.status === "sent"
-            ? `GitHub 发布（历史记录）完成：${body.remoteUrl ?? body.publishOpId.slice(0, 12)}`
-            : body.status === "effect_unknown"
-              ? `GitHub 发布（历史记录）结果未知（${body.errorMessage ?? ""}）：不会自动重发，请人工核实远端`
-              : `GitHub 发布（历史记录）${body.status === "failed" ? "失败" : "取消"}：${body.errorMessage ?? ""}`;
-        this.note(null, text);
-        return;
-      }
-      case "github.binding_changed":
-        this.note(null, `GitHub 仓库绑定（历史记录）${body.action === "removed" ? "已撤销" : "已更新"}：${body.owner}/${body.repo}（配置版本 ${body.configVersion}）`);
-        return;
       case "mcp.service_changed": {
         const action = body.action === "removed" ? "已移除" : body.action === "disabled" ? "已禁用" : body.action === "enabled" ? "已启用" : "已更新";
         this.note(null, `MCP 服务 ${body.name}（${body.cua?.kind ?? body.endpoint}）${action}（配置版本 ${body.configVersion}）`);
@@ -747,7 +701,7 @@ export class ViewState {
 
   /** 普通工作区入口排除的内部会话（逻辑角色绑定 + SubAgent 内部工作会话）。 */
   excludedPickerSessionIds(): Set<string> {
-    return new Set([...this.roleSessionIds, ...this.subAgentSessionIds]);
+    return new Set(this.subAgentSessionIds);
   }
 
   /** 本会话的工作委托汇总文本；没有委托时返回 null（不展示任何内容）。 */
@@ -865,23 +819,4 @@ export function formatTaskStatus(status: TaskStatus): string {
 
 export function isActiveStatus(status: TaskStatus): boolean {
   return (ACTIVE_TASK_STATUSES as readonly TaskStatus[]).includes(status);
-}
-
-/**
- * 会话标题的组织归属（issue 07 步骤 4）：ruukoto-code 按展示归属给出工作区标注
- * 与「配置与资料来源」项目（仅 mapped 时）；ruukoto 产品与其他场景用原身份。
- * 标题拼接（app.ts）与测试断言共用同一结论。
- */
-export function sessionTitleAttribution(
-  session: Session,
-  projects: Project[],
-  devProduct: boolean,
-): { workspace: boolean; projectId: string; sourceProjectId: string | null } {
-  if (!devProduct) return { workspace: false, projectId: session.projectId, sourceProjectId: null };
-  const attribution = sessionDisplayAttribution(session, projects);
-  return {
-    workspace: attribution.kind !== "legacy",
-    projectId: attribution.projectId,
-    sourceProjectId: attribution.kind === "mapped" ? session.projectId : null,
-  };
 }

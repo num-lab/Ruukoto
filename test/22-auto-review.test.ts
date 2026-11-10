@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成与单元：auto-review 自动审查模式（issue 15）。
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
@@ -632,10 +632,7 @@ test("后台重启：审查中的审批失效，不重放、不消费旧批准",
       // 优雅停止即中断任务并失效未决审批；随后在同一数据目录重启
       await t.runtime.stop("test_restart");
       const runtime2 = await Runtime.start({
-    product: personalProduct.runtime,
-        dataDir: t.dirs.dataDir,
-        agentDir: t.dirs.agentDir,
-        socketPath: t.runtime.socketPath(),
+        profile: t.dirs.profile,
         thinkingLevel: "off",
         modelProvider: "mock",
         modelId: "mock-model",
@@ -729,24 +726,6 @@ test("classifyForReview：只放行越界文件读取与无凭据 HTTP 读取", 
     "带凭据的请求保留人工确认",
   );
   assert.equal(classifyForReview({ kind: "tool", workspaceOnly: true }), "ask_owner");
-  assert.equal(
-    classifyForReview({
-      kind: "github_publish",
-      publishOpId: "p",
-      draftId: "d",
-      draftVersion: 1,
-      apiHost: "api.github.com",
-      owner: "o",
-      repo: "r",
-      repoId: null,
-      publishKind: "issue_comment",
-      target: {},
-      bodySha256: "x",
-      bodyBytes: 1,
-      revisions: {},
-    }),
-    "ask_owner",
-  );
 });
 
 test("parseReviewOutput：严格校验决定枚举与理由", () => {

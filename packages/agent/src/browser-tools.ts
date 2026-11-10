@@ -24,7 +24,7 @@ export function browserTaskAllowed(store: Store, task: Task): boolean {
   try {
     const scheduled = getCodeScheduledTaskSource(store, task.id);
     return task.accessMode === "full_access" && !task.planMode && (!task.parentTaskId || scheduled !== null) && !task.subAgentId &&
-      (identity?.kind === "main" || identity?.kind === "dev");
+      identity?.kind === "dev";
   } catch (error) {
     if (!(error instanceof CodeScheduleError)) throw error;
     return false;

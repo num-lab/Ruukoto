@@ -1,24 +1,11 @@
-/**
- * 独立配置中心入口（issue 21 §3）：`ruukoto config [--offline]`。
- *
- * 入口行为：
- * - 非 TTY： stderr 指引后返回 1；
- * - 默认先尝试在线（resolveClientConfig → 连接 → 认证 → 握手）；socket 不可达
- *   或认证失败时回退离线（界面外 stderr 明确提示）；--offline 跳过在线尝试；
- * - 离线进入前取得配置锁（acquireConfigLock）：锁被持有即硬失败——socket
- *   不可达不能证明后台已停；持有锁期间独占写 models.json/auth.json/
- *   default-model.json（0600 原子写），退出（含 Ctrl+C/信号）一律释放；
- * - 退出路径统一：恢复终端（preserveScreen）、关闭客户端、释放锁，
- *   stderr 打印一行退出说明。
- */
+/** Configuration writes require an activated profile and online authentication or the offline configuration lock. */
 
-import * as path from "node:path";
 import type { Terminal } from "@earendil-works/pi-tui";
-import { ControlClient } from "@ruukoto/control/client.ts";
-import { defaultAgentDir, resolveClientConfig } from "@ruukoto/control/connect.ts";
+import { ControlClient, ControlClientError } from "@ruukoto/control/client.ts";
+import { resolveClientConfig } from "@ruukoto/control/connect.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
-import type { ProductType } from "@ruukoto/core/product.ts";
+import { verifyProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
 import type { ModelSelection } from "@ruukoto/core/types.ts";
 import type { AcquiredLock } from "@ruukoto/core/instance-lock.ts";
 import {
@@ -40,17 +27,13 @@ import {
   type SummaryModel,
 } from "@ruukoto/agent/model-config.ts";
 import { ConfigTuiApp, type ModelBackend, type ModelConfigView } from "./app.ts";
+import { RELOAD_STATE_ENV } from "../tui/reload-state.ts";
 
 export interface ConfigTuiOptions {
+  profile: ProfilePaths;
   offline?: boolean;
   /** 测试注入：替换终端（默认 ProcessTerminal）。 */
   terminal?: Terminal;
-  /** 测试注入：绕过环境变量解析的连接参数。 */
-  connect?: { socketPath: string; token: string };
-  /** 测试注入：模型配置目录（默认 RUUKOTO_AGENT_DIR ?? ~/.ruukoto/agent）。 */
-  agentDir?: string;
-  /** 产品身份（agent-direction issue 06）：ruukoto-code 的项目分区按工作区/旧项目分类；缺省按 RUUKOTO_PRODUCT。 */
-  product?: ProductType;
 }
 
 /** 在线模型配置后端：get_model_config 修订作乐观并发凭证，每次变更后更新。 */
@@ -110,7 +93,12 @@ class OnlineModelBackend implements ModelBackend {
 
 /** 离线后端：直接写配置文件（入口已持有配置锁；修订指纹即文件字节摘要）。 */
 export class OfflineModelBackend implements ModelBackend {
-  constructor(private readonly agentDir: string) {}
+  constructor(private readonly profile: ProfilePaths) {}
+
+  private get agentDir(): string {
+    verifyProfile(this.profile);
+    return this.profile.agentDir;
+  }
 
   async load(): Promise<ModelConfigView> {
     const metadata = await loadModelConfigMetadata(this.agentDir);
@@ -215,40 +203,46 @@ export class OfflineModelBackend implements ModelBackend {
   }
 }
 
-export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number> {
+export async function runConfigTui(opts: ConfigTuiOptions): Promise<number> {
   if (!opts.terminal && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     console.error("配置中心需要交互式终端（TTY）。非 TTY 环境请使用管理命令（见 ruukoto 无参数帮助）。");
     return 1;
   }
 
-  // 1) 在线尝试（--offline 跳过）：连接/认证/握手任一失败即回退离线
+  verifyProfile(opts.profile);
   let mode: "online" | "offline" = "offline";
   let client: ControlClient | null = null;
   let snapshot: ConnectResult["snapshot"] | null = null;
   if (!opts.offline) {
+    const config = resolveClientConfig(opts.profile);
     try {
-      const config = opts.connect ?? resolveClientConfig();
-      const c = await ControlClient.connect(config.socketPath, 3000);
-      await c.authenticate(config.token);
-      const result = await c.handshake();
-      client = c;
-      snapshot = result.snapshot;
-      mode = "online";
+      client = await ControlClient.connect(config.socketPath, 3000);
     } catch (err) {
-      client?.close();
-      client = null;
-      console.error(`无法连接后台（${(err as Error).message}），进入离线配置模式`);
+      const cause = err instanceof ControlClientError && err.code === "connection_error" ? err.cause : undefined;
+      if (!(cause instanceof Error) || !("code" in cause) || cause.code !== "ENOENT" && cause.code !== "ECONNREFUSED") throw err;
+      console.error(`后台未运行，进入离线配置：${opts.profile.agentDir}`);
+    }
+    if (client) {
+      try {
+        await client.authenticate(config.token, opts.profile);
+        snapshot = (await client.handshake()).snapshot;
+        mode = "online";
+      } catch (error) {
+        client.close();
+        throw error;
+      }
     }
   }
 
   // 2) 离线进入：必须持有配置锁（socket 不可达不能证明后台已停）
-  const agentDir = opts.agentDir ?? defaultAgentDir();
+  const agentDir = opts.profile.agentDir;
   let lock: AcquiredLock | null = null;
   let modelBackend: ModelBackend;
   if (mode === "online") {
     modelBackend = new OnlineModelBackend(client!);
   } else {
     try {
+      verifyProfile(opts.profile);
       lock = acquireConfigLock(agentDir);
     } catch (err) {
       console.error(
@@ -257,7 +251,7 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
       );
       return 1;
     }
-    modelBackend = new OfflineModelBackend(agentDir);
+    modelBackend = new OfflineModelBackend(opts.profile);
   }
 
   // 3) 界面生命周期：控制台输出转入界面提示行；退出路径恢复终端并释放资源
@@ -295,7 +289,7 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
     client: client ?? undefined,
     snapshot: snapshot ?? undefined,
     terminal: opts.terminal,
-    product: opts.product,
+    reloadStateFile: process.env[RELOAD_STATE_ENV] === "1" ? opts.profile.reloadStatePath : undefined,
     onExit: (code) => {
       cleanup();
       resolveExit?.(code);
@@ -314,12 +308,15 @@ export async function runConfigTui(opts: ConfigTuiOptions = {}): Promise<number>
   };
   process.on("uncaughtException", onUncaught);
 
-  await app.start();
-  const code = await exitPromise;
-  process.removeListener("SIGTERM", onSignal);
-  process.removeListener("SIGHUP", onSignal);
-  process.removeListener("SIGINT", onSignal);
-  process.removeListener("uncaughtException", onUncaught);
-  console.error("已退出配置中心");
-  return code;
+  try {
+    await app.start();
+    return await exitPromise;
+  } finally {
+    cleanup();
+    process.removeListener("SIGTERM", onSignal);
+    process.removeListener("SIGHUP", onSignal);
+    process.removeListener("SIGINT", onSignal);
+    process.removeListener("uncaughtException", onUncaught);
+    console.error("已退出配置中心");
+  }
 }

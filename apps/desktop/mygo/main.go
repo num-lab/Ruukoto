@@ -33,7 +33,6 @@ type Desktop struct {
 	error          json.RawMessage
 	instanceLock   *os.File
 	failed         bool
-	outputPreviews outputPreviews
 }
 
 // Note: See .agents/notes/implemented/feature/2026-10-29-mygo-agent-browser.md
@@ -92,9 +91,6 @@ func (d *Desktop) PickAttachments(ctx context.Context, sessionID, target string)
 	}
 	files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: d.window, Multiple: true, Title: "Choose attachments"})
 	if err != nil {
-		if target == "personal" {
-			d.call(ctx, "attachments", sessionID, []string{}, selection.Instance, target)
-		}
 		return failure("dialog_failed", "not_sent", "Couldn't open the attachment picker; choose again.")
 	}
 	if files == nil {
@@ -149,9 +145,6 @@ func (d *Desktop) OpenExternal(ctx context.Context, value string) json.RawMessag
 
 // browserRequest captures the browser transport before asynchronous dispatch.
 func (d *Desktop) browserRequest(method string, args json.RawMessage) func() json.RawMessage {
-	if strings.HasPrefix(method, "output_") {
-		return func() json.RawMessage { return d.outputRequest(method, args) }
-	}
 	if method != "browser_command" || d.browser == nil {
 		return func() json.RawMessage { return failure("unknown_method", "not_sent", "未知的子进程请求。") }
 	}
@@ -170,51 +163,6 @@ func (d *Desktop) browserRequest(method string, args json.RawMessage) func() jso
 	return func() json.RawMessage { defer cancel(); return run() }
 }
 
-func (d *Desktop) outputRequest(method string, args json.RawMessage) json.RawMessage {
-	if strings.HasPrefix(method, "output_") {
-		var raw []json.RawMessage
-		if json.Unmarshal(args, &raw) != nil {
-			return failure("invalid_params", "not_sent", "Invalid file-window parameters.")
-		}
-		switch method {
-		case "output_choose":
-			var name string
-			if len(raw) != 1 || json.Unmarshal(raw[0], &name) != nil || !outputName(name) {
-				return failure("invalid_params", "not_sent", "Invalid final file name.")
-			}
-			destination, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: d.window, Title: "Save final file", DefaultPath: name, CreateDirectories: true})
-			if err != nil {
-				return failure("personal_output_dialog", "not_sent", "The save dialog couldn't open; choose again.")
-			}
-			if destination == "" {
-				return outputValue(nil)
-			}
-			return outputValue(destination)
-		case "output_preview":
-			var filename, name string
-			if len(raw) != 2 || json.Unmarshal(raw[0], &filename) != nil || json.Unmarshal(raw[1], &name) != nil {
-				return failure("invalid_params", "not_sent", "Invalid file-preview parameters.")
-			}
-			id, err := d.outputPreviews.open(filename, name)
-			if err != nil {
-				return failure("personal_output_preview", "not_sent", "The file preview couldn't open; download the original file again.")
-			}
-			return outputValue(id)
-		case "output_close_preview":
-			var id uint64
-			if len(raw) != 1 || json.Unmarshal(raw[0], &id) != nil || id == 0 {
-				return failure("invalid_params", "not_sent", "The original preview identity is invalid.")
-			}
-			if err := d.outputPreviews.stop(id); err != nil {
-				return failure("personal_output_stop", "unknown", "The original file preview's stop is unverified; close the preview window.")
-			}
-			return outputValue(nil)
-		default:
-			return failure("unknown_method", "not_sent", "Unknown file-window operation.")
-		}
-	}
-	return failure("unknown_method", "not_sent", "Unknown file-window operation.")
-}
 
 // browserEvent reports page facts to the subprocess; the gate already took effect natively, so delivery failure only logs a diagnostic.
 func (d *Desktop) browserEvent(e browser.Event) {
@@ -300,6 +248,22 @@ func (d *Desktop) view(c *ui.Context) {
 }
 
 func (d *Desktop) ready() {
+	resources, err := mygo.App.Path(mygo.PathResources)
+	if err != nil { d.failed = true; mygo.App.Quit(); return }
+	executable, err := os.Executable()
+	if err != nil { d.failed = true; mygo.App.Quit(); return }
+	userData, err := mygo.App.Path(mygo.PathUserData)
+	if err != nil { d.failed = true; mygo.App.Quit(); return }
+	command, err := trustedSidecar(executable, resources, userData, os.Environ())
+	if err != nil {
+		os.Stderr.WriteString("[ruukoto:desktop] App signature, native identity or pinned Node verification failed; rebuild the app.\n")
+		d.failed = true; mygo.App.Quit(); return
+	}
+	d.instanceLock, err = acquireInstanceLock(userData)
+	if err != nil {
+		os.Stderr.WriteString("[ruukoto:desktop] This installation is already running or its private instance lock is unavailable.\n")
+		d.failed = true; mygo.App.Quit(); return
+	}
 	// Applied before the window so the vibrancy material and the page's
 	// prefers-color-scheme already match the saved preference on first paint.
 	if dir, err := appearanceDir(); err == nil {
@@ -307,7 +271,7 @@ func (d *Desktop) ready() {
 	} else {
 		os.Stderr.WriteString("[ruukoto:desktop] Couldn't locate the preferences directory; appearance follows system.\n")
 	}
-	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "Ruukoto MyGo", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, TrafficLightPosition: &mygo.Point{X: 18, Y: 17}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
+	d.window = mygo.NewWindow(mygo.WindowOptions{Title: "ruukoto", Width: 1160, Height: 780, MinWidth: 760, MinHeight: 500, TitleBarStyle: mygo.TitleBarHiddenInset, TrafficLightPosition: &mygo.Point{X: 18, Y: 17}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(d.view)})
 	frontend, err := d.window.NewWebView(mygo.WebViewOptions{URL: "/", Transparent: true, Page: mygo.PageOptions{PreloadScript: preload}})
 	if err != nil {
 		os.Stderr.WriteString("[ruukoto:desktop] MyGo front-end view creation failed; rebuild the app.\n")
@@ -328,38 +292,11 @@ func (d *Desktop) ready() {
 	page.OnWillNavigate(func(event *mygo.NavigateEvent) { event.PreventDefault() })
 	page.SetWindowOpenHandler(func(mygo.WindowOpenRequest) *mygo.WindowOptions { return nil })
 	d.error = failure("node_unavailable", "not_sent", "The MyGo subprocess failed to start; make sure the build-time Node and repo still exist, then run npm run desktop:mygo:build.")
-	resources, err := mygo.App.Path(mygo.PathResources)
+	d.child, err = startSidecar(command, d.event, d.browserRequest)
 	if err == nil {
-		executable, executableErr := os.Executable()
-		userData, pathErr := mygo.App.Path(mygo.PathUserData)
-		if executableErr == nil && pathErr == nil {
-			command, namespace, verifyErr := trustedSidecar(executable, resources, userData, os.Environ())
-			if verifyErr == nil {
-				d.instanceLock, err = acquireInstanceLock(command.Args[len(command.Args)-1])
-				if err != nil {
-					os.Stderr.WriteString("[ruukoto:desktop] This installation is already running or the private instance lock is unavailable; close the original app and try again.\n")
-					d.failed = true
-					mygo.App.Quit()
-					return
-				}
-				credentials, credentialErr := newNativeCredentials(namespace)
-				if credentialErr == nil {
-					d.child, err = startSidecar(command, d.event, d.browserRequest, credentials)
-					if err == nil {
-						d.child.mu.Lock()
-						d.child.onFail = func() {
-							d.browser.ReleaseAll()
-							if err := d.outputPreviews.stop(0); err != nil {
-								os.Stderr.WriteString("[ruukoto:desktop] Failed to stop the original file preview; close its window.\n")
-							}
-						}
-						d.child.mu.Unlock()
-					}
-				}
-			} else {
-				d.error = failure("desktop_integrity", "not_sent", "App signature, resource or pinned-Node verification failed; rebuild the app.")
-			}
-		}
+		d.child.mu.Lock()
+		d.child.onFail = func() { d.browser.ReleaseAll() }
+		d.child.mu.Unlock()
 	}
 	if d.child == nil {
 		d.failed = true
@@ -377,7 +314,7 @@ func (d *Desktop) ready() {
 }
 
 func runDesktop() int {
-	if len(os.Args) != 1 || os.Getenv("RUUKOTO_DESKTOP_MYGO_USER_DATA") != "" || os.Getenv("RUUKOTO_DESKTOP_MANAGED") != "" {
+	if len(os.Args) != 1 || os.Getenv("RUUKOTO_DESKTOP_MYGO_USER_DATA") != "" || os.Getenv("RUUKOTO_DESKTOP_MANAGED") != "" || os.Getenv("RUUKOTO_DEV_MANAGED") != "" {
 		os.Stderr.WriteString("[ruukoto:desktop] The production app doesn't accept dev paths or launch arguments; reopen it from the app directory.\n")
 		return 1
 	}
@@ -400,9 +337,6 @@ func runDesktop() int {
 		Alive: func() bool { return desktop.window != nil && !desktop.window.IsDestroyed() },
 	})
 	defer func() {
-		if err := desktop.outputPreviews.stop(0); err != nil {
-			os.Stderr.WriteString("[ruukoto:desktop] Failed to stop the original file preview; close its window.\n")
-		}
 		if desktop.child != nil {
 			desktop.child.close()
 		}

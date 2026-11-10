@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[MyGo browser](../feature/2026-10-29-mygo-agent-browser.md) owns native inspector pages, Coding automation, and explicit takeover. [Tailscale HTTPS/WebSocket](2026-10-24-personal-tailscale-https.md) owns Personal connections and both shells' secret storage; shared Host/private-pipe ownership remains and credential frames never become UI events.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[MyGo browser](../feature/2026-10-29-mygo-agent-browser.md) owns native inspector pages, automation and explicit takeover. Private host frames remain separate from renderer events; their lifecycle no longer depends on retired PA credential initialization.
 
 ## Problem
 
@@ -10,13 +12,13 @@ The owner wanted to experience a lighter shell than Electron before deciding to 
 
 ## Decision
 
-Retain Electron as a runnable comparison and add a MyGo v0.5.5 macOS Apple Silicon app with explicit launch/build commands. Go hosts the same renderer in WKWebView and owns native window/system actions. Shared DesktopHost retains connection, submission recovery, original Personal SSH, and notification rules. A Node sidecar runs existing TypeScript control code. Private stdin/stdout JSONL carries raw JSON bytes, with stdout protocol-only, diagnostics on stderr, <=16MiB frames, and request IDs increasing only within that sidecar process.
+Retain Electron and MyGo as native clients. Go hosts the shared renderer in WKWebView and owns native window/system actions; Node DesktopHost owns local connection, submission recovery and notifications. Private stdin/stdout JSONL carries bounded raw JSON with stdout reserved for protocol and diagnostics on stderr. Request IDs are local to the sidecar lifetime.
 
-Undelivered requests are not_sent. Delivered requests that time out or lose their process without reply are unknown/disconnected and never automatically replayed. Sidecar failure settles every pending call and reports failed. Reopening lets original pending records verify submissions. Stdin EOF first releases connections/SSH; host waits boundedly then escalates termination. The normal Code backend remains independent.
+Undelivered requests are not_sent. Sent requests whose response is lost remain unknown/disconnected and never automatically replay. Sidecar failure settles pending calls; reopening verifies original journaled submissions. EOF releases owned connections and stops the sidecar, while the ordinary backend remains independent.
 
 Go methods accept only the exact current top-level mygo://localhost/ document; native IPC also rejects subframes. Do not broaden trusted origins. Retain strict production CSP and iframe sandbox; reject window.open, downloads, and page permissions. Main-document external links use a narrow system-browser method. Picker attachment paths travel only between Go/Node; renderer gains no path-upload method.
 
-Build records the absolute current Node path rather than relying on Finder PATH. Existing Node logic loads login environment once. MyGo has separate userData to avoid pending-record contention with Electron while observing the same backend. Invalidated Node/repository paths require rebuilding. No updater, installer, Bun, or second HMR system is added.
+Signed build resources pin Node and sidecar identity rather than relying on Finder PATH. Backend/terminal environments are selected and cleaned separately. MyGo development and production use distinct native application state; signed development selects its complete raw profile and discards inherited owner-token values and token-file paths, so daily authentication cannot enter the isolated instance. Backend pending/draft identities come from activated `ProfilePaths`. Invalidated Node/repository paths require rebuilding. No second HMR system is added.
 
 This supplements [Desktop proposal](../../proposed/architecture/2026-10-15-desktop-client.md) with an independent shell/comparison. The owner approved retaining/committing MyGo on 2026-10-17. [Current GUI](2026-10-16-desktop-current-demo.md) and [Trace migration](2026-10-16-desktop-trace-migration.md) retain presentation/backend semantics; native adaptation has separate verification. [Workspace packages](2026-10-11-in-repo-workspace-packages.md) retains Electron production constraints, while the Go module is outside production npm installation.
 

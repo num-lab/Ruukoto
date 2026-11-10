@@ -4,13 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { requireSubAgentExecution, requireSubAgentExecutionScope, snapshotSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
-import { verifyImportedSubAgentExecutions } from "@ruukoto/core/import-support.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { BUILTIN_SUBAGENT_ROLES } from "@ruukoto/agent/subagent-roles.ts";
 import { assertGrantNotProtected, assertNotProtected, executeApprovedFileOp, isProtectedPath, sha256Hex } from "@ruukoto/agent/execution/approved-ops.ts";
 
-const source: WorkflowSource = { product: "ruukoto-code", projectId: "project", sessionId: "parent", taskId: "source", permissionVersion: 1,
-  accessMode: "full_access", grantedPaths: [], capabilities: ["coding"], references: [], replyTarget: null, scheduledRunId: null,
+const source: WorkflowSource = { product: "ruukoto", projectId: "project", sessionId: "parent", taskId: "source", permissionVersion: 1,
+  accessMode: "full_access", grantedPaths: [], capabilities: ["coding"], references: [],
   authority: { toolClass: "dev", categories: ["coding"], grantIds: [], configuration: "configuration", workspace: { path: "/workspace", dev: 1, ino: 1 } } };
 
 test("执行快照保存实际工具与权限，损坏拒绝；消息收紧重算摘要不包含旧摘要", () => {
@@ -31,13 +30,6 @@ test("执行快照保存实际工具与权限，损坏拒绝；消息收紧重�
     assert.throws(() => requireSubAgentExecutionScope(corrupted), { code: "execution_corrupt" });
   }
   assert.throws(() => requireSubAgentExecutionScope({ ...scope, readMemories: [null] }), { code: "execution_corrupt" });
-  const task = { id: "child", session_id: "child-session", sub_agent_id: "agent", read_scope: JSON.stringify({ paths: [], sourceRefs: [], readMemories: [], execution: tightened }) };
-  const tasks = [{ id: "source", session_id: "parent" }, task];
-  const sessions = [{ id: "parent", project_id: "project" }];
-  const agents = [{ id: "agent", session_id: "child-session", parent_session_id: "parent", definition: JSON.stringify(definition) }];
-  verifyImportedSubAgentExecutions(tasks, sessions, agents);
-  assert.throws(() => verifyImportedSubAgentExecutions([task], sessions, agents), { code: "execution_source_missing" });
-  for (const malformed of ["null", "[]"]) assert.throws(() => verifyImportedSubAgentExecutions([{ ...task, read_scope: malformed }], sessions, agents), { code: "execution_corrupt" });
 });
 
 test("受保护来源可读，批准后的宿主文件写入仍拒绝来源及多硬链接旁路", () => {

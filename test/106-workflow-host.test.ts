@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { randomId, type Session, type Task, type WorkDelegation } from "@ruukoto/core/types.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, controlWorkflow, createWorkflowRun, getWorkflowExecution, getWorkflowRun, listWorkflowExecutions, registerWorkflowStep, saveWorkflowDefinition, startWorkflowExecution, workflowDigest, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { WorkCopyManager } from "@ruukoto/runtime/work-copy.ts";
@@ -22,7 +22,7 @@ function seedRun(rt: Runtime, parent: Task, session: Session): WorkflowRun {
       scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
       source: { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: parent.id,
         permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [],
-        capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
+        capabilities: [], references: [] },
       modelSelection: rt.defaultSelection, status: "running", version: 1, reason: null,
       attempts: 0, maxAttempts: 100, durationMs: 3_600_000, usedMs: 0, clockStartedAt: null,
       scriptUnits: [], scriptStopVerified: null,
@@ -254,7 +254,7 @@ for (const interruption of ["pause", "restart"] as const) {
         assert.equal(rt.store.getTask(queued.id)!.status, "queued");
         await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
         assert.equal(rt.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
-        await rt.resumeQueue(session.id, undefined, true);
+        await rt.resumeQueue(session.id, true);
         rt.store.withTx(() => controlWorkflow(rt.store, run.id, "resume", getWorkflowRun(rt.store, run.id)!.version, { action: "resume" }));
       } else {
         await rt.stop("test_restart");
@@ -267,7 +267,7 @@ for (const interruption of ["pause", "restart"] as const) {
         assert.equal(rt.store.getSession(session.id)!.queuePauseReason, "occupancy_unverified");
         await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
         assert.equal(rt.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
-        await rt.resumeQueue(session.id, undefined, true);
+        await rt.resumeQueue(session.id, true);
       }
       const result = await rt.workflowHostOperation(input, execute);
       assert.deepEqual(await rt.workflowHostOperation(input, execute), result);
@@ -304,20 +304,20 @@ test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只�
     fs.mkdirSync(copyDir);
     const input = { runId: run.id, stepKey: "write", key: "process-write", params: { marker, copyDir } };
     await rt.stop("prepare_process_fixture");
-    const productPath = pathToFileURL(path.resolve("test/helpers/legacy-product.ts")).href;
-    const config = { dataDir: rt.config.dataDir, agentDir: rt.config.agentDir, socketPath: rt.config.socketPath,
-      modelProvider: "mock", modelId: "mock-model", execution: { backend: "local" } };
+    const config = { modelProvider: "mock", modelId: "mock-model", execution: { backend: "local" } };
     const program = `
       import { Runtime } from "@ruukoto/runtime/runtime.ts";
-      import { product } from ${JSON.stringify(productPath)};
-      const runtime = await Runtime.start({ product: product.runtime, workflowAgent: null, ...${JSON.stringify(config)} });
+      import { readProfile, selectProfile } from "@ruukoto/core/profile.ts";
+      const profile = readProfile(selectProfile());
+      if (!profile) throw new Error("Expected the prepared workflow profile");
+      const runtime = await Runtime.start({ profile, workflowAgent: null, ...${JSON.stringify(config)} });
       const input = ${JSON.stringify(input)};
       const pending = runtime.workflowHostOperation(input, async () => { throw new Error("queued operation executed unexpectedly"); });
       const task = runtime.store.findTaskByRequest(${JSON.stringify(session.id)}, "workflow-host:" + input.runId + ":" + input.key);
       process.stdout.write(JSON.stringify({ taskId: task.id, status: task.status }) + "\\n");
       await pending;
     `;
-    child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", program], { stdio: ["ignore", "pipe", "pipe"] });
+    child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", program], { env: profileChildEnv(rt.config.profile.selection), stdio: ["ignore", "pipe", "pipe"] });
     const output = createInterface({ input: child.stdout! });
     const exit = new Promise<void>(resolve => child!.once("exit", () => resolve()));
     const queued = await new Promise<{ taskId: string; status: string }>((resolve, reject) => {
@@ -336,7 +336,7 @@ test("实际后台进程登记排队宿主操作后崩溃，接管同键仍只�
     assert.equal(getWorkflowExecution(recovered.store, queued.taskId)!.status, "queued");
     await assert.rejects(recovered.resumeQueue(session.id), { code: "stop_unverified" });
     assert.ok(recovered.store.getOccupancyByDir(session.cwdReal));
-    await recovered.resumeQueue(session.id, undefined, true);
+    await recovered.resumeQueue(session.id, true);
     let effects = 0;
     const resumed = recovered;
     const execute = (execution: Parameters<Runtime["executeWorkCopy"]>[0]["execution"]) => {

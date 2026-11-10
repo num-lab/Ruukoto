@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成：并发与目录互斥。
  *
@@ -163,7 +163,7 @@ test("重复后台启动被实例锁拒绝", async () => {
   try {
     await assert.rejects(
       () => Runtime.start({
-    product: personalProduct.runtime, dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir }),
+    profile: t.dirs.profile, }),
       (err: unknown) => err instanceof InstanceLockError,
       "第二个后台实例必须被拒绝",
     );

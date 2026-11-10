@@ -11,13 +11,16 @@ import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
 import { ensureBackend } from "@ruukoto/control/ensure-backend.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { probeLockHolder } from "@ruukoto/core/instance-lock.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { MockModelServer } from "../../test/helpers/mock-provider.ts";
-import { authenticateClient, createProjectSession, taskStatus, waitFor, writeModelsJson } from "../../test/helpers/testkit.ts";
+import { authenticateClient, cleanupDirs, createProjectSession, makeTestDirs, taskStatus, waitFor, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { requireNoArgs } from "./gate.ts";
 
 requireNoArgs();
 
-const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "native-worker-smoke-")));
+const { dirs } = await makeTestDirs("native-worker-smoke", 0);
+const root = fs.realpathSync(dirs.root);
+const profile = dirs.profile;
 const workspace = path.join(root, "work"), owner = path.join(root, "owner"), ro = path.join(root, "ro"), rw = path.join(root, "rw");
 for (const dir of [workspace, owner, ro, rw]) fs.mkdirSync(dir);
 for (const dir of [owner, ro, rw]) fs.writeFileSync(path.join(dir, "material"), "virtual-material\n");
@@ -27,8 +30,6 @@ const protectedRoots = [owner, repo];
 const hosts: ToolWorkerHost[] = [];
 const checks: string[] = [];
 let safeCleanup = true, client: ControlClient | null = null;
-const dirs = { root, dataDir: path.join(root, "data"), agentDir: path.join(root, "agent") };
-const controlDir = path.join(root, "control");
 let backendAttempted = false, backendStopped = false;
 const record = (name: string): void => { checks.push(name); process.stderr.write(`[ruukoto:native-smoke] PASS ${name}\n`); };
 const quote = (value: string): string => "'" + value.replace(/'/g, "'\\''") + "'";
@@ -56,8 +57,8 @@ async function stop(host: ToolWorkerHost): Promise<void> {
 async function stopBackend(): Promise<void> {
   if (!backendAttempted || backendStopped) return;
   if (!client) {
-    client = await ControlClient.connect(path.join(controlDir, "control.sock"), 3000);
-    await authenticateClient(client, controlDir);
+    client = await ControlClient.connect(profile.socketPath, 3000);
+    await authenticateClient(client, profile);
   }
   const holder = probeLockHolder(path.join(dirs.dataDir, "runtime.lock"));
   assert.ok(holder.held && !holder.unverifiable && holder.pid, "停止前须核实实际后台身份");
@@ -67,7 +68,7 @@ async function stopBackend(): Promise<void> {
     let exited = false;
     try { process.kill(pid, 0); }
     catch (error) { exited = (error as NodeJS.ErrnoException).code === "ESRCH"; }
-    return exited && !fs.existsSync(path.join(controlDir, "control.sock")) &&
+    return exited && !fs.existsSync(profile.socketPath) &&
       !probeLockHolder(path.join(dirs.dataDir, "runtime.lock")).held;
   }, 20_000);
   const audit = new DatabaseSync(path.join(dirs.dataDir, "ruukoto.db"), { readOnly: true });
@@ -206,18 +207,17 @@ try {
   } finally { fs.unlinkSync(hardlink); }
   record("预存只读硬链接在启动前拒绝，活跃单元新增未授权别名时停止且资料未改写");
 
-  fs.mkdirSync(dirs.dataDir); fs.mkdirSync(dirs.agentDir);
   await writeModelsJson(dirs, await model.start());
   fs.writeFileSync(path.join(workspace, "answer.txt"), "41\n");
   backendAttempted = true;
-  const ensured = await ensureBackend({ ...dirs, controlDir,
-    spawnArgv: [path.join(repo, "apps/ruukoto-code/bin/ruukoto-code.mjs"), "server", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir],
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_CODE_CONTROL_DIR: controlDir } });
+  const ensured = await ensureBackend({ profile,
+    spawnArgv: [path.join(repo, "apps/ruukoto/bin/ruukoto.mjs"), "server", "--model", "mock/mock-model", "--thinking", "off"],
+    env: profileChildEnv(profile.selection, { PATH: process.env.PATH, HOME: process.env.HOME,
+      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS }) });
   assert.equal(ensured.ok, true, ensured.ok ? "" : ensured.error);
   assert.equal(ensured.spawned, true);
-  client = await ControlClient.connect(path.join(controlDir, "control.sock"), 3000);
-  await authenticateClient(client, controlDir);
+  client = await ControlClient.connect(profile.socketPath, 3000);
+  await authenticateClient(client, profile);
   assert.equal((await client.handshake()).snapshot.execution.backend, "native");
   const { sessionId } = await createProjectSession(client, workspace);
   const task = await client.request<{ id: string }>("submit", { session_id: sessionId, request_id: "native-product",
@@ -228,7 +228,7 @@ try {
   assert.equal(detail.toolOps.length, 4); assert.ok(detail.toolOps.every((op: { isError: boolean }) => !op.isError));
   assert.equal(fs.readFileSync(path.join(workspace, "answer.txt"), "utf8"), "42\n");
   await stopBackend();
-  record("Coding Agent 正式产品默认 native，按需后台完成四工具修改与检查");
+  record("Ruukoto 默认 native，按需后台完成四工具修改与检查");
   process.stdout.write(JSON.stringify({ platform: os.platform(), release: os.release(), arch: os.arch(), checks, pass: true, models: "mock", execution: "native" }, null, 2) + "\n");
 } catch (error) {
   process.stderr.write(`[ruukoto:native-smoke] FAIL ${error instanceof Error ? error.stack : String(error)}\n`);
@@ -249,6 +249,6 @@ try {
   await model.close();
   listener.close(); socketListener.close(); fs.closeSync(fakeFd);
   if (priorToken === undefined) delete process.env.RUUKOTO_VIRTUAL_OWNER_TOKEN; else process.env.RUUKOTO_VIRTUAL_OWNER_TOKEN = priorToken;
-  if (safeCleanup) fs.rmSync(root, { recursive: true, force: true });
+  if (safeCleanup) await cleanupDirs(dirs);
   else { process.stderr.write(`[ruukoto:native-smoke] 退出未核实，保留虚拟现场：${root}\n`); process.exitCode = 1; }
 }

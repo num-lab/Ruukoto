@@ -2,11 +2,13 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) replaces the old SDK implementation, discovery limits and cross-restart original-stream verification with Pi MCP. Host-owned resolution, pinned targets, secret isolation and the inability of cancellation to prove remote stopping remain. [Cua](2026-10-23-cua-official-mcp.md) adds controlled stdio and per-call evidence hooks; products own target binding, persistent connections and recovery.
 
 ## Problem
 
-The [Personal durable migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) reuses only lower-level capabilities without task state. The [MCP client's](2026-09-23-mcp-client.md) public connection API required McpServiceConfig/CredentialStore, forcing Personal HTTP reuse to fabricate legacy project/configuration objects. These were type imports: the problem was public interface coupling, not loading old core at runtime.
+The [Personal durable migration](../../rejected/architecture/2026-10-17-personal-pi-durable.md) reuses only lower-level capabilities without task state. The [MCP client's](2026-09-23-mcp-client.md) public connection API required McpServiceConfig/CredentialStore, forcing Personal HTTP reuse to fabricate legacy project/configuration objects. These were type imports: the problem was public interface coupling, not loading old core at runtime.
 
 ## Decision
 
@@ -18,11 +20,11 @@ The original mcp/client.ts adapter retained McpServiceConfig/CredentialStore, ca
 
 The original locked SDK used listMaxPages to cap discovery at 16 requested pages, raising too_many_pages if another page was required, and capped successful lists at 64 tools with each page's timeout. Its no-cursor listTools already aggregated pages, so a surrounding loop could not enforce request count; SDK limits replaced redundant manual pagination. Repeated cursors followed SDK termination rules without another protocol test. These numeric limits belong to that replaced implementation, not a promise about current Pi discovery.
 
-HTTP close, cancellation and timeout end local waiting only. Remote MCP work may continue; neither client shutdown nor Linux local-scope stopping proves remote exit. [Write approval](../feature/2026-09-23-mcp-write-tools-approval.md) retains unknown-effect/no-replay rules. The original [Personal consumer](2026-10-17-personal-durable-mcp.md) pinned complete requests/responses and used shared original-SSE GET recovery only for late terminal replies matching the original call, never resending tools/call. Cursor and same-event response were persisted together, with missing evidence remaining unknown. Cross-restart stream recovery is now retired under host simplification; this records its original decision, not a current transport capability.
+HTTP close, cancellation and timeout end local waiting only. Remote MCP work may continue; neither client shutdown nor Linux local-scope stopping proves remote exit. [Write approval](../feature/2026-09-23-mcp-write-tools-approval.md) retains unknown-effect/no-replay rules. The original [Personal consumer](../../archived/architecture/2026-10-17-personal-durable-mcp.md) pinned complete requests/responses and used shared original-SSE GET recovery only for late terminal replies matching the original call, never resending tools/call. Cursor and same-event response were persisted together, with missing evidence remaining unknown. Cross-restart stream recovery is now retired under host simplification; this records its original decision, not a current transport capability.
 
 ## Related decisions
 
-The original active-note audit searched MCP, credentials, cancellation, stop proof and durable. Migration, client, write approval and [full-access commands](2026-10-17-personal-full-access-commands.md) retain permission, HTTP cancellation and local command-stopping decisions. This note owns interface responsibilities between transport and legacy assembly. Other execution/business/channel/scheduler notes are unrelated; no note was wholly absorbed or obsolete.
+The original active-note audit searched MCP, credentials, cancellation, stop proof and durable. Migration, client, write approval and [full-access commands](../../archived/architecture/2026-10-17-personal-full-access-commands.md) retain permission, HTTP cancellation and local command-stopping decisions. This note owns interface responsibilities between transport and legacy assembly. Other execution/business/channel/scheduler notes are unrelated; no note was wholly absorbed or obsolete.
 
 ## Alternatives considered
 

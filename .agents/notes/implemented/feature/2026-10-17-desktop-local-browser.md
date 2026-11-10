@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 MyGo uses a native page under the later [inspector browser decision](2026-10-29-mygo-agent-browser.md); capability roots and the owner entry remain. [Local-preview responsibility](../simplification/2026-10-25-browser-path-names.md) supersedes path-name blacklists, not the other guarantees below.
 
 ## Problem

@@ -23,7 +23,6 @@ Copy uses sentence case. Labels and buttons have no final period; complete sente
 | 审批, 批准, 拒绝 | Approval, Approve, Deny |
 | 确认模式, 完全访问, 自动审核, 计划模式 | Ask for approval, Full access, Auto review, Plan |
 | 子 Agent | SubAgent |
-| PA, 个人 Agent, PA 远程连接 | Personal, Personal Agent, Personal connection |
 | 电脑 | Computer |
 | 模型, 推理档位 | Models, Reasoning effort |
 | 上下文使用量 | Context usage |

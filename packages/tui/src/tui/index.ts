@@ -1,43 +1,28 @@
-/**
- * TUI 入口：只连接本机后台（ruukoto-code 按需拉起，见下），不创建 SDK 会话、
- * 不加载模型凭据、不直接打开后台数据库或 JSONL。
- *
- * - ruukoto-code（issue 02）：后台不在时按需拉起（detached，关闭 TUI 不停止后台），
- *   启动失败给出日志位置并非零退出；ruukoto 沿用显式 server / systemd；
- *   开发前端有重载状态标记时只连接，由开发启动器管理后台；
- * - 非 TTY 环境不启动交互页面，提示使用已有 CLI 命令；
- * - 仅连接本机 Unix socket；远程使用沿用登录服务器后启动 TUI 的方式；
- * - 正常退出、SIGTERM、SIGHUP 与可处理的异常都关闭 socket、停止 TUI 并
- *   恢复终端（raw mode、光标、屏幕），不发送 stop 或取消任务；
- * - 进程被强杀（SIGKILL）时无法执行清理回调：终端可能停留在 alt screen
- *   或 raw mode，可用 `reset` 或 `stty sane` 恢复（见 docs/usage.md）。
- */
+/** Local task UI; closing the client never cancels backend work. */
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { resolveClientConfig } from "@ruukoto/control/connect.ts";
-import { ensureRuukotoCodeBackend, tuiSpawnsBackendOnDemand } from "@ruukoto/control/ensure-backend.ts";
-import { productFromEnv } from "@ruukoto/core/product.ts";
+import { ensureBackend } from "@ruukoto/control/ensure-backend.ts";
+import type { ProfilePaths } from "@ruukoto/core/profile.ts";
 import { createDemoClient } from "./demo-session.ts";
 import { ControlConnection } from "@ruukoto/control/connection.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
-import { reloadStatePathFromEnv } from "./reload-state.ts";
+import { RELOAD_STATE_ENV } from "./reload-state.ts";
 import { ViewState } from "./state.ts";
 import { TuiApp } from "./app.ts";
 import { CommandHistoryStore } from "./command-history.ts";
 
-export interface TuiOptions {
+export type TuiOptions = ({ demo: true; profile?: never } | { demo?: false; profile: ProfilePaths }) & {
   sessionId?: string;
-  /** 合成调试会话：不连后台，用假客户端喂出覆盖全部事件类型的静态数据。 */
-  demo?: boolean;
   /** 工作区入口（issue 21）：以该目录为工作区创建/复用项目并新建会话进入。 */
   workspace?: { path: string };
 }
 
-export async function runTui(opts: TuiOptions = {}): Promise<number> {
+export async function runTui(opts: TuiOptions): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error(
       "TUI 需要交互式终端（TTY）。非 TTY 环境请使用 CLI 命令：\n" +
@@ -47,21 +32,18 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
   }
 
   // 合成调试会话不读配置、不需要令牌（也不产生任何真实副作用）
-  let config: { socketPath: string; token: string } | null = null;
+  let config: { token: string } | null = null;
   if (!opts.demo) {
-    // 按需拉起本机后台（issue 02，仅 ruukoto-code）：已在运行不重复拉起，并发由实例锁收敛；
-    // ruukoto（个人 Agent）沿用显式 server / systemd，不由 TUI 越权拉起
-    // 开发启动器管理后台；重载失败时也只重连，避免派生不受启动器管理的后台。
-    if (tuiSpawnsBackendOnDemand(productFromEnv()) && !reloadStatePathFromEnv()) {
-      const ensured = await ensureRuukotoCodeBackend();
+    if (process.env[RELOAD_STATE_ENV] !== "1") {
+      const ensured = await ensureBackend({ profile: opts.profile });
       if (!ensured.ok) {
         console.error(ensured.error);
         return 1;
       }
-      if (ensured.spawned) console.error("已按需拉起 ruukoto-code 后台（关闭 TUI 不停止后台；显式停止：ruukoto-code stop）");
+      if (ensured.spawned) console.error("已按需拉起 ruukoto 后台（关闭 TUI 不停止后台；显式停止：ruukoto stop）");
     }
     try {
-      config = resolveClientConfig();
+      config = resolveClientConfig(opts.profile);
     } catch (err) {
       console.error((err as Error).message);
       return 1;
@@ -71,20 +53,19 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
   // 代码块语法高亮的主题：只用包内自带的 dark 主题（不读 ~/.pi，不写文件）
   initTheme("dark");
 
-  const state = new ViewState(opts.demo ? undefined : new CommandHistoryStore());
+  const state = new ViewState(opts.demo ? undefined : new CommandHistoryStore(opts.profile.commandHistoryPath));
   let app: TuiApp | null = null;
   const connection = new ControlConnection(
     opts.demo
-      ? { socketPath: "(demo)", token: "(demo)", clientFactory: async () => createDemoClient((text) => app?.log(text)) }
-      : { socketPath: config!.socketPath, token: config!.token },
+      ? { token: "(demo)", clientFactory: async () => createDemoClient((text) => app?.log(text)) }
+      : { profile: opts.profile, token: config!.token },
     {
       onState: (s, detail) => app?.onConnectionState(s, detail),
       onSnapshot: (result, ctx) => app?.onSnapshot(result, ctx),
       onEvent: (event, kind) => app?.onEvent(event, kind),
     },
   );
-  // 合成会话的待核实记录写进临时目录，不碰真实的 ~/.ruukoto/pending
-  const pendingStore = new PendingRequestStore(opts.demo ? fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-demo-pending-")) : undefined);
+  const pendingStore = new PendingRequestStore(opts.demo ? fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-demo-pending-")) : opts.profile.tuiPendingDir);
   const guard = new SubmissionGuard(pendingStore, connection);
 
   let exitResolve: ((code: number) => void) | null = null;
@@ -100,8 +81,7 @@ export async function runTui(opts: TuiOptions = {}): Promise<number> {
     initialSessionId: opts.sessionId,
     // 合成调试会话不支持创建操作，工作区入口只在真实连接下启用
     workspace: opts.demo ? undefined : opts.workspace,
-    // dev 重载状态（issue 21 §5）：仅 dev 注入 RUUKOTO_RELOAD_STATE_FILE 时启用
-    reloadStateFile: opts.demo ? undefined : (reloadStatePathFromEnv() ?? undefined),
+    reloadStateFile: !opts.demo && process.env[RELOAD_STATE_ENV] === "1" ? opts.profile.reloadStatePath : undefined,
     onExit: (code, message) => {
       restoreConsole();
       if (message) console.log(message);

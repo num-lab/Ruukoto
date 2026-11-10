@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [Desktop chrome cleanup](2026-11-08-desktop-chrome-cleanup.md) moves the toast to the top, enters it from above and adds a `toast-out` exit; the other transitions below remain.
 
 ## Problem

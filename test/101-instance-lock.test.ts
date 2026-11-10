@@ -8,11 +8,20 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { acquireInstanceLock, InstanceLockError, probeLockHolder } from "@ruukoto/core/instance-lock.ts";
 
+function makeOwnerWritable(ownerFile: string): void {
+  if (process.platform === "darwin") childProcess.execFileSync("chflags", ["nouchg", ownerFile]);
+  fs.chmodSync(ownerFile, 0o600);
+}
+
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-"));
   const lockDir = path.join(root, "runtime.lock");
   const ownerFile = path.join(lockDir, "owner.json");
-  return { root, lockDir, ownerFile, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, lockDir, ownerFile, cleanup: () => {
+    if (fs.existsSync(ownerFile)) makeOwnerWritable(ownerFile);
+    if (fs.existsSync(lockDir)) fs.chmodSync(lockDir, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  } };
 }
 
 test("实例锁以真实启动身份核实当前进程，不依赖检出名；只读探测和重复获取不改写 owner", () => {
@@ -77,6 +86,54 @@ test("真实子进程改名后仍持锁，退出后允许接管", { timeout: 10_
   }
 });
 
+for (const inspection of ["process identity", "legacy command"] as const) {
+  test(`owner exit during ${inspection} inspection permits verified takeover`, { timeout: 10_000 }, async (ctx) => {
+    const f = fixture();
+    let taken: ReturnType<typeof acquireInstanceLock> | undefined;
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+      import { acquireInstanceLock } from ${JSON.stringify(new URL("../packages/core/src/instance-lock.ts", import.meta.url).href)};
+      acquireInstanceLock(${JSON.stringify(f.root)});
+    `], { cwd: new URL("../", import.meta.url), stdio: ["ignore", "ignore", "pipe"] });
+    const exited = once(child, "exit");
+    let stderr = "";
+    child.stderr.on("data", chunk => { stderr += chunk.toString(); });
+    const kill = process.kill;
+    let observedAlive = true;
+    const liveness = ctx.mock.method(process, "kill", (...args: Parameters<typeof process.kill>) => {
+      if (args[0] === child.pid && args[1] === 0 && observedAlive) {
+        // Pin the observation immediately before exit; later probes use the real, reaped PID.
+        observedAlive = false;
+        return true;
+      }
+      return kill(...args);
+    });
+    try {
+      const [code] = await exited;
+      assert.equal(code, 0, stderr);
+      if (inspection === "legacy command") {
+        const owner = JSON.parse(fs.readFileSync(f.ownerFile, "utf8"));
+        delete owner.processIdentity;
+        makeOwnerWritable(f.ownerFile);
+        fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
+      }
+      const original = fs.readFileSync(f.ownerFile);
+      const probe = probeLockHolder(f.lockDir);
+      assert.equal(probe.held, false);
+      assert.equal(probe.unverifiable, false);
+      assert.deepEqual(fs.readFileSync(f.ownerFile), original);
+      observedAlive = true;
+      taken = acquireInstanceLock(f.root);
+      assert.equal(JSON.parse(fs.readFileSync(f.ownerFile, "utf8")).pid, process.pid);
+    } finally {
+      liveness.mock.restore();
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await exited;
+      taken?.release();
+      f.cleanup();
+    }
+  });
+}
+
 test("相同 PID 的启动标识不同表示遗留锁，损坏的新身份保持待核实", () => {
   const f = fixture();
   let held = acquireInstanceLock(f.root);
@@ -86,13 +143,15 @@ test("相同 PID 的启动标识不同表示遗留锁，损坏的新身份保持
     owner.processIdentity = process.platform === "linux"
       ? original.replace(/:\d+$/, ":0")
       : "darwin:Thu Jan  1 00:00:00 1970";
+    makeOwnerWritable(f.ownerFile);
     fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
     assert.equal(probeLockHolder(f.lockDir).held, false, "合法但不匹配的启动标识可证明 PID 已复用");
     held = acquireInstanceLock(f.root);
+    makeOwnerWritable(f.ownerFile);
     for (const pid of [0, -1, 1.5]) {
       fs.writeFileSync(f.ownerFile, JSON.stringify({ ...owner, pid, processIdentity: original }));
-      assert.equal(probeLockHolder(f.lockDir).held, false, "无效 PID 按损坏 owner 处理，不探测进程组");
-      held = acquireInstanceLock(f.root);
+      assert.equal(probeLockHolder(f.lockDir).unverifiable, true, "Invalid PIDs cannot prove exit or authorize takeover");
+      assert.throws(() => acquireInstanceLock(f.root), (error: unknown) => error instanceof InstanceLockError && error.unverifiable);
     }
     for (const invalid of [null, "", "invalid", "darwin:0", "darwin:1", "darwin:Sun Feb 30 00:00:00 2025", "linux:------------------------------------:1", { start: "unknown" }]) {
       fs.writeFileSync(f.ownerFile, JSON.stringify({ ...owner, processIdentity: invalid }));
@@ -113,6 +172,7 @@ test("旧 owner 沿命令兼容核实；ps 不可用保留锁，身份采集失�
   const owner = JSON.parse(fs.readFileSync(f.ownerFile, "utf8"));
   const currentOwner = fs.readFileSync(f.ownerFile, "utf8");
   delete owner.processIdentity;
+  makeOwnerWritable(f.ownerFile);
   fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
   const realExec = childProcess.execFileSync;
   let unavailable = false;

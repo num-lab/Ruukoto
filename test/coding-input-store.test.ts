@@ -3,10 +3,9 @@ import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { findMessageRecall, recallCandidate } from "@ruukoto/core/message-recall.ts";
 import { cancelOwnerQuestion, consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, getOwnerQuestionReceipt } from "@ruukoto/core/owner-questions.ts";
 import { Store } from "@ruukoto/core/store.ts";
@@ -180,19 +179,6 @@ test("user queue and queued events use trusted classification before report bind
     assert.deepEqual(queued.map(event => event.body.type === "task.queued" ? event.body.inputPurpose : null), ["user", "internal_report", undefined]);
   } finally { f.cleanup(); }
 });
-
-for (const version of [57, 59]) test(`schema 58 rejects schema ${version} without mutation`, () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "coding-input-version-"));
-  try {
-    assert.equal(SCHEMA_VERSION, 58);
-    const file = path.join(root, "ruukoto.db"), db = new DatabaseSync(file);
-    db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('schema_version', '${version}');`); db.close();
-    const before = fs.readFileSync(file);
-    assert.throws(() => new Db(root), { code: "schema_version_unsupported" });
-    assert.deepEqual(fs.readFileSync(file), before);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
-
 
 test("queued retrieval reopens from its persistent receipt and blocks inconsistent cancellation facts", async () => {
   const f = fixture();

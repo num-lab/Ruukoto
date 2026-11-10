@@ -1,52 +1,28 @@
 /**
- * 父级送达（架构工单 09）：父级会收到这项工作的什么、何时收到。
- *
- * 送达 = 进入主 Agent 的一次模型调用（CONTEXT.md「送达」）：main 在承载它的唤醒
- * 任务开始运行时，普通开发会话在下一次任务开始时的注入。此前只是待送达——所属
- * 工作被取消即截住，内容仍作为事实保存可查（issue 14）。送达方向
- * 按会话身份与运行归属判定：main、个人与 Coding 调度运行建唤醒任务，普通开发会话待注入。
- * Note: 见 .agents/notes/implemented/feature/2026-10-04-cancel-work.md
- * Note: 见 .agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md
- * Note: 见 .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
- * Note: 见 .agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md
- *
- * 五个入口各对应一个调用点：子任务结果已登记（编排器）、发给主 Agent 的消息已
- * 登记（SubAgent 管理器，消息事务内）、普通开发会话的任务开始（driver）、唤醒
- * 任务即将运行（队列循环）、后台启动（编排器启动巡检）。另含 IM 发起工作的最终
- * 汇报到期判定与唤醒输入的宿主说明。结果登记本身留在编排器；发给 SubAgent 的投递
- * 留在 SubAgent 管理器。
- *
- * 两种唤醒的建立方式不同：结果唤醒在结果事务提交后经 submit，启动按 wake:<子任务>
- * 键补建；消息唤醒由 SubAgent 管理器预检后在消息事务内插入（键 smsg:<消息>），
- * 启动补建和投递重核也归管理器。
+ * Deliver SubAgent results and work messages to their parent conversation.
+ * Ordinary results enter the next task; waited results and Code schedule results
+ * use persistent report ownership and idempotent wake tasks. Canceled work and
+ * invalid sources retain their records without entering another model request.
+ * Note: See .agents/notes/implemented/feature/2026-10-04-cancel-work.md
+ * Note: See .agents/notes/implemented/feature/2026-10-13-workflow-owner-input-and-delivery.md
+ * Note: See .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
+ * Note: See .agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md
  */
 
-import { QQ_PRIVATE_SOURCE } from "@ruukoto/channels/qq/adapter.ts";
-import { TELEGRAM_SOURCE } from "@ruukoto/channels/telegram/adapter.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { CodeScheduleError, bindCodeScheduleTask, getCodeScheduleRunForTask, getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
-import type { InboundEvent,ModelSelection,SubAgentMessage,Task,WorkDelegation } from "@ruukoto/core/types.ts";
+import type { ModelSelection,SubAgentMessage,Task,WorkDelegation } from "@ruukoto/core/types.ts";
 import { createHash } from "node:crypto";
 import { sliceTextByBytes } from "@ruukoto/core/history.ts";
 import { getWorkflowDeliveryRun, listWorkflowExecutions, listWorkflowRuns, listWorkflowSteps, requireWorkflowRun, updateWorkflowRun,
   workflowDeliveryKey, workflowTerminal, type WorkflowRun } from "@ruukoto/core/workflow.ts";
-import { agentReportKey, agentWaitCovers, bindAgentReportFallback, completeAgentReports, consumeAgentReport, finishAgentReportFallback, getAgentReport,
+import { agentReportKey, bindAgentReportFallback, completeAgentReports, consumeAgentReport, finishAgentReportFallback, getAgentReport,
   AgentWaitError, invalidateAgentReports, isAgentReportFallback, listAgentReports, listAgentWaits, registerAgentReport, releaseAgentReports, sameAgentReportSource, type AgentReport, type AgentReportCompletion } from "@ruukoto/core/agent-wait.ts";
 import { isRecallSealedTask } from "@ruukoto/core/message-recall.ts";
-import { childOutcome,OUTCOME_TEXT,REVIEW_DEADLINE_MS,type ChildOutcome,type OrchestratorBridge } from "./orchestrator.ts";
+import { childOutcome,OUTCOME_TEXT,type ChildOutcome,type OrchestratorBridge } from "./orchestrator.ts";
 import { agentWaitGroupTargets, agentWaitTargetsReady } from "./agent-wait.ts";
 import { WorkCopyError } from "./work-copy.ts";
-
-/** 最终汇报沿原来源登记到宿主发送账本。 */
-export interface WorkReport {
-  event: InboundEvent;
-  /** 承载汇报的任务（发送操作的 taskId）。 */
-  wakeTaskId: string;
-  /** 普通工作按收尾执行任务分槽，工作流按固定运行/终态代次分槽；都沿原事件。 */
-  key: string;
-  text: string;
-}
 
 export interface ParentDeliveryDeps {
   store: Store;
@@ -55,20 +31,13 @@ export interface ParentDeliveryDeps {
   defaultModelSelection(): ModelSelection;
   /** 指定任务的最终回答文本（最终汇报正文）。 */
   readReply(taskId: string): string | null;
-  /** 宿主固定评审的入站事件（GitHub）：结果唤醒保留来源与截止时间。 */
-  isReviewEvent(event: InboundEvent): boolean;
-  /** 宿主附注（GitHub 修订说明），附在结果唤醒输入末尾。 */
-  resultNotice(task: Task): string | null;
-  /** 最终汇报到期时在结果事务内调用一次。 */
-  sendWorkReport(report: WorkReport): void;
   verifyWorkflowReport?(run: WorkflowRun): boolean;
-  sendWorkflowReport?(report: WorkReport): boolean;
-  /** 认领父轮与普通 owner 回复共用一份报告；调用方在结果事务内登记外发及关联。 */
+  /** Complete a claimed report in the result transaction. */
   recordClaimedReport?(task: Task, outcome: ChildOutcome, reports: AgentReport[]): AgentReportCompletion;
   reportInput?(task: Task, reports: AgentReport[]): AgentReportCompletion["reportInput"] | null;
   verifyAgentReport?(report: AgentReport): boolean;
   verifyWork(work: WorkDelegation): void;
-  /** 只核实截至该任务的依赖，返回来源或固定角色失效的原因。 */
+  /** Verify dependencies through this task, including its pinned role and sources. */
   verifyTask(task: Task): string | null;
   /** 报告登记事务内核实活动等待，预留父轮归属后才决定是否提交后备汇总。 */
   reserveAgentReport?(report: AgentReport): void;
@@ -141,7 +110,7 @@ export class ParentDelivery {
     this.log(`工作 ${workId} 的结果不可送达：${error.code}；保留记录与副本，请核实基线后新建工作`);
   }
 
-  /** 取消或基线不可核实的工作均不送达父模型。无工作（旧 coding 子任务）不受此限。 */
+  /** Canceled work and unverifiable snapshots must not enter a parent model request. */
   private workUnavailable(workId: string | null, inTransaction = false): string | null {
     if (workId === null) return null;
     let work: WorkDelegation | null;
@@ -223,12 +192,12 @@ export class ParentDelivery {
   }
 
   /**
-   * 编排器在结果事务提交后调用一次（重复调用由 wake:<子任务> 请求键幂等）。
-   * main／个人与 Coding 调度运行建结果唤醒；普通开发会话仅曾被等待覆盖的结果自动补报，其余待注入；已取消不建。
-   * 唤醒输入为固定模板 + 截断摘要与结果引用，不复制子任务完整历史。
+   * Called after the result transaction commits; wake:<task> makes recovery idempotent.
+   * Waited results and Code schedule results wake the parent; other results await injection.
    */
   async resultRecorded(child: Task, outcome: ChildOutcome, summary: string): Promise<void> {
     if (getWorkflowDeliveryRun(this.store, child.id) || isAgentReportFallback(this.store, child.id)) return;
+    if (!child.subAgentId || !child.workId) return;
     if (this.store.db.prepare("SELECT 1 FROM workflow_executions WHERE task_id = ?").get(child.id)) return;
     const parent = child.parentTaskId ? this.store.getTask(child.parentTaskId) : null;
     if (!parent) return;
@@ -241,37 +210,23 @@ export class ParentDelivery {
     if (report && (report.status !== "pending" || report.claimTaskId || report.fallbackTaskId)) return;
     const codeRun = getCodeScheduleRunForTask(this.store, child.id);
     if (codeRun && child.sessionId === parentSessionId) return;
-    if ((identity?.kind !== "main" && identity?.kind !== "scheduled" && !report && !codeRun) || this.workUnavailable(child.workId)) return;
-    if (!identity || !["dev", "main", "scheduled"].includes(identity.kind) || this.taskUnavailable(child)) return;
-    const run = this.store.getScheduledRunForTask(child.id);
-    if (run && (run.closedAt || run.scheduleStatus === "canceled")) return;
+    if ((!report && !codeRun) || this.workUnavailable(child.workId)) return;
+    if (identity?.kind !== "dev" || this.taskUnavailable(child)) return;
     if (report && !report.fallbackTaskId && await this.deps.routeAgentReport?.(report)) return;
-    const source = child.sourceEventId ? this.store.getInboundEvent(child.sourceEventId) : null;
-    const reviewSource = source && this.deps.isReviewEvent(source) ? source : null;
     if (this.taskUnavailable(child)) return;
     const codeSource = getCodeScheduledTaskSource(this.store, child.id);
-    const notices = [this.deps.resultNotice(child), this.workReportNotice(work)].filter((n): n is string => n !== null);
-    const input = child.subAgentId
-      ? `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
-        `子任务：${child.id}（SubAgent ${child.subAgentId} · 工作 ${child.workId}）\n` +
-        `摘要：${summary}\n` +
-        `完整结果：用 subagent_result 按 work_id ${child.workId} 读取（part=reply 分页读最终回答，part=artifact 读产物）`
-      // 旧 coding 子任务（agent-direction issue 23 退役前在途，启动收尾后补记一次）
-      : `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
-        `子任务：${child.id}（角色 ${child.agentId}）\n` +
-        `摘要：${summary}\n` +
-        `完整结果：用 coding_result 读取（task_id ${child.id}；part=reply 分页读最终回答，part=artifact 读产物）`;
+    const input = `[编排器] 子任务${OUTCOME_TEXT[outcome]}\n` +
+      `子任务：${child.id}（SubAgent ${child.subAgentId} · 工作 ${child.workId}）\n` +
+      `摘要：${summary}\n` +
+      `完整结果：用 subagent_result 按 work_id ${child.workId} 读取（part=reply 分页读最终回答，part=artifact 读产物）`;
     try {
       const wake = await this.deps.submit({
         sessionId: parentSessionId,
         requestId: `wake:${child.id}`,
-        input: [input, ...notices].join("\n"),
-        modelSelection: codeSource?.snapshot.modelSelection ?? (identity.kind === "main" ? identity.role.modelSelection : identity.kind === "scheduled" ? identity.modelSelection : parent.modelSelection) ?? this.deps.defaultModelSelection(),
-        agentId: identity.kind === "main" ? identity.role.id : null,
-        // 入站 review 的摘要保留宿主来源；普通 owner 委派仍无自动外发授权。
-        sourceEventId: reviewSource?.id ?? null,
-        deadline: reviewSource ? new Date(Date.parse(child.endedAt!) + REVIEW_DEADLINE_MS).toISOString() : null,
-        // 结果来自终态子任务：其模式不再变化，重启补建仍沿原任务授权。
+        input,
+        modelSelection: codeSource?.snapshot.modelSelection ?? parent.modelSelection ?? this.deps.defaultModelSelection(),
+        deadline: null,
+        // Terminal child authority stays fixed when recovery recreates the wake task.
         accessMode: codeSource?.snapshot.permission ?? child.accessMode,
         parentTaskId: child.id,
         sourcePermissionVersion: child.permissionVersion,
@@ -285,11 +240,7 @@ export class ParentDelivery {
 
   // ---------- 入口 2：发给主 Agent 的消息已登记 ----------
 
-  /**
-   * SubAgent 管理器预检并重核后在消息事务内调用（发送与冲刷共用）。main／个人与 Coding 调度运行 → 同事务插入
-   * 消息唤醒并写投递登记（键 smsg:<消息> 幂等），返回 "wake"，调用方提交后 kick；
-   * 普通开发会话 → 待注入，返回 "inject"。
-   */
+  /** Code schedule messages wake the parent in this transaction; ordinary messages await injection. */
   messageRecorded(msg: SubAgentMessage, work: WorkDelegation, selection: ModelSelection | null): "wake" | "inject" {
     const reason = this.verifyInjection(work.parentSessionId, [], [msg.id], true);
     if (reason) {
@@ -301,9 +252,8 @@ export class ParentDelivery {
       if (this.store.markSubAgentMessageUndelivered(msg.id, "message_recall")) this.store.appendEvent({ type: "subagent_message.dropped", messageId: msg.id, workId: msg.workId, parentSessionId: msg.parentSessionId, toSubAgentId: msg.toSubAgentId, reason: "message_recall" }, { sessionId: msg.parentSessionId });
       return "inject";
     }
-    const identity = this.store.getSessionIdentity(work.parentSessionId);
     const codeSource = getCodeScheduledTaskSource(this.store, msg.fromTaskId);
-    if (identity?.kind !== "main" && identity?.kind !== "scheduled" && !codeSource) return "inject";
+    if (!codeSource) return "inject";
     if (!selection) throw new Error("消息唤醒缺少已核实的模型选择");
     const input = [
       `[工作内消息 · 工作 ${work.id}]`,
@@ -319,7 +269,6 @@ export class ParentDelivery {
       sourcePermissionVersion: msg.sourcePermissionVersion,
       modelSelection: selection,
       submissionDigest: createHash("sha256").update(JSON.stringify({ kind: "smsg-wake", messageId: msg.id })).digest("hex"),
-      agentId: identity?.kind === "main" ? identity.role.id : null,
       parentTaskId: msg.fromTaskId,
       deadline: null,
     });
@@ -365,7 +314,7 @@ export class ParentDelivery {
     });
   }
 
-  /** 调度运行、等待父轮与内部补报均经编排器的一次性结果登记和启动恢复。 */
+  /** Current scheduled runs, fallback tasks and report claimants require terminal-result registration. */
   needsResult(task: Task): boolean {
     return getCodeScheduleRunForTask(this.store, task.id) !== null || isAgentReportFallback(this.store, task.id) || listAgentReports(this.store).some(report => report.claimTaskId === task.id);
   }
@@ -383,24 +332,13 @@ export class ParentDelivery {
 
   // ---------- 入口 4：唤醒任务即将运行 ----------
 
-  /** 唤醒任务承载的工作（wake:<子任务> 取子任务的工作，smsg:<消息> 取消息的工作）；不是唤醒为 null。 */
-  private wakeWorkId(task: Task): string | null {
-    if (task.requestId.startsWith("wake:")) return this.store.getTask(task.requestId.slice("wake:".length))?.workId ?? null;
-    if (task.requestId.startsWith("smsg:")) return this.store.getSubAgentMessage(task.requestId.slice("smsg:".length))?.workId ?? null;
-    return null;
-  }
-
-  /**
-   * 队列循环在任务启动前调用（所有唤醒都经过它）：main 唤醒所属工作已取消即不
-   * 放行——取消前已排队、取消后才插入与启动补建的唤醒都在这里截住，调用方按
-   * work_canceled 取消该任务。SubAgent 子会话的 smsg: 投递任务不归这里（整项
-   * 取消在登记事务内直接取消它们）。
-   */
+  /** Reject queued wakes whose work was canceled or whose sources can no longer be verified. */
   wakeAdmitted(task: Task): boolean { return this.wakeUnavailable(task) === null; }
 
-  /** 返回拒绝原因，队列按原原因保留取消事实。 */
+  /** Return the persisted rejection reason so queue cancellation retains it. */
   wakeUnavailable(task: Task): string | null {
-    try { getCodeScheduledTaskSource(this.store, task.id); }
+    let codeScheduled = false;
+    try { codeScheduled = getCodeScheduledTaskSource(this.store, task.id) !== null; }
     catch (error) {
       if (!(error instanceof CodeScheduleError)) throw error;
       return error.code;
@@ -418,16 +356,19 @@ export class ParentDelivery {
     if (workflow) return workflowTerminal(workflow.status) && workflow.delivery?.version === workflow.terminalVersion &&
       task.parentTaskId === workflow.source.taskId && task.sessionId === workflow.source.sessionId &&
       task.sourcePermissionVersion === workflow.source.permissionVersion && Boolean(this.deps.verifyWorkflowReport?.(workflow)) ? null : "workflow_report_source_invalid";
-    const scheduled = this.store.getScheduledRunForTask(task.id);
-    if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) return "schedule_canceled";
-    const kind = this.store.getSessionIdentity(task.sessionId)?.kind;
-    if (kind !== "main" && kind !== "scheduled") return null;
+    // Unreported wakes exist only in host-bound schedule runs; owner request keys confer no provenance.
+    if (!codeScheduled || this.store.getSessionIdentity(task.sessionId)?.kind !== "dev") return null;
     if (task.requestId.startsWith("wake:")) {
       const child = this.store.getTask(task.requestId.slice("wake:".length));
-      return child ? this.taskUnavailable(child) : "subagent_source_invalid";
+      if (!child || task.parentTaskId !== child.id) return "subagent_source_invalid";
+      return this.verifyInjection(task.sessionId, [child.id], []);
     }
-    if (task.requestId.startsWith("smsg:")) return this.verifyInjection(task.sessionId, [], [task.requestId.slice("smsg:".length)]);
-    return this.workUnavailable(this.wakeWorkId(task));
+    if (task.requestId.startsWith("smsg:")) {
+      const message = this.store.getSubAgentMessage(task.requestId.slice("smsg:".length));
+      if (!message || task.parentTaskId !== message.fromTaskId || message.deliveredTaskId !== task.id) return "subagent_source_invalid";
+      return this.verifyInjection(task.sessionId, [], [message.id]);
+    }
+    return null;
   }
 
   // ---------- 入口 5：后台启动 ----------
@@ -437,7 +378,8 @@ export class ParentDelivery {
    * 消息唤醒的补建由管理器执行，不能绕过消息的模型与执行入口预检。
    */
   async sweep(): Promise<void> {
-    for (const task of this.store.listRoleTasksPendingWake()) {
+    for (const task of this.store.listTasksByStatus(["completed", "failed", "canceled", "interrupted"])
+      .filter(task => task.subAgentId && task.parentTaskId && task.resultSummary !== null)) {
       await this.resultRecorded(task, childOutcome(task), task.resultSummary!);
     }
     for (const report of listAgentReports(this.store)) {
@@ -471,7 +413,7 @@ export class ParentDelivery {
         const report = this.store.withTx(() => {
           const target = { kind: "workflow" as const, runId: run.id, terminalVersion: run.terminalVersion! };
           let current = getAgentReport(this.store, agentReportKey(target));
-          if (!current && (this.store.getSessionIdentity(run.source.sessionId)?.kind === "dev" || agentWaitCovers(this.store, { kind: "workflow", runId: run.id }, run.source.sessionId))) {
+          if (!current && this.store.getSessionIdentity(run.source.sessionId)?.kind === "dev") {
             current = registerAgentReport(this.store, { target, source: run.source, parentSessionId: run.source.sessionId });
           }
           if (!current) return null;
@@ -494,10 +436,9 @@ export class ParentDelivery {
           });
           continue;
         }
-        const identity = this.store.getSessionIdentity(run.source.sessionId)!;
         try {
           const task = await this.deps.submit({ sessionId: run.source.sessionId, requestId: workflowDeliveryKey(run), input: workflowWakeInput(run),
-            modelSelection: run.modelSelection, agentId: identity.kind === "main" ? identity.role.id : null,
+            modelSelection: run.modelSelection,
             accessMode: run.source.accessMode, grantedPaths: run.source.grantedPaths, parentTaskId: run.source.taskId,
             sourcePermissionVersion: run.source.permissionVersion, workflowRunId: run.id, ...(report ? { reportKey: report.key } : {}) });
           if (report && !getAgentReport(this.store, report.key)?.fallbackTaskId) this.store.withTx(() => bindAgentReportFallback(this.store, report.key, task.id));
@@ -521,28 +462,7 @@ export class ParentDelivery {
     for (const report of finishAgentReportFallback(this.store, taskId, result)) this.finishWorkflowReport(report, result);
   }
 
-  /** IM 发起的工作的发起事件（经发起任务钉版的来源链派生，不取会话最新状态）。 */
-  private workOriginEvent(work: WorkDelegation): InboundEvent | null {
-    const origin = this.store.getTask(work.originTaskId);
-    const event = origin?.sourceEventId ? this.store.getInboundEvent(origin.sourceEventId) : null;
-    return event && event.eventKind === "task" && (event.source === TELEGRAM_SOURCE || event.source === QQ_PRIVATE_SOURCE) ? event : null;
-  }
-
-  /**
-   * 结果唤醒的宿主说明：IM 发起的工作告知 main 收尾规则——本工作没有其他进行中
-   * 任务时本轮最终回答会作为最终汇报发回原入口一次。
-   */
-  private workReportNotice(work: WorkDelegation | null): string | null {
-    if (!work || !this.workOriginEvent(work)) return null;
-    return `[最终汇报] 本工作（${work.id}）没有其他进行中任务时，本轮最终回答会作为工作最终汇报向原 IM 入口发送一次；请汇总全部子任务结果。`;
-  }
-
-  /**
-   * 结果唤醒到达终态（编排器在其结果事务内调用；重启补记同一路径，不重复）。
-   * 到期规则由宿主执行，模型不能选择不汇报：工作未取消、由 IM 入口发起、没有
-   * 活动执行任务、其余执行任务的结果唤醒都已有结果（并发时由后终态的唤醒汇报）。
-   * 拥有者续派会产生活动任务，汇报自然推迟。正文取本唤醒轮次的最终回答。
-   */
+  /** Complete claimed and fallback reports inside the terminal-result transaction. */
   wakeTerminal(wake: Task, outcome: ChildOutcome): void {
     const claims = listAgentReports(this.store).filter(report => report.claimTaskId === wake.id && report.status === "pending");
     if (claims.length) {
@@ -588,39 +508,9 @@ export class ParentDelivery {
     if (workflow) {
       const delivery = workflow.delivery!;
       if (delivery.status !== "queued") return;
-      let delivered = Boolean(this.deps.verifyWorkflowReport?.(workflow));
-      if (delivered && !workflow.source.scheduledRunId && workflow.source.replyTarget) {
-        const origin = this.store.getTask(workflow.source.taskId);
-        const event = origin?.sourceEventId ? this.store.getInboundEvent(origin.sourceEventId) : null;
-        const summary = workflow.status !== "canceled" && outcome === "completed" ? this.deps.readReply(wake.id)?.trim() : null;
-        delivered = Boolean(event && this.deps.sendWorkflowReport?.({ event, wakeTaskId: wake.id,
-          key: `${event.id}#${workflowDeliveryKey(workflow)}`, text: [delivery.facts, summary].filter(Boolean).join("\n") }));
-      }
+      const delivered = Boolean(this.deps.verifyWorkflowReport?.(workflow));
       updateWorkflowRun(this.store, { ...workflow, delivery: { ...delivery, status: delivered ? "reported" : "undelivered", reason: delivered ? null : "source_invalid" } });
       return;
     }
-    if (!wake.requestId.startsWith("wake:")) return;
-    const child = this.store.getTask(wake.requestId.slice("wake:".length));
-    let work: WorkDelegation | null;
-    try { work = child?.workId ? this.store.getWorkDelegation(child.workId) : null; }
-    catch (error) { this.rejectSnapshot(child!.workId!, error, true); return; }
-    if (!child || !work || this.taskUnavailable(child, true)) {
-      return;
-    }
-    const event = this.workOriginEvent(work);
-    if (!event) {
-      return; // TUI、定时、群与 GitHub 发起的工作一律不发
-    }
-    if (this.store.listActiveTasksByWork(work.id).length > 0) return;
-    for (const exec of this.store.listTasksByWork(work.id)) {
-      if (exec.id === child.id) continue;
-      const other = this.store.findTaskByRequest(wake.sessionId, `wake:${exec.id}`);
-      if (!other || other.resultSummary === null) return;
-    }
-    const text =
-      outcome === "completed"
-        ? `[工作 ${work.id} 最终汇报]\n${this.deps.readReply(wake.id)?.trim() || "（无文本输出）"}`
-        : `[工作 ${work.id} 最终汇报] 汇报轮次${outcome === "timeout" ? "超时" : outcome === "unknown" ? "被后台重启中断，结果未知" : "失败或已取消"}，详情见 TUI。`;
-    this.deps.sendWorkReport({ event, wakeTaskId: wake.id, key: `${event.id}#work:${work.id}:${child.id}`, text });
   }
 }

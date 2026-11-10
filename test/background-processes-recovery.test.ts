@@ -12,8 +12,8 @@ import type { PersistentEvent } from "@ruukoto/core/types.ts";
 import { RuntimeBackgroundProcesses } from "@ruukoto/runtime/background-processes.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { createBackgroundProcessFamily } from "@ruukoto/agent/background-process-tools.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
-import { previewLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
+
+import type { ProfilePaths } from "@ruukoto/core/profile.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
 function fixture(t: TestContext) {
@@ -138,7 +138,7 @@ test("已接纳启动与关闭竞争，屏障阻止迟到交接，原Task占用�
   assert.equal(fs.readdirSync(path.join(f.dataDir, "background-executions")).length, 0);
 });
 
-test("恢复只结束未认领启动，工具账本区分尚未派发和停止意图接纳，离线导入拒绝后台记录", async t => {
+test("recovery settles unclaimed starts and distinguishes dispatch from accepted stop intents", async t => {
   const f = fixture(t), record = f.register(), check = createBackgroundProcessFamily(f.store).ledger!.familyCheck!;
   assert.equal(check.verify(f.store.getToolOp("op-start")!), "not_committed");
   await f.manager.recover();
@@ -146,8 +146,6 @@ test("恢复只结束未认领启动，工具账本区分尚未派发和停止�
   assert.equal(fs.readdirSync(path.join(f.dataDir, "background-executions")).length, 0);
   f.store.withTx(() => f.store.recordToolIntent({ id: "stop", taskId: f.task.id, sessionId: f.session.id, toolName: "process_stop", params: { process_id: record.id } }));
   assert.equal(check.verify(f.store.getToolOp("stop")!), "committed");
-  f.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  assert.throws(() => previewLegacyImport({ targetDataDir: path.join(f.root, "target"), targetAgentDir: path.join(f.root, "agent") }, { from: f.dataDir }), { code: "background_processes_import_unavailable" });
 });
 
 test("宿主强杀后冷恢复核实原后台、释放占用但零重放命令", async () => {
@@ -161,10 +159,10 @@ test("宿主强杀后冷恢复核实原后台、释放占用但零重放命令",
   const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
   try {
     await waitFor("独立后台启动并交接", () => output.includes("\n"), 30_000);
-    const info = JSON.parse(output.slice(0, output.indexOf("\n"))) as { root: string; dataDir: string; agentDir: string; work: string; processId: string };
+    const info = JSON.parse(output.slice(0, output.indexOf("\n"))) as { root: string; profile: ProfilePaths; work: string; processId: string };
     root = info.root;
     child.kill("SIGKILL"); await exited;
-    runtime = await Runtime.start({ product: product.runtime, dataDir: info.dataDir, agentDir: info.agentDir, socketPath: path.join(info.root, "r.sock"), modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off" });
+    runtime = await Runtime.start({ profile: info.profile, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off" });
     const record = getBackgroundProcess(runtime.store, info.processId)!;
     assert.equal(record.state, "stopped", JSON.stringify(record) + errors);
     assert.equal(record.partial, true, "宿主崩溃没有完整输出流证据，保留partial");

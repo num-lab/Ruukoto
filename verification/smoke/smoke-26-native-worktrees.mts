@@ -2,14 +2,13 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
 import { createLauncherFor, ExecutionError } from "@ruukoto/agent/execution/launchers.ts";
 import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
 import { GIT_SAFE_DIRECTORY_ENV } from "@ruukoto/core/worktree.ts";
 import type { Task, WorkWriteTarget } from "@ruukoto/core/types.ts";
 import { holdParentResponse } from "../../test/helpers/active-parent.ts";
 import { shellQuotePathForTest } from "../../test/helpers/git-fixture.ts";
-import { lastUserText, realTools, startTestRuntime, waitFor, type TestRuntime } from "../../test/helpers/testkit.ts";
+import { cleanupDirs, lastUserText, realTools, startTestRuntime, waitFor, type TestRuntime } from "../../test/helpers/testkit.ts";
 import type { Responder } from "../../test/helpers/mock-provider.ts";
 
 if (process.argv.length > 2) {
@@ -76,7 +75,7 @@ let bootstrap: ToolWorkerHost | null = null;
 let cleanupSafe = false, bootstrapStopped = true, exitCode = 0;
 try {
   testRuntime = await startTestRuntime("native26", parentGate.responder, {
-    workDirs: 1, config: { product: codingProduct.runtime, ...realTools(), execution: { backend: "native" } },
+    workDirs: 1, config: { ...realTools(), execution: { backend: "native" } },
   });
   const { runtime, client } = testRuntime;
   repo = fs.realpathSync(testRuntime.work[0]);
@@ -119,7 +118,7 @@ try {
   const parent = await client.request<Task>("submit", { session_id: parentSession.id, request_id: "parent", input: "开始原生委派", model_selection: runtime.defaultSelection });
   await waitFor("父任务持有占用", () => runtime.store.getTask(parent.id)?.status === "running" && runtime.store.getOccupancyByDir(repo)?.taskId === parent.id);
   await check("只读 SubAgent 真实读取限定文件，未授予的兄弟文件被拒绝", async () => {
-    const read = await runtime.subagents!.delegate({ parentTaskId: parent.id, key: "read", request: "FLOW-read", readPaths: ["a.txt"], materials: null, paramsDigest: "read" });
+    const read = await runtime.subagents!.delegate({ parentTaskId: parent.id, key: "read", request: "FLOW-read", readPaths: ["a.txt"], paramsDigest: "read" });
     await waitFor("只读子任务收尾", () => runtime.store.getTask(read.task.id)?.status === "completed", 90_000);
     const operations = runtime.store.listToolOpsByTask(read.task.id);
     assert.equal(operations.find(op => op.sdkCallId === "read-allowed")?.isError, false);
@@ -130,7 +129,7 @@ try {
   await check("活动父任务在原生边界内创建两个独立 worktree，并行运行", async () => {
     for (const name of ["A", "B"]) {
       const delegated = await runtime.subagents!.delegate({ parentTaskId: parent.id, key: name, request: "FLOW-copy-" + name,
-        target: ".", readPaths: null, materials: null, paramsDigest: name });
+        target: ".", readPaths: null, paramsDigest: name });
       const target = delegated.work.writeTarget!;
       assert.ok(target.kind === "worktree");
       copies.push({ target, workId: delegated.work.id, taskId: delegated.task.id, name });
@@ -153,13 +152,13 @@ try {
     }
     assert.equal(fs.readFileSync(path.join(commonGit, "config"), "utf8"), originalConfig);
   });
-  await check("副本间成果独立，父工作区未提交修复与原字节没有进入副本", () => {
+  await check("Work copies inherit the current baseline while keeping sibling changes isolated", () => {
     for (const copy of copies) {
       const sibling = copy.name === "A" ? "B" : "A";
       assert.equal(fs.readFileSync(path.join(copy.target.path, "copy-" + copy.name + ".txt"), "utf8"), copy.name + "-only\n");
       assert.equal(fs.existsSync(path.join(copy.target.path, "copy-" + sibling + ".txt")), false);
-      assert.match(fs.readFileSync(path.join(copy.target.path, "sum.mjs"), "utf8"), /let total = 1;/);
-      assert.equal(fs.existsSync(path.join(copy.target.path, "report.txt")), false);
+      assert.match(fs.readFileSync(path.join(copy.target.path, "sum.mjs"), "utf8"), /let total = 0;/);
+      assert.equal(fs.readFileSync(path.join(copy.target.path, "report.txt"), "utf8"), "native-fixed\n");
     }
     assert.equal(fs.readFileSync(path.join(repo, "a.txt"), "utf8"), "alpha\n");
     assert.equal(fs.readFileSync(path.join(repo, "b.txt"), "utf8"), "beta\n");
@@ -201,7 +200,7 @@ try {
     try { await testRuntime.server.close(); }
     catch (error) { exitCode = 1; cleanupSafe = false; process.stderr.write(`[ruukoto:smoke26] 模型桩关闭失败：${String(error)}\n`); }
     if (cleanupSafe && bootstrapStopped) {
-      try { fs.rmSync(testRuntime.dirs.root, { recursive: true, force: true }); }
+      try { await cleanupDirs(testRuntime.dirs); }
       catch (error) { exitCode = 1; cleanupSafe = false; process.stderr.write(`[ruukoto:smoke26] 资料清理失败：${String(error)}\n`); }
     }
     if (!cleanupSafe || !bootstrapStopped) process.stderr.write(`[ruukoto:smoke26] 保留现场：${testRuntime.dirs.root}\n`);

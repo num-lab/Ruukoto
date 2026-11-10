@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * issue 13：/prompt 命令的数据层 —— 模型请求列表与 prompt 快照。
  *
@@ -230,10 +230,7 @@ test("prompt 快照：跨后台重启可读", async () => {
   await writeModelsJson(dirs, baseUrl);
   const startRuntime = async (sock: string) => {
     const runtime = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: dirs.dataDir,
-      agentDir: dirs.agentDir,
-      socketPath: `${dirs.root}/${sock}`,
+      profile: dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",

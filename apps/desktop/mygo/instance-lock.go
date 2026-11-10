@@ -8,7 +8,7 @@ import (
 )
 
 func acquireInstanceLock(userData string) (*os.File, error) {
-	directory := filepath.Join(userData, "personal-credentials")
+	directory := filepath.Join(userData, "host")
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}

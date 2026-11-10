@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) supersedes the local search algorithm, old tool name, task activation set, and reset rules: Pi owns search and branch discovery. On-demand exposure, intersection with current eligibility, and reconstructable model inputs remain. This note preserves the original decision.
 
 ## Problem

@@ -10,6 +10,7 @@ import { ControlClientError, type ClientCloseInfo, type ControlTransport } from 
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
+import { PROFILE_LAYOUT, type ProfilePaths } from "@ruukoto/core/profile.ts";
 
 /** 应答函数；第二个参数是收到请求的实例（可在应答前 drop 模拟断线）。 */
 export type FakeHandlers = { [K in TuiOp]?: (params: OpParams<K>, transport: FakeTransport) => OpResult<K> | Promise<OpResult<K>> };
@@ -19,11 +20,13 @@ export interface FakeScript {
   handshake?(since: number | undefined, transport: FakeTransport): Promise<ConnectResult> | ConnectResult;
   authenticate?(transport: FakeTransport): Promise<void>;
   handlers?: FakeHandlers;
+  profile?: ProfilePaths;
 }
 
 export function fakeSnapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
-    product: "ruukoto-code",
+    product: "ruukoto",
+    layout: PROFILE_LAYOUT,
     projects: [],
     sessions: [],
     tasks: [],
@@ -33,7 +36,6 @@ export function fakeSnapshot(overrides: Partial<ConnectResult["snapshot"]> = {})
     instanceId: "inst-1",
     execution: { backend: "local", note: "local 执行后端：无隔离" },
     defaultModel: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
-    mainSessionId: null,
     ...overrides,
   };
 }
@@ -56,7 +58,7 @@ export class FakeTransport implements ControlTransport {
   }
 
   async handshake(since?: number): Promise<ConnectResult> {
-    return this.script.handshake ? this.script.handshake(since, this) : { seq: 0, replay: [], snapshot: fakeSnapshot() };
+    return this.script.handshake ? this.script.handshake(since, this) : { seq: 0, replay: [], snapshot: fakeSnapshot(this.script.profile ? { instanceId: this.script.profile.instanceId } : {}) };
   }
 
   onEvent(listener: (event: PersistentEvent) => void): () => void {

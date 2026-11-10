@@ -1,6 +1,5 @@
-import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
-/** Coding 产品真实原生四工具、边界、审批、当前账户完全访问与中断回收；模型使用本地桩。
- * Note: 见 .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
+/** Real native tools, approvals, full access and interruption recovery with a local mock model.
+ * Note: See .agents/notes/implemented/feature/2026-09-19-explicit-access-modes.md
  */
 
 import * as fs from "node:fs";
@@ -130,7 +129,6 @@ try {
   t = await startTestRuntime("smoke04", flowRouter(), {
     workDirs: 0,
     config: {
-      product: codingProduct.runtime,
       ...realTools(),
       execution: { backend: "native" },
     },
@@ -261,7 +259,10 @@ try {
     const failure = await cleanupRuntime(t.runtime, t.server, t.dirs.root, units);
     if (failure) {
       results.push({ name: "清理本次资源", ok: false, detail: `${failure.message}；保留现场 ${root}；${String(failure.cause)}` });
-    } else rmSync(root, { recursive: true, force: true });
+    } else {
+      rmSync(path.dirname(t.dirs.profile.socketPath), { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
   }
   delete process.env.RUUKOTO_SMOKE_USER_ENV;
 }

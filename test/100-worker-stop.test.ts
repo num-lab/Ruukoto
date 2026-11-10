@@ -441,7 +441,7 @@ test("router 技能根：full_access 不追加；验证步骤降为 confirm 的 
           scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
           source: { product: "ruukoto", projectId: kit.session.projectId, sessionId: kit.session.id, taskId: kit.task.id,
             permissionVersion: kit.task.permissionVersion, accessMode: kit.task.accessMode, grantedPaths: [],
-            capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
+            capabilities: [], references: [] },
           modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, status: "running", version: 1, reason: null,
           attempts: 0, maxAttempts: 100, durationMs: 3_600_000, usedMs: 0, clockStartedAt: null,
           scriptUnits: [], scriptStopVerified: null,
@@ -642,7 +642,7 @@ test("拥有者同进程核实恢复后使用新 worker，旧停止失败与命�
     assert.equal(await originalDriver.stopManagedProcesses(old.id), false);
     t.runtime.launcherFor = originalLauncher;
     await assert.rejects(t.runtime.resumeQueue(session.id), { code: "stop_unverified" });
-    await t.runtime.resumeQueue(session.id, undefined, true);
+    await t.runtime.resumeQueue(session.id, true);
     const next = await t.runtime.submit({ sessionId: session.id, requestId: "new", input: "核实后执行新命令", accessMode: "full_access", modelSelection: t.runtime.defaultSelection });
     await waitFor("新任务完成", () => t.runtime.store.getTask(next.id)!.status === "completed");
     assert.equal(fs.existsSync(path.join(t.work[0], "new-marker")), true, "恢复后的新任务必须能建立新 worker 执行");

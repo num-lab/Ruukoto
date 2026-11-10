@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import * as fs from "node:fs";
 import * as net from "node:net";
-import * as path from "node:path";
 import { test } from "node:test";
 import { ensureBackend, probeControlPlane } from "@ruukoto/control/ensure-backend.ts";
 import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
+import { readOwnerToken, tokenMatches } from "@ruukoto/control/owner-token.ts";
+import { cleanupDirs, makeTestDirs, waitFor } from "./helpers/testkit.ts";
 
 async function fixture(reply: (op: string) => object | null) {
-  const controlDir = fs.mkdtempSync("/tmp/rcr-");
-  const socketPath = path.join(controlDir, "control.sock");
-  fs.writeFileSync(path.join(controlDir, "owner.token"), "a".repeat(64), { mode: 0o600 });
+  const { dirs } = await makeTestDirs("control-readiness", 0);
+  const { profile } = dirs;
+  const { controlDir, socketPath } = profile;
+  const token = readOwnerToken(controlDir);
+  assert.ok(token);
   const operations: string[] = [];
   const sockets = new Set<net.Socket>();
   const server = net.createServer(socket => {
@@ -17,26 +21,39 @@ async function fixture(reply: (op: string) => object | null) {
     socket.on("close", () => sockets.delete(socket));
     socket.setEncoding("utf8");
     let buffer = "";
+    let authenticated = false;
     socket.on("data", (chunk: string) => {
       buffer += chunk;
       let newline: number;
       while ((newline = buffer.indexOf("\n")) >= 0) {
-        const request = JSON.parse(buffer.slice(0, newline)) as { id: string; op: string };
+        const request = JSON.parse(buffer.slice(0, newline)) as { id: string; op: string; params: { token?: string; product?: string; layout?: string; instanceId?: string } };
         buffer = buffer.slice(newline + 1);
         operations.push(request.op);
-        const response = request.op === "auth" ? { ok: true, result: { authenticated: true } } : reply(request.op);
+        if (request.op === "auth") authenticated = typeof request.params.token === "string" && tokenMatches(request.params.token, token) && request.params.product === "ruukoto" && request.params.layout === profile.layout && request.params.instanceId === profile.instanceId;
+        const response = !authenticated ? { ok: false, error: { code: "unauthorized", message: "Authentication required" } }
+          : request.op === "auth" ? { ok: true, result: { authenticated: true, instanceId: profile.instanceId, layout: profile.layout, product: "ruukoto" } } : reply(request.op);
         if (response) socket.write(`${JSON.stringify({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ...response })}\n`);
       }
     });
   });
-  await new Promise<void>(resolve => server.listen(socketPath, resolve));
-  return { controlDir, socketPath, operations, close: async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => server.close(() => resolve())); fs.rmSync(controlDir, { recursive: true, force: true }); } };
+  const listening = once(server, "listening");
+  server.listen(socketPath);
+  await listening;
+  return {
+    profile, token, sockets, operations,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      await cleanupDirs(dirs);
+    },
+  };
 }
 
 test("就绪探测认证后只发 ping，随后关闭且不取快照", async () => {
   const f = await fixture(() => ({ ok: true, result: { pong: true, stopping: false } }));
   try {
-    assert.equal(await probeControlPlane(f.socketPath, "a".repeat(64)), true);
+    assert.equal(await probeControlPlane(f.profile, f.token), true);
+    await waitFor("readiness connection closes", () => f.sockets.size === 0, 1500);
     assert.deepEqual(f.operations, ["auth", "ping"]);
   } finally { await f.close(); }
 });
@@ -55,13 +72,13 @@ for (const [name, response, code] of [
     delete process.env.RUUKOTO_OWNER_TOKEN;
     delete process.env.RUUKOTO_OWNER_TOKEN_FILE;
     try {
-      assert.equal(await probeControlPlane(f.socketPath, "a".repeat(64), 200), false);
-      const result = await ensureBackend({ controlDir: f.controlDir, dataDir: f.controlDir, agentDir: f.controlDir, spawnExecPath: "/must-not-spawn" });
+      assert.equal(await probeControlPlane(f.profile, f.token, 200), false);
+      const result = await ensureBackend({ profile: f.profile, spawnExecPath: "/must-not-spawn" });
       assert.equal(result.ok, false);
       assert.ok(!result.ok && result.code === code);
-      assert.equal(fs.existsSync(path.join(f.controlDir, "spawn.log")), false);
+      assert.equal(fs.existsSync(f.profile.spawnLogPath), false);
+      await waitFor("rejected readiness connections close", () => f.sockets.size === 0, 1500);
       assert.deepEqual(f.operations, ["auth", "ping", "auth", "ping"]);
-      if (!result.ok && (code === "backend_stopping" || code === "invalid_response")) assert.doesNotMatch(result.error, /RUUKOTO_OWNER_TOKEN/);
       if (!result.ok && code === "protocol_version") assert.deepEqual(result.versions, { client: CONTROL_PROTOCOL_VERSION, server: CONTROL_PROTOCOL_VERSION + 1 });
     } finally {
       if (previous.token === undefined) delete process.env.RUUKOTO_OWNER_TOKEN; else process.env.RUUKOTO_OWNER_TOKEN = previous.token;
@@ -75,8 +92,9 @@ test("ping 使用探测期限，超时不会沿默认请求期限挂起", async 
   const f = await fixture(() => null);
   try {
     const started = Date.now();
-    assert.equal(await probeControlPlane(f.socketPath, "a".repeat(64), 40), false);
+    assert.equal(await probeControlPlane(f.profile, f.token, 40), false);
     assert.ok(Date.now() - started < 1500);
+    await waitFor("timed-out readiness connection closes", () => f.sockets.size === 0, 1500);
     assert.deepEqual(f.operations, ["auth", "ping"]);
   } finally { await f.close(); }
 });

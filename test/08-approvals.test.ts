@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成与单元：结构化审批与单次消费（issue 03 §4/§6.2/§6.3）。
  *
@@ -34,6 +34,7 @@ import {
   pendingConfirmation,
   realTools,
   writeModelsJson,
+  makeTestDirs,
 } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { Db, SCHEMA_VERSION, SchemaVersionError } from "@ruukoto/core/db.ts";
@@ -722,10 +723,8 @@ test("批准消费：重复消费、权限版本变化、任务结束后都拒�
 test("崩溃恢复区分审批消费状态：已消费标 effect_unknown，未消费为已知未执行（计划 §6.6）", async () => {
   const server = new MockModelServer(() => ({ kind: "text", text: "noop" }));
   const baseUrl = await server.start();
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-recover-approve-")));
-  const dirs = { root, dataDir: path.join(root, "data"), agentDir: path.join(root, "agent") };
-  fs.mkdirSync(dirs.dataDir, { recursive: true });
-  fs.mkdirSync(dirs.agentDir, { recursive: true });
+  const { dirs } = await makeTestDirs("recover-approve", 0);
+  const { root } = dirs;
   await writeModelsJson(dirs, baseUrl);
   try {
     // 预写崩溃现场：任务 running，两个工具操作——一个批准已消费（执行已
@@ -781,10 +780,7 @@ test("崩溃恢复区分审批消费状态：已消费标 effect_unknown，未�
     // 重启：恢复必须在一次逻辑事务内区分两种事实
     const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
     const runtime = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: dirs.dataDir,
-      agentDir: dirs.agentDir,
-      socketPath: path.join(root, "c.sock"),
+      profile: dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",

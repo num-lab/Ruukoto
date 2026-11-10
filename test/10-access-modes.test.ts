@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成：访问模式绑定任务与拥有者入口（issue 03 §2/§5/§6.3/§6.4）。
  *
@@ -33,6 +33,7 @@ import {
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { readOwnerToken, TOKEN_FILE_NAME } from "@ruukoto/control/owner-token.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { createLauncherFor, ExecutionError, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
@@ -208,7 +209,7 @@ test("Plan 默认值与任务固定模式跨后台重启保留，控制面握手
     const instanceId = t.runtime.store.db.getInstanceId();
     await t.runtime.stop("test_restart");
     const runtime = await Runtime.start({
-    product: personalProduct.runtime, dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir, socketPath: t.runtime.socketPath(),
+    profile: t.dirs.profile,
       thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", toolFactory: (ctx) => createMockTools(ctx) });
     let client: ControlClient | null = null;
     try {
@@ -237,12 +238,10 @@ test("CLI mode selection applies to ordinary submissions after explicit queue re
   const t = await startTestRuntime("mode-plan-cli", modeRoutes(), { workDirs: 1 });
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    fs.symlinkSync(t.runtime.socketPath(), path.join(t.runtime.controlDir(), "control.sock"));
     const cli = async (...args: string[]) => {
-      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto-code/bin/ruukoto-code.mjs", import.meta.url)), ...args], {
+      const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../apps/ruukoto/bin/ruukoto.mjs", import.meta.url)), ...args], {
         timeout: 20_000,
-        env: { ...process.env, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir,
-          RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
+        env: profileChildEnv(t.dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" }),
       });
       return JSON.parse(stdout);
     };
@@ -364,10 +363,7 @@ test("会话默认模式支持 auto-review：CAS 接受、任务固定、显式�
     await t.runtime.stop("test_restart");
     const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
     const runtime2 = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: t.dirs.dataDir,
-      agentDir: t.dirs.agentDir,
-      socketPath: t.runtime.socketPath(),
+      profile: t.dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",
@@ -512,12 +508,12 @@ test("控制面拥有者认证：认证前不返回快照、不执行请求", as
         "认证前不得执行请求",
       );
       await assert.rejects(
-        () => raw.authenticate("00000000000000000000000000000000000000000000000000000000000000ff"),
+        () => raw.authenticate("00000000000000000000000000000000000000000000000000000000000000ff", t.dirs.profile),
         (err: any) => err.code === "unauthorized",
         "错误令牌被拒绝",
       );
       const token = readOwnerToken(controlDir)!;
-      await raw.authenticate(token);
+      await raw.authenticate(token, t.dirs.profile);
       const snapshot = await raw.handshake();
       assert.ok(Array.isArray(snapshot.snapshot.projects));
     } finally {

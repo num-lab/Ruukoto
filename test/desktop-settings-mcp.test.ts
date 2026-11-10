@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeMcpState } from "../apps/desktop/src/renderer/code-mcp-state.ts";
@@ -21,7 +21,7 @@ function deferred() {
 }
 
 async function fixture(t: TestContext, withWorkspaces = true) {
-  const kit = await startTestRuntime("desktop-settings-mcp", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const kit = await startTestRuntime("desktop-settings-mcp", () => ({ kind: "text", text: "ok" }), {});
   const mcp = await startMockMcp({ tools: [{ name: "lookup", annotations: { readOnlyHint: true } }, { name: "change" }] });
   t.after(async () => { await mcp.close(); await kit.shutdown(); });
   const requests: { op: string; params: Record<string, unknown> }[] = [];

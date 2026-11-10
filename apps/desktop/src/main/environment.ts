@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { addAbortListener } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { defaultDataDir, defaultAgentDir, controlDirFor, socketPathFor } from "@ruukoto/control/connect.ts";
+import { bootstrapProfile, profileChildEnv, selectProfile } from "@ruukoto/core/profile.ts";
 import type { EnsureBackendOptions } from "@ruukoto/control/ensure-backend.ts";
 
 const execute = promisify(execFile);
@@ -53,7 +53,13 @@ export async function readLoginEnvironment(inherited: NodeJS.ProcessEnv, signal?
 }
 
 export async function selectEnvironment(inherited: NodeJS.ProcessEnv, login = readLoginEnvironment, signal?: AbortSignal): Promise<DesktopEnvironment> {
-  if (inherited.RUUKOTO_DESKTOP_MANAGED !== "1") return login(inherited, signal);
+  if (inherited.RUUKOTO_DESKTOP_MANAGED !== "1" && inherited.RUUKOTO_DEV_MANAGED !== "1") {
+    const source = await login(inherited, signal);
+    for (const key of ["RUUKOTO_DATA_DIR", "RUUKOTO_AGENT_DIR", "RUUKOTO_CONTROL_DIR", "RUUKOTO_PENDING_DIR"] as const) {
+      if (inherited[key] !== undefined) source.env[key] = inherited[key];
+    }
+    return source;
+  }
   let stdout: string;
   try { stdout = await executeProbe("node", ["-e", probe], { env: inherited, signal, timeout: 5000 }); }
   catch { throw new DesktopError("node_unavailable", "No node found in the dev environment; fix PATH and restart the dev launcher."); }
@@ -66,17 +72,13 @@ export function adoptEnvironment(env: NodeJS.ProcessEnv): void {
   Object.assign(process.env, source);
 }
 
-export interface CodeTargetConfig extends EnsureBackendOptions {
-  product: "ruukoto-code";
+export interface DesktopBackendConfig extends EnsureBackendOptions {
   managed: boolean;
-  socketPath: string;
 }
-export function codeTargetConfig(repository: string, source: DesktopEnvironment): CodeTargetConfig {
-  const bin = path.join(repository, "apps/ruukoto-code/bin/ruukoto-code.mjs");
+export async function desktopBackendConfig(repository: string, source: DesktopEnvironment): Promise<DesktopBackendConfig> {
+  const bin = path.join(repository, "apps/ruukoto/bin/ruukoto.mjs");
   if (!path.isAbsolute(repository) || !fs.existsSync(bin)) throw new DesktopError("repository_missing", "The build-time repository path is unavailable; rebuild with npm run desktop:build (Electron) or npm run desktop:mygo:build (MyGo) in the current repo.");
-  const product = "ruukoto-code";
-  const dataDir = path.resolve(defaultDataDir(product));
-  const controlDir = path.resolve(controlDirFor(dataDir, product));
-  const agentDir = path.resolve(defaultAgentDir(product));
-  return { product, managed: source.env.RUUKOTO_DESKTOP_MANAGED === "1", dataDir, controlDir, agentDir, socketPath: socketPathFor(controlDir), spawnExecPath: source.node, spawnArgv: [bin, "server", "--data-dir", dataDir, "--agent-dir", agentDir], env: source.env };
+  const selection = selectProfile({}, source.env);
+  const profile = await bootstrapProfile(selection);
+  return { managed: source.env.RUUKOTO_DESKTOP_MANAGED === "1", profile, spawnExecPath: source.node, spawnArgv: [bin, "server"], env: profileChildEnv(selection, source.env) };
 }

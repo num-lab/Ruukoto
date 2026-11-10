@@ -21,6 +21,8 @@ import {
   encodeFrame,
 } from "./protocol.ts";
 import type { OpParams, OpResult, TuiOp } from "./ops.ts";
+import { verifyProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
+import { PRODUCT } from "@ruukoto/core/product.ts";
 
 /**
  * 请求结果的分类（架构工单 07）：由产生错误的地方写定，调用方按它处理而不列错误码。
@@ -48,8 +50,8 @@ export class ControlClientError extends Error {
   readonly code: string;
   readonly outcome: RequestOutcome;
   readonly versions?: ProtocolVersions;
-  constructor(code: string, message: string, outcome: RequestOutcome, versions?: ProtocolVersions) {
-    super(message);
+  constructor(code: string, message: string, outcome: RequestOutcome, versions?: ProtocolVersions, options?: ErrorOptions) {
+    super(message, options);
     this.code = code;
     this.outcome = outcome;
     this.versions = versions;
@@ -72,7 +74,7 @@ export interface ClientCloseInfo {
  */
 export interface ControlTransport {
   readonly isClosed: boolean;
-  authenticate(token: string): Promise<void>;
+  authenticate(token: string, profile?: ProfilePaths): Promise<void>;
   handshake(since?: number): Promise<ConnectResult>;
   onEvent(listener: (event: ControlPush["event"]) => void): () => void;
   onClose(listener: (info: ClientCloseInfo) => void): () => void;
@@ -94,6 +96,7 @@ export class ControlClient implements ControlTransport {
   private lastSeq = 0;
   private closed = false;
   private closeInfo: ClientCloseInfo | null = null;
+  private profile: ProfilePaths | null = null;
 
   private constructor(socket: net.Socket) {
     this.socket = socket;
@@ -141,7 +144,7 @@ export class ControlClient implements ControlTransport {
       });
       socket.once("error", (err) => {
         clearTimeout(timer);
-        reject(new ControlClientError("connection_error", String(err), "not_sent"));
+        reject(new ControlClientError("connection_error", String(err), "not_sent", undefined, { cause: err }));
       });
     });
   }
@@ -179,6 +182,10 @@ export class ControlClient implements ControlTransport {
     if (!waiter) return; // 超时后的迟到应答：忽略
     this.pending.delete(response.id);
     clearTimeout(waiter.timer);
+    if (response.v !== CONTROL_PROTOCOL_VERSION) {
+      waiter.reject(new ControlClientError("protocol_version", "后台控制协议不兼容；请使用当前版本。", "rejected", { client: CONTROL_PROTOCOL_VERSION, server: response.v }));
+      return;
+    }
     if (response.ok) waiter.resolve(response.result);
     else {
       const code = response.error?.code ?? "error";
@@ -259,8 +266,15 @@ export class ControlClient implements ControlTransport {
   }
 
   /** 拥有者认证：连接后必须先成功认证才能执行其他操作。 */
-  async authenticate(token: string, timeoutMs = 10_000): Promise<void> {
-    await this.request("auth", { token }, timeoutMs);
+  async authenticate(token: string, profile: ProfilePaths, timeoutMs = 10_000): Promise<void> {
+    verifyProfile(profile);
+    const result = await this.request<{ authenticated: boolean; product: string; layout: string; instanceId: string }>("auth", {
+      token, product: PRODUCT, layout: profile.layout, instanceId: profile.instanceId,
+    }, timeoutMs);
+    if (!result?.authenticated || result.product !== PRODUCT || result.layout !== profile.layout || result.instanceId !== profile.instanceId) {
+      throw new ControlClientError("profile_mismatch", "后台身份与已验证实例不符；请核对实例路径后重新连接。", "rejected");
+    }
+    this.profile = profile;
   }
 
   /**
@@ -270,6 +284,9 @@ export class ControlClient implements ControlTransport {
    */
   async handshake(since?: number, timeoutMs = 15_000): Promise<ConnectResult> {
     const result = await this.request<ConnectResult>("connect", since === undefined ? {} : { since }, timeoutMs);
+    if (!this.profile || result.snapshot.product !== PRODUCT || result.snapshot.layout !== this.profile.layout || result.snapshot.instanceId !== this.profile.instanceId) {
+      throw new ControlClientError("profile_mismatch", "后台快照身份与已验证实例不符。", "rejected");
+    }
     // 游标以快照序号为准（新数据实例序号可能重新计数，由调用方比对 instanceId）
     this.lastSeq = result.seq;
     return result;

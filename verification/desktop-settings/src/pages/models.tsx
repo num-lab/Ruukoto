@@ -117,25 +117,3 @@ export function CodeModelsPage() {
     </SettingsPage>
   );
 }
-
-export function PersonalModelsPage() {
-  const [imageInput, setImageInput] = useState(true);
-  const [tested, setTested] = useState(false);
-  return (
-    <SettingsPage title="模型" description="管理 Personal Agent 的当前模型与凭据引用。">
-      <SettingsGroup title="当前模型" action={<RefreshButton label="重新读取远端配置" />}>
-        <SettingsCard>
-          <SettingsRow title="API 类型" htmlFor="pa-api"><SettingsSelect id="pa-api" options={apiOptions.slice(0, 3)} /></SettingsRow>
-          <TextSetting id="pa-base-url" title="服务地址" defaultValue="https://api.example.com/v1" />
-          <TextSetting id="pa-model-id" title="模型标识" defaultValue="example-model" />
-          <TextSetting id="pa-context" title="上下文上限" type="number" defaultValue={200000} />
-          <TextSetting id="pa-output" title="输出上限" type="number" defaultValue={8192} />
-          <TextSetting id="pa-key-env" title="凭据环境变量引用" description="只存引用名，凭据由原后台环境提供。" defaultValue="EXAMPLE_API_KEY" />
-          <SettingsRow title="图片输入" htmlFor="pa-image"><SettingsSwitch id="pa-image" checked={imageInput} onChange={event => setImageInput(event.target.checked)} /></SettingsRow>
-          <SettingsRow title="凭据状态" description="原后台环境状态。"><Tag>原服务环境未核实</Tag></SettingsRow>
-          <SettingsRow title="连接测试" description="联网测试，可能产生费用。" footer={tested && <Notice>演示状态：未发起真实模型请求。</Notice>}><SettingsButton onClick={() => setTested(true)}>测试当前模型</SettingsButton></SettingsRow>
-        </SettingsCard>
-      </SettingsGroup>
-    </SettingsPage>
-  );
-}

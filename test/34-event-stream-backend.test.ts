@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as http from "node:http";
@@ -75,8 +75,7 @@ test("真实 SDK 事件：多段思考、Edit 统计、完整 UTF-8 增量分页
   const address = provider.address() as import("node:net").AddressInfo;
   await writeModelsJson(dirs, `http://127.0.0.1:${address.port}/v1`, 2_000_000);
   const runtime = await Runtime.start({
-    product: personalProduct.runtime,
-    dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
+    profile: dirs.profile,
     modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools(),
   });
   await ControlServer.start(runtime);

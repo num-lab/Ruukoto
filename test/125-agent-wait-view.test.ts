@@ -9,7 +9,7 @@ import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { EventFlowView } from "@ruukoto/tui/tui/event-flow-view.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { afterTool, connectAuthedClient, lastToolText, lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 initTheme("dark");
@@ -27,8 +27,8 @@ test("控制面补报停车：原任务与别名都保留可信身份，实时�
       store.transitionTask(task.id, ["queued"], "running");
       return store.getTask(task.id)!;
     });
-    const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: parent.id,
-      permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
+    const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: parent.id,
+      permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [] };
     const reports = [0, 1].map(index => store.withTx(() => {
       const sub = store.createSession({ projectId: session.projectId, cwd: session.cwd, cwdReal: session.cwdReal, cwdDev: session.cwdDev,
         cwdIno: session.cwdIno, piSessionId: `parked-${index}`, confirmTools: [] });
@@ -93,7 +93,7 @@ test("真实控制面等待：实时与重连含完整对象，TUI 状态与实�
     if (input.includes("WAIT_CHILD")) { await childReady; return { kind: "text", text: "后台完成" }; }
     await parentReady;
     return { kind: "text", text: "新输入已处理" };
-  }, { config: { product: codeProduct.runtime }, workDirs: 1 });
+  }, { workDirs: 1 });
   const clients = [t.client], events: PersistentEvent[] = [];
   try {
     const session = await t.runtime.createSession({ projectName: "wait-view", cwd: t.work[0] });
@@ -163,7 +163,7 @@ test("真实工具资格：SubAgent、工作流步骤与无工具后备汇总均
     if (!afterTool(request)) return { kind: "tool_calls", calls: [{ id: `hidden-${kind}`, name: "wait", arguments: { targets: [{ kind: "task", task_id: "foreign" }] } }] };
     assert.match(lastToolText(request), /Tool wait not found|白名单/);
     return { kind: "text", text: `${kind}完成` };
-  }, { config: { product: codeProduct.runtime }, workDirs: 1 });
+  }, { workDirs: 1 });
   try {
     const session = await t.runtime.createSession({ projectName: "class", cwd: t.work[0] });
     await t.runtime.submit({ sessionId: session.id, requestId: "parent", input: "工具资格", modelSelection: t.runtime.defaultSelection });

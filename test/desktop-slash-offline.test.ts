@@ -22,7 +22,7 @@ before(async () => {
 });
 after(async () => { await server?.close(); });
 
-const session: Session = { id: "offline-session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "Offline conversation", branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-11-08T00:00:00.000Z" };
+const session: Session = { id: "offline-session", projectId: "workspace", kind: "dev", name: "Offline conversation", branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-11-08T00:00:00.000Z" };
 function nodes(tree: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; className?: string; role?: string; model?: CodeState; session?: Session; sessionId?: string }>[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes);
   if (!React.isValidElement<{ children?: React.ReactNode; className?: string; role?: string; model?: CodeState; session?: Session; sessionId?: string }>(tree)) return [];
@@ -41,13 +41,12 @@ for (const hasCurrent of [true, false]) test(`offline App ${hasCurrent ? "retain
   internals.H = {
     useState(initial: unknown) {
       const value = typeof initial === "function" ? initial() : initial;
-      if (value && typeof value === "object" && "code" in value && value.code instanceof CodeModel) {
-        const code = value.code;
-        model = code;
-        code.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: hasCurrent ? [session] : [] }), replay: [], seq: 0 }, false);
-        code.view.currentSessionId = hasCurrent ? session.id : null;
-        code.status = { type: "state", state: "reconnecting", detail: "Disconnected fixture" };
-        Object.assign(code.writes.draft(session.id), { text: "/help", attachments: [attachment] });
+      if (value instanceof CodeModel) {
+        model = value;
+        model.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: hasCurrent ? [session] : [] }), replay: [], seq: 0 }, false);
+        model.view.currentSessionId = hasCurrent ? session.id : null;
+        model.status = { type: "state", state: "reconnecting", detail: "Disconnected fixture" };
+        Object.assign(model.writes.draft(session.id), { text: "/help", attachments: [attachment] });
       }
       return [value, () => {}];
     },

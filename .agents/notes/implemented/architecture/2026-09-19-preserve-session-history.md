@@ -2,9 +2,11 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original identifier: ADR 0001.
 
-Partly superseded by [the personal product entry](../simplification/2026-10-18-personal-product-entry.md): new personal history belongs to native durable SQLite records and is not dual-written to legacy JSONL. The non-destructive history principle remains; the JSONL and derived-index rules below apply to Coding and legacy archives. [Personal information ownership](2026-10-18-personal-memory-skills-history.md) owns personal history, memory, skills, and request references; [the original durable proposal](../../proposed/architecture/2026-10-17-personal-pi-durable.md) records the migration rationale, not an outstanding requirement to keep new personal history in JSONL.
+Partly superseded by [the personal product entry](../../archived/simplification/2026-10-18-personal-product-entry.md): new personal history belongs to native durable SQLite records and is not dual-written to legacy JSONL. The non-destructive history principle remains; the JSONL and derived-index rules below apply to Coding and legacy archives. [Personal information ownership](../../archived/architecture/2026-10-18-personal-memory-skills-history.md) owns personal history, memory, skills, and request references; [the original durable proposal](../../rejected/architecture/2026-10-17-personal-pi-durable.md) records the migration rationale, not an outstanding requirement to keep new personal history in JSONL.
 
 ## Problem
 

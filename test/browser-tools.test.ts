@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
+
 import { BrowserError, BrowserManager, type BrowserBinding } from "@ruukoto/agent/browser-manager.ts";
 import { browserParams, browserTaskAllowed } from "@ruukoto/agent/browser-tools.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
@@ -36,19 +36,18 @@ test("browser 模型参数不能覆盖宿主管理参数，标签与等待参数
   }
 });
 
-for (const row of [{ product: personalProduct.runtime, main: true }, { product: personalProduct.runtime, main: false }, { product: codeProduct.runtime, main: false }]) {
   for (const supportsImages of [true, false]) {
-    test(`browser 截图：${row.product.type}/${row.main ? "main" : "dev"}/${supportsImages ? "视觉" : "仅文本"} 模型与历史使用同一图片`, async () => {
+    test(`browser 截图：ruukoto/dev/${supportsImages ? "视觉" : "仅文本"} 模型与历史使用同一图片`, async () => {
       const restore = platformFixture(async (_sessionId, args) => {
         assert.equal(args[0], "screenshot"); fs.writeFileSync(args[1], PNG); return { data: { path: args[1] } };
       });
       const t = await startTestRuntime("browser-picture", req => req.messages.some(message => message.role === "tool")
         ? { kind: "text", text: "图片已读取" } : { kind: "tool_calls", calls: [{ id: "browser-shot", name: "browser", arguments: { action: "screenshot" } }] },
-      { workDirs: 1, config: { product: row.product } });
+      { workDirs: 1 });
       try {
         const resolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
         t.runtime.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: supportsImages ? ["text", "image"] : ["text"] });
-        const sessionId = row.main ? t.runtime.store.getAgentRole("main")!.sessionId : (await createProjectSession(t.client, t.work[0])).sessionId;
+        const { sessionId } = await createProjectSession(t.client, t.work[0]);
         const task = await t.client.request<Task>("submit", { session_id: sessionId, request_id: "picture", input: "截图并看图", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, access_mode: "full_access" });
         await waitFor("截图任务结束", () => ["completed", "failed"].includes(t.runtime.store.getTask(task.id)!.status), 30_000);
         const detail = await taskStatus(t.client, task.id);
@@ -73,7 +72,6 @@ for (const row of [{ product: personalProduct.runtime, main: true }, { product: 
       } finally { await t.shutdown(); restore(); }
     });
   }
-}
 
 for (const mode of ["confirm", "auto-review", "plan"] as const) {
   test(`browser ${mode} 伪造调用在执行意图和平台操作之前拒绝`, async () => {
@@ -271,11 +269,10 @@ test("browser 人工暂停前已接受的排队输入不能 resume，之后的�
     await waitFor("新消息任务完成", () => t.runtime.store.getTask(later.id)!.status === "completed");
     assert.equal(resumed, 1); assert.equal(current.state, "ready");
     assert.ok(t.runtime.store.getTaskInputSeq(later)! > current.pauseAfterSeq!);
-    const event = t.runtime.store.withTx(() => t.runtime.store.registerInboundEvent({ source: "telegram", externalId: "synthetic", actor: "owner", targetRole: "main", body: "消息" })).event;
-    const messageSeq = t.runtime.store.getMaxSeq();
+    const admissionSeq = t.runtime.store.getTaskInputSeq(later);
     t.runtime.store.withTx(() => t.runtime.store.appendEvent({ type: "task.started", taskId: first.id, sessionId }, { taskId: first.id, sessionId }));
-    assert.equal(t.runtime.store.getTaskInputSeq({ id: later.id, sourceEventId: event.id }), messageSeq);
-    assert.equal(t.runtime.store.getTaskInputSeq({ id: later.id, sourceEventId: "missing" }), null);
+    assert.equal(t.runtime.store.getTaskInputSeq(later), admissionSeq);
+    assert.equal(t.runtime.store.getTaskInputSeq({ id: "missing" }), null);
   } finally { release(); await t.shutdown(); BrowserManager.prototype.pause = oldPause; BrowserManager.prototype.resume = oldResume; restore(); }
 });
 

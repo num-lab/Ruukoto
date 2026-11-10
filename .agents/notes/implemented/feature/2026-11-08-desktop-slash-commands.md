@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 [Issue #49](https://github.com/num-lab/Ruukoto/issues/49) makes common Code actions and explicit skills available from Desktop input. A command menu must distinguish application actions from task input and preserve drafts, attachments and original write identity across navigation and lost responses. Manual compaction already has a backend lifecycle; Desktop needs its discovery, recovery and result display.

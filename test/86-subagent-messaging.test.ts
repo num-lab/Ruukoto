@@ -99,28 +99,24 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
     // 两个独立 SubAgent：A 承担工作 W，B 承担自己的工作 W_B
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["a.txt"], materials: null, paramsDigest: "da1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["a.txt"], paramsDigest: "da1" });
     aId = a.agent.id;
     wId = a.work.id;
     await waitFor("A 完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitIdle(rt, aId);
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["b.txt"], materials: null, paramsDigest: "db1" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["b.txt"], paramsDigest: "db1" });
     bId = b.agent.id;
     await waitFor("B 完成", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     await waitIdle(rt, bId);
 
     // 协作加入：work_id 与 sub_agent_id 同现把空闲的 B 拉入工作 W（无新工作行）
     const before = rt.store.listWorkDelegationsBySession(session.id).length;
-    const join = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id,
-      key: "j1",
-      request: "加入协作",
-      workId: wId,
-      subAgentId: bId,
-      readPaths: ["b.txt"],
-      materials: null,
-      paramsDigest: "dj1",
-    });
+    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id,
+    key: "j1",
+    request: "加入协作",
+    workId: wId,
+    subAgentId: bId,
+    readPaths: ["b.txt"], paramsDigest: "dj1", });
     assert.equal(join.created, true);
     assert.equal(join.newWork, false, "协作加入不新建工作行");
     assert.equal(rt.store.listWorkDelegationsBySession(session.id).length, before);
@@ -134,7 +130,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     await waitIdle(rt, bId);
 
     // A→B：A 的继续任务经工具发送；B 空闲即投递为本工作的执行任务
-    const cont = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "c1", request: "联络B", workId: wId, readPaths: ["a.txt"], materials: null, paramsDigest: "dc1" });
+    const cont = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "c1", request: "联络B", workId: wId, readPaths: ["a.txt"], paramsDigest: "dc1" });
     await waitFor("B 收到 A 的消息", () => deliveryTasksOf(rt, rt.store.getSubAgent(bId)!.sessionId).length === 1);
     const bDelivery = deliveryTasksOf(rt, bId === "" ? "" : rt.store.getSubAgent(bId)!.sessionId);
     assert.equal(bDelivery.length, 1, "A→B 投递为 B 的一次执行任务");
@@ -207,7 +203,6 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
     const projectId = rt.store.getSession(session.id)!.projectId;
     const tools = createSubAgentTools({
       coreStore: rt.store,
-      sources: (rt as any).sources,
       delegate: (input) => delegateFromActiveTask(rt, input),
       close: (input) => rt.subagents!.close(input),
       cancelWork: (input) => rt.subagents!.cancelWork(input),
@@ -231,75 +226,7 @@ test("dev 双向协作与来源追溯：协作加入、A→B、B→A、主 Agent
   }
 });
 
-test("main 通道：SubAgent→主 Agent 经唤醒任务送达；主 Agent→SubAgent 补充", async () => {
-  let aId = "";
-  let wId = "";
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) {
-      if (afterTool(req)) return { kind: "text", text: "已提问" };
-      if (text.includes("问主Agent")) {
-        return { kind: "tool_calls", calls: [{ id: "q1", name: "subagent_message", arguments: { work_id: wId, key: "q1", text: "请补充数据CAP-Q1" } }] };
-      }
-      return { kind: "text", text: "核对结论" };
-    }
-    if (text.includes("[工作内消息")) {
-      if (afterTool(req)) return { kind: "text", text: "已答复" };
-      if (text.includes("请补充数据")) {
-        return {
-          kind: "tool_calls",
-          calls: [{ id: "a1", name: "subagent_message", arguments: { work_id: wId, key: "a1", text: "补充数据CAP-A1", to_sub_agent_id: aId } }],
-        };
-      }
-      return { kind: "text", text: "收到CAP-GOT1" };
-    }
-    if (afterTool(req)) return { kind: "text", text: "已安排" };
-    if (text.includes("安排核对")) {
-      return { kind: "tool_calls", calls: [{ id: "d1", name: "subagent_delegate", arguments: { request: "核对材料", key: "w1", materials: [{ kind: "text", text: "材料X" }] } }] };
-    }
-    return { kind: "text", text: "main 回复" };
-  };
-  const t = await startTestRuntime("smsg-main", responder, { config: realTools() });
-  try {
-    const rt = t.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pm1", input: "安排核对", modelSelection: rt.defaultSelection });
-    await waitFor("main 父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const work = rt.store.listWorkDelegationsBySession(main.sessionId)[0]!;
-    wId = work.id;
-    aId = work.subAgentId;
-    await waitFor("子完成", () => rt.store.listTasksByWork(wId).some((x: any) => x.resultSummary !== null));
-    await waitIdle(rt, aId);
 
-    // SubAgent→主 Agent：唤醒任务按 smsg:<消息ID> 固定键登记
-    const cont = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "c1", request: "问主Agent", workId: wId, readPaths: null, materials: [{ kind: "text", text: "材料Y" }], paramsDigest: "dc1" });
-    await waitFor("消息登记", () => rt.store.listSubAgentMessagesByWork(wId).length >= 1);
-    const msgs = rt.store.listSubAgentMessagesByWork(wId);
-    assert.equal(msgs[0]!.toSubAgentId, null);
-    await waitFor("唤醒任务已建", () => rt.store.findTaskByRequest(main.sessionId, `smsg:${msgs[0]!.id}`) !== null);
-    const wake = rt.store.findTaskByRequest(main.sessionId, `smsg:${msgs[0]!.id}`)!;
-    assert.equal(wake.agentId, "main");
-    assert.equal(wake.accessMode, "confirm");
-    assert.equal(wake.deadline, null);
-    assert.match(wake.input, /\[工作内消息 · 工作 .*\]/);
-    assert.match(wake.input, new RegExp(`来自：SubAgent ${aId}（工作 ${wId}，执行任务 ${cont.task.id}）`));
-    assert.match(wake.input, /CAP-Q1/);
-    assert.equal(rt.store.getSubAgentMessage(msgs[0]!.id)!.deliveredTaskId, wake.id);
-    await waitFor("唤醒完成", () => rt.store.getTask(wake.id)!.status === "completed");
-
-    // 主 Agent→SubAgent：唤醒轮次经工具补充后投递为 SubAgent 的本工作任务
-    await waitFor("补充投递", () => deliveryTasksOf(rt, rt.store.getSubAgent(aId)!.sessionId).length === 1);
-    const delivery = deliveryTasksOf(rt, rt.store.getSubAgent(aId)!.sessionId)[0]!;
-    assert.match(delivery.input, new RegExp(`来自：主 Agent（父会话任务 ${wake.id}）`));
-    assert.match(delivery.input, /CAP-A1/);
-    await waitFor("补充任务完成", () => rt.store.getTask(delivery.id)!.resultSummary !== null);
-    assert.match(rt.store.getTask(delivery.id)!.resultSummary!, /CAP-GOT1/);
-    assert.equal(rt.store.listSubAgentMessagesByWork(wId).length, 2);
-    assert.equal(eventsOf(rt, "subagent_message.sent", main.sessionId).length, 2);
-  } finally {
-    await t.shutdown();
-  }
-});
 
 test("范围拒绝：跨身份/跨工作/资格已失/已关闭/已取消/自发自收/参数；均无消息行", async () => {
   const responder: Responder = async (req) => {
@@ -313,8 +240,8 @@ test("范围拒绝：跨身份/跨工作/资格已失/已关闭/已取消/自发
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     const otherParent = await rt.submit({ sessionId: other.id, requestId: "po1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed" && rt.store.getTask(otherParent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], materials: null, paramsDigest: "da1" });
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], materials: null, paramsDigest: "db1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], paramsDigest: "da1" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], paramsDigest: "db1" });
     await waitFor("子完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null && rt.store.getTask(b.task.id)!.resultSummary !== null);
     await waitIdle(rt, a.agent.id);
     await waitIdle(rt, b.agent.id);
@@ -380,19 +307,19 @@ test("复用后资格转移：旧协作方消息被拒，迟到旧消息不进�
     const session = await rt.createSession({ projectName: "reuse", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], materials: null, paramsDigest: "da1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], paramsDigest: "da1" });
     await waitFor("A 完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitIdle(rt, a.agent.id);
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], materials: null, paramsDigest: "db1" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], paramsDigest: "db1" });
     await waitFor("B 完成", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     await waitIdle(rt, b.agent.id);
     const W = a.work.id;
-    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dj1" });
+    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], paramsDigest: "dj1" });
     await waitFor("加入完成", () => rt.store.listTasksByWork(W).some((x: any) => x.subAgentId === b.agent.id && x.resultSummary !== null));
     await waitIdle(rt, b.agent.id);
 
     // B 复用于 W2：当前工作切换，W 内的通信资格按当前工作重新确定
-    const w2 = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "w2", request: "新工作CAP-W2", subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dw2" });
+    const w2 = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "w2", request: "新工作CAP-W2", subAgentId: b.agent.id, readPaths: ["."], paramsDigest: "dw2" });
     assert.equal(rt.store.getSubAgent(b.agent.id)!.activeWorkId, w2.work.id);
     await waitFor("W2 完成", () => rt.store.getTask(w2.task.id)!.resultSummary !== null);
     await waitIdle(rt, b.agent.id);
@@ -458,17 +385,17 @@ test("关闭后的投递有明确结果：冲刷记 closed；消息错误不把�
     const session = await rt.createSession({ projectName: "close", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], materials: null, paramsDigest: "da1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], paramsDigest: "da1" });
     await waitFor("A 完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitIdle(rt, a.agent.id);
     const W = a.work.id;
 
     // 忙时登记的待投递 → Agent 关闭（与 moved_work 同一布置口径：正常路径里
     // 终态冲刷先于关闭可用，复合状态按最终状态布置）
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], materials: null, paramsDigest: "db1" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "独立任务", readPaths: ["."], paramsDigest: "db1" });
     await waitFor("B 完成", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     await waitIdle(rt, b.agent.id);
-    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], materials: null, paramsDigest: "dj1" });
+    const join = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "j1", request: "加入协作", workId: W, subAgentId: b.agent.id, readPaths: ["."], paramsDigest: "dj1" });
     await waitFor("加入完成", () => rt.store.listTasksByWork(W).some((x: any) => x.subAgentId === b.agent.id && x.resultSummary !== null));
     await waitIdle(rt, b.agent.id);
     rt.store.setSessionQueueState(rt.store.getSubAgent(b.agent.id)!.sessionId, "paused", "test_fixture");
@@ -522,7 +449,7 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
     const session = await rt.createSession({ projectName: "idem", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], materials: null, paramsDigest: "da1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], paramsDigest: "da1" });
     await waitFor("A 完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
     await waitIdle(rt, a.agent.id);
     const W = a.work.id;
@@ -591,76 +518,7 @@ test("幂等与账本：同键同参返回原记录（含工具层重放），�
   }
 });
 
-test("main 截住排队的消息唤醒：main 本轮阻塞时 SubAgent 发消息，本轮 subagent_cancel 后消息唤醒按 work_canceled 取消、零模型调用", async () => {
-  let wId = "";
-  let release: (() => void) | undefined;
-  const marks: string[] = [];
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) return { kind: "text", text: "分析结论" };
-    if (text.includes("[工作内消息")) {
-      marks.push(inputText(req));
-      return { kind: "text", text: "不应到达" };
-    }
-    if (text.includes("阻塞轮")) {
-      if (afterTool(req)) return { kind: "text", text: "已取消" };
-      await new Promise<void>((res) => (release = res));
-      return { kind: "tool_calls", calls: [{ id: "c1", name: "subagent_cancel", arguments: { work_id: wId } }] };
-    }
-    return { kind: "text", text: "main 回复" };
-  };
-  const t = await startTestRuntime("smsg-main-cancel", responder, { config: realTools() });
-  try {
-    const rt = t.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pm1", input: "开始", modelSelection: rt.defaultSelection });
-    await waitFor("main 父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "w1", request: "核对", materials: [{ kind: "text", text: "材料" }], readPaths: null, paramsDigest: "dw1" });
-    wId = a.work.id;
-    await waitFor("结果唤醒完成", () => rt.store.findTaskByRequest(main.sessionId, `wake:${a.task.id}`)?.status === "completed");
-    await waitIdle(rt, a.agent.id);
 
-    // main 本轮阻塞在模型调用中；SubAgent 此时发来消息，消息唤醒排在本轮之后
-    const blocking = await rt.submit({ sessionId: main.sessionId, requestId: "pm2", input: "阻塞轮", modelSelection: rt.defaultSelection });
-    await waitFor("main 本轮模型调用在途", () => release !== undefined);
-    const sent = await messageFromActiveTask(rt, { senderTaskId: a.task.id, workId: wId, key: "late", text: "迟到消息CAP-LATE", paramsDigest: "dl" } as any);
-    assert.equal(sent.delivery, "wake");
-    const wake = rt.store.findTaskByRequest(main.sessionId, `smsg:${sent.message.id}`)!;
-    assert.equal(wake.status, "queued");
-
-    // main 本轮调用 subagent_cancel；本轮结束后队列门截住消息唤醒
-    release!();
-    await waitFor("本轮完成", () => rt.store.getTask(blocking.id)!.status === "completed");
-    assert.ok(rt.store.getWorkDelegation(wId)!.canceledAt !== null);
-    await waitFor("消息唤醒到达终态", () => ["canceled", "completed", "failed"].includes(rt.store.getTask(wake.id)!.status));
-    assert.equal(rt.store.getTask(wake.id)!.status, "canceled");
-    assert.equal(rt.store.getTask(wake.id)!.errorMessage, "work_canceled");
-    assert.equal(marks.length, 0, "被截住的消息唤醒不调用模型");
-
-    // 消息行不改（投递登记仍指向承载任务），读取时标明未送达
-    assert.equal(rt.store.getSubAgentMessage(sent.message.id)!.deliveredTaskId, wake.id);
-    const tools = createSubAgentTools({
-      coreStore: rt.store,
-      sources: (rt as any).sources,
-      delegate: (input) => delegateFromActiveTask(rt, input),
-      close: (input) => rt.subagents!.close(input),
-      cancelWork: (input) => rt.subagents!.cancelWork(input),
-      message: (input) => messageFromActiveTask(rt, input),
-      integrate: (input) => rt.subagents!.integrate(input),
-      readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
-      artifacts: rt.artifacts,
-      taskContext: () => ({ taskId: parent.id, sessionId: main.sessionId, projectId: rt.store.getSession(main.sessionId)!.projectId, hostOpId: "opmc" }),
-      bindCall: undefined,
-      verifyHost: () => null,
-    });
-    const resultTool = tools.find((x) => x.name === "subagent_result")!;
-    const shown = ((await resultTool.execute("sdkmc", { work_id: wId, part: "messages" }, undefined as any, undefined as any, {} as any)).content[0] as any).text as string;
-    assert.ok(shown.includes(`已投递（任务 ${wake.id}）（工作已取消，未送达）`), shown);
-  } finally {
-    release?.();
-    await t.shutdown();
-  }
-});
 
 test("dev 注入通道：SubAgent→主 Agent 随下一次模型调用送达并标记；已取消不注入", async () => {
   const marker: string[] = [];
@@ -676,9 +534,9 @@ test("dev 注入通道：SubAgent→主 Agent 随下一次模型调用送达并�
     const session = await rt.createSession({ projectName: "inject", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], materials: null, paramsDigest: "da1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "调研", readPaths: ["."], paramsDigest: "da1" });
     await waitFor("A 完成", () => rt.store.getTask(a.task.id)!.resultSummary !== null);
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "调研", readPaths: ["."], materials: null, paramsDigest: "db1" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "调研", readPaths: ["."], paramsDigest: "db1" });
     await waitFor("B 完成", () => rt.store.getTask(b.task.id)!.resultSummary !== null);
     const beforeOwnerCalls = marker.length;
 

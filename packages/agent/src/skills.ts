@@ -31,7 +31,7 @@ export function createSkillFamily(): HostToolFamily {
   return {
     category: "skills",
     names: SKILL_TOOL_NAMES,
-    build: (runtime) => createSkillTools({ library: runtime.skills, bindCall: runtime.call.bindCall, commandTool: runtime.toolClass === "main" ? undefined : "bash" }),
+    build: (runtime) => createSkillTools({ library: runtime.skills, bindCall: runtime.call.bindCall, commandTool: "bash" }),
     ledger: SKILL_LEDGER,
   };
 }

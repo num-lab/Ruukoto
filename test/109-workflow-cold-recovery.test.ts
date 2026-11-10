@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { killProcessGroup, type ManagedEntry } from "@ruukoto/agent/managed-processes.ts";
 import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, getWorkflowRun, getWorkflowStep, listWorkflowExecutions, saveWorkflowDefinition, workflowDigest, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { shellQuotePathForTest } from "./helpers/git-fixture.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
@@ -26,7 +26,7 @@ function seedRun(rt: Runtime, parent: Task, session: Session, script: string): W
       scriptDigest: definition.digest, input: null, inputDigest: workflowDigest(null),
       source: { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: parent.id,
         permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [],
-        references: [], replyTarget: null, scheduledRunId: null },
+        references: [] },
       modelSelection: rt.defaultSelection, status: "queued", version: 1, reason: null, attempts: 0, maxAttempts: 100,
       durationMs: 3_600_000, usedMs: 0, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: null,
       result: null, resultRecorded: false, createdAt: new Date().toISOString(), endedAt: null,
@@ -35,18 +35,18 @@ function seedRun(rt: Runtime, parent: Task, session: Session, script: string): W
 }
 
 function launchColdProcess(rt: Runtime, body: string): ColdProcess {
-  const productPath = pathToFileURL(path.resolve("test/helpers/legacy-product.ts")).href;
-  const config = { dataDir: rt.config.dataDir, agentDir: rt.config.agentDir, socketPath: rt.config.socketPath,
-    modelProvider: "mock", modelId: "mock-model", execution: { backend: "local" } };
+  const config = { modelProvider: "mock", modelId: "mock-model", execution: { backend: "local" } };
   const program = `
     import { Runtime } from "@ruukoto/runtime/runtime.ts";
+    import { readProfile, selectProfile } from "@ruukoto/core/profile.ts";
     import { getWorkflowRun, listWorkflowExecutions } from "@ruukoto/core/workflow.ts";
     import { randomId } from "@ruukoto/core/types.ts";
     import { ToolWorkerHost } from "@ruukoto/agent/tool-worker/host.ts";
     import * as fs from "node:fs";
     import * as path from "node:path";
-    import { product } from ${JSON.stringify(productPath)};
-    const config = { product: product.runtime, ...${JSON.stringify(config)} };
+    const profile = readProfile(selectProfile());
+    if (!profile) throw new Error("Expected the prepared workflow profile");
+    const config = { profile, ...${JSON.stringify(config)} };
     let runtime;
     let available;
     const runtimeReady = new Promise(resolve => { available = resolve; });
@@ -54,7 +54,7 @@ function launchColdProcess(rt: Runtime, body: string): ColdProcess {
     available();
     await new Promise(() => {});
   `;
-  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", program], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", program], { env: profileChildEnv(rt.config.profile.selection), stdio: ["ignore", "ignore", "pipe", "ipc"] });
   let stderr = "";
   child.stderr!.on("data", (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-2048); });
   const exit = new Promise<void>(resolve => child.once("exit", () => resolve()));
@@ -233,7 +233,7 @@ test("只读 Agent 真实崩溃后先核实占用与脚本，再恢复为一次�
     assert.equal(attempts, 0);
     await assert.rejects(recovered.resumeQueue(old.sessionId), { code: "stop_unverified" });
     assert.equal(recovered.store.getOccupancyByDir(recovered.store.getSession(old.sessionId)!.cwdReal)!.taskId, old.id);
-    await recovered.resumeQueue(old.sessionId, undefined, true);
+    await recovered.resumeQueue(old.sessionId, true);
     const paused = getWorkflowRun(recovered.store, run.id)!;
     await recovered.workflows!.control(run.id, "resume", paused.version, { action: "resume", clockConfirmed: true, stopsConfirmed: true });
     await waitFor("只读步骤恢复完成", () => getWorkflowRun(recovered!.store, run.id)!.status === "succeeded");
@@ -328,7 +328,7 @@ test("协调器登记宿主排队操作后真实崩溃，释放旧占用并核�
     assert.equal(effects, 0);
     await assert.rejects(recovered.resumeQueue(session.id), { code: "stop_unverified" });
     assert.equal(recovered.store.getOccupancyByDir(session.cwdReal)!.taskId, blocker.id);
-    await recovered.resumeQueue(session.id, undefined, true);
+    await recovered.resumeQueue(session.id, true);
     await recovered.workflows!.control(run.id, "resume", paused.version, { action: "resume", clockConfirmed: true, stopsConfirmed: true });
     await waitFor("原排队宿主操作收尾成功", () => getWorkflowRun(recovered!.store, run.id)!.status === "succeeded");
     assert.equal(effects, 1);

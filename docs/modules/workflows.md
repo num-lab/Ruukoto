@@ -2,7 +2,7 @@
 
 ## Responsibilities and Boundaries
 
-`packages/runtime/src/workflows.ts` coordinates Coding workflows: sandboxed scripts, persistent steps, dependencies, owner questions and controlled code integration. [Execution](execution.md) runs step tools; [scheduler](scheduler.md) owns time triggers; [Personal durable](personal-durable.md) owns the Personal product's work.
+`packages/runtime/src/workflows.ts` coordinates software-work workflows: sandboxed scripts, persistent steps, dependencies, owner questions and controlled code integration. [Execution](execution.md) runs step tools; [scheduler](scheduler.md) owns time triggers.
 
 ## Public Interfaces
 

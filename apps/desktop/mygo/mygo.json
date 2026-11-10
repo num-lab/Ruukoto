@@ -1,5 +1,5 @@
 {
-  "name": "Ruukoto MyGo",
+  "name": "ruukoto",
   "identifier": "dev.ruukoto.desktop.mygo",
   "version": "0.1.0",
   "frontendDist": "../out/mygo/renderer",

@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[The personal product entry](../simplification/2026-10-18-personal-product-entry.md) supersedes the original two-product scope: new personal does not use this workflow language/library/IM commands; Coding continues, while old personal branches/evidence are retained history. [Configurable SubAgent roles](../architecture/2026-10-14-configurable-subagent-roles.md) separates role, source capability, and execution target. [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) adds interruptible waits and continued parent turns without changing background-run/source/final-target ownership.
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[The personal product entry](../../archived/simplification/2026-10-18-personal-product-entry.md) supersedes the original two-product scope: new personal does not use this workflow language/library/IM commands; Coding continues, while old personal branches/evidence are retained history. [Configurable SubAgent roles](../architecture/2026-10-14-configurable-subagent-roles.md) separates role, source capability, and execution target. [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) adds interruptible waits and continued parent turns without changing background-run/source/final-target ownership.
 
 ## Problem
 
@@ -44,9 +46,9 @@ Child results go to the coordinator; one verifiable final delivery enters source
 
 ## Related decisions
 
-The original audit found partial overlap, not a wholesale replacement: [two products](../architecture/2026-10-02-two-agent-products.md), [shared packages](../architecture/2026-10-11-in-repo-workspace-packages.md), and [delegation](../architecture/2026-10-03-work-delegation-subagent-task.md) retain deployment/dependency/ordinary-delegation rules. Independent workflows need their own identity instead of assuming an active ordinary parent.
+The original audit found partial overlap, not a wholesale replacement: [two products](../../archived/architecture/2026-10-02-two-agent-products.md), [shared packages](../architecture/2026-10-11-in-repo-workspace-packages.md), and [delegation](../architecture/2026-10-03-work-delegation-subagent-task.md) retain deployment/dependency/ordinary-delegation rules. Independent workflows need their own identity instead of assuming an active ordinary parent.
 
-[Full access](2026-10-12-full-access-current-account.md) and [generic scheduling](2026-10-12-generic-scheduled-tasks.md) own trusted-source authorization/independent execution/fixed delivery; scripts cannot choose owner identity. [Recovery](../architecture/2026-10-05-subagent-restart-recovery.md), [unverified stop](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md), and [integration](2026-10-05-integrate-worktree-results.md) constrain no-replay and retention. MCP/IM/service/sandbox/message/copy/context notes retain capability-specific rules; "available within source authorization" never means copying credentials or host identity.
+[Full access](2026-10-12-full-access-current-account.md) and [generic scheduling](../../archived/feature/2026-10-12-generic-scheduled-tasks.md) own trusted-source authorization/independent execution/fixed delivery; scripts cannot choose owner identity. [Recovery](../architecture/2026-10-05-subagent-restart-recovery.md), [unverified stop](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md), and [integration](2026-10-05-integrate-worktree-results.md) constrain no-replay and retention. MCP/IM/service/sandbox/message/copy/context notes retain capability-specific rules; "available within source authorization" never means copying credentials or host identity.
 
 [Step capabilities](../architecture/2026-10-13-workflow-step-capabilities.md), [answer/final delivery](2026-10-13-workflow-owner-input-and-delivery.md), and [definition controls](2026-10-13-workflow-library-and-controls.md) own their details. The original audit found no competing proposal at that time; unrelated UI/docs/branch/import/group/GitHub-retirement decisions were not absorbed.
 

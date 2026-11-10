@@ -14,10 +14,10 @@ The old dialog had eight vertical categories, with separate horizontal Code/Pers
 
 The Demo structure/style is the sole settings implementation:
 
-- Twelve categories: Appearance; Code Models/Skills/MCP/Computer; the same four Personal pages; Web Search; Personal remote connection; archived sessions. Group labels separate Code/Personal in one-level navigation, with no in-page target tabs.
-- SettingsCategory encodes target as code-* or pa-*. SettingsState removes selections/chooseTarget; scope() derives target/instance from category. Opening settings selects the first page for the active chat target.
+- One-level navigation offers Appearance, Models, Skills, MCP, Computer, Web Search and archived sessions for the sole local product.
+- Settings categories determine the page, while activated instance identity determines request ownership. There are no PA categories or product-target controls.
 - Shared components live in components/settings.tsx (Shell, NavItem, NavSection, Page, Subpage, Group, Card, List, ListItem, Row) and components/controls.tsx (Button, Select, Switch, Segmented, Input, Search, Tag, Notice). settings.css keeps Demo's light/dark palettes, dimensions, and control values rather than mapping to Desktop tokens. The dialog is bounded by `min(1240px, 100vw - 200px)` by `min(860px, 100dvh - 120px)` to avoid macOS traffic lights. Other values follow Demo. Delete old model-settings-* styles and settings-ui.tsx.
-- Each page uses heading/group/card/row. Code/Personal export distinct components without target/onTargetChange. Detail editing expands within list rows from page editing/selected state, consistent in SSR/runtime. Adding MCP opens a secondary page with a complete form and ends on save/cancel, rather than creating an incomplete list draft.
+- Each page uses heading/group/card/row. Detail editing expands within list rows from page state, consistently in SSR/runtime. Adding MCP opens a secondary page with a complete form and ends on save/cancel.
 - Validation errors appear on the owning control's SettingsRow.error, not an untitled separate row.
 - Skills removes expansion, body, disable, and remove actions. Search sits beside the All skills group heading in settings-group-search, <=260px and wraps below in narrow windows. MCP removes reread-configuration and uses arrow list actions. Select is content-width with a cap; Segmented icons are 13px.
 - SettingsList rows have equal height, one-line ellipsized title/description, and nonwrapping right controls. Back/close hover changes text color only. Both primary and secondary pages fade at the top; secondary content fades below its back bar.
@@ -29,4 +29,4 @@ Retaining Tabs with new styling leaves two-level target/category selection and d
 
 ## Consequences
 
-Code and Personal each have their own Models/Skills/MCP/Computer navigation items without in-page target switching. Settings-state behavior tests and desktop-models-layout SSR assertions follow the new structure/copy. Real Electron/MyGo themes, focus, and backend integration still need product acceptance; SSR/static preview prove only structure/style. The existing desktop-settings-models busy-provider rejection case failed locally at both the original HEAD and this change and was recorded as an environment baseline, not a new regression.
+Settings retains one-level navigation without product switching. State tests and SSR assertions cover structure; real Electron/MyGo themes, focus and backend integration still need product acceptance. Historical failures and evidence remain historical, not current acceptance.

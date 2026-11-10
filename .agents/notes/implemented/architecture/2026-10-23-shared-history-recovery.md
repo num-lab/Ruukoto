@@ -10,7 +10,7 @@ Desktop also had a reproduced stale-generation failure: after a history page ret
 
 ## Decision
 
-HistoryRecovery in `packages/view/src/history-recovery.ts` centralizes task-window queries, task detail/event recovery, text pagination, recovery generations, cursors and in-flight reads. It consumes injected read-only request capabilities without opening connections/files. ViewState/EventFlow remain input installers, not active requesters. The module uses Coding's shared control protocol, not production Personal durable.
+HistoryRecovery in `packages/view/src/history-recovery.ts` centralizes task-window queries, task detail/event recovery, text pagination, generations, cursors and in-flight reads. It consumes injected read-only request capabilities without opening connections/files. ViewState/EventFlow remain input installers; the module uses the local control protocol.
 
 Existing adapters are TUI ControlConnection and Desktop bridge requests. The shared module consumes named list_tasks/get_task/read_task_events/read_history_entry types without client error classes, Node, Electron or full UI objects. Adapters classify entry_not_found by named error type/code, never message parsing. Other failures remain for their owning client's presentation.
 

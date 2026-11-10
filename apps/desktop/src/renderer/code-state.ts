@@ -1,6 +1,6 @@
 // Note: See .agents/notes/implemented/feature/2026-10-17-session-creation-settings.md
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
-import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
+
 import type { ModelSelection, Session, SessionDefaultMode } from "@ruukoto/core/types.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 import { HistoryRecovery } from "@ruukoto/view/history-recovery.ts";
@@ -153,7 +153,7 @@ export class CodeState {
         if (this.pendingBranch) { this.pendingBranch = null; this.message = "Branch outcome unknown: the data instance changed. Check the original instance's chat list."; }
       }
       this.tabs = this.tabs.filter(id => this.view.sessions.some(session => session.id === id));
-      if (this.target === "code") void this.loadSummaries();
+      void this.loadSummaries();
       for (const id of this.tabs) void this.loadHistory(id);
       if (this.inspector.childSessionId) void this.loadHistory(this.inspector.childSessionId);
       if (this.navigation) this.navigate(this.navigation);
@@ -164,21 +164,21 @@ export class CodeState {
       this.view.applyEvent(update.event, update.kind);
       const body = update.event.body;
       if (body.type === "owner_question.changed" && body.question.sessionId === this.view.currentSessionId) void this.loadOwnerQuestions();
-      if (this.target === "code" && body.type === "model.config_changed") void this.refreshDefaultModel();
-      if (this.target === "code" && (body.type === "session.created" || body.type === "session.workspace_mapped" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
+      if (body.type === "model.config_changed") void this.refreshDefaultModel();
+      if ((body.type === "session.created" || body.type === "project.created" || body.type === "task.queued")) void this.loadSummaries();
       if (body.type === "session.created") { void this.reconcileCreation(); void this.reconcileBranch(); }
       if (body.type === "task.output_entry" && (this.tabs.includes(body.sessionId) || this.inspector.childSessionId === body.sessionId)) void this.loadEntry(body.sessionId, body.entryId, body.taskId);
       this.inspector.update(update);
     }
     if (update.type === "navigate") this.navigate(update);
-    if (this.target === "code") this.search.update(update);
-    if (this.target === "code") this.compactions.update(update);
+    this.search.update(update);
+    this.compactions.update(update);
     this.context.update(update);
     this.approvals.update(update);
     this.writes.update(update);
     this.questions.update(update);
     this.background.update(update);
-    if (this.target === "code") this.scheduled.update(update);
+    this.scheduled.update(update);
     this.mark();
   }
   private navigate(update: Extract<DesktopUpdate, { type: "navigate" }>): void {
@@ -214,7 +214,7 @@ export class CodeState {
   }
   /** The workspace tree lists only unarchived ordinary chats; archiving affects only this list — history and tasks still read by session id. */
   sessionsFor(workspaceId: string): Session[] {
-    return this.view.sessions.filter(session => sessionDisplayAttribution(session, this.view.projects).projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id) && session.kind === "dev" && session.archivedAt === null);
+    return this.view.sessions.filter(session => session.projectId === workspaceId && !this.view.subAgentSessionIds.includes(session.id) && session.kind === "dev" && session.archivedAt === null);
   }
   managedSessions(): Session[] {
     return this.view.projects.filter(project => project.managed).flatMap(project => this.sessionsFor(project.id)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -234,7 +234,7 @@ export class CodeState {
   }
   /** The settings page's archived chats: the same ordinary dev chats, filtered by archive state. */
   archivedSessions(): Session[] {
-    return this.view.sessions.filter(session => session.archivedAt !== null && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id)).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+    return this.view.sessions.filter(session => session.archivedAt !== null && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id)).sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
   }
   /** Archive or unarchive; failures surface through the existing settings-write notice. */
   async setArchived(sessionId: string, archived: boolean): Promise<void> {
@@ -254,7 +254,7 @@ export class CodeState {
   }
   private async loadOwnerQuestions(): Promise<void> {
     const sessionId = this.view.currentSessionId, instanceId = this.view.instanceId, generation = this.generation, read = ++this.questionRead;
-    if (this.target !== "code" || !sessionId || !instanceId) return;
+    if (!sessionId || !instanceId) return;
     const current = () => read === this.questionRead && generation === this.generation && sessionId === this.view.currentSessionId && instanceId === this.view.instanceId;
     let result: OpResult<"owner_questions">;
     try { result = await this.request("owner_questions", { session_id: sessionId }); }
@@ -292,7 +292,7 @@ export class CodeState {
     this.mark();
   }
   private creationSource(): Session | undefined {
-    const eligible = (session: Session) => this.target === "code" && session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id) && !this.view.roleSessionIds.includes(session.id);
+    const eligible = (session: Session) => session.kind === "dev" && !this.view.subAgentSessionIds.includes(session.id);
     return this.view.sessions.find(session => session.id === this.view.currentSessionId && eligible(session)) ?? this.view.sessions.find(session => session.id === this.creationSourceId && eligible(session));
   }
   private rememberCreationSource(): void {

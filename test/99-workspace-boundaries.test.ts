@@ -8,25 +8,17 @@ import { ESLint } from "eslint";
 const eslint = new ESLint();
 const root = path.resolve(import.meta.dirname, "..");
 
-test("workspace 安装的两条 bin 链接指向各自 app 的可执行入口", () => {
-  for (const product of ["ruukoto", "ruukoto-code"]) {
-    const linked = fs.realpathSync(path.join(root, "node_modules", ".bin", product));
-    const entry = path.join(root, "apps", product, "bin", `${product}.mjs`);
-    assert.equal(linked, fs.realpathSync(entry));
-    fs.accessSync(linked, fs.constants.X_OK);
-  }
+test("installed bin resolves to the executable application entry", () => {
+  const linked = fs.realpathSync(path.join(root, "node_modules/.bin/ruukoto"));
+  assert.equal(linked, fs.realpathSync(path.join(root, "apps/ruukoto/bin/ruukoto.mjs")));
+  fs.accessSync(linked, fs.constants.X_OK);
 });
 
-test("每个 app 的 npm start 与 dev 脚本均能进入自己的入口", () => {
-  for (const product of ["ruukoto", "ruukoto-code"]) {
-    const argumentError = product === "ruukoto" ? /cli_arguments/ : /参数错误/;
-    const start = spawnSync("npm", ["start", `--workspace=${product}`, "--", "--nope"], { cwd: root, encoding: "utf8" });
-    assert.equal(start.status, 1, start.stderr);
-    assert.match(start.stderr, argumentError);
-    assert.match(start.stderr, /用法/);
-    const invalid = spawnSync("npm", ["run", "dev", `--workspace=${product}`, "--", "--nope"], { cwd: root, encoding: "utf8" });
-    assert.equal(invalid.status, 1, invalid.stderr);
-    assert.match(invalid.stderr, argumentError);
+test("application start and dev scripts dispatch their entry", () => {
+  for (const args of [["start"], ["run", "dev"]]) {
+    const result = spawnSync("npm", [...args, "--workspace=ruukoto", "--", "--nope"], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /参数错误/);
   }
 });
 
@@ -45,7 +37,7 @@ test("包边界：core 的类型反向引用、agent 的值反向引用与相对
     ["packages/agent/src/probe.ts", 'await import("ruukoto/product.ts");'],
     ["packages/core/src/probe.ts", 'type Runtime = import("@ruukoto/runtime/runtime.ts").Runtime;'],
     ["packages/agent/src/probe.ts", 'const moduleName = "@ruukoto/runtime/runtime.ts"; await import(moduleName);'],
-    ["apps/ruukoto-code/src/probe.ts", 'import { product } from "ruukoto/product.ts";'],
+    ["apps/ruukoto/src/probe.ts", 'import { missing } from "undeclared-app";'],
   ]) assert.ok((await violations(file, source)).length > 0, source);
 });
 
@@ -56,7 +48,7 @@ test("包边界：声明过的底层依赖、反向类型与包内引用可用",
     ["packages/agent/src/probe.ts", 'import { type Runtime } from "@ruukoto/runtime/runtime.ts";'],
     ["packages/agent/src/probe.ts", 'type Runtime = import("@ruukoto/runtime/runtime.ts").Runtime;'],
     ["packages/agent/src/probe.ts", 'import { Driver } from "./driver.ts";'],
-    ["apps/ruukoto-code/src/probe.ts", 'await import("@ruukoto/tui/cli.ts");'],
+    ["apps/ruukoto/src/probe.ts", 'await import("@ruukoto/tui/cli.ts");'],
   ]) assert.deepEqual(await violations(file, source), [], source);
 });
 

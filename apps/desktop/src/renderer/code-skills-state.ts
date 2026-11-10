@@ -29,13 +29,13 @@ export class CodeSkillsState implements SettingsForm {
   private accepts(generation: number): boolean { return generation === this.generation && this.connected; }
   private async request<T>(op: string, params: Record<string, unknown>): Promise<DesktopResult<T>> {
     try { return await this.bridge.request("code", op, params) as DesktopResult<T>; }
-    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "No host response. Restore the original Code connection and read again." } }; }
+    catch { return { ok: false, error: { code: "bridge_unavailable", outcome: "unknown", message: "No host response. Restore the original ruukoto connection and read again." } }; }
   }
   invalidate(): void { ++this.generation; this.reading = false; }
   discard(): void { this.message = ""; this.changed(); }
   async save(): Promise<boolean> { return false; }
   async read(more = false): Promise<boolean> {
-    if (!this.connected || this.reading) { this.message = "Restore the original Code instance before reading skills."; this.changed(); return false; }
+    if (!this.connected || this.reading) { this.message = "Restore the original ruukoto instance before reading skills."; this.changed(); return false; }
     const generation = ++this.generation;
     this.reading = true; this.changed();
     const result = await this.request<OpResult<"skills_list">>("skills_list", { offset: more ? this.skills.length : 0, limit: 50 });

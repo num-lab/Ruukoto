@@ -1,3 +1,4 @@
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
 /**
  * MCP 写工具与统一审批（issue 18）：普通 MCP 工具经统一审批桥逐次授权。
  *
@@ -11,7 +12,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import {
@@ -21,11 +22,12 @@ import {
   taskStatus,
   writeModelsJson,
   pendingConfirmation,
+  cleanupDirs,
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import { withMcpDiscovery, startMockMcp, MOCK_MCP_SECRET, type MockMcp, type MockMcpToolSpec } from "./helpers/mock-mcp.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
-import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
+import { killBackend, spawnBackend } from "./helpers/backend.ts";
 import { canonicalParamsDigest } from "@ruukoto/agent/mcp/tools.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 
@@ -549,23 +551,20 @@ async function crashSetup(prefix: string, mcp: MockMcp) {
   })));
   const baseUrl = await modelServer.start();
   try {
-    // macOS Unix socket 路径上限 104 字符：临时目录前缀必须短
     const root = await mkdtemp(path.join(tmpdir(), `rk-${prefix}-`));
-    const dataDir = path.join(root, "data");
-    const agentDir = path.join(root, "agent");
+    const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+    const { dataDir, agentDir } = profile;
     const workDir = path.join(root, "work");
-    await mkdir(dataDir, { recursive: true });
-    await mkdir(agentDir, { recursive: true });
     await mkdir(workDir, { recursive: true });
-    await writeModelsJson({ root, dataDir, agentDir }, baseUrl);
-    const backend = await spawnBackend(dataDir, agentDir);
+    await writeModelsJson({ agentDir }, baseUrl);
+    const backend = await spawnBackend(profile);
     const { sessionId } = await createProjectSession(backend.client, workDir);
     await backend.client.request("mcp_configure", {
       name: "mock",
       endpoint: mcp.url,
       tool_allowlist: [{ name: "create_issue", effect: "write" }],
     });
-    return { modelServer, root, dataDir, agentDir, backend, sessionId };
+    return { modelServer, root, dataDir, agentDir, profile, backend, sessionId };
   } catch (err) {
     // 建立失败时回收已开的模型服务，避免悬挂测试进程
     await modelServer.close().catch(() => {});
@@ -594,14 +593,9 @@ test("mcp 写：崩溃重启 —— 已消费的在途写调用标 effect_unknow
     await backend.client.request("respond_confirmation", { confirmation_id: conf.id, decision: "approve" });
     await waitFor("tools/call 已发出", () => toolCalls(mcp, "create_issue").length === 1);
 
-    backend.client.close();
-    killProcessTree(backend.child);
-    await new Promise<void>((resolve) => {
-      backend.child.once("exit", () => resolve());
-      setTimeout(resolve, 5000);
-    });
+    await killBackend(backend);
 
-    backend = await spawnBackend(ctx.dataDir, ctx.agentDir);
+    backend = await spawnBackend(ctx.profile);
     const s = await taskStatus(backend.client, task.id);
     assert.equal(s.task.status, "interrupted");
     assert.equal(s.task.interruptReason, "backend_restart");
@@ -612,11 +606,10 @@ test("mcp 写：崩溃重启 —— 已消费的在途写调用标 effect_unknow
     assert.ok(crashedConf.consumedAt, "批准已消费的事实保留");
     assert.equal(toolCalls(mcp, "create_issue").length, 1, "重启不重放已发出的写调用");
   } finally {
-    backend.client.close();
-    killProcessTree(backend.child);
+    await killBackend(backend);
     await ctx.modelServer.close();
     await mcp.close();
-    await rm(ctx.root, { recursive: true, force: true });
+    await cleanupDirs({ root: ctx.root, profile: ctx.profile });
   }
 });
 
@@ -639,14 +632,9 @@ test("mcp 写：崩溃重启 —— 审批待决未消费 = 已知未执行，�
       return conf !== null;
     });
 
-    backend.client.close();
-    killProcessTree(backend.child);
-    await new Promise<void>((resolve) => {
-      backend.child.once("exit", () => resolve());
-      setTimeout(resolve, 5000);
-    });
+    await killBackend(backend);
 
-    backend = await spawnBackend(ctx.dataDir, ctx.agentDir);
+    backend = await spawnBackend(ctx.profile);
     const s = await taskStatus(backend.client, task.id);
     assert.equal(s.task.status, "interrupted");
     const op = s.toolOps.find((o: any) => o.toolName === "mcp__mock__create_issue");
@@ -659,11 +647,10 @@ test("mcp 写：崩溃重启 —— 审批待决未消费 = 已知未执行，�
     assert.equal(crashedConf.consumedAt, null);
     assert.equal(toolCalls(mcp).length, 0, "未消费的批准不发送、不重放");
   } finally {
-    backend.client.close();
-    killProcessTree(backend.child);
+    await killBackend(backend);
     await ctx.modelServer.close();
     await mcp.close();
-    await rm(ctx.root, { recursive: true, force: true });
+    await cleanupDirs({ root: ctx.root, profile: ctx.profile });
   }
 });
 

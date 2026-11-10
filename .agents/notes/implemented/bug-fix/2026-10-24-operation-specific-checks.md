@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 After owner browsing stopped checking protected directories, review found three related overchecks: Git queries scanned all metadata and rejected normal clones/configuration references; Personal network/full-access operations failed on unrelated data directories and background supervision repeatedly scanned protected trees; workspace registration always scanned protection and rejected backend data or ancestors. The owner requested these three fixes first.
@@ -18,7 +20,7 @@ Workspace/session/branch creation and organization migration register valid real
 
 ## Related decisions
 
-This partly supersedes Git metadata/registration restrictions in [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md), whole-tree prechecks in [Git wiring](../architecture/2026-10-17-desktop-demo-v4.md) and [pagination](../feature/2026-10-17-desktop-git-history-pages.md), and registration rules in [access modes](../feature/2026-09-19-explicit-access-modes.md). It supplements [same-account full access](../feature/2026-10-12-full-access-current-account.md) and removes unconditional runtime protection scans from [Personal tools](../architecture/2026-10-17-personal-tools-access-artifacts.md), [command configuration](../architecture/2026-10-17-personal-command-configuration.md), [full-access commands](../architecture/2026-10-17-personal-full-access-commands.md) and [session backgrounds](../feature/2026-10-21-personal-background-processes.md). Native sandboxing, grants, unknown effects and stop evidence remain intact. Skills, preview links, directory pagination and UI prefetch are outside this change.
+This partly supersedes Git metadata/registration restrictions in [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md), whole-tree prechecks in [Git wiring](../architecture/2026-10-17-desktop-demo-v4.md) and [pagination](../feature/2026-10-17-desktop-git-history-pages.md), and registration rules in [access modes](../feature/2026-09-19-explicit-access-modes.md). It supplements [same-account full access](../feature/2026-10-12-full-access-current-account.md) and removes unconditional runtime protection scans from [Personal tools](../../archived/architecture/2026-10-17-personal-tools-access-artifacts.md), [command configuration](../../archived/architecture/2026-10-17-personal-command-configuration.md), [full-access commands](../../archived/architecture/2026-10-17-personal-full-access-commands.md) and [session backgrounds](../../archived/feature/2026-10-21-personal-background-processes.md). Native sandboxing, grants, unknown effects and stop evidence remain intact. Skills, preview links, directory pagination and UI prefetch are outside this change.
 
 ## Alternatives considered
 

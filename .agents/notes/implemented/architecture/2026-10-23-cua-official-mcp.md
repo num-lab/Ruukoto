@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[Personal M2 execution](2026-11-04-personal-m2-execution.md) supersedes Personal main-session ownership with host-qualified assignment ownership, persistent FIFO claims and bound healthy takeover history. Fixed official programs, explicit whole-sandbox stopping, fresh observation acceptance and Coding's independent connection ownership remain.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[Personal M2 execution](../../archived/architecture/2026-11-04-personal-m2-execution.md) supersedes Personal main-session ownership with host-qualified assignment ownership, persistent FIFO claims and bound healthy takeover history. Fixed official programs, explicit whole-sandbox stopping, fresh observation acceptance and Coding's independent connection ownership remain.
 
 [MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) updates client ownership, Personal v4 and combined recovery interaction. Fixed programs, persistent connections, real stopping proof, no original-action replay and acceptance of a specific new observation remain. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) retires Code project configuration and schema 49-to-50 migration, not persistent connections, unresolved recovery or Personal formats. Historical choices below remain explicitly distinguished from current behavior.
 
@@ -18,7 +20,7 @@ Each product instance keeps one main-session computer connection with serialized
 
 Existing product operation ledgers retain launch identity, requests, results and recovery facts. Cua need not recover lost original receipts across processes. Unknown actions freeze this profile's computer entry. After verifying original stopping, the owner inspects and begins read-only recovery; accepting a specific new observation permits new work. Neither original unknown nor remoteEnded is fabricated. Personal records Cua-specific settlement and shares unresolved predicates across work, sources, reports, settings and saves. Linux CLI close is not guest stopping; whole-sandbox stopping, when needed, requires the owner's choice and preserves disk.
 
-[Personal recovery responses](../bug-fix/2026-10-23-personal-cua-recovery-response.md) saves received original responses separately from acceptable screenshot observations, retaining failures and not overwriting history on re-observation.
+[Personal recovery responses](../../archived/bug-fix/2026-10-23-personal-cua-recovery-response.md) saves received original responses separately from acceptable screenshot observations, retaining failures and not overwriting history on re-observation.
 
 Images reuse ArtifactStore/Personal media. A 48-MiB SDK message cap applies before aggregation/JSON parsing. [Delivered-observation eligibility](../feature/2026-10-31-cua-batch-eligibility.md) later replaced the binding-level observed flag with per-window snapshot/screenshot grants derived from projected content, narrowed the image-model preflight to image-producing calls, and added allowlisted `get_guide` plus a canonical `run_steps` subset under one batch approval. Original schema and model-restricted schema are separately recorded. Host rejects target overrides, file output, scripts and lifecycle tools. MCP management selects fixed programs/existing sandboxes and actually displays recovery images. Real desktop/model acceptance is distinct from offline engineering checks; original interfaces/boundaries are offline at `.scratch/cua-integration/spec.md`.
 
@@ -44,8 +46,8 @@ The original Code implementation saved MCP facts in tool_ops and migrated schema
 | --- | --- |
 | [Rejected Cua proposal](../../rejected/architecture/2026-10-22-cua-integration.md) | Retains why bridging was once chosen; new requirements replace global exclusivity/custom executor. |
 | [MCP client](2026-09-23-mcp-client.md), [transport reuse](2026-10-17-mcp-transport-reuse.md) | Adds Cua-specific stdio without weakening HTTP authentication/cancellation limits. |
-| [Personal MCP](2026-10-17-personal-durable-mcp.md) | Adds Cua-specific human settlement without changing remoteEnded meaning. |
-| [Personal media](2026-10-18-personal-browser-media.md), [MCP write tools](../feature/2026-09-23-mcp-write-tools-approval.md) | Reuses images/approval and never retries because result processing fails. |
+| [Personal MCP](../../archived/architecture/2026-10-17-personal-durable-mcp.md) | Adds Cua-specific human settlement without changing remoteEnded meaning. |
+| [Personal media](../../archived/architecture/2026-10-18-personal-browser-media.md), [MCP write tools](../feature/2026-09-23-mcp-write-tools-approval.md) | Reuses images/approval and never retries because result processing fails. |
 
 Other desktop-settings hits were unrelated. Dedicated execution-recovery/HTTP-fix notes after e8479aa1 left the current tree in the owner-requested rollback. Their full external-archive provenance is `.scratch/cua-integration/archive.md`, not current implemented decisions.
 

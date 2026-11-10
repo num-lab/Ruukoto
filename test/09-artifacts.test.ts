@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成：工具正文产物（issue 03 §5/§6.6）。
  *
@@ -203,10 +203,7 @@ test("产物跨后台重启可读", async () => {
   await writeModelsJson(dirs, baseUrl);
   try {
     const r1 = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: dirs.dataDir,
-      agentDir: dirs.agentDir,
-      socketPath: `${dirs.root}/c.sock`,
+      profile: dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",
@@ -234,10 +231,7 @@ test("产物跨后台重启可读", async () => {
 
     // 重启：同一数据目录
     const r2 = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: dirs.dataDir,
-      agentDir: dirs.agentDir,
-      socketPath: `${dirs.root}/c.sock`,
+      profile: dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",

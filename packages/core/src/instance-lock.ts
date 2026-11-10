@@ -1,41 +1,20 @@
-/**
- * 目录独占锁（实例锁与配置锁共用同一套机制）。
- *
- * 用 `mkdir`（原子操作）作为锁语义：锁目录存在即视为持有中。
- * 遇到已有锁时不能只凭 PID 文件缺失或 socket 不存在就删除锁——必须读取
- * owner.json 并核实记录的进程启动标识，避免 PID 回收误判；旧记录用
- * ps 的完整命令行兼容核实：
- * - 进程存活且是本后台 → 拒绝启动；
- * - 进程已死（ESRCH）或 PID 已被无关进程回收 → 遗留锁，可接管；
- * - owner.json 缺失/损坏 → 无活跃实例证据，可接管；
- * - 无法核实进程身份（ps 失败等）→ 保留锁并要求人工处理，不做静默删除。
- *
- * 两种锁：
- * - 实例锁 `<dataDir>/runtime.lock/`：同一数据目录只允许一个后台；
- * - 配置锁 `<agentDir>/config.lock/`（issue 21）：同一配置目录只允许一个
- *   在线后台或离线配置写入方，覆盖不同 dataDir 指向同一 agentDir 的情况。
- */
-
+// Note: See .agents/notes/implemented/bug-fix/2026-11-10-atomic-lock-publication.md
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { processIdentity, validProcessIdentity } from "./process-identity.ts";
+import { publishDirectory, releaseDirectoryLock, sameFileIdentity, type LockIdentity } from "./exclusive-fs.ts";
 
 export class InstanceLockError extends Error {
-  /** true = 锁被持有但无法核实持锁进程身份（保留锁、要求人工处理）；false = 已确认的活后台持锁竞争。 */
-  readonly unverifiable: boolean;
-  constructor(message: string, unverifiable = false) {
+  readonly code: "instance_lock_busy" | "instance_lock_unverifiable";
+  constructor(message: string, readonly unverifiable = false) {
     super(message);
-    this.unverifiable = unverifiable;
+    this.code = unverifiable ? "instance_lock_unverifiable" : "instance_lock_busy";
   }
 }
 
-/**
- * 服务进程因锁冲突退出的专用退出码——仅已确认的活后台竞争收这个码（无法核实持锁
- * 身份按普通失败处理，保留锁供人工处理）。TUI 按需拉起的失败分类用它按本进程归属
- * 判定锁竞争——共享 spawn.log 会混入其他终端的输出，不能解析日志文本判断当前子
- * 进程为何退出。
- */
+/** Only a verified competing owner receives this exit code; unverifiable ownership is terminal. */
 export const INSTANCE_LOCK_EXIT_CODE = 42;
 
 interface LockOwner {
@@ -44,150 +23,140 @@ interface LockOwner {
   startedAt: string;
   processIdentity?: string;
 }
+interface LockSnapshot extends LockIdentity { owner: LockOwner }
 
-function readOwner(lockDir: string): LockOwner | null {
+function lockSnapshot(lockDir: string): LockSnapshot | null | undefined {
+  let directory: fs.Stats;
+  try { directory = fs.lstatSync(lockDir); }
+  catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT" ? undefined : null;
+  }
   try {
-    return JSON.parse(fs.readFileSync(path.join(lockDir, "owner.json"), "utf8")) as LockOwner;
+    const ownerPath = path.join(lockDir, "owner.json"), ownerStat = fs.lstatSync(ownerPath);
+    if (!directory.isDirectory() || directory.isSymbolicLink() || directory.uid !== process.getuid!() ||
+        !ownerStat.isFile() || ownerStat.isSymbolicLink() || ownerStat.nlink !== 1 || ownerStat.uid !== process.getuid!() || ownerStat.size > 16_384) return null;
+    const bytes = fs.readFileSync(ownerPath);
+    const owner = JSON.parse(bytes.toString("utf8")) as LockOwner;
+    if (!owner || typeof owner !== "object" || !Number.isInteger(owner.pid) || owner.pid <= 0 ||
+        typeof owner.command !== "string" || !owner.command || typeof owner.startedAt !== "string" || !Number.isFinite(Date.parse(owner.startedAt))) return null;
+    return { dev: directory.dev, ino: directory.ino, ownerHash: createHash("sha256").update(bytes).digest("hex"), owner };
   } catch {
+    // An unreadable, partial or replaced owner cannot prove that the lock is stale.
     return null;
   }
 }
 
 function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err: any) {
-    if (err?.code === "ESRCH") return false;
-    return true; // EPERM 或未知错误按存活处理，宁可保守
-  }
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return !(error instanceof Error && "code" in error && error.code === "ESRCH"); }
 }
 
 function processCommand(pid: number): string | null {
   try {
     return execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], { encoding: "utf8", timeout: 3_000 }).trim() || null;
   } catch {
+    // Failure to inspect a live PID is not evidence of exit.
     return null;
   }
 }
 
-
-function looksLikeBackend(command: string): boolean {
-  // dev 启动器（dev.ts）派生 cli.ts 子进程；命令行核对从宽，宁误拒不误放
-  return command.includes("ruukoto") || command.includes("cli.ts") || command.includes("dev.ts");
-}
-
-export interface AcquiredLock {
-  release(): void;
-}
-
-/**
- * 只读探测锁目录的持锁状态（agent-direction issue 21）：不建锁、不接管、不改写
- * 任何文件，供跨实例导入核实源/目标后台已经停止。与获取路径共用同一套持锁核实
- * （owner.json + 进程存活 + 启动标识；旧记录兼容命令行核对），结论分级：确认活后台持锁 / 无法核实
- * 身份（按持锁处理但不确认是后台）/ 无活跃持锁（无锁、进程已死、PID 被回收或
- * owner.json 缺失）。
- */
+export interface AcquiredLock { release(): void }
 export interface LockProbe {
-  /** true = 锁被存活进程持有（含无法核实身份）。 */
   held: boolean;
-  /** 持锁进程 pid（能读到时）。 */
   pid: number | null;
-  /** 持锁进程命令行（能核实时）；无法核实身份为 null。 */
   command: string | null;
-  /** true = 进程存活但无法核实其身份。 */
   unverifiable: boolean;
-  /** 人类可读的结论说明。 */
   detail: string;
 }
 
+/** Read-only ownership inspection; malformed and ownerless legacy locks remain held. */
 export function probeLockHolder(lockDir: string): LockProbe {
-  if (!fs.existsSync(lockDir)) {
-    return { held: false, pid: null, command: null, unverifiable: false, detail: "无锁目录" };
+  return probeOwner(lockSnapshot(lockDir));
+}
+
+function failedOwnerInspection(pid: number, detail: string): LockProbe {
+  // The owner can exit between the initial liveness check and process inspection.
+  const held = isAlive(pid);
+  return { held, pid, command: null, unverifiable: held, detail: held ? detail : `Owner pid ${pid} has exited` };
+}
+
+function probeOwner(snapshot: LockSnapshot | null | undefined): LockProbe {
+  if (snapshot === undefined) return { held: false, pid: null, command: null, unverifiable: false, detail: "No lock directory" };
+  if (snapshot === null) return { held: true, pid: null, command: null, unverifiable: true, detail: "Lock owner is missing, malformed or replaced" };
+  const { owner } = snapshot;
+  if (Object.hasOwn(owner, "processIdentity") && !validProcessIdentity(owner.processIdentity)) {
+    return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: "Stored process identity is malformed" };
   }
-  const owner = readOwner(lockDir);
-  if (!owner || !Number.isInteger(owner.pid) || owner.pid <= 0) {
-    return { held: false, pid: null, command: null, unverifiable: false, detail: "锁目录残留但 owner.json 缺失或损坏（遗留锁）" };
-  }
-  if (!isAlive(owner.pid)) {
-    return { held: false, pid: owner.pid, command: null, unverifiable: false, detail: `记录的进程 pid ${owner.pid} 已退出（遗留锁）` };
-  }
+  if (!isAlive(owner.pid)) return { held: false, pid: owner.pid, command: null, unverifiable: false, detail: `Owner pid ${owner.pid} has exited` };
   const hasIdentity = Object.hasOwn(owner, "processIdentity");
   if (hasIdentity) {
     const identity = processIdentity(owner.pid);
-    if (!validProcessIdentity(owner.processIdentity) || identity === null) {
-      return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `锁被 pid ${owner.pid} 持有，但无法核实进程启动标识` };
-    }
+    if (identity === null) return failedOwnerInspection(owner.pid, `Cannot verify process identity for pid ${owner.pid}`);
     if (identity !== owner.processIdentity) {
-      return { held: false, pid: owner.pid, command: processCommand(owner.pid), unverifiable: false, detail: `记录的 pid ${owner.pid} 启动标识不同，已被其他进程复用（遗留锁）` };
+      return { held: false, pid: owner.pid, command: processCommand(owner.pid), unverifiable: false, detail: `Pid ${owner.pid} was reused` };
     }
   }
   const command = processCommand(owner.pid);
-  if (command === null) {
-    return { held: true, pid: owner.pid, command: null, unverifiable: true, detail: `锁被 pid ${owner.pid} 持有，但无法核实进程身份` };
+  if (command === null) return failedOwnerInspection(owner.pid, `Cannot inspect pid ${owner.pid}`);
+  if (hasIdentity || command.includes("ruukoto") || command.includes("cli.ts") || command.includes("dev.ts")) {
+    return { held: true, pid: owner.pid, command, unverifiable: false, detail: `Live owner: pid ${owner.pid}` };
   }
-  if (hasIdentity || looksLikeBackend(command)) {
-    return { held: true, pid: owner.pid, command, unverifiable: false, detail: `后台存活：pid ${owner.pid}：${command}` };
-  }
-  return { held: false, pid: owner.pid, command, unverifiable: false, detail: `记录的 pid ${owner.pid} 已被无关进程复用（遗留锁）` };
+  return { held: false, pid: owner.pid, command, unverifiable: false, detail: `Legacy pid ${owner.pid} belongs to another command` };
 }
 
-function acquireLock(lockDir: string, label: string): AcquiredLock {
+/** Atomically publishes a complete owner; the parent inode serializes conditional takeover and release. */
+export function acquireDirectoryLock(lockDir: string, label = "Profile lock"): AcquiredLock {
   const identity = processIdentity(process.pid);
-  if (identity === null) {
-    throw new InstanceLockError(`${label}无法核实进程身份（pid ${process.pid}）；请人工确认后重试 ${lockDir}`, true);
-  }
-  const takeover = () => {
-    fs.rmSync(lockDir, { recursive: true, force: true });
-    fs.mkdirSync(lockDir);
-  };
-
-  let created = false;
+  if (identity === null) throw new InstanceLockError(`${label}: cannot verify this process; inspect ${lockDir}`, true);
+  const parent = fs.realpathSync(path.dirname(lockDir)), target = path.basename(lockDir), parentIdentity = fs.statSync(parent);
+  lockDir = path.join(parent, target);
+  const stage = fs.mkdtempSync(path.join(parent, `.${target}.prepare-`));
+  fs.chmodSync(stage, 0o700);
+  const stageIdentity = fs.lstatSync(stage);
+  const owner: LockOwner = { pid: process.pid, command: "ruukoto-backend", startedAt: new Date().toISOString(), processIdentity: identity };
+  const bytes = JSON.stringify(owner) + "\n";
+  const owned: LockIdentity = { dev: stageIdentity.dev, ino: stageIdentity.ino, ownerHash: createHash("sha256").update(bytes).digest("hex") };
+  let installed = false;
   try {
-    fs.mkdirSync(lockDir);
-    created = true;
-  } catch (err: any) {
-    if (err?.code !== "EEXIST") throw err;
-  }
-
-  if (!created) {
-    const probe = probeLockHolder(lockDir);
-    if (probe.held) {
-      if (probe.unverifiable) {
-        throw new InstanceLockError(`${label}被 pid ${probe.pid} 持有，但无法核实进程身份；请人工确认后删除 ${lockDir}`, true);
-      }
-      throw new InstanceLockError(`${label}冲突：另一个进程正在运行（pid ${probe.pid}）：${probe.command}`);
+    const ownerPath = path.join(stage, "owner.json");
+    fs.writeFileSync(ownerPath, bytes, { mode: 0o600, flag: "wx" });
+    const ownerFd = fs.openSync(ownerPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try { fs.fsyncSync(ownerFd); } finally { fs.closeSync(ownerFd); }
+    fs.chmodSync(ownerPath, 0o400);
+    // Linux blocks predecessor unlink through the directory mode; macOS seals the owner before publication.
+    fs.chmodSync(stage, process.platform === "darwin" ? 0o700 : 0o500);
+    const stageFd = fs.openSync(stage, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+    try { fs.fsyncSync(stageFd); } finally { fs.closeSync(stageFd); }
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const expected = lockSnapshot(lockDir);
+      const probe = probeOwner(expected);
+      if (probe.held) throw new InstanceLockError(`${label}: ${probe.detail}; inspect ${lockDir}`, probe.unverifiable);
+      const result = publishDirectory({ parent, parentIdentity, stage, target, identity: stageIdentity, lock: { expected: expected ?? null } });
+      if (result === "installed") { installed = true; break; }
     }
-    takeover();
+    if (!installed) throw new InstanceLockError(`${label}: concurrent ownership changed; retry ${lockDir}`, true);
+  } finally {
+    if (!installed && fs.existsSync(stage) && sameFileIdentity(fs.lstatSync(stage), stageIdentity)) {
+      fs.chmodSync(stage, 0o700);
+      fs.rmSync(stage, { recursive: true });
+    }
   }
-
-  const owner: LockOwner = {
-    pid: process.pid,
-    command: `ruukoto-backend ${process.argv.join(" ")}`,
-    startedAt: new Date().toISOString(),
-    processIdentity: identity,
-  };
-  fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify(owner, null, 2));
-  return {
-    release() {
-      try {
-        fs.rmSync(lockDir, { recursive: true, force: true });
-      } catch {
-        // 释放失败不阻断退出；下个实例按遗留锁流程核实
-      }
-    },
-  };
+  let released = false;
+  return { release() {
+    if (released) return;
+    released = true;
+    try { releaseDirectoryLock(parent, parentIdentity, target, owned); }
+    catch (error) {
+      // Leaving a verifiable stale lock is safer than deleting an unverified successor.
+      process.stderr.write(`[ruukoto:lock] Could not release ${lockDir}: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  } };
 }
 
-/** 数据目录实例锁：同一 dataDir 只允许一个后台进程。 */
 export function acquireInstanceLock(dataDir: string): AcquiredLock {
-  return acquireLock(path.join(dataDir, "runtime.lock"), "实例锁");
+  return acquireDirectoryLock(path.join(dataDir, "runtime.lock"), "Instance lock");
 }
 
-/**
- * 模型配置锁（issue 21）：同一 agentDir 只允许一个在线后台或离线配置写入方。
- * 与实例锁分离——两个 dataDir 不同的后台指向同一 agentDir 时由此互斥。
- */
 export function acquireConfigLock(agentDir: string): AcquiredLock {
-  return acquireLock(path.join(agentDir, "config.lock"), "配置锁");
+  return acquireDirectoryLock(path.join(agentDir, "config.lock"), "Configuration lock");
 }

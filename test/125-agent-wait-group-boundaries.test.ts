@@ -5,9 +5,9 @@ import { startTestRuntime } from "./helpers/testkit.ts";
 import { registerAgentWait, endAgentWait, registerAgentReport, bindAgentReportFallback, listAgentReports, isAgentReportParked, parkAgentReportFallback, finishAgentReportFallback, getAgentReport, type AgentWaitTarget } from "@ruukoto/core/agent-wait.ts";
 import type { Task } from "@ruukoto/core/types.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 test("不同父轮等待同原来源：停车只覆盖本轮固定目标，其他组后备仍可执行", async () => {
-const t=await startTestRuntime("review-cross-group",()=>{throw new Error("不得请求模型");},{config:{product:product.runtime}});
+const t=await startTestRuntime("review-cross-group",()=>{throw new Error("不得请求模型");});
 try {
  const rt=t.runtime, store=rt.store;
  await rt.orchestrator?.stop();
@@ -15,7 +15,7 @@ try {
  store.withTx(()=>store.setSessionQueueState(s.id,"paused","fixture"));
  const queued=(rid:string)=>store.insertQueuedTask({sessionId:s.id,requestId:rid,input:rid,modelSelection:rt.defaultSelection,submissionDigest:rid}).task;
  const origin=store.withTx(()=>{const task=queued("origin");store.endTask(task.id,["queued"],"completed");store.setTaskResult(task.id,"原始发起轮", "{}");return store.getTask(task.id)!;});
- const source: WorkflowSource={product:"ruukoto-code" as const,projectId:s.projectId,sessionId:s.id,taskId:origin.id,permissionVersion:origin.permissionVersion,accessMode:origin.accessMode,grantedPaths:[],capabilities:[],references:[],replyTarget:null,scheduledRunId:null,authority:fixtureSubAgentAuthority(rt,s)};
+ const source: WorkflowSource={product:"ruukoto" as const,projectId:s.projectId,sessionId:s.id,taskId:origin.id,permissionVersion:origin.permissionVersion,accessMode:origin.accessMode,grantedPaths:[],capabilities:[],references:[],authority:fixtureSubAgentAuthority(rt,s)};
  const child=(key:string,done:boolean)=>store.withTx(()=>{
   const sub=store.createSession({projectId:s.projectId,cwd:s.cwd,cwdReal:s.cwdReal,cwdDev:s.cwdDev,cwdIno:s.cwdIno,piSessionId:key,confirmTools:[]});
   store.insertSubAgent({ definition: fixtureSubAgentDefinition(),id:"agent-"+key,parentSessionId:s.id,sessionId:sub.id,workDir:s.cwdReal,activeWorkId:"work-"+key,currentTaskId:null,state:"idle",closedAt:null,closedBy:null,createdAt:s.createdAt});

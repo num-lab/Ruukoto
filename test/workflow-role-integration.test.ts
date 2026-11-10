@@ -9,7 +9,7 @@ import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import type { Session, Task } from "@ruukoto/core/types.ts";
 import { getWorkflowStep, listWorkflowExecutions, listWorkflowSteps, requireWorkflowRun, WORKFLOW_INTERFACE_VERSION, workflowTerminal } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { delegateFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { holdParentResponse } from "./helpers/active-parent.ts";
 import { initGitRepo, runGitStep, shellQuotePathForTest } from "./helpers/git-fixture.ts";
@@ -56,7 +56,7 @@ const VERIFY = 'await agent("validate",{request:"验证",verify:"change",depends
 const HOLD = 'await ask("hold",{prompt:"继续汇入？"});';
 const MERGE = 'return await integrate("merge",{steps:["validate"],dependsOn:["validate","hold"],check:"true"});';
 
-for (const product of [codeProduct]) test(`${product.runtime.type} 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源`, async () => {
+test(`ruukoto 的普通与工作流 reviewer 使用同来源、当前内容及固定角色，真实 bash 不能改来源`, async () => {
   let origin = "";
   const parentGate = holdParentResponse(req => {
     if (lastUserText(req).startsWith("开始")) return { kind: "text", text: "父任务完成" };
@@ -72,7 +72,7 @@ for (const product of [codeProduct]) test(`${product.runtime.type} 的普通与�
       command: `cat dirty.txt staged.txt new.txt && if printf escaped > ${shellQuotePathForTest(path.join(origin, "dirty.txt"))}; then exit 91; fi; printf proof > review-proof.txt`,
     } }] };
   });
-  const t = await startTestRuntime("workflow-reviewer-parity", parentGate.responder, { config: { ...realTools(), product: product.runtime, execution: { backend: "native" } }, workDirs: 1 });
+  const t = await startTestRuntime("workflow-reviewer-parity", parentGate.responder, { config: { ...realTools(), execution: { backend: "native" } }, workDirs: 1 });
   try {
     const rt = t.runtime;
     origin = t.work[0];
@@ -203,7 +203,7 @@ test("已完成验证在 ask 后冷恢复保留旧 Task、尝试和字节", asyn
         tasks = [changed.id, verificationTask.id].map(id => store.getTask(id));
         attempts = requireWorkflowRun(store, run.id).attempts; executions = listWorkflowExecutions(store, run.id);
       } finally { db.close(); }
-      const recovered = await Runtime.start({ ...rt.config, socketPath: path.join(t.dirs.root, "r.sock") });
+      const recovered = await Runtime.start(rt.config);
       try {
         const state = requireWorkflowRun(recovered.store, run.id);
         assert.equal(state.status, "paused");

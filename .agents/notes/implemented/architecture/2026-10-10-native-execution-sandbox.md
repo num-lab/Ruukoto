@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[Personal native execution](2026-10-12-personal-native-sandbox.md) extends these primitives to personal and retires Docker delivery. [The personal entry](../simplification/2026-10-18-personal-product-entry.md) uses independent durable wiring; shared Coding ToolRouter/Runtime/worker statements do not describe that entry. [Persistent Linux claims](2026-10-17-native-linux-execution-identity.md) owns cross-process unit/cgroup verification. [Atomic startup-marker publication](../bug-fix/2026-10-24-native-marker-atomic-publish.md) strengthens publication without relaxing strict content or unverified-stop checks. [Current-account full access](../feature/2026-10-12-full-access-current-account.md) supersedes the original dedicated-account rule.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[Personal native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) extends these primitives to personal and retires Docker delivery. [The personal entry](../../archived/simplification/2026-10-18-personal-product-entry.md) uses independent durable wiring; shared Coding ToolRouter/Runtime/worker statements do not describe that entry. [Persistent Linux claims](2026-10-17-native-linux-execution-identity.md) owns cross-process unit/cgroup verification. [Atomic startup-marker publication](../bug-fix/2026-10-24-native-marker-atomic-publish.md) strengthens publication without relaxing strict content or unverified-stop checks. [Current-account full access](../feature/2026-10-12-full-access-current-account.md) supersedes the original dedicated-account rule.
 
 ## Problem
 

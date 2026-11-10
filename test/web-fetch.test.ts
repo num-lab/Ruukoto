@@ -2,7 +2,7 @@ import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { MAX_HTTP_RESPONSE_BYTES, executeApprovedHttpRequest } from "@ruukoto/agent/execution/approved-ops.ts";
 import { WebFetchError, webPageText } from "@ruukoto/agent/web-fetch.ts";
 import { hasNoWriteEffect } from "@ruukoto/agent/tool-op-ledger.ts";
@@ -67,7 +67,7 @@ test("web_fetch：真实HTTP正文、长正文续读、截断事实与失败状�
       return { kind: "text", text: "已核实网页读取结果" };
     }
     return { kind: "tool_calls", calls: [{ id: "fetch", name: "web_fetch", arguments: { url, reason: "读取用户指定网页" } }] };
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  }, { workDirs: 1, config: { ...realTools() } });
   t.after(() => kit.shutdown());
   for (const route of ["html", "plain", "long", "partial", "range", "binary", "compressed", "empty", "redirect", "invalid-redirect", "unsafe-redirect", "error"]) {
     const { sessionId } = await createProjectSession(kit.client, kit.work[0]);
@@ -112,7 +112,7 @@ test("web_fetch：审批固定GET、拒绝零发送，URL凭据在审批前拒�
   const kit = await startTestRuntime("web-fetch-approval", request => afterTool(request)
     ? { kind: "text", text: "已报告读取未执行" }
     : { kind: "tool_calls", calls: [{ id: "fetch", name: "web_fetch", arguments: { url: lastUserText(request), reason: "读取指定网页" } }] },
-  { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  { workDirs: 1, config: { ...realTools() } });
   t.after(() => kit.shutdown());
   const { sessionId } = await createProjectSession(kit.client, kit.work[0]);
   const task = await kit.runtime.submit({ sessionId, requestId: "reject", input: remote.url + "/plain", modelSelection: kit.runtime.defaultSelection, accessMode: "confirm" });

@@ -45,7 +45,7 @@ function MessageEntry({ model, sessionId, entry, child, branchable, tools, toolC
       inlineCode: ({ children }) => {
         const path = String(children);
         let diff: DiffTool | undefined;
-        if (model.target === "code") for (let index = toolCount - 1; index >= 0; index--) if (tools[index].target === path) { diff = tools[index]; break; }
+        for (let index = toolCount - 1; index >= 0; index--) if (tools[index].target === path) { diff = tools[index]; break; }
         const code = <code className="relative rounded bg-muted px-[0.3rem] py-[0.1rem] font-mono text-[13px] font-normal wrap-anywhere">{diff ? path.split("/").map((segment, index) => <Fragment key={index}>{index > 0 && "/"}{index > 0 && <wbr />}{segment}</Fragment>) : children}</code>;
         return diff ? <a className="file-reference" href="#right-sidebar" onClick={event => { event.preventDefault(); const current = model.view.openSession(sessionId).flow.items.find(item => item.key === diff.key); if (current?.kind === "tool") model.inspector.openDiff(sessionId, current); }}>{code}</a> : code;
       },
@@ -85,19 +85,19 @@ export function Conversation({ model, sessionId, child = false }: { model: CodeS
   const loadingOlder = useRef(false);
   const session = model.view.openSession(sessionId);
   const items = session.flow.items;
-  const positionedQuestions = !child && model.target === "code" ? model.view.ownerQuestions.filter(question => question.sessionId === sessionId && items.some(item => item.kind === "tool" && item.toolOpId === question.hostOpId && !!item.entryId)) : [];
+  const positionedQuestions = !child ? model.view.ownerQuestions.filter(question => question.sessionId === sessionId && items.some(item => item.kind === "tool" && item.toolOpId === question.hostOpId && !!item.entryId)) : [];
   const { timeline, activeKey, phase } = conversationActivity(model.view, sessionId, model.status.state === "online", items);
   const diffTools: DiffTool[] = [];
   const references = new Map<string, { count: number; key: string }>();
   let referencesKey = "";
   for (const item of items) {
-    if (item.kind === "tool" && isDiffTool(item) && model.target === "code") {
+    if (item.kind === "tool" && isDiffTool(item)) {
       diffTools.push(item);
       referencesKey += JSON.stringify([item.key, item.entryId, item.name, item.target]);
     } else if (item.kind === "message") references.set(item.key, { count: diffTools.length, key: referencesKey });
   }
   const taskId = model.view.activeTaskFor(sessionId)?.id;
-  const branchable = !child && !model.view.roleSessionIds.includes(sessionId) && !model.view.subAgentSessionIds.includes(sessionId) && !model.view.sessions.find(item => item.id === sessionId)?.codeScheduleRunId;
+  const branchable = !child && !model.view.subAgentSessionIds.includes(sessionId) && !model.view.sessions.find(item => item.id === sessionId)?.codeScheduleRunId;
   const sections = conversationSections(model.view, items, timeline, phase && !activeKey && taskId ? { taskId, phase } : undefined, id => model.historyReady(sessionId, id));
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const onExpand = (key: string, open: boolean) => setExpanded(items => ({ ...items, [key]: open }));

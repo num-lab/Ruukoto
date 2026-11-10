@@ -26,8 +26,8 @@ The original proposed/implemented audit searched Cua, MCP, browser, images, occu
 | --- | --- |
 | [MCP client](../../implemented/architecture/2026-09-23-mcp-client.md) | Retain HTTP/auth/tool definitions; extend inline images with cross-links, not rewrite original decisions. |
 | [Transport reuse](../../implemented/architecture/2026-10-17-mcp-transport-reuse.md) | Retain host credentials/stateless interfaces; consumers own computer binding. |
-| [Personal MCP](../../implemented/architecture/2026-10-17-personal-durable-mcp.md) | Retain original request/approval/completion evidence; add connection lifetime/image projection. |
-| [Personal browser/media](../../implemented/architecture/2026-10-18-personal-browser-media.md) | Reuse image facts/provider checks, not browser execution ownership. |
+| [Personal MCP](../../archived/architecture/2026-10-17-personal-durable-mcp.md) | Retain original request/approval/completion evidence; add connection lifetime/image projection. |
+| [Personal browser/media](../../archived/architecture/2026-10-18-personal-browser-media.md) | Reuse image facts/provider checks, not browser execution ownership. |
 | [MCP writes](../../implemented/feature/2026-09-23-mcp-write-tools-approval.md) | Retain permissions/approval while extending incomplete-response classification/downstream terminal checks. |
 
 Legacy MCP writes treated HTTP/JSON-RPC errors as known. Gateway-generated errors cannot prove downstream Cua completion, so this proposal explicitly extends classification. Original slice 02 would mark incomplete reads, budgets/truncation as unknown for all MCP write/unknown calls. Slice 03 would check downstream terminal evidence only for explicit computer targets. Other ordinary MCP errors/history would not be rewritten retroactively, and approvals/local effect classes remain. [Image reading](../../implemented/bug-fix/2026-10-12-read-images.md) and [progressive interaction](../../implemented/process/2026-10-14-progressive-human-interaction.md) retain visual-input/management constraints.

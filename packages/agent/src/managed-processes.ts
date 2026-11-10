@@ -8,7 +8,7 @@
  * TERM 后 KILL（或等价的整单元停止），只有确认整个单元（含其子进程/
  * cgroup）已退出才允许释放目录占用。无法确认退出时保留占用并报错
  * ——仅杀主进程或等待主 PID 消失不足以证明后代已退出。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
+ * Note: See .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
 
 import * as childProcess from "node:child_process";

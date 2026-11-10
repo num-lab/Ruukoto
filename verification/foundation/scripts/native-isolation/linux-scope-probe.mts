@@ -3,9 +3,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import { launchLinuxNative } from "../../../../packages/agent/src/execution/native-linux.ts";
-import { ExecutionError, type LaunchedUnit, type LaunchSpec } from "../../../../packages/agent/src/execution/launchers.ts";
-import type { PreparedNativeLaunch } from "../../../../packages/agent/src/execution/native.ts";
+import { launchLinuxNative } from "@ruukoto/agent/execution/native-linux.ts";
+import { ExecutionError, type LaunchedUnit, type LaunchSpec } from "@ruukoto/agent/execution/launchers.ts";
+import type { PreparedNativeLaunch } from "@ruukoto/agent/execution/native.ts";
 
 if (process.platform !== "linux") throw new Error("本探针仅用于真实 Linux 环境");
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-linux-scope-proof-")));

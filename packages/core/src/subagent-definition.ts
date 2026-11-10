@@ -1,10 +1,10 @@
 /** 子代理定义的持久快照；执行不得用当前配置替代缺失或损坏的记录。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-14-subagent-role-snapshots.md
  */
-import { canonicalJson, sha256 } from "./import-files.ts";
+import { canonicalJson, sha256 } from "./json.ts";
 
 export interface SubAgentDefinitionSnapshot {
-  kind: "role" | "host_review";
+  kind: "role";
   name: string;
   raw: string;
   description: string;
@@ -37,7 +37,7 @@ export function validateSubAgentDefinition(value: unknown): SubAgentDefinitionSn
   const row = value as Record<string, unknown>;
   const keys = ["kind", "name", "raw", "description", "tools", "permissions", "body", "digest"];
   if (Object.keys(row).length !== keys.length || keys.some(key => !Object.hasOwn(row, key)) ||
-      (row.kind !== "role" && row.kind !== "host_review") || typeof row.name !== "string" || !row.name ||
+      row.kind !== "role" || typeof row.name !== "string" || !row.name ||
       typeof row.raw !== "string" || typeof row.description !== "string" || typeof row.body !== "string" ||
       typeof row.digest !== "string" || !/^[a-f0-9]{64}$/.test(row.digest) ||
       (row.tools !== null && (!Array.isArray(row.tools) || row.tools.some(tool => typeof tool !== "string" || !tool)))) {
@@ -75,9 +75,7 @@ export function validateSubAgentRoleCatalog(value: unknown): SubAgentRoleCatalog
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SubAgentDefinitionError("definition_corrupt");
   const row = value as Record<string, unknown>;
   if (Object.keys(row).length !== 3 || !Array.isArray(row.roles) || !Array.isArray(row.diagnostics) || typeof row.digest !== "string") throw new SubAgentDefinitionError("definition_corrupt");
-  for (const role of row.roles) {
-    if (validateSubAgentDefinition(role).kind !== "role") throw new SubAgentDefinitionError("definition_corrupt");
-  }
+  for (const role of row.roles) validateSubAgentDefinition(role);
   for (const diagnostic of row.diagnostics) {
     if (!diagnostic || typeof diagnostic !== "object" || Array.isArray(diagnostic)) throw new SubAgentDefinitionError("definition_corrupt");
     const entry = diagnostic as Record<string, unknown>;

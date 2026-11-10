@@ -5,18 +5,14 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { canonicalJson, sha256 } from "@ruukoto/core/import-files.ts";
-import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionDigest, subAgentDefinitionFromJson,
+import { canonicalJson, sha256 } from "@ruukoto/core/json.ts";
+import { SubAgentDefinitionError, requireSubAgentDefinition, subAgentDefinitionFromJson,
   validateSubAgentDefinition, validateSubAgentRoleCatalog } from "@ruukoto/core/subagent-definition.ts";
 import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
 
-test("子代理快照严格核实完整字段、宿主用途与摘要", () => {
+test("子代理快照严格核实完整字段与摘要", () => {
   const definition = fixtureSubAgentDefinition();
   assert.deepEqual(subAgentDefinitionFromJson(JSON.stringify(definition)), definition);
-  const hostContent = { ...definition, kind: "host_review" as const, name: "github-review" };
-  const { digest: _digest, ...content } = hostContent;
-  const host = { ...content, digest: subAgentDefinitionDigest(content) };
-  assert.deepEqual(validateSubAgentDefinition(host), host);
   const { raw: _raw, ...missingRaw } = definition;
   for (const corrupt of ["broken", {}, missingRaw, { ...definition, body: "被修改的正文" }, { ...definition, kind: "main" },
     { ...definition, tools: [1] }, { ...definition, permissions: { mode: "plan", protectSource: false } }, { ...definition, extra: true }]) {

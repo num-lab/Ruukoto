@@ -12,7 +12,7 @@ import type { McpCuaOperation, Task } from "@ruukoto/core/types.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { McpStore } from "@ruukoto/agent/mcp/store.ts";
 import { CodeCuaManager } from "@ruukoto/agent/mcp/code.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { startTestRuntime, createProjectSession, waitFor, pendingConfirmation, realTools } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { withMcpDiscovery } from "./helpers/mock-mcp.ts";
@@ -84,7 +84,7 @@ test("Code Cua：真实产品链保存原schema和请求，持续连接、批准
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const runtime = await startTestRuntime("cua-code", withMcpDiscovery(responder), { config: { product: product.runtime } });
+  const runtime = await startTestRuntime("cua-code", withMcpDiscovery(responder));
   const { client, dirs } = runtime;
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [
@@ -267,7 +267,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const runtime = await startTestRuntime("cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime } });
+  const runtime = await startTestRuntime("cua-batch", withMcpDiscovery(responder));
   const { client, dirs } = runtime;
   const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
@@ -353,7 +353,7 @@ test("Code Cua：窗口观察授权元素动作与批次，坐标需截图，get
 test("Code Cua：观察授权只在结果进入后续模型请求后激活，同响应写零发送", { skip: !available }, async () => {
   const script: Array<{ kind: "tool_calls"; calls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> } | { kind: "text"; text: string }> = [];
   const responder: Responder = async () => script.shift() ?? { kind: "text", text: "done" };
-  const runtime = await startTestRuntime("cua-deliver", withMcpDiscovery(responder), { config: { ...realTools(), product: product.runtime, budgetOverrides: { toolResultViewChars: 600 } } });
+  const runtime = await startTestRuntime("cua-deliver", withMcpDiscovery(responder), { config: { ...realTools(), budgetOverrides: { toolResultViewChars: 600 } } });
   const { client, dirs } = runtime;
   const TREE = "snapshot s00000001\n- [14] AXButton \"保存\"\n- [20] AXTextField \"名称\"";
   const LONG_TREE = '- [20] AXTextField "Visible"\n' + "x".repeat(3000) + '\n- [14] AXButton "Hidden"\n' + "x".repeat(3000) + '\n- [90] AXButton "Tail"';
@@ -438,7 +438,7 @@ test("Code CUA binds observations to persisted host operations, not reusable SDK
   const runtime = await startTestRuntime("cua-result-identity", withMcpDiscovery(async () => {
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [call] } : { kind: "text", text: "done" };
-  }), { config: { product: product.runtime } });
+  }));
   const { client, dirs } = runtime;
   const executable = path.join(dirs.root, "cua-fixture"), record = path.join(dirs.root, "calls.jsonl");
   const tools = [

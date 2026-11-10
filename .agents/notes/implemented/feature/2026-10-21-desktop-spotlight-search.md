@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [Open search results in ordinary sessions](../simplification/2026-10-21-desktop-search-session-navigation.md) supersedes the independent read-only history-window, message-highlight, and disabled-composer choices below. Other search contracts remain. Original confirmed scope/thresholds/acceptance are historical offline `.scratch/desktop-search/issues/01-spotlight-search.md`.
 
 ## Problem
@@ -38,7 +40,7 @@ Appending one ancient entry to the latest 300-entry SessionView could immediatel
 
 Archive affects sidebar presence, not search. Explicitly opening a hit never changes archivedAt; an archived tab may appear until archived again under existing close rules. Retain archive indicators. [Archive semantics](2026-10-20-desktop-session-archive.md) remain unchanged otherwise.
 
-Use existing [session attribution](../../../../packages/control/src/session-attribution.ts) for name/text grouping. Do not restrict owner-global search to the currently viewed workspace or confuse organization with source-data identity. Desktop does not speak new personal durable history. Search may open from Code or the Personal page, but results clearly cover Code workspaces only, not "all chats" across products.
+Group name and text results by each session's project identity. Do not restrict owner-global search to the currently viewed workspace or confuse display organization with source-data authority.
 
 ## Failure and privacy
 
@@ -58,7 +60,7 @@ Desktop reads only through authenticated control, never SQLite/JSONL/arbitrary p
 
 ## Related decisions
 
-[History preservation](../architecture/2026-09-19-preserve-session-history.md), [archive](2026-10-20-desktop-session-archive.md), [desktop layering](../../proposed/architecture/2026-10-15-desktop-client.md), and [personal information ownership](../architecture/2026-10-18-personal-memory-skills-history.md) remain constraints, not absorbed decisions. Tool previews/completed traces/compaction keep their own behavior. The original active-note audit found no competing search proposal and changed no sealed archives.
+[History preservation](../architecture/2026-09-19-preserve-session-history.md), [archive](2026-10-20-desktop-session-archive.md), [desktop layering](../../proposed/architecture/2026-10-15-desktop-client.md), and [personal information ownership](../../archived/architecture/2026-10-18-personal-memory-skills-history.md) remain constraints, not absorbed decisions. Tool previews/completed traces/compaction keep their own behavior. The original active-note audit found no competing search proposal and changed no sealed archives.
 
 ## Consequences
 

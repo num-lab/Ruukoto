@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [Read-check reuse](../bug-fix/2026-10-24-read-check-overhead.md) later permits ordinary hardlinks in owner preview, retaining symlink handling and read-consistency checks. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) further removes whole-tree Git metadata restrictions and workspace-registration protection retained by the original change.
 
 ## Problem

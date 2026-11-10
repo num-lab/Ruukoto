@@ -8,7 +8,7 @@ Original identifier: ADR 0008.
 
 ## Problem
 
-Initial [MCP support](../architecture/2026-09-23-mcp-client.md) admitted only owner-declared reads; writes/unknown effects needed concrete approval scope, once-only consumption, and unknown-result recovery. Retiring the [dedicated GitHub module](../simplification/2026-09-23-retire-github-module.md) temporarily removed GitHub writes. Remote readOnly hints are unverifiable; service/credentials/arguments/permissions may change while awaiting approval; timeout/disconnect/cancel/restart may follow a real remote write. Per-service publish implementations would split authorization again.
+Initial [MCP support](../architecture/2026-09-23-mcp-client.md) admitted only owner-declared reads; writes/unknown effects needed concrete approval scope, once-only consumption, and unknown-result recovery. Retiring the [dedicated GitHub module](../../archived/simplification/2026-09-23-retire-github-module.md) temporarily removed GitHub writes. Remote readOnly hints are unverifiable; service/credentials/arguments/permissions may change while awaiting approval; timeout/disconnect/cancel/restart may follow a real remote write. Per-service publish implementations would split authorization again.
 
 ## Decision
 
@@ -29,7 +29,7 @@ The original signature was the first 16 hex characters of sha256 over remote nam
 
 `CredentialStore` is file-backed. Binding re-read precedes SQLite consumption, and the actual-send authentication provider calls `getForUse` for project, MCP operation scope, and host again, so revocation after precheck does not authorize sending. No anonymous fallback follows revoked credentials. IM-origin approval consumption additionally checks its original fixed identity, without replacing MCP configuration checks.
 
-Mode change/cancellation while awaiting approval stales it and sends zero calls; later execution uses the new mode. [Plan](2026-10-08-plan-session-mode.md) and host [GitHub review](2026-09-24-github-event-review.md) expose only locally declared read tools.
+Mode change/cancellation while awaiting approval stales it and sends zero calls; later execution uses the new mode. [Plan](2026-10-08-plan-session-mode.md) and host [GitHub review](../../archived/feature/2026-09-24-github-event-review.md) expose only locally declared read tools.
 
 ## Original result-classification design and successor
 

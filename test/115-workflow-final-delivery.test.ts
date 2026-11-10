@@ -12,7 +12,7 @@ import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { WORKFLOW_INTERFACE_VERSION, bindWorkflowExecution, createWorkflowRun, getWorkflowDeliveryRun, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun, workflowDeliveryKey } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ParentDelivery } from "@ruukoto/runtime/parent-delivery.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 function source(rt: Runtime, session: Session) {
@@ -40,7 +40,7 @@ test("idle dev final delivery retains its fixed version, tool-free fallback and 
       return { kind: "text", text: "最终汇总" };
     }
     return { kind: "text", text: "普通任务" };
-  }, { config: { product: codeProduct.runtime, workflowAgent: async () => { await child.promise; return { output: "步骤资料" }; } } });
+  }, { config: { workflowAgent: async () => { await child.promise; return { output: "步骤资料" }; } } });
   try {
     const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session, parent = source(rt, session);
     const run = rt.workflows!.start({ sourceTaskId: parent.id, requestKey: "final", input: null, script: 'return await agent("one",{request:"处理"});' });
@@ -55,7 +55,7 @@ test("idle dev final delivery retains its fixed version, tool-free fallback and 
     await waitFor("最终汇总已排队", () => requireWorkflowRun(rt.store, run.id).delivery?.taskId != null);
     const finished = requireWorkflowRun(rt.store, run.id), wake = rt.store.getTask(finished.delivery!.taskId!)!;
     assert.match(finished.delivery!.facts, /停止：脚本已核实；已启动执行 1\/1 项已核实，未启动 0 项/);
-    assert.equal(wake.status, "queued"); assert.equal(wake.agentId, null); assert.equal(wake.sourceEventId, null);
+    assert.equal(wake.status, "queued"); assert.equal(wake.subAgentId, null);
     assert.equal(getWorkflowDeliveryRun(rt.store, wake.id)!.id, run.id);
     assert.equal(rt.getTaskDetail(wake.id)!.task.inputPurpose, "internal_report");
     assert.equal(rt.findTaskByRequest({ sessionId: session.id, requestId: wake.requestId }).task!.inputPurpose, "internal_report");
@@ -88,7 +88,7 @@ test("idle dev final delivery retains its fixed version, tool-free fallback and 
       assert.equal(history.entries.find(entry => entry.entryId === internalInput.entryId)!.inputPurpose, "internal_report");
       assert.equal(rt.readHistoryEntry({ sessionId: inherited.id, entryId: internalInput.entryId }).inputPurpose, "internal_report");
       const state = new ViewState();
-      state.applySnapshot({ snapshot: { ...rt.snapshot(), product: rt.productType }, seq: 0, replay: [] }, false);
+      state.applySnapshot(await t.client.handshake(), false);
       state.installHistoryPage(inherited.id, history, "replace");
       const visible = state.openSession(inherited.id).flow.items;
       assert.ok(!visible.some(entry => entry.kind === "message" && entry.role === "user" && entry.text === wake.input));
@@ -128,9 +128,8 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
     store.transitionTask(parent.id, ["queued"], "completed");
     const definition = saveWorkflowDefinition(store, "return 1;");
     const inputs: string[] = [];
-    const delivery = new ParentDelivery({ verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => selection, readReply: () => null, isReviewEvent: () => false,
-      resultNotice: () => null, sendWorkReport: () => {}, verifyWorkflowReport: () => true,
-      submit: async input => { inputs.push(input.input); return parent; } });
+    const delivery = new ParentDelivery({ verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => selection, readReply: () => null,
+      verifyWorkflowReport: () => true, submit: async input => { inputs.push(input.input); return parent; } });
     const cases = [
       { script: true, registered: true, execution: true, expected: "脚本已核实；已启动执行 1/1 项已核实，未启动 1 项" },
       { script: false, registered: true, execution: false, expected: "脚本未核实；已启动执行 0/1 项已核实，未启动 1 项" },
@@ -141,8 +140,8 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
     for (const [index, value] of cases.entries()) {
       const id = `report-${index}`;
       const run = createWorkflowRun(store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id, requestKey: id, paramsDigest: id, definitionId: definition.id, scriptDigest: definition.digest,
-        input: null, inputDigest: id, source: { product: "ruukoto-code", projectId: project.id, sessionId: session.id, taskId: parent.id,
-          permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null },
+        input: null, inputDigest: id, source: { product: "ruukoto", projectId: project.id, sessionId: session.id, taskId: parent.id,
+          permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [] },
         modelSelection: selection, status: "running", version: 1, reason: "test", attempts: 1, maxAttempts: 100,
         durationMs: 3_600_000, usedMs: 1, clockStartedAt: null, clockVerified: true,
         scriptUnits: value.registered ? [{ kind: "process_group", id: "123", label: "fixture" }] : [], scriptStopVerified: value.script,
@@ -171,7 +170,7 @@ test("终态停止事实区分已核实、未知和未启动；登记脚本仍�
 });
 
 for (const window of ["queued", "result-missing"] as const) test(`dev 冷恢复 ${window}：复用原汇总任务和键，结果事务补记一次`, async () => {
-  const t = await startTestRuntime("workflow-final-recover", () => ({ kind: "text", text: "唯一汇总" }), { config: { product: codeProduct.runtime } });
+  const t = await startTestRuntime("workflow-final-recover", () => ({ kind: "text", text: "唯一汇总" }));
   let restarted: Runtime | null = null;
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "workflow", cwd: t.work[0] }), parent = source(rt, session);

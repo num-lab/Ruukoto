@@ -1,5 +1,5 @@
 /** 受限 bubblewrap 与持久完全访问命令共用 user scope 观察。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md
+ * Note: See .agents/notes/implemented/architecture/2026-10-17-native-linux-execution-identity.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
 import * as fs from "node:fs";

@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[Shared roles and interface versions](2026-10-15-workflow-role-interface.md) owns role/target/verify wiring and explicit interface upgrades. [Persistent source capabilities](2026-10-15-subagent-source-capabilities.md) owns shared source, permission and project-context rules. This note retains definition loading and pinning. These are shared-runtime mechanisms; [Personal product entry](../simplification/2026-10-18-personal-product-entry.md) retires their old Personal assembly.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[Shared roles and interface versions](2026-10-15-workflow-role-interface.md) owns role/target/verify wiring and explicit interface upgrades. [Persistent source capabilities](2026-10-15-subagent-source-capabilities.md) owns shared source, permission and project-context rules. This note retains definition loading and pinning. These are shared-runtime mechanisms; [Personal product entry](../../archived/simplification/2026-10-18-personal-product-entry.md) retires their old Personal assembly.
 
 ## Problem
 

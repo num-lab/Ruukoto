@@ -1,8 +1,8 @@
 # Desktop Settings Preview
 
-An independent UI preview of the desktop settings structure: appearance, models, skills, MCP, computer use, web search, Personal connection and archived sessions. Target-specific settings use separate Code and Personal navigation groups.
+An independent UI preview of the ruukoto desktop settings structure: appearance, models, skills, MCP, computer use, web search and archived sessions.
 
-The preview uses fictional data and changes memory only. Refresh resets it. Pairing, connection tests, file selection, saving and deletion do not call a product backend or modify real settings. The production counterpart is `apps/desktop/src/renderer/settings-dialog.tsx` and its pages.
+The preview uses fictional data and changes memory only. Refresh resets it. Connection tests, file selection, saving and deletion do not call a product backend or modify real settings. The production counterpart is `apps/desktop/src/renderer/settings-dialog.tsx` and its pages.
 
 ## Run And Check
 

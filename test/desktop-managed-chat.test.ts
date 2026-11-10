@@ -1,3 +1,4 @@
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -17,12 +18,12 @@ import { adoptEnvironment } from "../apps/desktop/src/main/environment.ts";
 import { ipcResult } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopChatCreation, DesktopChatDraft, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 
 const selection: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 
 test("Managed first-send journal recovers a lost creation response and cold upload retry without submitting", async () => {
-  const t = await startTestRuntime("d-managed-journal", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-managed-journal", () => ({ kind: "text", text: "ok" }), {});
   try {
     const token = `draft_${randomUUID()}`, local = path.join(t.work[0], "input.txt");
     fs.writeFileSync(local, "input");
@@ -70,11 +71,9 @@ test("Managed first-send journal recovers a lost creation response and cold uplo
 });
 
 test("Native first-chat restore preserves attachment snapshots and opens only its verified workspace", async () => {
-  const t = await startTestRuntime("d-chat-cold", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
-  const environment = { ...process.env }, control = fs.mkdtempSync(path.join(path.dirname(t.dirs.root), "dcc-"));
-  fs.symlinkSync(path.join(t.runtime.controlDir(), "owner.token"), path.join(control, "owner.token"));
-  fs.symlinkSync(t.runtime.socketPath(), path.join(control, "control.sock"));
-  Object.assign(process.env, { RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: control, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir });
+  const t = await startTestRuntime("d-chat-cold", () => ({ kind: "text", text: "ok" }), {});
+  const environment = { ...process.env };
+  Object.assign(process.env, profileChildEnv(t.runtime.config.profile.selection, { RUUKOTO_DESKTOP_MANAGED: "1" }));
   const hosts: DesktopHost[] = [], updates: DesktopUpdate[] = [], userData = path.join(t.dirs.root, "desktop-data");
   const start = async () => {
     const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), userData, { publish: (target, update) => { if (target === "code") updates.push(update); }, focused: () => true, notice() {}, badge() {} });
@@ -117,11 +116,11 @@ test("Native first-chat restore preserves attachment snapshots and opens only it
     assert.equal(finalDraft.text, "corrected first");
     assert.equal(finalDraft.mode, "confirm");
     assert.equal(t.runtime.store.listTasksBySession(first.session.id).length, 0);
-  } finally { await Promise.all(hosts.map(host => host.close())); adoptEnvironment(environment); fs.rmSync(control, { recursive: true, force: true }); t.client.close(); await t.shutdown(); }
+  } finally { await Promise.all(hosts.map(host => host.close())); adoptEnvironment(environment); t.client.close(); await t.shutdown(); }
 });
 
 test("Managed draft retry keeps first creation identity after upload failure and exposes the owning workspace", async () => {
-  const t = await startTestRuntime("d-managed-state", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-managed-state", () => ({ kind: "text", text: "ok" }), {});
   try {
     let created: DesktopChatCreation | null = null, failUpload = true, sendCalls = 0;
     const model = new CodeState({ request: async (_target, op, params) => {
@@ -157,7 +156,7 @@ test("Managed draft retry keeps first creation identity after upload failure and
 });
 
 for (const phase of ["creation", "upload"] as const) test(`First-send ${phase} completion after navigation retains the original draft for explicit restore`, async () => {
-  const t = await startTestRuntime(`d-chat-nav-${phase}`, () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime(`d-chat-nav-${phase}`, () => ({ kind: "text", text: "ok" }), {});
   let release!: () => void;
   const blocked = new Promise<void>(resolve => { release = resolve; });
   try {
@@ -237,7 +236,7 @@ for (const phase of ["creation", "upload"] as const) test(`First-send ${phase} c
 });
 
 test("First-message submission retries use the retained original request key", async () => {
-  const t = await startTestRuntime("d-first-key", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-first-key", () => ({ kind: "text", text: "ok" }), {});
   try {
     const result = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0] });
     const view = new CodeState({ request: async () => ({ ok: true, value: null }) }, () => {}).view;
@@ -262,7 +261,7 @@ test("First-message submission retries use the retained original request key", a
 });
 
 test("Precreation snapshot and ordinary model rejection leave an editable draft under the original key", async () => {
-  const t = await startTestRuntime("d-chat-rejected", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-chat-rejected", () => ({ kind: "text", text: "ok" }), {});
   try {
     const ordinary = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0] });
     const store = new PendingRequestStore(path.join(t.dirs.root, "first-drafts"));
@@ -287,7 +286,7 @@ test("Precreation snapshot and ordinary model rejection leave an editable draft 
 });
 
 test("Cold first-message restoration preserves later edits and submits visible settings", async () => {
-  const t = await startTestRuntime("d-chat-restored", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-chat-restored", () => ({ kind: "text", text: "ok" }), {});
   try {
     const created = await t.client.request<OpResult<"create_managed_session">>("create_managed_session", { request_id: "restored-create", mode: "full_access", model_selection: selection });
     await t.client.request("set_session_mode", { session_id: created.session.id, expected_version: created.session.defaultAccessModeVersion, mode: "confirm" });

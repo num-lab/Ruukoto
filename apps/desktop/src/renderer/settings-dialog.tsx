@@ -1,16 +1,13 @@
 import { useEffect, useRef } from "react";
-import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Server, Settings, Sun, SunMoon, X } from "lucide-react";
+import { Archive, ArchiveRestore, Blocks, Brain, Globe, Monitor, Moon, Puzzle, Settings, Sun, SunMoon, X } from "lucide-react";
 import type { DesktopAppearance, DesktopTarget } from "../shared/bridge.ts";
 import type { CodeState } from "./code-state.ts";
-import type { PersonalState } from "./personal-state.ts";
-import { SettingsState, paCategory, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope } from "./settings-state.ts";
-import { PersonalConnectionSettings } from "./personal-connection-settings.tsx";
+import { SettingsState, type ManagedSettingsCategory, type SettingsCategory, type SettingsScope } from "./settings-state.ts";
 import { CodeModelsSettings } from "./code-models-settings.tsx";
 import { CodeMcpSettings } from "./code-mcp-settings.tsx";
 import { CodeComputerSettings } from "./code-computer-settings.tsx";
 import { CodeWebSearchSettings } from "./code-web-search-settings.tsx";
 import { CodeSkillsSettings } from "./code-skills-settings.tsx";
-import { PersonalSettingsPage } from "./personal-settings-pages.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./components/ui/dialog.tsx";
 import { SettingsButton, SettingsSegmented } from "./components/controls.tsx";
@@ -21,15 +18,10 @@ export interface SettingsPageProps {
   scope: SettingsScope;
   settings: SettingsState;
   code: CodeState;
-  personal: Pick<PersonalState, "view" | "status" | "identity">;
-}
-export interface PersonalSettingsPageProps extends Omit<SettingsPageProps, "category"> {
-  category: ManagedSettingsCategory;
 }
 export interface SettingsContentsProps {
   settings: SettingsState;
   code: CodeState;
-  personal: Pick<PersonalState, "view" | "status" | "identity">;
   appearance: DesktopAppearance;
   onAppearance: (appearance: DesktopAppearance) => void;
   pages?: Partial<Record<SettingsCategory, React.ComponentType<SettingsPageProps>>>;
@@ -44,17 +36,11 @@ const navigation: ReadonlyArray<NavEntry> = [
   { type: "item", value: "appearance", label: "Appearance", icon: SunMoon },
   { type: "item", value: "code-computer", label: "Computer", icon: Monitor },
   { type: "item", value: "web-search", label: "Web search", icon: Globe },
-  { type: "item", value: "personal", label: "Personal connection", icon: Server },
   { type: "item", value: "archived", label: "Archived chats", icon: Archive },
-  { type: "section", label: "Code" },
+  { type: "section", label: "ruukoto" },
   { type: "item", value: "code-models", label: "Models", icon: Brain },
   { type: "item", value: "code-skills", label: "Skills", icon: Puzzle },
   { type: "item", value: "code-mcp", label: "MCP", icon: Blocks },
-  { type: "section", label: "PA" },
-  { type: "item", value: "pa-models", label: "Models", icon: Brain },
-  { type: "item", value: "pa-skills", label: "Skills", icon: Puzzle },
-  { type: "item", value: "pa-mcp", label: "MCP", icon: Blocks },
-  { type: "item", value: "pa-computer", label: "Computer", icon: Monitor },
 ];
 
 const codePages: Record<`code-${ManagedSettingsCategory}`, React.ComponentType<SettingsPageProps>> = {
@@ -82,7 +68,7 @@ function ArchivedPage({ code }: { code: CodeState }) {
     <SettingsPage title="Archived chats" description="Archiving only hides a chat from the sidebar; history and tasks are kept.">
       <SettingsGroup title="Archive list">
         <SettingsList label="Archived chats" empty="No archived chats.">
-          {sessions.map(session => <SettingsListItem key={session.id} title={code.sessionName(session.id)} description={`${code.workspaceName(session.workspaceProjectId ?? session.projectId)} · ${session.archivedAt?.slice(0, 10)}`}>
+          {sessions.map(session => <SettingsListItem key={session.id} title={code.sessionName(session.id)} description={`${code.workspaceName(session.projectId)} · ${session.archivedAt?.slice(0, 10)}`}>
             <SettingsButton variant="icon" aria-label={`Unarchive ${code.sessionName(session.id)}`} title="Unarchive" disabled={code.status.state !== "online"} onClick={() => void code.setArchived(session.id, false)}><ArchiveRestore /></SettingsButton>
           </SettingsListItem>)}
         </SettingsList>
@@ -94,8 +80,8 @@ function ArchivedPage({ code }: { code: CodeState }) {
 // Note: See .agents/notes/implemented/feature/2026-10-21-desktop-settings-shell.md
 // Note: See .agents/notes/implemented/feature/2026-11-07-desktop-visual-alignment.md
 export function SettingsContents(props: SettingsContentsProps) {
-  const { settings, code, personal, appearance, onAppearance } = props;
-  const scope = settings.scope(code, personal);
+  const { settings, code, appearance, onAppearance } = props;
+  const scope = settings.scope(code);
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     contentRef.current?.querySelector<HTMLElement>(".settings-page")?.scrollTo({ top: 0, behavior: "instant" });
@@ -115,10 +101,8 @@ export function SettingsContents(props: SettingsContentsProps) {
       <div ref={contentRef} key={`${category}:${settings.pageKey}`} className="settings-content">
         {category === "appearance" && <AppearancePage appearance={appearance} onAppearance={onAppearance} />}
         {category === "web-search" && <CodeWebSearchSettings code={code} />}
-        {category === "personal" && <PersonalConnectionSettings settings={settings} personal={personal} />}
         {category === "archived" && <ArchivedPage code={code} />}
-        {category.startsWith("code-") && (() => { const Page = props.pages?.[category] ?? codePages[category as `code-${ManagedSettingsCategory}`]; return <Page category={category} scope={scope} settings={settings} code={code} personal={personal} />; })()}
-        {category.startsWith("pa-") && (() => { const Page = PersonalSettingsPage; const mapped = paCategory(category); return mapped ? <Page key={scope.instanceId} category={mapped} scope={scope} settings={settings} code={code} personal={personal} /> : null; })()}
+        {category.startsWith("code-") && (() => { const Page = props.pages?.[category] ?? codePages[category as `code-${ManagedSettingsCategory}`]; return <Page category={category} scope={scope} settings={settings} code={code} />; })()}
       </div>
     </SettingsShell>
   );

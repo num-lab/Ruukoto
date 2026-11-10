@@ -100,7 +100,7 @@ export class DesktopCompactions {
   }
   async start(sessionId: string, prompt = ""): Promise<boolean> {
     const state = this.get(sessionId), key = this.key(sessionId);
-    if (!this.online() || !this.view.instanceId) { state.message = "Restore the Code connection before compacting context."; this.changed(); return false; }
+    if (!this.online() || !this.view.instanceId) { state.message = "Restore the ruukoto connection before compacting context."; this.changed(); return false; }
     if (this.occupied(sessionId)) { state.message = "The compaction request is still running or unverified. Check its result first."; this.changed(); return false; }
     const requestId = crypto.randomUUID();
     state.request = null;

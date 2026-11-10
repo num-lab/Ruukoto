@@ -2,9 +2,11 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original identifier: ADR 0003
 
-[Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) replaces owner workspace-registration restrictions; restricted execution still checks protected paths. [Native execution](../architecture/2026-10-12-personal-native-sandbox.md) replaces backend/deployment choices. [Current-account full access](2026-10-12-full-access-current-account.md) supersedes the original dedicated-account isolation, remaining approval exceptions, and confirm-only host-task propagation. This note retains mode selection, concrete approval scope, single use, and authenticated control requests.
+[Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) replaces owner workspace-registration restrictions; restricted execution still checks protected paths. [Native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) replaces backend/deployment choices. [Current-account full access](2026-10-12-full-access-current-account.md) supersedes the original dedicated-account isolation, remaining approval exceptions, and confirm-only host-task propagation. This note retains mode selection, concrete approval scope, single use, and authenticated control requests.
 
 ## Problem
 

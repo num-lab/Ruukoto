@@ -127,14 +127,14 @@ test("Code 计划控制面真实接纳与回读，原键幂等且拒绝越权字
   const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
   const { ControlServer } = await import("@ruukoto/control/server.ts");
   const { createMockTools } = await import("@ruukoto/agent/mock-tools.ts");
-  const { product } = await import("../apps/ruukoto-code/src/product.ts");
+
   const { MockModelServer } = await import("./helpers/mock-provider.ts");
   const { cleanupDirs, connectAuthedClient, makeTestDirs, writeModelsJson } = await import("./helpers/testkit.ts");
   const { dirs, work } = await makeTestDirs("code-schedule-control", 1), server = new MockModelServer(() => ({ kind: "text", text: "不应执行" }));
   let runtime: Awaited<ReturnType<typeof Runtime.start>> | undefined, client: Awaited<ReturnType<typeof connectAuthedClient>> | undefined;
   t.after(async () => { client?.close(); await runtime?.stop("test_end"); await server.close(); await cleanupDirs(dirs); });
   await writeModelsJson(dirs, await server.start());
-  runtime = await Runtime.start({ product: product.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "control.sock"), modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", toolFactory: context => createMockTools(context) });
+  runtime = await Runtime.start({ profile: dirs.profile, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", toolFactory: context => createMockTools(context) });
   await ControlServer.start(runtime); client = await connectAuthedClient(runtime);
   const { session: workspaceSession } = await runtime.openWorkspace({ cwd: work[0] });
   const savedConfig: CodeScheduleConfig = { ...config, workspaceId: workspaceSession.projectId, modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, rule: { kind: "once", at: new Date(Date.now() + 3_600_000).toISOString(), timeZone: "Asia/Tokyo", disambiguation: "compatible" } };

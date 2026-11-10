@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 The toast always carried a green success dot, even for errors, sat over the composer at the bottom of the window, could not be dismissed and disappeared without motion. The offline state printed raw socket errors such as `connect ENOENT …/control.sock` as its main sentence and showed a no-network icon while still connecting. The inspector new-tab page repeated a 22px heading and a description under every entry. Sparkles stood for both Personal and SubAgent tabs, while the sidebar used a chat icon for Personal. The inspector toggle stayed visible but disabled without a conversation, and the new-chat composer was pinned to the bottom of an empty canvas.

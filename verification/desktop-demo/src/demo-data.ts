@@ -36,8 +36,8 @@ export const scenarios: { value: Scenario; label: string }[] = [
 // shortcut: 原稿活动与详情均为静态样例，迁移正式 GUI 时改接已记录的工具输入与结果。
 export const initialWorkspaces: Workspace[] = (referenceData as Workspace[]).map(workspace => ({ ...workspace, sessions: workspace.sessions.map(session => ({ ...session, steps: session.steps.map(step => step.type === "activity" && step.items.some(item => item.action !== "Agent") ? { ...step, thinking: { text: "演示内容：检查缓存读取与重连同步的实现。", duration: "5s" } } : step), attachments: [], pendingSubmission: null, effort: "Medium", context: { usedTokens: 32000, maxTokens: 200000, systemTokens: 1500, toolTokens: 5300 } })) }));
 
-export const PERSONAL_SESSION_ID = "personal:main";
-export const initialPersonalSession: Session = { id: PERSONAL_SESSION_ID, title: "Ruukoto", status: "idle", steps: [], subagents: [], diffs: [], draft: "", attachments: [], pendingSubmission: null, model: initialWorkspaces[1].sessions[0].model, effort: "Medium", context: { usedTokens: 0, maxTokens: 200000, systemTokens: 0, toolTokens: 0 }, mode: "auto-review", continuing: false };
+
+
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-16-demo-trace-tools.md
 export function toolDetailsPreview(session: Session): Step[] {
@@ -58,7 +58,7 @@ export function toolDetailsPreview(session: Session): Step[] {
 
 export function executionPreview(session: Session, phase: "thinking" | "working"): Step[] {
   const diff = session.diffs[0];
-  const items: ActivityItem[] = phase === "working" && session.id !== PERSONAL_SESSION_ID ? [
+  const items: ActivityItem[] = phase === "working" ? [
     { action: "Read", file: diff?.fullPath ?? "README.md" },
     ...(diff ? [{ action: "Edited", file: diff.fullPath, diffFile: diff.fullPath, stat: `+${diff.add} -${diff.del}` }] : []),
     { action: "Bash", file: "pnpm test:unit", command: "pnpm test:unit", output: "RUN  Unit tests", status: "running" },
@@ -69,7 +69,7 @@ export function executionPreview(session: Session, phase: "thinking" | "working"
 export function completeSubmission(session: Session, pending: PendingSubmission): Session {
   if (session.pendingSubmission !== pending) return session;
   const text = [pending.draft.trim(), ...pending.attachments.map(attachment => `［模拟附件：${attachment.name}］`)].filter(Boolean).join("\n");
-  return { ...session, title: session.title === "新会话" ? text.slice(0, 32) : session.title, draft: "", attachments: [], continuing: false, pendingSubmission: null, steps: [...session.steps, { type: "user", text }, { type: "prose", text: pending.queued ? "演示：输入已排队，等待当前任务结束或恢复队列。未调用真实模型。" : session.id === PERSONAL_SESSION_ID ? "这是前端模拟回复，没有调用真实模型。" : "这是前端模拟回复。你可以继续检查对话排版、工具差异、SubAgent 标签与审批状态；没有调用模型或执行命令。" }] };
+  return { ...session, title: session.title === "新会话" ? text.slice(0, 32) : session.title, draft: "", attachments: [], continuing: false, pendingSubmission: null, steps: [...session.steps, { type: "user", text }, { type: "prose", text: pending.queued ? "演示：输入已排队，等待当前任务结束或恢复队列。未调用真实模型。" : "这是前端模拟回复。你可以继续检查对话排版、工具差异、SubAgent 标签与审批状态；没有调用模型或执行命令。" }] };
 }
 
 export function activitySummary(items: ActivityItem[]): string {

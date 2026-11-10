@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * issue 30：上下文压缩（压缩点、第一层清理、滚动摘要、兜底移出标记）。
  *
@@ -482,28 +482,6 @@ test("组装：摘要等待期间中止，摘要请求随之中止，不交出�
   }
 });
 
-test("组装：资料受限会话（chat 角色、QQ 群）不压缩", async () => {
-  const kit = await startKit("compact-chat", () => ({ kind: "text", text: "摘要" }));
-  try {
-    // 越过 H' 的历史：普通会话在这里会建压缩点（对照）
-    const messages = [1, 2, 3, 4, 5, 6, 7, 8].flatMap((n) => [
-      user(`大输出 ${n}`), call(`big${n}`, "mock_big"), result(`big${n}`, "y".repeat(40_000), "mock_big"), reply("ok"),
-    ]).concat(user("闲聊"));
-    const { projectId, session } = kit.project();
-    const chat = kit.begin(kit.task(session, "闲聊"), session, { restricted: true, accessor: { kind: "role_restricted", projectId } });
-    const { record } = await kit.send(chat, messages);
-    assert.ok(record.estimatedTotal > HOST_H, "视图估算越过高水位");
-    assert.equal(kit.server.calls.length, 0);
-    assert.equal(compactionEvents(kit).length, 0);
-    assert.equal((kit.store.db.prepare("SELECT COUNT(*) AS n FROM context_checkpoints").get() as any).n, 0);
-
-    const dev = kit.project();
-    await kit.send(kit.begin(kit.task(dev.session, "闲聊"), dev.session), messages);
-    assert.ok(kit.store.getActiveCheckpoint(dev.session.id), "对照：普通会话建压缩点");
-  } finally {
-    await kit.close();
-  }
-});
 
 // ---------- 宿主层（完整后台：会话文件、工具读回、重启与停止联动） ----------
 
@@ -543,20 +521,18 @@ interface Host {
 }
 
 async function startHost(prefix: string, respond: ReturnType<typeof responder>, config: Partial<RuntimeConfig> = {
-    product: personalProduct.runtime,}, contextWindow = 200_000): Promise<Host> {
+    }, contextWindow = 200_000): Promise<Host> {
   const { dirs, work } = await makeTestDirs(prefix, 1);
   const server = new MockModelServer(respond);
   await writeModelsJson(dirs, await server.start(), contextWindow);
   const full: Partial<RuntimeConfig> = {
-    product: personalProduct.runtime,
     toolFactory: (ctx) => [...createMockTools(ctx), bigTool],
     ...config,
     budgetOverrides: { compactionHighWater: HOST_H, ...config.budgetOverrides },
   };
   const boot = async () => {
     const runtime = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"),
+      profile: dirs.profile,
       thinkingLevel: "off", modelProvider: "mock", modelId: "mock-model", ...full,
     });
     await ControlServer.start(runtime);
@@ -711,7 +687,7 @@ test("摘要模型配置（离线）：保存、清除、目录外模型拒绝�
   const { dirs } = await makeTestDirs("summary-offline", 0);
   try {
     await writeModelsJson(dirs, "http://127.0.0.1:1");
-    const backend = new OfflineModelBackend(dirs.agentDir);
+    const backend = new OfflineModelBackend(dirs.profile);
     const rev0 = configRevision(dirs.agentDir);
     assert.equal((await backend.load()).summaryModel, null);
     await assert.rejects(backend.setSummaryModel({ provider: "mock", modelId: "nope" }), (err: any) => err.code === "invalid_params");

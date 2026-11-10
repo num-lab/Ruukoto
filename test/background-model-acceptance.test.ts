@@ -4,7 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
+
 import { waitFor } from "./helpers/testkit.ts";
 
 test("真实模型后台：启动、browser访问、跨拥有者轮查日志、停止并恢复写入", {
@@ -22,14 +23,17 @@ test("真实模型后台：启动、browser访问、跨拥有者轮查日志、�
   const selected = Object.entries(providers).flatMap(([provider, config]) => config.models.map(model => ({ provider, config, model })))
     .find(item => requested ? `${item.provider}/${item.model.id}` === requested : item.provider === "deepseek");
   assert.ok(selected, "显式配置中没有所选模型；请指定 RUN_BACKGROUND_MODEL=provider/model");
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-background-model-"))), agentDir = path.join(root, "agent"), workspace = path.join(root, "work");
-  fs.mkdirSync(agentDir); fs.mkdirSync(workspace);
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-background-model-")));
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const { agentDir } = profile;
+  const workspace = path.join(root, "work");
+  fs.mkdirSync(workspace);
   const models = path.join(agentDir, "models.json");
   fs.writeFileSync(models, JSON.stringify({ providers: { [selected.provider]: { ...selected.config, models: [selected.model] } } }), { mode: 0o600 });
   let runtime: Runtime | undefined;
   const evidence: Record<string, unknown> = { status: "running", model: { provider: selected.provider, id: selected.model.id }, platform: process.platform, node: process.version, root };
   try {
-    runtime = await Runtime.start({ product: product.runtime, dataDir: path.join(root, "data"), agentDir, socketPath: path.join(root, "c.sock"),
+    runtime = await Runtime.start({ profile,
       modelProvider: selected.provider, modelId: selected.model.id, thinkingLevel: "off", browser: { binaryPath: binary, chromePath: chrome, headed: false } });
     const rt = runtime, selection = rt.defaultSelection;
     const session = await rt.createSession({ projectName: "background-model", cwd: workspace, mode: "full_access" });

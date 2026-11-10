@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 Each tree level stopped after its first 200 enumerated items without continuation. Git visibility depended on pre-discovery, causing queries when opening the inspector/new tabs or reconnecting. The owner requested directory continuation and a permanent Git entry that queries on click and briefly explains non-repositories.

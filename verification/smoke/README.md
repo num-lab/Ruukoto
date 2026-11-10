@@ -1,39 +1,27 @@
 # Product Verification Entry Points
 
-Run in a checkout with dependencies installed. Scripts use their own temporary profiles/workspaces, mock or explicitly selected real models and isolated execution units. Cleanup follows verified stopping. There is no SSH-upload entry: run the same commands in an isolated Linux checkout. Scripts 04/13/15 accept no arguments; legacy `--remote` reports a prerequisite error.
+Run from a complete checkout with dependencies and native assets built. Scripts create temporary profiles and workspaces, use mock or explicitly selected real models, and clean up only after verified stopping. Run the same commands in an isolated Linux checkout; scripts 04/13/15 do not upload source over SSH or accept remote deployment arguments.
 
-| Command | Real resources and substitutes | Prerequisites |
+| Command | Coverage | Prerequisites |
 | --- | --- | --- |
-| `npm run test:native` | Coding 04 native edit/check/approval/reaping, 13 SubAgent messaging, 15 recovery; local mock models; no Personal IM/scheduling/legacy composition | `npm run build`, Linux installed bwrap/profile, user manager and delegated scope/cgroup; [native setup](../../deploy/native/README.md) |
-| `npm run test:upgrade` | Temporary old/new Coding installs and preservation of history/approvals/artifacts/work copies; mock model; never loads old Personal profile into new entry | npm, tar, available lockfile dependencies and Git baseline `8bccb8f` or explicit `SMOKE24_BASE_TAR` |
-| `npm run test:release-model -- --models /absolute/models.json --model provider/model` | Real native code repair with before-fail/after-pass, PTY exit/continued work/reconnect; model charges possible | Build, native prerequisites, Python PTY and explicit independently usable credentials/configuration |
-| [Personal durable management](../../docs/usage.md#25-personal-agent-management) | Separate-backend restart, real memory/skills/business-data and original-request evidence; no IM | Pi1.3.0, explicit model opt-in/configuration, credentials via process environment only |
-| `RUN_MODEL_CHECK=1 RUN_WORKFLOW_MODELS_FILE=/absolute/models.json npx tsx --test test/123-workflow-model-acceptance.test.ts` | Declared Coding/legacy-shared DeepSeek workflow startup, chat while waiting, business answers, real tools and one final report; no real IM | Built native worker and independently callable explicit DeepSeek config; preserve profile on failure |
-| `npx tsx verification/smoke/smoke-26-native-worker.mts` | Mock model, actual four tools/compiler, file/network denial, identity/hardlinks, startup cancellation/reaping | Build and macOS supervisor or Linux bwrap/profile/user scope |
-| `npx tsx verification/smoke/smoke-26-native-worktrees.mts` | Mock model, actual runtime/control/native repair, scoped read-only delegation, parallel worktrees, shared-Git write denial/integration | Build and platform native prerequisites |
+| `npm run test:native` | Native edit/check/approval/reaping, SubAgent messaging and recovery, using mock models | `npm run build`, Linux bwrap/AppArmor, a user manager and delegated cgroup scope; [native setup](../../deploy/native/README.md) |
+| `npm run test:release-model -- --models /absolute/models.json --model provider/model` | Real native repair with failing/passing checks, work after TUI exit and reconnect | Build, native prerequisites, Python PTY and independently usable explicit model configuration |
+| `RUN_MODEL_CHECK=1 RUN_WORKFLOW_MODELS_FILE=/absolute/models.json npx tsx --test test/123-workflow-model-acceptance.test.ts` | Workflow startup, chat while waiting, original-task questions, real tools and final reporting | Native workers and explicit compatible DeepSeek configuration; failure preserves the temporary profile |
+| `npx tsx verification/smoke/smoke-26-native-worker.mts` | Actual tools/compiler, file/network denial, identity/hardlinks and startup cancellation/reaping | Build and the macOS supervisor or Linux bwrap/profile/user scope |
+| `npx tsx verification/smoke/smoke-26-native-worktrees.mts` | Actual runtime/control/native repair, read-only delegation, parallel work copies and explicit integration | Build and platform native prerequisites |
 
-`test:native` runs 04/13/15 sequentially. Old Personal 18/27/28 are no longer active entry points. Exit **0** means all checks passed; **1** means a check/execution/cleanup failure; **2** means invalid arguments or missing prerequisites, never CI success. `test:release-model -- --help` describes arguments. Model and upgrade gates are independent.
+`test:native` runs 04/13/15 sequentially. Exit 0 means the named checks passed, 1 means a check or cleanup failed, and 2 means invalid arguments or missing prerequisites. `test:release-model -- --help` describes its explicit inputs. Model calls can incur charges.
+
+## Profiles and Model Configuration
+
+All active scripts use the sole `ruukoto` entry and core's `ruukoto-single-v1` profile contract. Raw data/agent/control/pending selections go to child processes; resolved paths remain in-process. Old configuration, history and pending requests are never imported. [Issue #58](https://github.com/num-lab/Ruukoto/issues/58) owns predecessor preservation, crash recovery, client identity and integrated acceptance.
+
+Real-model smoke copies only the selected provider/model into a temporary `0600` file. Help and invalid arguments create no profile or temporary HOME. Offline configuration/authentication preflight uses the same child-environment allowlist as startup, explicit auth/model paths and no catalog refresh. Adjacent `auth.json`, daily profiles and inherited model API keys are not discovered. Thinking is off; select a model that supports it. Missing independent authentication exits 2 before model execution and removes the unused temporary profile.
 
 ## Environment and Cleanup
 
-Personal durable OS acceptance runs separately in an isolated Linux profile; Coding smoke is not a substitute. `TMPDIR` selects temporary storage. Launchers need correct `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` for user scopes; restricted workers do not inherit those variables. Native temporary storage uses host disk without a quota, and unverified stopping retains evidence.
+Linux launchers require correct `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` for the actual backend account; restricted workers do not inherit them. Native temporary HOME/TMPDIR uses host storage without a quota. Smoke records its actual execution units and cleans only after verified stop and observed empty/removed Linux cgroups. Runtime-stop or model-server cleanup failure exits 1 and preserves the evidence directory.
 
-Real-model smoke copies only the selected provider/model from `--models` to a `0600` temporary configuration. Before TUI startup, `probeModelConfig` verifies configuration/authentication/effort/budget offline under the same child-environment allowlist, with explicit temporary auth/models paths. It neither refreshes online catalogs nor calls the model in this preflight. Headers alone do not prove SDK authentication. Adjacent `auth.json`, daily profiles and inherited model API keys are not automatically read. Thinking is off, so choose a model supporting that setting. Missing authentication exits 2 and removes temporary configuration. Real IM is always disabled.
+Native-worktree smoke uses synthetic configuration and data. Git initialization itself runs through the native worker; work-copy creation and integration use restricted runtime entries while the parent remains active and owns its directory. Mode/grant changes, IPC and whole-unit stopping have separate probes.
 
-Coding smoke records actual execution units and cleans only after verified stop and observed Linux cgroup empty/removal. Recovery cleanup separately attempts runtime stop and mock-model closure. Either failure counts as FAIL, exits 1 and preserves temporary evidence.
-
-Native-worktree smoke accepts no arguments and uses only synthetic configuration/data. Git initialization itself runs through the native worker; work-copy creation/integration use restricted runtime entries. The parent remains active and occupies its directory during delegation. Exit 0 proves its eight checks, 1 reports actual failure, 2 native unavailability. Failure preserves evidence. Mode/grant changes, IPC and whole-unit stopping require their separate probes/worker smoke.
-
-## Upgrade Verification
-
-Upgrade builds both versions and checks consumed approvals, JSONL, exact artifact bytes and real modified work copies. Raw SQLite seeds exceptional unverified-stop states; the upgraded runtime must retain interruption, unknown effects, paused queues and exact occupancy. That fixture does not replace real force-kill evidence. Even a passing upgrade retains its two intentionally abnormal occupancies/profiles; it neither resumes their queues nor deletes evidence. Other unverified stops/cleanup failures exit 1.
-
-Default baseline `8bccb8f` carries `ruukoto-code` product identity. `SMOKE24_BASE` may select another revision with the same entry, identity and current control protocol. Without Git history, supply a trusted archive:
-
-```bash
-SMOKE24_BASE_TAR=/absolute/base.tar npm run test:upgrade
-```
-
-A shallow clone missing the baseline exits 2. Historical `1aba2f1` evidence used the old `ruukoto-dev` name; current smoke does not test cross-product-name/data-identity migration and does not reinterpret old evidence as that guarantee.
-
-Current reruns use 04/13/15 and 24, including `pty-run.py`. Historical Personal 18/27/28 remain release evidence, not executable old-product reruns. Privileged 09/10 drivers, remote orchestration/backendctl and Linux full-access 24 are retained as nonexecutable text in [archive](../archive/README.md). They depend on sudo/systemd and formerly overwrote persistent deployment paths; restoring execution requires independent exercise resources and a complete cleanup contract first.
+Historical two-product, in-place upgrade and Personal acceptance are not active rerun commands. Git history, sealed notes and the independent pre-cutover source archive preserve that evidence. [Archived experiments](../archive/README.md) are nonexecutable records, not permission to restore privileged deployment or operate an existing service.

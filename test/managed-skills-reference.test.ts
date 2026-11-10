@@ -8,7 +8,7 @@ import { isolateSkillHome } from "./helpers/skill-home.ts";
 import { latestAgentReferenceSnapshot, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import type { Session } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { lastToolText, lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -56,7 +56,7 @@ test("技能目录变更：同轮恢复保留钉版，ended wait 派生的新任
     assert.match(JSON.stringify(request.messages), /CURRENT-DESCRIPTION/, "内部对话的新任务刷新固定目录");
     newRequests.push(input);
     return { kind: "text", text: "旧技能已从本次选择中排除" };
-  }, { config: { product: codeProduct.runtime }, workDirs: 1 });
+  }, { workDirs: 1 });
   let restarted: Runtime | null = null;
   try {
     const source = path.join(skillsDirFor(), "managed-reference");

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [CI shards and fixture preparation](2026-11-07-ci-shards-and-fixtures.md) supersedes the single full-suite job per OS with four isolated application shards. Node, deadlines, per-runner concurrency, native boundaries and complete coverage remain.
 
 [Node24/CI budgets](2026-10-24-node24-ci-budget.md) supersedes the historical Node matrix/job limit. [Suite reduction](2026-10-24-test-suite-reduction.md) supersedes six-input scale, the old personal combined sample, and two-product real-model execution: current coverage retains Code's four-input composition and real-model acceptance. Platform safeguards, evidence distinctions, and historical findings below remain relevant.
@@ -31,6 +33,8 @@ The original six-input Code report wait became 180 seconds, distinct from its 60
 The application entry discovers all test/*.test.ts. On macOS, worker-stop, native-macos-helper, native-macos-identity, and session-background/recovery fixtures run exclusively before other files, waiting for process exit. The worker-stop orphaned Node descendants and helper's same-UID new-orphan detection can interfere; a controlled counterexample identified the same PID, while the original full-suite failed PID's source remained unproven. Isolate demonstrated fixture conflicts without weakening new-orphan refusal. [CI prerequisites](2026-10-22-ci-prerequisites.md) later capped the nonexclusive batch at two files, replacing original unrestricted file parallelism; within-test concurrency and failure propagation remain.
 
 Missing fixed files, launch errors, unknown exits, signals, and nonzero status fail the entry. No retry/skip-batch success. Real models remain off. Release-model precondition failure before backend startup cleans temporary profiles because no execution began; actual execution failure/unknown stop/abnormal occupancy preserves them. Connectivity fixtures use a work subdirectory separate from control data, never the data root's ancestor as workspace.
+
+Release-model argument validation and help do not initialize storage or change HOME. The entry uses direct authenticated control calls and a private bounded wait rather than importing the application test runtime, whose import-time HOME isolation can create unowned temporary directories before preflight. Credential preflight exercises real profile publication, rejects before any model connection or PTY startup, and cleans only its own prepared profiles.
 
 The [workflow decision](../feature/2026-10-12-agent-workflows.md), [script isolation](../architecture/2026-10-13-workflow-script-isolation.md), [real steps](../architecture/2026-10-13-workflow-step-capabilities.md), and [final delivery](../feature/2026-10-13-workflow-owner-input-and-delivery.md) retain product/authority/effect semantics. This note owns combination fixtures/evidence levels only, not relaxed execution or acceptance requirements.
 

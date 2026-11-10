@@ -6,7 +6,7 @@ import type { ControlConnection } from "@ruukoto/control/connection.ts";
 import { PendingRequestStore, type PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import { OwnerQuestionCancelGuard, type OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import { SubmissionGuard, type ReconcileOutcome } from "@ruukoto/control/submission.ts";
-import type { DesktopCancelQuestionResult, DesktopCompactionResult, DesktopSubmitResult, DesktopUpdate, PendingOp } from "../shared/bridge.ts";
+import type { DesktopCancelQuestionResult, DesktopCompactionResult, DesktopSubmitResult, DesktopUpdate } from "../shared/bridge.ts";
 import { DesktopError } from "./environment.ts";
 
 type Connection = Pick<ControlConnection, "request"> & { instanceId?: string | null };
@@ -183,20 +183,6 @@ export class DesktopSubmissions {
       }
       this.refresh();
     }
-  }
-  local(op: PendingOp, params: Record<string, unknown>): PendingRequest | undefined {
-    const requestId = params.request_id;
-    if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]+$/.test(requestId)) throw new DesktopError("not_restorable", "This input can't be restored; wait for verification or reconnect to the original data instance.");
-    let entry: ReturnType<PendingRequestStore["read"]>;
-    try { entry = this.store.read(requestId); }
-    catch { throw new DesktopError(op === "desktop_pending_read" ? "pending_read_failed" : "pending_clear_failed", "The original record can't be read and sending stays disabled; check the app data directory and try again."); }
-    if (entry.kind === "absent" && op === "desktop_pending_clear") { this.refresh(); return; }
-    if (entry.kind !== "record" || entry.record.op !== "submit" || entry.record.instanceId !== this.connection()?.instanceId || this.results.get(requestId)?.kind !== "needs_resubmit") throw new DesktopError("not_restorable", "This input can't be restored; wait for verification or reconnect to the original data instance.");
-    if (op === "desktop_pending_read") return entry.record;
-    try { this.store.remove(requestId); }
-    catch { throw new DesktopError("pending_clear_failed", "The original record couldn't be cleared and sending stays disabled; check the app data directory and try again."); }
-    this.results.delete(requestId);
-    this.refresh();
   }
   close(): void { this.stopped = true; }
 }

@@ -3,7 +3,6 @@
  * 假上下文：请求只记 op 与参数、返回预设应答；host 只记调用。不起终端与 Runtime。
  */
 
-import * as fs from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -12,7 +11,6 @@ import {
   VISIBLE_COMMANDS,
   commandHelpLines,
   dispatchInput,
-  LEGACY_PROJECT_WRITE_HINT,
   type CommandEnv,
   type CommandHost,
   type CommandResult,
@@ -89,17 +87,6 @@ test("/workflow 直接打开逐层侧栏，旧长命令不再发送协议字段"
   assert.ok(commandHelpLines().some(line => line.includes("/workflow") && !line.includes("<子命令>")));
 });
 
-test("操作手册命令表：第一列列出的 /名字 与可见条目正好一致", () => {
-  const usage = fs.readFileSync(new URL("../docs/usage.md", import.meta.url), "utf8");
-  const start = usage.indexOf("### 7.2 Commands");
-  assert.ok(start >= 0, "The usage guide contains the command section");
-  const table = usage.slice(start).split(/\n##? /)[0]!;
-  const names = table
-    .split("\n")
-    .filter((l) => l.startsWith("| `/"))
-    .flatMap((l) => [...l.split("|")[1]!.matchAll(/`\/([a-z-]+)/g)].map((m) => m[1]!));
-  assert.deepEqual(names.sort(), VISIBLE_COMMANDS.map((c) => c.name).sort());
-});
 
 // ---------- 派发 ----------
 
@@ -264,57 +251,6 @@ test("/memory：list（带项目 / 无会话）、show、revoke / restore 的版
   assert.match(empty.log.texts[0]!, /^当前项目没有记忆/);
 });
 
-test("/qq：未配置、已配置、启停、inbox 空与非空、未知子命令、请求失败", async () => {
-  const status = {
-    configured: true, enabled: true, online: false, stateDetail: "未连接", endpoint: "ws://x", selfId: "10", actualSelfId: null,
-    configVersion: 3, groups: ["100", "200"], ownerUserId: null, maxReplyChars: 500,
-    sessions: [{ groupId: "100", sessionId: "sess_abcdefghijk", queued: 2, active: true }],
-  };
-  const f = fake({
-    replies: {
-      qq_status: status,
-      qq_set_enabled: (p: any) => ({ configVersion: p.enabled ? 4 : 5 }),
-      qq_inbox_list: { entries: [] },
-      qq_outbox_list: { entries: [{ groupId: "100", text: "你好", status: "failed", error: "超时", createdAt: "t1" }] },
-    },
-  });
-  await f.run("/qq");
-  assert.deepEqual(f.log.requests.at(-1), ["qq_status", {}]);
-  assert.equal(
-    f.log.texts.at(-1),
-    "QQ 入口：已启用；连接 离线（未连接）\n端点 ws://x；预期账号 10；配置 v3；允许群：100、200（历史值，核心群聊已退役）\n" +
-      "拥有者私聊：未开启（共享 main；发送记录用 ruukoto notify list 查看）\n旧群会话归档：\n" +
-      "  群 100：会话 sess_abcde… 排队 2，执行中",
-  );
-  await f.run("/qq disable");
-  assert.deepEqual(f.log.requests.at(-1), ["qq_set_enabled", { enabled: false }]);
-  assert.equal(f.log.texts.at(-1), "QQ 入口已停用（配置 v5）");
-  await f.run("/qq groups");
-  assert.equal(f.log.texts.at(-1), "允许的群：100、200（历史值）\n核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）");
-  await f.run("/qq inbox 100");
-  assert.deepEqual(f.log.requests.at(-1), ["qq_inbox_list", { group_id: "100", limit: 20 }]);
-  assert.equal(f.log.texts.at(-1), "暂无收件登记");
-  await f.run("/qq outbox");
-  assert.equal(f.log.texts.at(-1), "发送记录（最近 1 条）：\n  群 100：你好 [failed] 超时 t1");
-  await f.run("/qq wat");
-  assert.match(f.log.notes.at(-1)!, /^用法：\/qq \[status/);
-
-  const unconfigured = fake({ replies: { qq_status: { configured: false } } });
-  await unconfigured.run("/qq status");
-  assert.match(unconfigured.log.texts[0]!, /^QQ 入口未配置/);
-  // 适配器未启动（dev 实例）：回退形状没有群与会话
-  const idle = fake({ replies: { qq_status: { configured: true, enabled: false, online: false, stateDetail: "适配器未启动" } } });
-  await idle.run("/qq");
-  await idle.run("/qq groups");
-  assert.deepEqual(idle.log.texts, ["QQ 入口已配置；适配器未启动", "允许的群：（空）（历史值）\n核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）"]);
-  const broken = fake({ replies: { qq_status: new Error("连接断开") } });
-  await broken.run("/qq");
-  assert.match(broken.log.notes[0]!, /QQ 操作失败：连接断开/);
-  const lost = fake({ replies: { qq_set_enabled: new ControlClientError("connection_closed", "连接已关闭", "disconnected") } });
-  await lost.run("/qq disable");
-  assert.match(lost.log.notes[0]!, /QQ 入口停用结果未知：连接已关闭；先用 \/qq 核实再操作（未自动重发）/);
-  assert.deepEqual(lost.log.texts, [], "结果未知时不宣称已停用");
-});
 
 test("/search：无会话、无关键词、无命中（不完整）、有命中；请求失败", async () => {
   const none = fake({ view: null });
@@ -342,16 +278,10 @@ test("/search：无会话、无关键词、无命中（不完整）、有命中�
   assert.match(broken.log.notes[0]!, /搜索失败：超时/);
 });
 
-test("/skills：列表与诊断；/new-project：用法、成功、失败", async () => {
+test("/skills returns the current catalog and diagnostics", async () => {
   const f = fake({
     replies: {
       list_skills: { dir: "/home/s", skills: [{ name: "review", explicitOnly: true, description: "代码审查" }], diagnostics: ["bad/SKILL.md：缺少 name"] },
-      create_project: (p: any) => {
-        if (p.name === "坏") throw new ControlClientError("duplicate", "名称重复", "rejected");
-        if (p.name === "慢") throw new ControlClientError("request_timeout", "请求超时：create_project", "unknown");
-        if (p.name === "断") throw new ControlClientError("connection_unavailable", "连接不可用：请求未发送", "not_sent");
-        return { id: "proj_2" };
-      },
     },
   });
   await f.run("/skills");
@@ -360,29 +290,4 @@ test("/skills：列表与诊断；/new-project：用法、成功、失败", asyn
     "技能库 /home/s（1 个；修改从下一任务生效）\n  review（仅显式调用）  代码审查\n诊断（1 条）：\n  bad/SKILL.md：缺少 name\n/skill <名称> [参数] 显式调用",
   );
 
-  await f.run("/new-project");
-  assert.equal(f.log.notes.at(-1), "用法：/new-project <名称>");
-  await f.run("/new-project 家务  清单");
-  assert.deepEqual(f.log.requests.at(-1), ["create_project", { name: "家务 清单" }]);
-  assert.equal(f.log.texts.at(-1), "项目已创建：家务 清单；用 /new-session <工作目录> 创建会话");
-  await f.run("/new-project 坏");
-  assert.match(f.log.notes.at(-1)!, /创建项目失败：名称重复/);
-  // 写操作失败按分类提示：应答丢失时可能已生效，不自动重发，指明核实入口
-  await f.run("/new-project 慢");
-  assert.match(f.log.notes.at(-1)!, /创建项目结果未知：请求超时：create_project；先用 \/project 核实再操作（未自动重发）/);
-  await f.run("/new-project 断");
-  assert.match(f.log.notes.at(-1)!, /创建项目未发送：连接不可用/);
-  assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4, "都只发一次");
-
-  // ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）：只提示工作区入口，不发请求
-  const saved = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  try {
-    await f.run("/new-project 新");
-    assert.equal(f.log.notes.at(-1), LEGACY_PROJECT_WRITE_HINT);
-    assert.equal(f.log.requests.filter(([op]) => op === "create_project").length, 4);
-  } finally {
-    if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
-    else process.env.RUUKOTO_PRODUCT = saved;
-  }
 });

@@ -69,7 +69,7 @@ export class CodeModelsState implements SettingsForm {
   async read(preserveDraft = false, committed = false): Promise<boolean> {
     if (this.reading || this.phase === "saving") return false;
     const context = this.context();
-    if (!context.online || context.instanceId !== this.instanceId) { this.message = "Restore the original Code instance connection and read the configuration."; this.changed(); return false; }
+    if (!context.online || context.instanceId !== this.instanceId) { this.message = "Restore the original ruukoto instance connection and read the configuration."; this.changed(); return false; }
     const generation = ++this.generation, keep = !committed && (preserveDraft || this.dirty);
     this.reading = true; this.testing = false; this.changed();
     const result = await this.request("get_model_config", {});

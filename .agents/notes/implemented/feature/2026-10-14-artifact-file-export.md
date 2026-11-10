@@ -12,7 +12,7 @@ Shared `read-artifact --output <file>` reads from offset zero in 720KiB pages on
 
 Write only an exclusive 0600 temporary file beside the destination. After complete reading/verification, close and atomically rename it. Failure preserves the previous target; normal error cleanup removes the temporary file. A hard kill can leave a protected temporary file, never misidentified as the exported destination. `--output` is mutually exclusive with `--offset`/`--length`. Existing single-page stdout slices still accept partial artifacts.
 
-[Agent browser](2026-10-14-agent-browser.md) retains browser ownership/actions; this note implements its independent file retrieval. [Image reads](../bug-fix/2026-10-12-read-images.md) and [inbound staging](../architecture/2026-10-07-inbound-image-staging.md) own visual input/persistence and supply MIME/hash. [GitHub retirement](../simplification/2026-09-23-retire-github-module.md) owns server-side archive generation. Model-query restrictions for delegation/worktrees/reviews do not change owner CLI export.
+[Agent browser](2026-10-14-agent-browser.md) retains browser ownership/actions; this note implements its independent file retrieval. [Image reads](../bug-fix/2026-10-12-read-images.md) and [inbound staging](../../archived/architecture/2026-10-07-inbound-image-staging.md) own visual input/persistence and supply MIME/hash. [GitHub retirement](../../archived/simplification/2026-09-23-retire-github-module.md) owns server-side archive generation. Model-query restrictions for delegation/worktrees/reviews do not change owner CLI export.
 
 ## Alternatives considered
 

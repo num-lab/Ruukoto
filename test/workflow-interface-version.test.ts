@@ -25,7 +25,7 @@ test("旧接口不能新建或恢复运行，仍可查询和取消；损坏正�
         input: null, inputDigest: workflowDigest(null), modelSelection, status: "paused", version: 1, reason: "owner_pause", attempts: 0, maxAttempts: 100,
         durationMs: 3_600_000, usedMs: 0, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false,
         createdAt: new Date().toISOString(), endedAt: null, source: { product: "ruukoto", projectId: project.id, sessionId: session.id, taskId: task.id,
-          accessMode: "confirm", permissionVersion: 1, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null } };
+          accessMode: "confirm", permissionVersion: 1, grantedPaths: [], capabilities: [], references: [] } };
       assert.throws(() => requireWorkflowInterface({}), { code: "interface_upgrade_required" });
       assert.throws(() => createWorkflowRun(store, { ...run, interfaceVersion: undefined }), { code: "interface_upgrade_required" });
       assert.throws(() => createWorkflowRun(store, { ...run, definitionId: legacy.id, scriptDigest: legacy.digest }), { code: "interface_upgrade_required" });

@@ -131,7 +131,7 @@ export class DesktopSearch {
       ++this.summariesGeneration;
       if (this.online) void this.loadSummaries();
       this.schedule();
-    } else if (update.type === "event" && ["session.created", "session.workspace_mapped", "session.archive_changed", "project.created", "task.queued"].includes(update.event.body.type)) void this.loadSummaries();
+    } else if (update.type === "event" && ["session.created", "session.archive_changed", "project.created", "task.queued"].includes(update.event.body.type)) void this.loadSummaries();
   }
   async loadSummaries(): Promise<void> {
     if (!this.online || !this.instanceId) return;

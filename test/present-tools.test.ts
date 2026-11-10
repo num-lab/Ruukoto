@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
@@ -17,7 +17,7 @@ import { cleanupDirs, createProjectSession, lastToolText, makeTestDirs, realTool
 test("present 只装配拥有者会话，子代理和工作流显式清单也不扩大资格", () => {
   const profile: WorkflowExecutionProfile = { toolClass: "dev", sourceProjectId: "project", categories: ["coding"], tools: ["present"], verifyTarget: true };
   assert.equal(sourceAllows(profile, "present"), false); assert.equal(workflowAllows(profile, "present"), false);
-  for (const write of [true, false]) for (const review of [true, false]) assert.equal(subAgentAllows({ write, review }, "present"), false);
+  for (const write of [true, false]) assert.equal(subAgentAllows({ write }, "present"), false);
   for (const plan of [true, false]) assert.equal(taskToolSet({ registered: ["present"], plan, webSearchEnabled: true, mcpEffect: () => undefined }).allowed.has("present"), true);
 });
 
@@ -53,7 +53,7 @@ test("present 沿真实读取捕获文件，网页在所有模式免审批，非
   const h = await startTestRuntime("present", request => {
     if (request.messages.at(-1)?.role === "tool") { output = lastToolText(request); return { kind: "text", text: "已处理" }; }
     return { kind: "tool_calls", calls: [{ id: "present-call", name: "present", arguments: params }] };
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  }, { workDirs: 1, config: { ...realTools() } });
   try {
     fs.writeFileSync(path.join(h.work[0], "file.md"), "# 当时版本\n");
     fs.writeFileSync(path.join(h.work[0], "empty.txt"), "");

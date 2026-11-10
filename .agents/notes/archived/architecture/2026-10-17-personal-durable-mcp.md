@@ -1,0 +1,48 @@
+# Agent Note: Personal MCP recovers native tool identity and separates effects from remote completion
+
+Status: implemented
+Archived: 2026-11-10
+
+[MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) supersedes ordinary-HTTP effect classification, configuration v4, operation-level evidence, source-level human completion and retirement of original-stream rechecks. Native durable tool identity, authorization and read-only historical evidence remain. The original decisions below distinguish retained contracts from replaced mechanisms.
+
+[Settings save/publication](2026-10-25-personal-settings-versions.md) and [request configuration](2026-10-25-personal-request-configuration.md) replace global stopped/idle requirements with online per-service publication. [Non-execution configuration checks](../simplification/2026-10-25-configuration-checks.md) avoids evaluating old credentials for disable/delete/unchanged authentication. [Cua](2026-10-23-cua-official-mcp.md) added v3 named computers, persistent bindings and recovery settlement: accepting a new observation can end old waiting without fabricating remoteEnded. [MCP images](2026-10-23-mcp-image-results.md) owns ordered image projection/paged references. [Personal settings](../feature/2026-10-21-personal-settings.md) and [desktop settings](../../proposed/feature/2026-10-21-desktop-settings-management.md) retain page/SSH management responsibilities.
+
+## Problem
+
+[Shared transport](2026-10-17-mcp-transport-reuse.md) had no Personal configuration, approval or recovery consumer. HTTP timeout/cancel/close cannot prove remote tool completion; replaying as an ordinary safe tool may duplicate writes. Main must continue independent new work instead of occupying all chat with a tool waiting for human verification.
+
+## Decision
+
+Personal app-owned personal-mcp-config.ts stores owner-selected endpoints, allowed original tool definitions and credential-file references. The initial wizard generated configuration generations and required no pending work/external occupancy for first enable/change. Durable documents and immutable configuration entries preserve history; admission pins original configuration. Originally credential references bound private regular-file absolute realpaths and full-byte SHA-256, with per-request permission/content/reference checks. Invalid credentials stop rather than fall back to anonymous; explicit anonymous access is separate. Current per-service publication and normalized-token fingerprint rules follow the superseding notes, not permanent global-idle/full-byte constraints.
+
+The first enabled-state format was MCP v2, storing enabled per service. v1 remains read exactly; only explicit owner migration marked original services enabled and generated a new generation. Disable preserves endpoint, credential reference and allowlist, removing only new catalog/admission eligibility. Original requests/entries/completed calls verify original versions without added fields. The initial stop-and-lock enable/disable requirement is replaced by online publication. v2 save rejected downgrade to v1 and recovery rejected current configuration downgrade. Discovery reads definitions for owner selection without calling business tools.
+
+mcp.json.version protects saved-but-not-started configuration; the durable current configuration version protects started profiles. Old code rejected either v2 representation without changes to profile.json, PERSONAL_FORMAT or old document versions. Native tool Tasks, operation documents and historical entries keep identities; configuration versions are not a second execution state machine. Later v3/v4 changes retain explicit format handling.
+
+Main/children share mcp_tools, mcp_call and read_mcp_result. Catalogs provide pinned definitions; request evidence records actual arguments. Shared schema preflight is separate from legacy Pi tool assembly, project, CredentialStore and ToolRouter. Remote read-only hints never grant authority. The initial Personal allowlist did not classify trusted read effects, so confirm/auto-review required approval for every call; full access skipped per-operation approval while rechecking source/configuration/credentials. v4 now uses owner-confirmed read/write/unknown classification under host simplification. Standing authorization is never inherited implicitly.
+
+Call identity is the native durable pi.tool Task. Admission, source, permissions and original configuration commit first. The original transport hook immediately before real tools/call fetch transactionally saved full JSON-RPC request and approval consumption. Recovery of started calls used original records; attempted second sends failed second-consumption checks. Complete original responses retained error.data, isError, structured and nontext content rather than legacy truncation/artifact routing, with model/owner pagination. Current ordinary HTTP stores operation-level start/result facts instead of mandatory full protocol envelopes; model-visible definitions/content remain reconstructable, and all old envelopes remain unchanged.
+
+Business effects and remote completion are separate facts. A complete terminal response can prove original request completion, not business success. input_required, unknown response types or task-handle-only responses do not prove completion. Human effective/not-effective explanations never alter remoteEnded. The original design paused work/delegation/reports and retained child/endpoint occupancy until effect and remote completion were verified, preventing same-source tool/delegation or endpoint bypass while unrelated sources/endpoints continued. Current ordinary-HTTP logical completion may be explicitly ended by the owner, preserving unknown remote facts and prohibiting automatic continuation/retry. URL-wide indefinite occupancy is retired; real Cua resource occupancy remains independently protected.
+
+The original transport synchronously captured matching JSON-RPC IDs and committed SSE cursor with its event response before returning. Failed evidence writes retained started rather than known-failed state. With original session/protocol/cursor, the owner could register a background GET-only original-stream recheck, without initialize or tools/call. Missing cursors, unsupported resume, invalid credentials or failed checks retained unknown occupancy. That cross-restart recovery is now retired: old recheck Tasks have non-network retirement definitions and original evidence is preserved, not a current generic remote-stop protocol.
+
+Locally authenticated CLI selects original calls/pages. Telegram accepts only explicit replies to delivered host menus under original bot/owner/generation. Approval binds original call and consumes once; effect verification cannot be overwritten. When local tool waiting ends it returns original records; host source gates govern later operations/requests while main can handle independent input. Current ordinary-HTTP human completion and Cua-specific recovery remain distinct.
+
+## Related decisions
+
+The original active-note audit searched MCP, durable, credentials, approvals, unknown effects, remote completion and reporting. [Migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md), shared transport, [legacy write approval](../feature/2026-09-23-mcp-write-tools-approval.md), [Personal controls](2026-10-17-personal-work-controls.md) and [whole reports](2026-10-17-personal-delegation-reports.md) retain separate rationale. This owns Personal admission/external recovery, not Coding assembly or local scope stop proof. No note was wholly absorbed or obsolete.
+
+## Alternatives considered
+
+- Reuse old MCP ToolRouter: complete planning/artifact format, but reintroduces legacy projects, credentials and runtime task state against durable's sole authority.
+- Add another execution Task per call: follows command templates, but native tool Tasks already supply identity/cancellation/replay. Documents need only external evidence.
+- Treat HTTP close or human effect statements as remote completion: quick unblocking, but remote calls may still execute and reused identities/endpoints can produce parallel effects. Later logical completion explicitly does not claim remote stopping.
+- Require server receipt/status tools: could query non-SSE services, but MCP has no universal completion query; inventing one expands third-party requirements. Original standard-stream recovery required actual evidence; its later retirement is explicit.
+- Backfill enabled into v1: no explicit migration, but changes deep comparisons for admissions/configuration/requests and lets old code misread disable semantics. New formats alter new configuration only, preserving exact historical evidence.
+
+## Consequences
+
+Personal MCP has no second runtime state, file journal or legacy project assembly. Originally unresolved endpoints could occupy indefinitely without original-stream recovery, and reconfiguration/reapproval/effect statements could not clear them. Host simplification now narrows that cost to original-work automation and permits explicit logical completion without falsifying unknown outcomes. Full requests/responses can contain sensitive business arguments/results and remain under profile protection, not diagnostic logs.
+
+Original engineering, independent review, crash and entry evidence is offline at `.scratch/personal-pi-durable/issues/28-durable-mcp.md`. At that stage no dedicated real service was available; loopback HTTP/SSE, simulated platforms and local SIGKILL did not establish real MCP, models, IM or human product experience. Later acceptance must supply its own evidence.

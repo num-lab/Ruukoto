@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
 import { getCodeSchedule, getCodeScheduleRun, getCodeScheduledTaskSource, listCodeScheduleRunTasks, listCodeScheduleRuns, type CodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import { getOwnerQuestion } from "@ruukoto/core/owner-questions.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
@@ -13,7 +12,7 @@ import { initGitRepo } from "./helpers/git-fixture.ts";
 const epoch = Date.parse("2026-10-26T00:00:00.000Z");
 async function fixture(prefix: string, responder: Parameters<typeof startTestRuntime>[1], real = false) {
   let clock = epoch;
-  const t = await startTestRuntime(prefix, responder, { config: { product: product.runtime, scheduler: { now: () => clock, tickMs: 60_000 }, ...(real ? realTools() : {}) } });
+  const t = await startTestRuntime(prefix, responder, { config: { scheduler: { now: () => clock, tickMs: 60_000 }, ...(real ? realTools() : {}) } });
   const { session } = await t.runtime.openWorkspace({ cwd: t.work[0], createRequestId: "workspace" });
   const config: CodeScheduleConfig = { title: "定时校验", instructions: "EXECUTE", workspaceId: session.projectId, permission: "full_access", modelSelection: t.runtime.defaultSelection,
     rule: { kind: "once", at: new Date(clock + 60_000).toISOString(), timeZone: "Asia/Tokyo", disambiguation: "compatible" } };
@@ -25,7 +24,6 @@ test("七项配置经实际运行固定，写入选定工作区；关闭后手�
   try {
     const saved = await t.runtime.saveCodeSchedule({ requestId: "save", config: t.config });
     assert.deepEqual(saved.plan.config, t.config);
-    assert.equal(t.runtime.scheduler, null);
     await t.runtime.setSessionDefaultMode({ sessionId: t.session.id, mode: "confirm", expectedVersion: t.session.defaultAccessModeVersion });
     t.clock(epoch + 60_000); await t.runtime.codeScheduler!.scan();
     const run = t.runtime.getCodeSchedule({ planId: saved.plan.id }).runs[0];
@@ -210,12 +208,12 @@ test("重启保留未执行原任务并暂停队列，显式恢复按原键执�
     const run = t.runtime.getCodeSchedule({ planId: saved.plan.id }).runs[0];
     await waitFor("等待工作区", () => t.runtime.store.getTask(run.rootTaskId)!.status === "queued");
     await t.runtime.stop("restart");
-    restarted = await Runtime.start({ product: product.runtime, dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir, socketPath: t.runtime.socketPath(), modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", scheduler: { now: () => epoch + 60_000, tickMs: 60_000 } });
+    restarted = await Runtime.start({ profile: t.dirs.profile, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", scheduler: { now: () => epoch + 60_000, tickMs: 60_000 } });
     assert.equal(restarted.store.getTask(run.rootTaskId)!.status, "queued");
     assert.equal(restarted.getSession(run.sessionId).queueState, "paused");
     assert.equal(restarted.getCodeSchedule({ planId: saved.plan.id }).runs.length, 1);
     assert.equal(t.server.calls.length, 0);
-    await restarted.resumeQueue(holder.sessionId, undefined, true);
+    await restarted.resumeQueue(holder.sessionId, true);
     await restarted.resumeQueue(run.sessionId);
     await waitFor("原定时任务执行", () => restarted!.store.getTask(run.rootTaskId)!.status === "completed");
     assert.equal(t.server.calls.length, 1);
@@ -253,7 +251,7 @@ test("未知效果先核实遗留占用，再按运行版本确认仅开放未�
     const view = new ViewState(); view.applySnapshot(await t.client.handshake(), false);
     const projection = (events: import("@ruukoto/core/types.ts").PersistentEvent[]) => { for (const event of events) view.applyEvent(event, "live"); };
     t.runtime.addEventListener(projection);
-    await t.runtime.resumeQueue(run.sessionId, undefined, true);
+    await t.runtime.resumeQueue(run.sessionId, true);
     assert.equal(view.sessions.find(session => session.id === run.sessionId)!.queueState, "paused");
     assert.equal(view.sessions.find(session => session.id === run.sessionId)!.queuePauseReason, "schedule_recovery_required");
     t.runtime.removeEventListener(projection);

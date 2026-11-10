@@ -132,7 +132,7 @@ async function runtimePaths(workerPath: string, nodePath: string, dependencyRoot
     ? ["/System/Library", "/usr/lib", "/usr/share", "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/Library/Developer/CommandLineTools", "/private/var/select"]
     : ["/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64", "/usr/libexec", "/usr/include", "/usr/share", "/bin", "/sbin", "/lib", "/lib64"];
   for (const root of systemRoots) if (fs.existsSync(root)) roots.add(fs.realpathSync(root));
-  // Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-command-worker.md
+  // Note: See .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
   if (dependencyRoots !== undefined) {
     for (const root of dependencyRoots) roots.add(canonicalExisting(root));
   } else {

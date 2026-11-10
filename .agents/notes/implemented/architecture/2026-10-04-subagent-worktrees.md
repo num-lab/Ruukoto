@@ -4,11 +4,11 @@ Status: implemented
 
 Original identifier: ADR 0021
 
-Partly superseded: [current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) owns content baselines, zero-write capture, host preparation, whole-file conflicts, and bad-baseline isolation. [Configurable roles](2026-10-14-configurable-subagent-roles.md) separates role, source capabilities, and execution target. [Native execution](2026-10-12-personal-native-sandbox.md) replaces container wiring and permission/identity checks. This note retains write-target identity, worker-only Git, serialization, and result retention.
+Partly superseded: [current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) owns content baselines, zero-write capture, host preparation, whole-file conflicts, and bad-baseline isolation. [Configurable roles](2026-10-14-configurable-subagent-roles.md) separates role, source capabilities, and execution target. [Native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) replaces container wiring and permission/identity checks. This note retains write-target identity, worker-only Git, serialization, and result retention.
 
 ## Problem
 
-[Two products](2026-10-02-two-agent-products.md) requires independent Git worktrees for parallel modification and serial writes in non-Git directories. The first [SubAgent implementation](2026-10-03-work-delegation-subagent-task.md) only analyzed material: it had no write mode/tools, no worktree preparation, and a cwd-based occupancy key that did not conflict with ancestor or descendant directories.
+[Two products](../../archived/architecture/2026-10-02-two-agent-products.md) requires independent Git worktrees for parallel modification and serial writes in non-Git directories. The first [SubAgent implementation](2026-10-03-work-delegation-subagent-task.md) only analyzed material: it had no write mode/tools, no worktree preparation, and a cwd-based occupancy key that did not conflict with ancestor or descendant directories.
 
 ## Decision
 

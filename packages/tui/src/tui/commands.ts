@@ -10,11 +10,6 @@
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
 import { requestOutcome } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
-import { productFromEnv } from "@ruukoto/core/product.ts";
-
-/** ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）时的提示。 */
-export const LEGACY_PROJECT_WRITE_HINT =
-  "ruukoto-code 使用工作区：ruukoto-code <目录> 打开或创建工作区；旧项目只保留查看，需要时用 project migration-preview 映射到工作区";
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 
@@ -113,22 +108,6 @@ export function writeFailure(action: string, err: unknown, check: string): strin
   }
 }
 
-async function newProject(ctx: CommandContext, name: string): Promise<void> {
-  if (productFromEnv() === "ruukoto-code") {
-    ctx.notify(LEGACY_PROJECT_WRITE_HINT);
-    return;
-  }
-  if (!name) {
-    ctx.notify("用法：/new-project <名称>");
-    return;
-  }
-  try {
-    await ctx.request("create_project", { name });
-    ctx.showText(`项目已创建：${name}；用 /new-session <工作目录> 创建会话`);
-  } catch (err) {
-    ctx.notify(red(writeFailure("创建项目", err, "/project")));
-  }
-}
 
 async function search(ctx: CommandContext, query: string): Promise<void> {
   const view = ctx.view;
@@ -241,74 +220,6 @@ async function memory(ctx: CommandContext, rest: string[]): Promise<void> {
   ctx.notify("用法：/memory [list | show <id> | revoke <id> <当前版本> | restore <id> <自版本>]");
 }
 
-/**
- * QQ 群聊入口（issue 07）：连接/登录状态、群配置、启停、队列与发送结果
- * 查看。连接参数与群允许列表的修改经 CLI（ruukoto qq configure …）。
- */
-async function qq(ctx: CommandContext, rest: string[]): Promise<void> {
-  const sub = rest[0] ?? "status";
-  try {
-    if (sub === "status") {
-      const s = await ctx.request("qq_status", {});
-      if (!s.configured) {
-        ctx.showText("QQ 入口未配置（拥有者经 CLI：ruukoto qq configure --endpoint … --self-id …）");
-        return;
-      }
-      if (!("sessions" in s)) {
-        // 适配器未启动（dev 实例或后台正在停止）：只有配置与状态说明
-        ctx.showText(`QQ 入口已配置；${s.stateDetail}`);
-        return;
-      }
-      const sessions = s.sessions.map(
-        (g) => `  群 ${g.groupId}：会话 ${String(g.sessionId).slice(0, 10)}… 排队 ${g.queued}${g.active ? "，执行中" : ""}`,
-      );
-      ctx.showText(
-        `QQ 入口：${s.enabled ? "已启用" : "已停用"}；连接 ${s.online ? `在线（账号 ${s.actualSelfId}）` : `离线（${s.stateDetail}）`}\n` +
-          `端点 ${s.endpoint}；预期账号 ${s.selfId}；配置 v${s.configVersion}；允许群：${s.groups.join("、") || "（空）"}（历史值，核心群聊已退役）\n` +
-          `拥有者私聊：${s.ownerUserId ?? "未开启"}（共享 main；发送记录用 ruukoto notify list 查看）\n` +
-          (sessions.length ? `旧群会话归档：\n${sessions.join("\n")}` : "  （无旧群会话）"),
-      );
-      return;
-    }
-    if (sub === "enable" || sub === "disable") {
-      const verb = sub === "enable" ? "启用" : "停用";
-      const c = await ctx.request("qq_set_enabled", { enabled: sub === "enable" }).catch((err: unknown) => {
-        ctx.notify(red(writeFailure(`QQ 入口${verb}`, err, "/qq")));
-        return null;
-      });
-      if (c) ctx.showText(`QQ 入口已${verb}（配置 v${c.configVersion}）`);
-      return;
-    }
-    if (sub === "groups") {
-      const s = await ctx.request("qq_status", {});
-      ctx.showText(
-        `允许的群：${("groups" in s ? s.groups : []).join("、") || "（空）"}（历史值）\n` +
-          "核心群聊已退役，不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）",
-      );
-      return;
-    }
-    if (sub === "inbox" || sub === "outbox") {
-      const params = { group_id: rest[1], limit: 20 };
-      const lines =
-        sub === "inbox"
-          ? (await ctx.request("qq_inbox_list", params)).entries.map(
-              (e) => `  群 ${e.groupId} ${e.userId}：${String(e.text).slice(0, 40)} [${e.status}${e.recalled ? "/已撤回" : ""}] ${e.createdAt}`,
-            )
-          : (await ctx.request("qq_outbox_list", params)).entries.map(
-              (e) => `  群 ${e.groupId}：${String(e.text).slice(0, 40)} [${e.status}]${e.error ? ` ${String(e.error).slice(0, 60)}` : ""} ${e.createdAt}`,
-            );
-      if (lines.length === 0) {
-        ctx.showText(sub === "inbox" ? "暂无收件登记" : "暂无发送记录");
-        return;
-      }
-      ctx.showText(`${sub === "inbox" ? "收件登记" : "发送记录"}（最近 ${lines.length} 条）：\n${lines.join("\n")}`);
-      return;
-    }
-    ctx.notify("用法：/qq [status | enable | disable | groups | inbox [群号] | outbox [群号]]");
-  } catch (err) {
-    ctx.notify(red(`QQ 操作失败：${(err as Error).message}`));
-  }
-}
 
 export const COMMANDS: readonly SlashCommand[] = [
   { name: "quit", description: "退出", silent: true, run: (ctx) => ctx.host.quit() },
@@ -316,7 +227,7 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "todo", description: "打开或关闭工作清单", run: (ctx) => ctx.host.toggleTodo() },
   { name: "resume", description: "切换当前项目的会话", run: (ctx) => ctx.host.openResume() },
   { name: "project", description: "切换项目", run: (ctx) => ctx.host.openProjects() },
-  { name: "new-project", description: "创建项目", argumentHint: "<名称>", run: (ctx, { arg }) => newProject(ctx, arg) },
+
   { name: "new-session", description: "在当前项目创建会话", argumentHint: "<工作目录>", run: (ctx, { arg }) => ctx.host.newSession(arg) },
   { name: "new", description: "开始新对话；当前普通工作区内新建会话", run: (ctx) => ctx.host.newSessionHere() },
   { name: "side", description: "打开或收起当前会话的侧聊（无工具的持久讨论）", run: (ctx) => ctx.host.toggleSide() },
@@ -365,7 +276,6 @@ export const COMMANDS: readonly SlashCommand[] = [
   { name: "prompt", description: "查看本会话模型请求列表与每次调用的 prompt 详情", run: (ctx) => ctx.host.openPrompts() },
   { name: "recall", description: "撤回最近一条输入并恢复到草稿；/recall verify 重新核实停止", run: (ctx, { rest }) => rest[0] === "verify" ? ctx.host.recallVerify() : ctx.host.recall() },
   { name: "detach", description: "移除草稿中随撤回恢复的附件", hidden: true, run: (ctx) => ctx.host.detach() },
-  { name: "qq", description: "QQ 群聊入口：status | enable | disable | groups | inbox | outbox", argumentHint: "<子命令>", run: (ctx, { rest }) => qq(ctx, rest) },
 ];
 
 const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]));

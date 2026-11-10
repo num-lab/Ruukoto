@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 Owner file preview rejected multiple hardlinks even though reading changes no name's content. Skill management rescanned packages/catalogs within one query; Personal requests loaded the full catalog during reference preparation, input recording, and payload sending. Explicit native mounts scanned the same protected trees individually even though dependency checks already had batching. These costs/rejections performed no additional operation.
@@ -16,7 +18,7 @@ Personal request prepare loads the complete skill catalog once and persists that
 
 Native execution batches normalized workspace, granted paths, and read-only roots into one explicit-mount protection check. Runtime dependencies remain separately checked per protected root with existing read-only code-asset exceptions. The batch implementation still verifies candidate/ancestor identities, aliases, and changes. `assertNativeFileLinks` on granted trees stays separate; there is no cross-launch cache.
 
-This replaces hardlink rejection in [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md)/[Desktop file wiring](../architecture/2026-10-16-desktop-current-demo.md), and repeated external-body reads in [Personal references](../architecture/2026-10-18-personal-memory-skills-history.md). [Managed skills](../feature/2026-10-21-managed-skills.md) retains state/layout/old-reference rules. [Native batching](2026-10-18-batch-native-protection-checks.md) extends to explicit mounts without changing dependency exceptions. Write/sandbox protections elsewhere are not relaxed.
+This replaces hardlink rejection in [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md)/[Desktop file wiring](../architecture/2026-10-16-desktop-current-demo.md), and repeated external-body reads in [Personal references](../../archived/architecture/2026-10-18-personal-memory-skills-history.md). [Managed skills](../feature/2026-10-21-managed-skills.md) retains state/layout/old-reference rules. [Native batching](2026-10-18-batch-native-protection-checks.md) extends to explicit mounts without changing dependency exceptions. Write/sandbox protections elsewhere are not relaxed.
 
 ## Alternatives considered
 

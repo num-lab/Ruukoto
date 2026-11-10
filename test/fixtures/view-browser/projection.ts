@@ -11,11 +11,11 @@ export function runProjection() {
   const snapshot: ConnectResult = {
     seq: 10, replay: [],
     snapshot: {
-      product: "ruukoto-code", mainSessionId: null,
+      product: "ruukoto", layout: "ruukoto-single-v1",
       instanceId: "instance", execution: { backend: "native", note: "" },
       defaultModel: { provider: "mock", id: "mock", name: "Mock", thinkingLevel: "off" },
       projects: [{ id: "project", name: "工作区", rootDir: null, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: at }],
-      sessions: [{ id: "session", projectId: "project", workspaceProjectId: null, name: null, branchSource: null,
+      sessions: [{ id: "session", projectId: "project", name: null, branchSource: null,
         kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi-session", sessionFile: null,
         confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0,
         defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at }],
@@ -23,7 +23,7 @@ export function runProjection() {
         submissionDigest: null, status: "running", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1,
         sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null,
         cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null,
-        agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null,
+        parentTaskId: null, deadline: null, resultSummary: null, resultRef: null,
         workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: at, endedAt: null }],
       confirmations: [], artifacts: [], previews: {},
     },

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -21,25 +20,7 @@ func TestSidecarProcess(t *testing.T) {
 		return
 	}
 	input := bufio.NewScanner(os.Stdin)
-	var generation string
-	var credentialCall uint64
 	for input.Scan() {
-		var private struct {
-			Kind       string          `json:"kind"`
-			Generation string          `json:"generation"`
-			Result     json.RawMessage `json:"result"`
-		}
-		if json.Unmarshal(input.Bytes(), &private) != nil {
-			os.Exit(4)
-		}
-		if private.Kind == "credential_ready" {
-			generation = private.Generation
-			continue
-		}
-		if private.Kind == "credential_result" {
-			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":%s}\n", credentialCall, private.Result)
-			continue
-		}
 		var request struct {
 			ID     uint64            `json:"id"`
 			Method string            `json:"method"`
@@ -50,36 +31,7 @@ func TestSidecarProcess(t *testing.T) {
 		}
 		switch request.Method {
 		case "close":
-			if os.Getenv("RUUKOTO_MYGO_TEST_PREVIEW") == "" {
-				fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true}}\n", request.ID)
-				continue
-			}
-			for index, method := range []string{"browser_command", "output_choose", "output_preview", "output_close_preview"} {
-				id := request.ID + uint64(index) + 100
-				fmt.Printf("{\"kind\":\"request\",\"id\":%d,\"method\":%q,\"args\":[1]}\n", id, method)
-				if !input.Scan() {
-					os.Exit(6)
-				}
-				var response struct {
-					ID     uint64 `json:"id"`
-					Result struct {
-						OK bool `json:"ok"`
-					} `json:"result"`
-				}
-				if json.Unmarshal(input.Bytes(), &response) != nil || response.ID != id || response.Result.OK != (method == "output_close_preview") {
-					os.Exit(7)
-				}
-			}
-			if err := os.RemoveAll(os.Getenv("RUUKOTO_MYGO_TEST_PREVIEW")); err != nil {
-				os.Exit(8)
-			}
 			fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true}}\n", request.ID)
-			continue
-		case "attachments":
-			go func(id uint64) {
-				time.Sleep(200 * time.Millisecond)
-				fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true,\"value\":[]}}\n", id)
-			}(request.ID)
 			continue
 		case "browser_event":
 			// Echo receipt order before acknowledging each event.
@@ -97,13 +49,6 @@ func TestSidecarProcess(t *testing.T) {
 				time.Sleep(200 * time.Millisecond)
 				fmt.Printf("{\"kind\":\"result\",\"id\":%d,\"result\":{\"ok\":true,\"value\":{\"state\":\"saved\"}}}\n", id)
 			}(request.ID)
-			continue
-		case "credentials", "bad-credentials":
-			credentialCall = request.ID
-			if request.Method == "bad-credentials" {
-				generation = "wrong-generation"
-			}
-			fmt.Printf("{\"kind\":\"credential_request\",\"v\":1,\"generation\":%q,\"id\":%d,\"op\":\"read\"}\n", generation, request.ID)
 			continue
 		case "late":
 			os.Stdin.Close()
@@ -257,86 +202,8 @@ func TestSidecarCanceledCallIsUnknown(t *testing.T) {
 	}
 }
 
-func TestSidecarNativeSaveWaitsAfterDelivery(t *testing.T) {
-	child := testChild(t, func(json.RawMessage) {})
-	child.requestTimeout = 30 * time.Millisecond
-	result := make(chan json.RawMessage, 1)
-	go func() {
-		result <- child.call(context.Background(), "request", "personal", "desktop_personal_output_save", json.RawMessage(`{}`))
-	}()
-	select {
-	case value := <-result:
-		t.Fatalf("human choice ended at the request deadline: %s", value)
-	case <-time.After(90 * time.Millisecond):
-	}
-	if value := child.call(context.Background(), "focus", true); !strings.Contains(string(value), `"ok":true`) {
-		t.Fatalf("human choice blocked another request: %s", value)
-	}
-	select {
-	case value := <-result:
-		if !strings.Contains(string(value), `"state":"saved"`) {
-			t.Fatal(string(value))
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("human choice never completed")
-	}
-}
-
-func TestSidecarPersonalUploadWaitsAfterDelivery(t *testing.T) {
-	child := testChild(t, func(json.RawMessage) {})
-	child.requestTimeout = 30 * time.Millisecond
-	result := make(chan json.RawMessage, 1)
-	go func() {
-		result <- child.call(context.Background(), "attachments", "draft", []string{"selected.bin"}, "identity", "personal")
-	}()
-	select {
-	case value := <-result:
-		t.Fatalf("finite upload ended at generic deadline: %s", value)
-	case <-time.After(90 * time.Millisecond):
-	}
-	if value := child.call(context.Background(), "focus", true); !strings.Contains(string(value), `"ok":true`) {
-		t.Fatalf("upload blocked unrelated request: %s", value)
-	}
-	select {
-	case value := <-result:
-		if !strings.Contains(string(value), `"ok":true`) {
-			t.Fatal(string(value))
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("finite upload never completed")
-	}
-}
-
-func TestSidecarNativeSaveCancellationAndClose(t *testing.T) {
-	child := testChild(t, func(json.RawMessage) {})
-	child.requestTimeout = 30 * time.Millisecond
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan json.RawMessage, 1)
-	go func() {
-		result <- child.call(ctx, "request", "personal", "desktop_personal_output_save", json.RawMessage(`{"hold":true}`))
-	}()
-	time.Sleep(90 * time.Millisecond)
-	cancel()
-	if got := outcome(t, <-result); got != "unknown" {
-		t.Fatal(got)
-	}
-	go func() {
-		result <- child.call(context.Background(), "request", "personal", "desktop_personal_output_save", json.RawMessage(`{"hold":true}`))
-	}()
-	time.Sleep(90 * time.Millisecond)
-	child.close()
-	select {
-	case value := <-result:
-		if got := outcome(t, value); got != "disconnected" {
-			t.Fatal(got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("close left the native choice pending")
-	}
-}
-
 func TestSidecarOrdinaryRequestsKeepTheirDeadline(t *testing.T) {
-	for _, args := range [][]any{{"code", "desktop_personal_output_save", json.RawMessage(`{}`)}, {"personal", "desktop_personal_output_preview", json.RawMessage(`{}`)}} {
+	for _, args := range [][]any{{"code", "get_task", json.RawMessage(`{}`)}, {"code", "read_history", json.RawMessage(`{}`)}} {
 		child := testChild(t, func(json.RawMessage) {})
 		child.requestTimeout = 30 * time.Millisecond
 		if got := outcome(t, child.call(context.Background(), "request", args...)); got != "unknown" {
@@ -348,7 +215,7 @@ func TestSidecarOrdinaryRequestsKeepTheirDeadline(t *testing.T) {
 	}
 }
 
-func TestSidecarNativeSaveKeepsPipeWriteDeadline(t *testing.T) {
+func TestSidecarKeepsPipeWriteDeadline(t *testing.T) {
 	child, err := startSidecar(exec.Command("/bin/sleep", "30"), func(json.RawMessage) {}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -356,11 +223,11 @@ func TestSidecarNativeSaveKeepsPipeWriteDeadline(t *testing.T) {
 	t.Cleanup(child.close)
 	child.requestTimeout = 100 * time.Millisecond
 	started := time.Now()
-	if got := outcome(t, child.call(context.Background(), "request", "personal", "desktop_personal_output_save", strings.Repeat("x", 1024*1024))); got != "unknown" {
+	if got := outcome(t, child.call(context.Background(), "request", "code", "submit", strings.Repeat("x", 1024*1024))); got != "unknown" {
 		t.Fatal(got)
 	}
 	if time.Since(started) > time.Second {
-		t.Fatal("native save disabled the pipe write deadline")
+		t.Fatal("request disabled the pipe write deadline")
 	}
 	if err := child.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
@@ -368,46 +235,6 @@ func TestSidecarNativeSaveKeepsPipeWriteDeadline(t *testing.T) {
 	<-child.done
 }
 
-func TestSidecarShutdownFinishesOnlyOriginalPreviewCleanup(t *testing.T) {
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	directory := filepath.Join(t.TempDir(), "ruukoto-output-preview")
-	if err := os.Mkdir(directory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(directory, "final.png"), []byte("original preview"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(program, "-test.run=^TestSidecarProcess$")
-	cmd.Env = append(os.Environ(), "RUUKOTO_MYGO_TEST_CHILD=1", "RUUKOTO_MYGO_TEST_PREVIEW="+directory)
-	invoked := make(chan string, 4)
-	var child *sidecar
-	child, err = startSidecar(cmd, func(json.RawMessage) {}, func(method string, _ json.RawMessage) func() json.RawMessage {
-		return func() json.RawMessage {
-			invoked <- method
-			child.writePrivate(map[string]any{"kind": "credential_result", "id": 99})
-			return json.RawMessage(`{"ok":true,"value":null}`)
-		}
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(child.close)
-	child.close()
-	if _, err := os.Stat(directory); !os.IsNotExist(err) {
-		t.Fatal("verified preview was not reclaimed", err)
-	}
-	if method := <-invoked; method != "output_close_preview" {
-		t.Fatal(method)
-	}
-	select {
-	case method := <-invoked:
-		t.Fatal("shutdown executed new work", method)
-	default:
-	}
-}
 
 func TestSidecarEOFAndMissingNode(t *testing.T) {
 	marker := t.TempDir() + "/closed"

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original identifier: ADR 0006.
 
 [MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) replaces the original protocol client, naming, discovery, and SDK-rebuild rules. [Instance MCP](../simplification/2026-10-24-code-instance-mcp.md) replaces Code's project configuration/credential scope. [Tool discovery](../feature/2026-10-25-code-tool-discovery.md), [managed Cua stdio](2026-10-23-cua-official-mcp.md), and [inline images](2026-10-23-mcp-image-results.md) extend the original interface. This note preserves the historical implementation decision while retaining owner allowlists, secret isolation, parameter validation, and no automatic replay of uncertain writes; historical project/HTTP-only claims are not current product limits.
@@ -20,7 +22,7 @@ Credential values stay in CredentialStore and never enter model context, tool re
 
 Cancellation/timeout/close ends local waiting, not necessarily remote execution. An already sent uncertain call is not automatically retried; late results after close/timeout are discarded and reconnect does not replay it. HTTP transport or local process stop cannot prove remote business effects stopped.
 
-GitHub remains an ordinary MCP service: no service-name branch, GitHub-specific operation/storage dependency, or fallback to old REST. [GitHub retirement](../simplification/2026-09-23-retire-github-module.md) owns removal/migration independently.
+GitHub remains an ordinary MCP service: no service-name branch, GitHub-specific operation/storage dependency, or fallback to old REST. [GitHub retirement](../../archived/simplification/2026-09-23-retire-github-module.md) owns removal/migration independently.
 
 ## Original implementation and later replacements
 

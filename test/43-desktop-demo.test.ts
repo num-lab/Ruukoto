@@ -1,33 +1,8 @@
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { test } from "node:test";
 import { activityGroups, activitySummary } from "../apps/desktop/src/renderer/activity.ts";
 import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
-const read = (path: string) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-// Note: See .agents/notes/implemented/feature/2026-11-07-desktop-visual-alignment.md
-test("Desktop preserves shared primitives and the maintained frozen demo", () => {
-  const demo = "test/fixtures/desktop-baselines/approved-demo-v4/src";
-  const gui = "apps/desktop/src/renderer";
-  const styles = read(`${gui}/style.css`);
-  assert.equal(read("verification/desktop-demo/src/style.css"), (read(`${demo}/style.css`) + read("test/fixtures/desktop-baselines/approved-demo-v4-glass.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-rendering.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-polish.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-files-sidebar.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-browser-activity.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-completed-trace.css") + read("test/fixtures/desktop-baselines/approved-demo-v4-connection-loading.css")).replaceAll("../../../../node_modules/", "../../../node_modules/"));
-  assert.match(styles, /\.command-code code\s*\{\s*white-space:\s*pre;/, "真实多行命令必须保留换行与缩进");
-  for (const file of ["lib/utils.ts", "source-highlighting.ts"]) assert.equal(read(`${gui}/${file}`), read(`${demo}/${file}`), file);
-  const primitives = fs.readdirSync(new URL(`../${demo}/components/ui/`, import.meta.url)).sort();
-  assert.deepEqual(fs.readdirSync(new URL(`../${gui}/components/ui/`, import.meta.url)).sort(), [...primitives, "switch.tsx"].sort());
-  for (const name of primitives) {
-    if (name === "dialog.tsx") continue;
-    const file = `components/ui/${name}`;
-    const source = read(`${demo}/${file}`).replace(/(["'])@\/([^"']+)\1/g, (_match, quote: string, target: string) => {
-      const resolved = [target, `${target}.ts`, `${target}.tsx`].find(candidate => fs.existsSync(new URL(`../${demo}/${candidate}`, import.meta.url)));
-      assert.ok(resolved, `未解析的组件别名：${target}`);
-      const relative = path.posix.relative(path.posix.dirname(file), resolved);
-      return `${quote}${relative.startsWith(".") ? relative : `./${relative}`}${quote}`;
-    });
-    assert.equal(read(`${gui}/${file}`), source, file);
-  }
-});
 test("工具摘要只列实际活动类别，覆盖真实 bash，SubAgent 独立于相邻工具组", () => {
   const tool = (key: string, name: string, target = "file.ts"): DiffTool => ({ kind: "tool", key, name, target, at: "", seq: 0, toolOpId: key, toolCallId: key, params: {}, status: "done", summary: null, entryId: key, paramsTruncated: false, artifactIds: [] });
   const items = [tool("a", "read"), tool("b", "edit"), tool("c", "edit"), tool("d", "subagent_delegate"), tool("e", "write", "other.ts")];

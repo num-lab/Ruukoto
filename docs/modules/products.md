@@ -2,71 +2,37 @@
 
 ## Responsibilities and Boundaries
 
-`apps/ruukoto` and `apps/ruukoto-code` assemble the two products and own their executable entry points, guided setup and lifecycle wiring. Personal assembles durable, QQ/Telegram and PA remote access. Coding assembles the shared runtime, TUI and engineering workspace capabilities. They have independent profiles, locks and protocols and do not depend on each other.
-
-Conversation progression and memory belong to [Personal durable](personal-durable.md); Coding scheduling and delegation belong to [runtime](runtime.md); shared terminal rendering and command dispatch belong to [TUI](tui.md).
+`apps/ruukoto` owns the sole executable, application assembly and development entry. It assembles [runtime](runtime.md), [control](control.md), [agent tools](agent-tools.md) and [TUI](tui.md); Electron and MyGo are clients, not alternate products. Core owns profile selection/bootstrap, not application-specific path defaults.
 
 ## Public Interfaces
 
-| Product | Command | Purpose |
-| --- | --- | --- |
-| Personal | `ruukoto` / `npm start` | Guided menu for chat, status, pairing and capabilities |
-| Personal | `ruukoto serve` | Foreground backend; `--directory` chooses a profile |
-| Personal | `ruukoto settings` | Structured JSON management for models, skills and MCP |
-| Personal | `ruukoto remote` | Local pairing wizard; `remote serve` hosts Tailscale HTTPS/WSS |
-| Coding | `ruukoto-code [path]` | Workspace conversation and TUI; start the backend on demand |
-| Coding | `ruukoto-code server` | Foreground backend |
-| Coding | `ruukoto-code config` | Configuration UI, including offline model setup |
-| Coding | `ruukoto-code stop` | Graceful backend stop |
-
-| Capability | Personal | Coding |
-| --- | --- | --- |
-| Persistence | Pi durable 1.3.0 records | SQLite metadata plus JSONL history |
-| MCP | Thin Pi adapter retaining durable tool identity | Official MCP/tool_search with host approvals and artifacts |
-| Clients | QQ/Telegram private chat, menu, PA desktop | TUI, control clients and Coding desktop |
-| Background work | Persistent child Agents, analysis, native schedules | Queued tasks, SubAgents, worktrees and workflows |
-| Commands | Personal command worker, restricted/full access | macOS Seatbelt or Linux bubblewrap, plus full access |
-| Workspaces | No engineering workspace/Git-review product | Local code workspaces and engineering tools |
+| Entry | Purpose |
+| --- | --- |
+| `ruukoto [path]` / `npm start -- [path]` | Workspace conversation or selector; backend on demand |
+| `ruukoto server` | Foreground backend |
+| `ruukoto config --offline` | Activate fresh storage and configure models without a ready backend |
+| `ruukoto stop` | Explicit backend stop |
+| `npm run dev` | Checkout-isolated backend and TUI, owned by the launcher |
 
 ## Data and State
 
-Personal defaults to `~/.ruukoto-durable/`, overridden by `RUUKOTO_PERSONAL_DIR`, and holds durable data, credential mappings and its authenticated socket. Coding defaults to `~/.ruukoto-code/`, with directory overrides such as `RUUKOTO_CODE_DATA_DIR`; `meta.product.type` identifies `ruukoto-code` in its database. Cross-product profile reuse is rejected.
+Product identity is the literal `ruukoto` within activated layout `ruukoto-single-v1`. The [core profile](core.md) binds the complete raw selection, resolved roles and reserved instance ID. Daily and development instances share that algorithm but select different raw tuples. Old product names, alternate compositions and import commands are not aliases.
 
 ## Main Flows
 
-```mermaid
-sequenceDiagram
-  participant Owner as Owner / CLI
-  participant App as Product entry
-  participant Lock as Profile lock
-  participant Backend
-  Owner->>App: Start
-  App->>Lock: Acquire product-specific lock
-  alt Conflict
-    App-->>Owner: Reject, or connect to the verified existing service
-  else Acquired
-    App->>Backend: Initialize storage and model environment
-    App->>Backend: Start interactive/listening entry
-  end
-```
+CLI parses directory flags before stateful dispatch, selects the canonical raw tuple and bootstraps designated stateful entries. Configuration can proceed before model readiness. Runtime and in-process clients receive `ProfilePaths`; child server/config/TUI/desktop processes receive the complete raw tuple through standard environment variables or flags. Backend readiness verifies the activated instance and protocol rather than treating any connectable socket as reusable.
 
-Personal initializes the one durable Harness from configured models. Its daily menu is separate from the backend: closing the menu does not cancel backend work. Coding assembles runtime, native execution and control socket; the TUI discovers or starts its backend.
-
-Root `npm run build` builds native supervisors, shared and Personal workers, workflow script/WASM, then the two product packages with their complete shared-package dependencies. It does not package the Electron application.
+Root build produces retained native supervisors, tool/background workers and workflow script/WASM, plus the application’s complete-workspace package. Electron/MyGo packaging remains explicit. A source tarball is not a standalone installation without its declared workspace dependencies and built assets.
 
 ## Invariants and Failure Handling
 
-- The production Personal entry does not load the legacy shared Runtime, task Store or control protocol as its persistence authority.
-- Profiles remain product-specific. Unsupported schema versions fail before use; newer databases are not silently rewritten.
-- Missing model configuration can be addressed through offline setup. A disconnected client does not cancel accepted backend work.
+- Restricted production execution requires native isolation; tests may explicitly select local execution.
+- Ordinary client exit leaves backend work running. Development owns only its run’s backend/UI and stops them on exit.
+- Profile/version/ownership errors are terminal; no old settings import or offline fallback bypasses them.
+- Old sessions and actual workspace/work-copy source remain untouched; no old work or pending request is replayed into fresh state.
 
 ## Design Rationale
 
-- [Code scheduled](../../.agents/notes/implemented/feature/2026-10-25-code-scheduled.md)
-- [Personal tailscale https](../../.agents/notes/implemented/architecture/2026-10-24-personal-tailscale-https.md)
-- [Code instance mcp](../../.agents/notes/implemented/simplification/2026-10-24-code-instance-mcp.md)
-- [Personal token atomic publish](../../.agents/notes/implemented/bug-fix/2026-10-24-personal-token-atomic-publish.md)
-- [Personal product entry](../../.agents/notes/implemented/simplification/2026-10-18-personal-product-entry.md)
-- [Two agent products](../../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md)
-- [In repo workspace packages](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md)
-- [Mcp host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md)
+- [Single product](../../.agents/notes/implemented/architecture/2026-11-10-single-product.md): retirement and fresh identity.
+- [Workspace packages](../../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md): dependency direction and distribution.
+- [Development launcher](../../.agents/notes/implemented/process/2026-10-09-dev-launchers.md): isolated state and process ownership.

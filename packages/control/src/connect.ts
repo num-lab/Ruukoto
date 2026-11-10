@@ -11,31 +11,16 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { dirEnvFor, productFromEnv, productRootDir, type ProductType } from "@ruukoto/core/product.ts";
+import { verifyProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
 import { readOwnerToken } from "./owner-token.ts";
 
 export interface ClientConnectConfig {
+  profile: ProfilePaths;
   socketPath: string;
   controlDir: string;
   token: string;
 }
 
-export function defaultDataDir(product: ProductType = productFromEnv()): string {
-  return dirEnvFor(product, "DATA") ?? path.join(productRootDir(product), "data");
-}
-
-export function defaultAgentDir(product: ProductType = productFromEnv()): string {
-  return dirEnvFor(product, "AGENT") ?? path.join(productRootDir(product), "agent");
-}
-
-/** 控制面目录：与运行时默认一致（数据目录的兄弟目录 control/）；按产品读对应的环境变量。 */
-export function controlDirFor(dataDir: string, product: ProductType = productFromEnv()): string {
-  return dirEnvFor(product, "CONTROL") ?? path.join(path.dirname(path.resolve(dataDir)), "control");
-}
-
-export function socketPathFor(controlDir: string): string {
-  return path.join(controlDir, "control.sock");
-}
 
 /** 解析拥有者令牌；失败时抛出含修复指引的错误。 */
 export function resolveOwnerToken(controlDir: string): string {
@@ -68,12 +53,12 @@ export function tryResolveOwnerToken(controlDir: string): string | null {
   }
 }
 
-export function resolveClientConfig(opts: { dataDir?: string; controlDir?: string } = {}): ClientConnectConfig {
-  const dataDir = opts.dataDir ?? defaultDataDir();
-  const controlDir = opts.controlDir ?? controlDirFor(dataDir);
+export function resolveClientConfig(profile: ProfilePaths): ClientConnectConfig {
+  verifyProfile(profile);
   return {
-    socketPath: socketPathFor(controlDir),
-    controlDir,
-    token: resolveOwnerToken(controlDir),
+    profile,
+    socketPath: profile.socketPath,
+    controlDir: profile.controlDir,
+    token: resolveOwnerToken(profile.controlDir),
   };
 }

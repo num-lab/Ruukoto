@@ -8,7 +8,7 @@ import { ControlClientError, type ControlClient } from "@ruukoto/control/client.
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import type { ModelSelection } from "@ruukoto/core/types.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { CODE_MODEL_OPS, handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeModelsState } from "../apps/desktop/src/renderer/code-models-state.ts";
@@ -25,7 +25,7 @@ test("Code 模型管理操作不向旧 Personal 控制连接放行", async () =>
     let forwarded = false;
     const result = await handleRequest("personal", op, {}, async () => {}, async () => { forwarded = true; });
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
+    if (!result.ok) assert.equal(result.error.code, "target_unavailable");
     assert.equal(forwarded, false);
   }
 });
@@ -50,7 +50,7 @@ async function fixture(t: TestContext, responder: Responder = () => ({ kind: "te
   catalog.providers.mock.modelOverrides = { "mock-model": { headers: { "x-override-key": secrets[3] } } };
   catalog.providers.second = { ...catalog.providers.mock, apiKey: secrets[4], models: [{ ...catalog.providers.mock.models[0], id: "reasoner", name: "Reasoner", reasoning: true, maxTokens: 4096 }] };
   fs.writeFileSync(file, JSON.stringify(catalog));
-  runtime = await Runtime.start({ product: product.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"), toolFactory: context => createMockTools(context) });
+  runtime = await Runtime.start({ profile: dirs.profile, toolFactory: context => createMockTools(context) });
   await ControlServer.start(runtime);
   client = await connectAuthedClient(runtime);
   const backend = runtime, transport = client;

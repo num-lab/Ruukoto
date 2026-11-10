@@ -260,38 +260,6 @@ test("无等待报告的普通父注入拒绝失去私有基线的结果和消�
   } finally { gate.release(); await t.shutdown(); }
 });
 
-test("main 无等待报告时不为失去私有基线的新结果创建或准入唤醒", async () => {
-  let release!: () => void;
-  const childGate = new Promise<void>(resolve => { release = resolve; });
-  const gate = holdParentResponse(async req => {
-    if (lastUserText(req).startsWith("[SubAgent 委派")) await childGate;
-    return { kind: "text", text: "CHILD-FINISHED" };
-  });
-  const t = await startTestRuntime("snapshot-ordinary-wake", gate.responder, { config: realTools() });
-  try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!, session = rt.store.getSession(main.sessionId)!;
-    fs.writeFileSync(path.join(session.cwdReal, "value.txt"), "baseline\n");
-    initGitRepo(session.cwdReal);
-    const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "开始 main 快照工作", accessMode: "full_access", modelSelection: rt.defaultSelection });
-    await waitFor("main 父任务运行", () => rt.store.getTask(parent.id)!.status === "running");
-    const child = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "wake", request: "唤醒目标", target: ".", paramsDigest: "wake" });
-    await waitFor("子模型已请求", () => t.server.calls.length === 2);
-    const target = child.work.writeTarget!;
-    if (target.kind !== "worktree") assert.fail("需要 Git 副本");
-    fs.unlinkSync(path.join(target.snapshot.repository.path, "ruukoto-baseline"));
-    release();
-    await waitFor("坏基线结果保存", () => rt.store.getTask(child.task.id)!.resultSummary !== null);
-    const task = rt.store.getTask(child.task.id)!;
-    assert.equal(JSON.parse(task.resultRef!).outcome, "failed");
-    assert.equal(JSON.parse(task.resultRef!).failure, "snapshot_corrupt");
-    assert.equal(rt.store.findTaskByRequest(parent.sessionId, `wake:${task.id}`), null);
-    const wake = rt.store.withTx(() => rt.store.insertQueuedTask({ sessionId: parent.sessionId, requestId: `wake:${task.id}`, input: "迟到唤醒夹具",
-      modelSelection: rt.defaultSelection, submissionDigest: "late-wake" }).task);
-    assert.equal(rt["parentDelivery"].wakeAdmitted(wake), false);
-    assert.equal(t.server.calls.length, 2);
-    assert.equal(fs.readFileSync(path.join(session.cwdReal, "value.txt"), "utf8"), "baseline\n");
-  } finally { release(); gate.release(); await t.shutdown(); }
-});
 
 test("冷补记真实 private 基线缺失的结果记失败，保持 completed 执行史且不重跑", async () => {
   const gate = holdParentResponse(async () => ({ kind: "text", text: "COMPLETED-BEFORE-CRASH" }));

@@ -29,6 +29,8 @@ import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
 import { getWorkflowQuestion, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
+import { listAgentWaits } from "@ruukoto/core/agent-wait.ts";
+import { resolveDirIdentitySync } from "@ruukoto/core/dir-identity.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
   startTestRuntime,
@@ -42,7 +44,6 @@ import {
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { withMcpDiscovery } from "./helpers/mock-mcp.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
 import type { PublicMessageRecall, Session, Task } from "@ruukoto/core/types.ts";
 import type { HistoryPage } from "@ruukoto/core/history.ts";
 import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
@@ -168,7 +169,7 @@ async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: A
   const state = new ViewState(new CommandHistoryStore(path.join(t.dirs.root, "tui", "commands.sqlite")));
   let appRef: TuiApp | null = null;
   const connection = new ControlConnection(
-    { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
+    { profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())! },
     {
       onState: (s, d) => appRef?.onConnectionState(s, d),
       onSnapshot: (r, ctx) => appRef?.onSnapshot(r, ctx),
@@ -227,6 +228,27 @@ async function submitViaEditor(h: AppHarness, text: string): Promise<void> {
   h.terminal.send(text);
   h.terminal.send("\r");
   await renderFlush();
+}
+
+async function selectWindowItem(h: AppHarness, label: string): Promise<void> {
+  await waitFor(`window option ${label}`, () => stripTerminalSequences(h.app["tui"]["previousScreen"].join("\n")).includes(label));
+  for (let index = 0; index < 30; index++) {
+    const lines = stripTerminalSequences(h.app["tui"]["previousScreen"].join("\n")).split("\n");
+    if (lines.some(line => line.includes("→") && line.includes(label))) {
+      h.terminal.send("\r");
+      await renderFlush();
+      return;
+    }
+    h.terminal.send("\x1b[B");
+    await renderFlush();
+  }
+  assert.fail(`Keyboard could not select ${label}`);
+}
+
+async function createWorkspaceSession(t: TestRuntime, cwd: string, name: string): Promise<{ projectId: string; sessionId: string }> {
+  const project = t.runtime.store.withTx(() => t.runtime.store.createProject(name, null, resolveDirIdentitySync(cwd)));
+  const session = await t.client.request<Session>("create_session", { project_id: project.id, cwd });
+  return { projectId: project.id, sessionId: session.id };
 }
 
 /** 通过实际上下键遍历输入历史，再回到提交前的空草稿。 */
@@ -324,7 +346,7 @@ test("真实工作流回报实时、重连、翻页和单条先到均不泄出�
   } finally { quitAll(apps); await t.shutdown(); }
 });
 
-test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内部输入，↑ 与置顶保留拥有者消息", async () => {
+test("timed-out child wait delivers a fallback summary without exposing internal input live or after reconnect", async () => {
   let releaseChild!: () => void;
   const childReady = new Promise<void>(resolve => { releaseChild = resolve; });
   let parentPhase = 0;
@@ -332,9 +354,13 @@ test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内�
   const t = await startTestRuntime("tui-subagent-report-visibility", async request => {
     const input = lastUserText(request);
     if (input === "后台委派") {
-      if (parentPhase++ === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "hidden-report", request: "VISIBILITY_CHILD", read_paths: ["."] } }] };
-      const child = t.runtime.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!;
-      return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: child.id }] } }] };
+      const phase = parentPhase++;
+      if (phase === 0) return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { key: "hidden-report", request: "VISIBILITY_CHILD", read_paths: ["."] } }] };
+      if (phase === 1) {
+        const child = t.runtime.store.listTasksByStatus(["queued", "running"]).find(task => task.subAgentId !== null)!;
+        return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: child.id }], timeout_ms: 1 } }] };
+      }
+      return { kind: "text", text: "后台子任务仍在运行" };
     }
     if (input.startsWith("[后台工作最终回报]")) return { kind: "text", text: summary };
     if (input.includes("VISIBILITY_CHILD")) { await childReady; return { kind: "text", text: "后台子任务完成" }; }
@@ -345,12 +371,12 @@ test("曾被等待覆盖的普通子任务补报：实时与重连均隐藏内�
     const { sessionId } = await createProjectSession(t.client, t.work[0]);
     const live = await startApp(t, { sessionId }); apps.push(live);
     await submitViaEditor(live, "后台委派");
-    await waitFor("父轮持久等待", () => live.state.tasksFor(sessionId).some(task => task.wait?.phase === "waiting"));
+    await waitFor("parent completes after wait timeout", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.input === "后台委派" && task.status === "completed"));
+    assert.equal(listAgentWaits(t.runtime.store, { sessionId }).length, 1, "a real persisted wait establishes fallback eligibility");
+    assert.ok(t.runtime.store.listTasksByStatus(["queued", "running"]).some(task => task.subAgentId !== null), "the child is still gated when the parent ends");
     await submitViaEditor(live, "新消息");
-    // R1：普通输入不再中断等待，"新消息"排队到子任务放行后才执行
-    await waitFor("新消息已排队", () => live.state.queuedTasksFor(sessionId).some(task => task.input === "新消息"));
-    releaseChild();
     await waitFor("新消息先结束", () => t.runtime.store.listTasksBySession(sessionId).some(task => task.input === "新消息" && task.status === "completed"));
+    releaseChild();
     await waitFor("补报最终总结已展示", () => live.state.openSession(sessionId).flow.items.some(entry => entry.kind === "message" && entry.text === summary));
     await renderFlush();
     assert.ok(!stripTerminalSequences(live.terminal.output()).includes("[后台工作最终回报]"));
@@ -495,9 +521,11 @@ test("提交多行中文与流式显示：终端持续呈现中间帧，最终�
 });
 
 test("任务运行中退出 TUI：重连后看到运行状态与最终历史，不重复建任务", async () => {
+  let releaseReply!: () => void;
+  const replyGate = new Promise<void>(resolve => { releaseReply = resolve; });
   const t = await startTestRuntime("tui-reconnect", async (req) => {
     const text = lastUserText(req);
-    await new Promise((r) => setTimeout(r, 1200));
+    await replyGate;
     return { kind: "text", text: `慢任务结果：${text}` };
   });
   const apps: AppHarness[] = [];
@@ -506,29 +534,36 @@ test("任务运行中退出 TUI：重连后看到运行状态与最终历史，�
     const h1 = await startApp(t, { sessionId });
     apps.push(h1);
     await submitViaEditor(h1, "慢任务");
-    await waitFor("任务开始", () => [...h1.state.tasks.values()][0]?.status === "running");
-    // 首次回复前关闭 TUI
+    await waitFor("model request is running", () => t.server.calls.length === 1 && [...h1.state.tasks.values()][0]?.status === "running");
+    const originalTaskId = [...h1.state.tasks.values()][0]!.id;
     h1.app.quit(0);
     await waitFor("h1 退出", () => h1.exitCode() === 0);
     assert.ok(h1.exitMessage()?.includes("后台任务继续运行"), "退出提示说明任务继续");
 
-    // 重连：仍在运行
     const h2 = await startApp(t, { sessionId });
     apps.push(h2);
+    await waitFor("reconnected history restores the original input", () => {
+      const view = h2.state.sessionViews.get(sessionId);
+      return view?.historyLoaded === true && view.flow.items.some(entry => entry.kind === "message" && entry.role === "user" && entry.text === "慢任务");
+    });
     const running = [...h2.state.tasks.values()][0];
-    assert.equal(running.status, "running", "重连后看到真实运行状态");
-    assert.equal([...h2.state.tasks.values()].length, 1, "不自动新建任务");
-    const view2 = h2.state.sessionViews.get(sessionId)!;
-    assert.ok(view2.historyLoaded, "历史已从后台重建");
+    assert.equal(running.status, "running", "The gated model response keeps the original task active through history restoration");
+    assert.equal(running.id, originalTaskId);
+    assert.equal(h2.state.tasks.size, 1);
+    assert.equal(t.server.calls.length, 1);
 
+    releaseReply();
     await waitFor("任务完成", async () => (await taskStatus(t.client, running.id)).task.status === "completed");
     await waitFor("最终消息进入历史", () => {
       const v = h2.state.sessionViews.get(sessionId)!;
       return v.flow.items.some((i) => i.kind === "message" && i.role === "assistant" && !i.streaming && i.text.includes("慢任务结果"));
     });
+    assert.equal(h2.state.tasks.size, 1);
+    assert.equal(t.server.calls.length, 1);
     h2.app.quit(0);
     await waitFor("h2 退出", () => h2.exitCode() === 0);
   } finally {
+    releaseReply();
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
     await t.shutdown();
@@ -959,29 +994,29 @@ test("/new：在当前工作区创建并切换会话，可重复创建独立会�
   const t = await startTestRuntime("tui-new", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { projectId, sessionId } = await createWorkspaceSession(t, t.work[0]!, "ordinary-new");
     const h = await startApp(t, { sessionId });
     apps.push(h);
 
-    // 后台另有编排器角色会话（issue 01），断言相对变化而非绝对数量
     const base = h.state.sessions.length;
     h.terminal.send("/new\r");
-    await waitFor("新会话出现", () => h.state.sessions.length === base + 1);
+    await waitFor("新会话出现", () => h.state.sessions.length === base + 1 && h.state.currentSessionId !== null && h.state.currentSessionId !== sessionId);
     const first = h.state.currentSessionId!;
     assert.notEqual(first, sessionId);
     const firstInfo = h.state.sessions.find((s) => s.id === first)!;
     assert.equal(firstInfo.projectId, projectId);
     assert.equal(firstInfo.cwd, t.work[0]!);
 
-    // 重复执行：再创建一个独立会话
     h.terminal.send("/new\r");
-    await waitFor("第二个新会话出现", () => h.state.sessions.length === base + 2);
+    await waitFor("第二个新会话出现", () => h.state.sessions.length === base + 2 && h.state.currentSessionId !== null && h.state.currentSessionId !== first);
     const second = h.state.currentSessionId!;
     assert.notEqual(second, first);
     assert.notEqual(second, sessionId);
+    assert.equal(t.runtime.getSession(second).projectId, projectId);
+    assert.equal(t.runtime.getSession(second).cwdReal, fs.realpathSync(t.work[0]!));
+    assert.equal(t.server.calls.length, 0, "ordinary /new creates conversations without submitting input");
 
-    // 旧会话仍在，可切回
-    (h.app as any).switchSession(sessionId);
+    h.app["switchSession"](sessionId);
     assert.equal(h.state.currentSessionId, sessionId);
   } finally {
     quitAll(apps);
@@ -990,26 +1025,27 @@ test("/new：在当前工作区创建并切换会话，可重复创建独立会�
   }
 });
 
-test("/new：未选择会话时不创建，提示下一步操作", async () => {
+test("/new without a selected conversation opens a local managed draft and creates only on send", async () => {
   const t = await startTestRuntime("tui-new-nosession", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
-    await createProjectSession(t.client, t.work[0]!);
     const h = await startApp(t);
     apps.push(h);
-    // 启动后默认进入项目选择，不选中任何会话
     assert.equal(h.state.currentSessionId, null);
-    h.terminal.send("\x1b"); // 关闭选择面板，避免拦截后续输入
+    h.terminal.send("\x1b");
     await renderFlush();
-    const before = h.state.sessions.length;
-
     h.terminal.send("/new\r");
-    await renderFlush();
-    // 不创建新会话（后台另有编排器角色会话，断言相对变化而非绝对数量）
-    assert.equal(h.state.sessions.length, before, "不应创建新会话");
+    await waitFor("local managed draft", () => h.app["managedChat"].draft !== null);
+    assert.equal(t.runtime.store.listSessions().length, 0);
+    assert.equal(t.runtime.store.listProjects().length, 0);
+    assert.deepEqual(fs.readdirSync(t.dirs.profile.workspaceDir), []);
     assert.equal(h.state.currentSessionId, null);
-    const notes = h.state.globalNotes.map((n) => n.text).join("\n");
-    assert.ok(notes.includes("尚未选择会话"), `提示应指向 /new-project 或 /new-session，实际：${notes}`);
+    await submitViaEditor(h, "first unassigned conversation");
+    await waitFor("first managed task", () => h.state.currentSessionId !== null && t.runtime.store.listTasksBySession(h.state.currentSessionId).length === 1);
+    const session = t.runtime.getSession(h.state.currentSessionId!);
+    assert.equal(t.runtime.store.getProject(session.projectId)!.managed, true);
+    assert.equal(t.runtime.store.listSessions().length, 1);
+    assert.equal(t.runtime.store.listProjects().length, 1);
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -1532,42 +1568,30 @@ test("/mode：列表提供四种模式并可选择 Plan，取消不改状态", a
   }
 });
 
-test("非普通开发身份的 /mode 与 Shift+Tab 仅提供三个访问模式，Plan 不随会话切换进入", async () => {
+test("SubAgent mode controls never inherit Plan or change the child conversation default", async () => {
   const t = await startTestRuntime("tui-plan-identity", async () => ({ kind: "text", text: "done" }));
   const apps: AppHarness[] = [];
   try {
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
     const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
-    const main = t.runtime.store.getSession(t.runtime.store.getAgentRole("main")!.sessionId)!;
     const sub = await create();
     t.runtime.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
-    const archive = await create();
-    t.runtime.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
     const h = await startApp(t, { sessionId });
     apps.push(h);
     const app = h.app as any;
     const result = (text: string, isError?: boolean) => assert.ok(!isError, text);
     await app.sendSessionMode(sessionId, 0, "plan", result);
-    for (const id of [main.id, sub.id, archive.id]) {
-      app.switchSession(id);
-      await app.sessionSettingsSync;
-      assert.equal(h.state.sessions.find((s) => s.id === id)!.defaultAccessMode, "confirm", "Plan 不同步进无资格身份");
-      await app.cmdMode([], result);
-      await renderFlush();
-      const screen = stripTerminalSequences(app.tui.previousScreen.join("\n"));
-      assert.ok(screen.includes("Auto review") && !screen.includes("Plan"));
-      h.terminal.send("\x1b");
-      if (id === sub.id) {
-        h.terminal.send("\x1b[Z");
-        await renderFlush();
-        assert.equal(h.state.sessions.find((s) => s.id === id)!.defaultAccessMode, "confirm", "SubAgent 原有默认模式修改禁令保留");
-        continue;
-      }
-      for (const mode of ["full_access", "auto-review", "confirm"]) {
-        h.terminal.send("\x1b[Z");
-        await waitFor(`无 Plan 循环至 ${mode}`, () => h.state.sessions.find((s) => s.id === id)!.defaultAccessMode === mode);
-      }
-    }
+    app.switchSession(sub.id);
+    await app.sessionSettingsSync;
+    assert.equal(h.state.sessions.find((session) => session.id === sub.id)!.defaultAccessMode, "confirm");
+    await app.cmdMode([], result);
+    await renderFlush();
+    const screen = stripTerminalSequences(app.tui.previousScreen.join("\n"));
+    assert.ok(screen.includes("Auto review") && !screen.includes("Plan"));
+    h.terminal.send("\x1b");
+    h.terminal.send("\x1b[Z");
+    await renderFlush();
+    assert.equal(h.state.sessions.find((session) => session.id === sub.id)!.defaultAccessMode, "confirm");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -1610,9 +1634,9 @@ test("/resume 只列当前项目会话，/project 经项目窗口进入目标会
   const t = await startTestRuntime("tui-project-resume", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!, { projectName: "当前项目" });
+    const { projectId, sessionId } = await createWorkspaceSession(t, t.work[0]!, "当前项目");
     const sessionA2 = await t.client.request<any>("create_session", { project_id: projectId, cwd: t.work[0]!, confirm_tools: [] });
-    const target = await createProjectSession(t.client, t.work[1]!, { projectName: "目标项目" });
+    const target = await createWorkspaceSession(t, t.work[1]!, "目标项目");
     const h = await startApp(t, { sessionId });
     apps.push(h);
     const app = h.app as any;
@@ -1639,14 +1663,10 @@ test("/resume 只列当前项目会话，/project 经项目窗口进入目标会
     assert.ok(currentProjectLine >= 0, "项目首行显示名称及会话数");
     assert.ok(projectLines[currentProjectLine + 1]!.includes(t.work[0]!), "项目第二行显示工作区路径");
     assert.ok(!projectLines[currentProjectLine + 2]!.replace(/[│ ]/g, ""), "项目之间有一行空白");
-    const index = h.state.projects.findIndex((project) => project.id === target.projectId);
-    for (let i = 0; i < index; i++) h.terminal.send("\x1b[B");
-    await renderFlush();
-    const targetLines = screen().split("\n");
-    const targetProjectLine = targetLines.findIndex((line) => line.includes("目标项目 · 1 个会话"));
+    const targetProjectLine = projectLines.findIndex((line) => line.includes("目标项目 · 1 个会话"));
     assert.ok(targetProjectLine >= 0, "选中的项目显示名称及会话数");
-    assert.ok(targetLines[targetProjectLine + 1]!.includes(t.work[1]!), "选中的项目第二行显示工作区路径");
-    h.terminal.send("\r");
+    assert.ok(projectLines[targetProjectLine + 1]!.includes(t.work[1]!), "选中的项目第二行显示工作区路径");
+    await selectWindowItem(h, "目标项目");
     await waitFor("目标项目会话窗口读取完成", () => screen().includes("选择会话 · 目标项目"));
     assertWindowFrame(h);
     assert.ok(screen().includes("选择会话 · 目标项目") && !screen().includes(t.work[0]!));
@@ -1660,31 +1680,28 @@ test("/resume 只列当前项目会话，/project 经项目窗口进入目标会
   }
 });
 
-test("启动项目窗口与空项目选择，创建会话归属所选项目", async () => {
+test("startup workspace selection preserves a registered empty root and creates its conversation", async () => {
   const t = await startTestRuntime("tui-empty-project", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
-    await createProjectSession(t.client, t.work[0]!);
-    const empty = await t.client.request<any>("create_project", { name: "空项目" });
+    await createWorkspaceSession(t, t.work[0]!, "existing workspace");
+    const empty = t.runtime.store.withTx(() => t.runtime.store.createProject("empty workspace", null, resolveDirIdentitySync(t.work[1]!)));
     const h = await startApp(t);
     apps.push(h);
     await renderFlush();
     assertWindowFrame(h);
-    assert.match(stripTerminalSequences((h.app as any).tui.previousScreen.join("\n")), /选择项目/);
-    const index = h.state.projects.findIndex((project) => project.id === empty.id);
-    for (let i = 0; i < index; i++) h.terminal.send("\x1b[B");
-    await renderFlush();
-    const projectLines = stripTerminalSequences((h.app as any).tui.previousScreen.join("\n")).split("\n");
-    const emptyLine = projectLines.findIndex((line) => line.includes("空项目 · 0 个会话"));
-    assert.ok(emptyLine >= 0, "空项目显示零个会话");
-    assert.ok(projectLines[emptyLine + 1]!.includes("尚无工作区"), "空项目工作区有占位说明");
-    h.terminal.send("\r");
+    const projectLines = stripTerminalSequences(h.app["tui"]["previousScreen"].join("\n")).split("\n");
+    assert.ok(projectLines.some(line => line.includes("No workspace")));
+    const emptyLine = projectLines.findIndex((line) => line.includes("empty workspace · 0 个会话"));
+    assert.ok(emptyLine >= 0, "registered roots remain selectable before their first conversation");
+    await selectWindowItem(h, "empty workspace");
     await waitFor("空项目列表读取完成", () => (h.app as any).windows.length === 0);
     assert.equal(h.state.currentSessionId, null);
     assert.equal((h.app as any).windows.length, 0);
     await submitViaEditor(h, `/new-session ${t.work[1]}`);
     await waitFor("空项目新建会话", () => h.state.currentSessionId !== null);
     assert.equal(h.state.openSession(h.state.currentSessionId!).projectId, empty.id);
+    assert.equal(t.runtime.getSession(h.state.currentSessionId!).cwdReal, empty.rootDir!.cwdReal);
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -1926,8 +1943,6 @@ test("视口键：侧栏日志只在 PgDn 按下时滚动，释放帧保持当�
 });
 
 test("Coding 会话选择菜单与 /processes 都进入后台清单，返回不停止后台", async () => {
-  const saved = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
   const t = await startTestRuntime("tui-background-menu", async () => ({ kind: "text", text: "未调用模型" }));
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
@@ -1944,8 +1959,6 @@ test("Coding 会话选择菜单与 /processes 都进入后台清单，返回不�
     assert.equal(t.server.calls.length, 0);
   } finally {
     quitAll(apps); await t.shutdown();
-    if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
-    else process.env.RUUKOTO_PRODUCT = saved;
   }
 });
 
@@ -2040,7 +2053,7 @@ test("TUI CUA批次审批：80×24 下须滚动到内容末尾才可批准", { s
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const t = await startTestRuntime("tui-cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const t = await startTestRuntime("tui-cua-batch", withMcpDiscovery(responder), { config: { mcp: { callTimeoutMs: 300 } } });
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
     const TREE = "- [0] AXWindow \"Doc\"\n  - [14] AXButton \"保存\"\n  - [20] AXTextField \"名称\"";
@@ -2094,7 +2107,7 @@ test("TUI CUA批次审批：开窗后终端变矮，批准门禁跟随实际视�
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const t = await startTestRuntime("tui-cua-resize", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const t = await startTestRuntime("tui-cua-resize", withMcpDiscovery(responder), { config: { mcp: { callTimeoutMs: 300 } } });
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
     const TREE = "- [0] AXWindow \"Doc\"\n  - [14] AXButton \"保存\"\n  - [20] AXTextField \"名称\"";

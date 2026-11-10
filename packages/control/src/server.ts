@@ -20,9 +20,14 @@ import { capEventForWire,frameBytes } from "@ruukoto/core/views.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import * as fs from "node:fs";
 import * as net from "node:net";
+import * as path from "node:path";
 import { parseWorkflowControl } from "@ruukoto/core/workflow.ts";
 import { parseCodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import { ensureOwnerToken,tokenMatches } from "./owner-token.ts";
+import { ensureProfileEndpoint, verifyProfile } from "@ruukoto/core/profile.ts";
+import { probeLockHolder } from "@ruukoto/core/instance-lock.ts";
+import { sameFileIdentity } from "@ruukoto/core/exclusive-fs.ts";
+import { PRODUCT } from "@ruukoto/core/product.ts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   CONTROL_PROTOCOL_VERSION,
@@ -39,9 +44,18 @@ const REPLAY_LIMIT = 5000;
 const BROWSER_CHUNK_BYTES = 256 * 1024;
 const BROWSER_TRANSFER_BYTES = 8 * 1024 * 1024;
 const BROWSER_CALL_LIMIT = 64;
+const ENDPOINT_REPAIR_MS = 500;
 
 export class ControlServer {
-  private server: net.Server;
+  private server: net.Server | null = null;
+  private readonly listeners = new Map<net.Server, Promise<void>>();
+  private readonly lockIdentity: fs.Stats;
+  private readonly lockOwner: Buffer;
+  private endpointIdentity: fs.Stats | null = null;
+  private socketIdentity: fs.Stats | null = null;
+  private repairTimer: NodeJS.Timeout | null = null;
+  private repairInFlight: Promise<void> | null = null;
+  private repairFailure: string | null = null;
   private subscribers = new Set<net.Socket>();
   /** 全部连接（含未订阅/未认证的）；停止时强制关闭，避免 close 等待悬挂。 */
   private connections = new Set<net.Socket>();
@@ -68,39 +82,150 @@ export class ControlServer {
   private constructor(runtime: Runtime, ownerToken: string) {
     this.runtime = runtime;
     this.ownerToken = ownerToken;
-    this.server = net.createServer((socket) => this.handleConnection(socket));
+    this.lockIdentity = fs.lstatSync(path.join(runtime.config.profile.dataDir, "runtime.lock"));
+    this.lockOwner = fs.readFileSync(path.join(runtime.config.profile.dataDir, "runtime.lock", "owner.json"));
+    this.verifyRuntimeOwner();
   }
 
   static async start(runtime: Runtime): Promise<ControlServer> {
-    // 拥有者令牌：缺失则生成（0600），已存在则复用；不进入命令行与日志
+    verifyProfile(runtime.config.profile);
+    // The persistent token remains unchanged across listener replacement.
     const ownerToken = ensureOwnerToken(runtime.controlDir());
     const server = new ControlServer(runtime, ownerToken);
     const socketPath = runtime.socketPath();
-    // 实例锁保证本进程是数据目录的唯一后台；遗留的 socket 文件属于已死
-    // 实例（SIGKILL 不会清理），安全移除后重新绑定
-    try {
+    let previous: fs.Stats | null = null;
+    try { previous = fs.lstatSync(socketPath); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (previous) {
+      if (!previous.isSocket() || previous.uid !== process.getuid?.()) throw new RuntimeApiError("control_endpoint_invalid", "控制端点所有权或类型不符；未移除原路径。");
+      await new Promise<void>((resolve, reject) => {
+        const probe = net.connect(socketPath);
+        const timer = setTimeout(() => { probe.destroy(); reject(new RuntimeApiError("control_endpoint_unverifiable", "无法核实控制端点是否停止；未移除原路径。")); }, 1500);
+        probe.once("connect", () => { clearTimeout(timer); probe.destroy(); reject(new RuntimeApiError("control_endpoint_occupied", "控制端点已有运行进程；未移除原路径。")); });
+        probe.once("error", (error: NodeJS.ErrnoException) => {
+          clearTimeout(timer);
+          if (error.code === "ECONNREFUSED") resolve();
+          else reject(new RuntimeApiError("control_endpoint_unverifiable", "无法核实控制端点是否停止；未移除原路径。"));
+        });
+      });
+      verifyProfile(runtime.config.profile);
+      server.verifyRuntimeOwner();
+      const current = fs.lstatSync(socketPath);
+      if (current.dev !== previous.dev || current.ino !== previous.ino) throw new RuntimeApiError("control_endpoint_changed", "控制端点已被替换；未移除原路径。");
       fs.unlinkSync(socketPath);
-    } catch (err: any) {
-      if (err?.code !== "ENOENT") throw err;
     }
-    // 桌面浏览器窄命令通道：运行时经此回调到达本服务端，连接身份在登记时发定
+    await server.listen();
     runtime.desktopBrowserCall = (connectionId, params, timeoutMs) => server.callBrowser(connectionId, params, timeoutMs);
-    await new Promise<void>((resolve, reject) => {
-      server.server.once("error", reject);
-      server.server.listen(socketPath, () => resolve());
-    });
-    // socket 位于受控目录（后台 0770，部署时向拥有者开放连接权限）；
-    // 再显式收紧 socket 本身
-    try {
-      fs.chmodSync(socketPath, 0o660);
-    } catch {
-      // 个别平台不支持 socket chmod；目录权限仍然生效
-    }
     runtime.onEventBroadcast = (events) => server.broadcast(events);
     runtime.onCloseServer = async () => {
       await server.stop();
     };
+    server.scheduleEndpointRepair();
     return server;
+  }
+
+  private verifyRuntimeOwner(): void {
+    const lockPath = path.join(this.runtime.config.profile.dataDir, "runtime.lock");
+    const current = fs.lstatSync(lockPath);
+    const owner = probeLockHolder(lockPath);
+    if (!sameFileIdentity(current, this.lockIdentity) || !owner.held || owner.unverifiable || owner.pid !== process.pid ||
+        !fs.readFileSync(path.join(lockPath, "owner.json")).equals(this.lockOwner)) {
+      throw new RuntimeApiError("control_owner_changed", "控制端点恢复无法核实当前后台持锁身份；保留实例状态，请核实后台所有者。");
+    }
+  }
+
+  private socketStat(): fs.Stats | null {
+    try { return fs.lstatSync(this.runtime.socketPath()); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  private async listen(): Promise<void> {
+    const profile = this.runtime.config.profile;
+    this.verifyRuntimeOwner();
+    ensureProfileEndpoint(profile);
+    const endpoint = fs.lstatSync(path.dirname(profile.socketPath));
+    if (this.socketStat()) throw new RuntimeApiError("control_endpoint_occupied", "控制端点已被占用；未移除原路径。");
+    // libuv unlinks its bound name on close. Never bind it to the public name:
+    // an orphaned listener could otherwise delete a replacement owner's socket.
+    // The staging basename is no longer than control.sock, so the same byte limit applies.
+    const stage = path.join(path.dirname(profile.socketPath), `.${randomUUID().replaceAll("-", "").slice(0, 11)}`);
+    const listener = net.createServer(socket => this.handleConnection(socket));
+    const closed = new Promise<void>(resolve => listener.once("close", () => { this.listeners.delete(listener); resolve(); }));
+    this.listeners.set(listener, closed);
+    let rejectListen!: (error: Error) => void;
+    let staged: fs.Stats | null = null;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        rejectListen = reject;
+        listener.once("error", reject);
+        listener.listen(stage, resolve);
+      });
+      staged = fs.lstatSync(stage);
+      if (this.stopped || this.runtime.stopping) throw new RuntimeApiError("backend_stopping", "后台正在退出，不再恢复控制端点。");
+      verifyProfile(profile);
+      this.verifyRuntimeOwner();
+      if (!sameFileIdentity(fs.lstatSync(path.dirname(stage)), endpoint)) throw new RuntimeApiError("control_endpoint_changed", "控制端点目录已被替换；未发布监听地址。");
+      fs.chmodSync(stage, 0o600);
+      try { fs.linkSync(stage, profile.socketPath); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new RuntimeApiError("control_endpoint_occupied", "控制端点已被占用；未移除原路径。");
+        throw error;
+      }
+      this.server = listener;
+      this.endpointIdentity = endpoint;
+      this.socketIdentity = staged;
+    } catch (error) {
+      listener.close();
+      throw error;
+    } finally {
+      listener.removeListener("error", rejectListen);
+      if (staged) {
+        try {
+          if (sameFileIdentity(fs.lstatSync(path.dirname(stage)), endpoint) && sameFileIdentity(fs.lstatSync(stage), staged)) fs.unlinkSync(stage);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.reportEndpointFailure(error);
+        }
+      }
+    }
+    listener.on("error", error => this.reportEndpointFailure(error));
+  }
+
+  private reportEndpointFailure(error: unknown): void {
+    const failure = errorReply(error);
+    if (this.repairFailure === failure.code) return;
+    this.repairFailure = failure.code;
+    process.stderr.write(`[ruukoto:control] Endpoint recovery blocked (${failure.code}); existing instance state is retained. Inspect ${this.runtime.socketPath()} and its binding before reconnecting.\n`);
+  }
+
+  private scheduleEndpointRepair(): void {
+    if (this.stopped || this.runtime.stopping) return;
+    this.repairTimer = setTimeout(() => {
+      this.repairTimer = null;
+      this.repairInFlight = this.repairEndpoint().catch(error => this.reportEndpointFailure(error)).finally(() => {
+        this.repairInFlight = null;
+        this.scheduleEndpointRepair();
+      });
+    }, ENDPOINT_REPAIR_MS);
+    this.repairTimer.unref();
+  }
+
+  private async repairEndpoint(): Promise<void> {
+    if (this.stopped || this.runtime.stopping) return;
+    const socket = this.socketStat();
+    const endpoint = socket && fs.lstatSync(path.dirname(this.runtime.socketPath()));
+    if (socket && this.socketIdentity && endpoint && this.endpointIdentity && sameFileIdentity(socket, this.socketIdentity) && sameFileIdentity(endpoint, this.endpointIdentity)) return;
+    this.verifyRuntimeOwner();
+    ensureProfileEndpoint(this.runtime.config.profile);
+    if (socket) throw new RuntimeApiError("control_endpoint_occupied", "控制端点已被替换；未移除原路径。");
+    const previous = this.server;
+    await this.listen();
+    // Closing only the listener leaves accepted/authenticated connections intact.
+    previous?.close();
+    if (this.repairFailure !== null) process.stderr.write("[ruukoto:control] Endpoint recovery restored authenticated access for the existing instance.\n");
+    this.repairFailure = null;
   }
 
   private handleConnection(socket: net.Socket): void {
@@ -185,9 +310,16 @@ export class ControlServer {
 
     if (request.op === "auth") {
       const token = (request.params as Record<string, unknown> | undefined)?.["token"];
+      const profile = this.runtime.config.profile;
+      if (request.params?.product !== PRODUCT || request.params?.layout !== profile.layout || request.params?.instanceId !== profile.instanceId) {
+        this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: false, error: { code: "profile_mismatch", message: "控制连接实例身份不匹配" } });
+        return;
+      }
+      try { verifyProfile(profile); }
+      catch (error) { this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: false, error: errorReply(error) }); return; }
       if (typeof token === "string" && tokenMatches(token, this.ownerToken)) {
         this.authed.add(socket);
-        this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result: { authenticated: true } });
+        this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result: { authenticated: true, product: PRODUCT, layout: profile.layout, instanceId: profile.instanceId } });
       } else {
         this.reply(socket, {
           v: CONTROL_PROTOCOL_VERSION,
@@ -209,6 +341,7 @@ export class ControlServer {
     }
 
     try {
+      verifyProfile(this.runtime.config.profile);
       const result = await this.dispatch(socket, request);
       this.reply(socket, { v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: true, result });
     } catch (err: any) {
@@ -376,7 +509,8 @@ export class ControlServer {
           // 补发事件同样经有界视图转换（线上载荷不携带完整大参数）
           replay: replay.map(capEventForWire),
           snapshot: {
-            product: runtime.productType,
+            product: PRODUCT,
+            layout: runtime.config.profile.layout,
             projects: snapshot.projects,
             sessions: snapshot.sessions,
             tasks: snapshot.tasks,
@@ -387,8 +521,6 @@ export class ControlServer {
             execution: snapshot.execution,
             defaultModel: snapshot.defaultModel,
             webSearch: snapshot.webSearch,
-            mainSessionId: snapshot.mainSessionId,
-            roleSessionIds: snapshot.roleSessionIds,
             subAgentSessionIds: snapshot.subAgentSessionIds,
             workDelegations: snapshot.workDelegations,
             subAgents: snapshot.subAgents,
@@ -478,39 +610,6 @@ export class ControlServer {
         const workspaceId = requireString("workspace_id");
         if (request.op === "list_workspace_files") return runtime.listWorkspaceFiles({ workspaceId, path: params["path"] as string | undefined, cursor: params["cursor"] as string | undefined });
         return runtime.readWorkspaceFile({ workspaceId, path: requireString("path"), offset: params["offset"] as number | undefined, length: params["length"] as number | undefined, version: params["version"] as string | undefined });
-      }
-      // ---------- agent-direction issue 07：旧数据 → 工作区组织迁移 ----------
-      case "preview_workspace_migration": {
-        const plan = params["plan"];
-        if (plan !== undefined && (plan === null || typeof plan !== "object" || Array.isArray(plan))) {
-          throw Object.assign(new Error("plan 必须是对象"), { code: "invalid_params" });
-        }
-        const limit = params["limit"];
-        if (limit !== undefined && (!Number.isInteger(limit) || (limit as number) < 1)) {
-          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
-        }
-        return runtime.previewWorkspaceMigration({
-          projectId: requireString("project_id"),
-          plan,
-          limit: limit as number | undefined,
-        });
-      }
-      case "apply_workspace_migration": {
-        const plan = params["plan"];
-        if (plan === null || typeof plan !== "object" || Array.isArray(plan)) {
-          throw Object.assign(new Error("plan 必须是非空对象"), { code: "invalid_params" });
-        }
-        const revision = params["expected_revision"];
-        if (revision !== undefined && (typeof revision !== "string" || !revision)) {
-          throw Object.assign(new Error("expected_revision 必须是字符串"), { code: "invalid_params" });
-        }
-        return runtime.applyWorkspaceMigration({
-          projectId: requireString("project_id"),
-          instanceId: requireString("instance_id"),
-          requestId: requireString("request_id"),
-          plan,
-          expectedRevision: revision as string | undefined,
-        });
       }
       case "get_session_usage":
         return runtime.getSessionUsage(requireString("session_id"));
@@ -691,7 +790,8 @@ export class ControlServer {
         await runtime.cancelTask(requireString("task_id"));
         return { accepted: true };
       case "resume_queue":
-        return runtime.resumeQueue(requireString("session_id"), params["model_selection"] === undefined ? undefined : parseModelSelection(params["model_selection"]), params["stop_confirmed"] === true);
+        workflowParams("session_id", "stop_confirmed");
+        return runtime.resumeQueue(requireString("session_id"), params["stop_confirmed"] === true);
       case "task_queue":
         return runtime.getTaskQueueDetail(requireString("session_id"));
       case "queue_reorder": {
@@ -1177,102 +1277,6 @@ export class ControlServer {
         return { removed: runtime.mcpRemoveService(requireString("service_id"), optionalExpectedVersion()) };
       case "mcp_check":
         return runtime.mcpCheckService(requireString("service_id"));
-      // ---------- issue 07：QQ 群聊入口（NapCat OneBot） ----------
-      case "qq_configure": {
-        if (params["owner_user_id"] !== undefined && params["owner_user_id"] !== null && typeof params["owner_user_id"] !== "string") {
-          throw Object.assign(new Error("owner_user_id 必须是 QQ 号字符串或 null"), { code: "invalid_params" });
-        }
-        if (params["max_reply_chars"] !== undefined && !Number.isInteger(params["max_reply_chars"])) {
-          throw Object.assign(new Error("max_reply_chars 必须是整数"), { code: "invalid_params" });
-        }
-        return runtime.qqConfigure({
-          endpoint: requireString("endpoint"),
-          credential: typeof params["credential"] === "string" ? params["credential"] : params["credential"] === null ? null : undefined,
-          selfId: requireString("self_id"),
-          ownerUserId: params["owner_user_id"] as string | null | undefined,
-          maxReplyChars: params["max_reply_chars"] as number | undefined,
-          expectedVersion: optionalExpectedVersion(),
-        });
-      }
-      case "qq_status":
-        return runtime.qqStatus();
-      case "qq_set_enabled": {
-        if (typeof params["enabled"] !== "boolean") {
-          throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
-        }
-        return runtime.qqSetEnabled(params["enabled"], optionalExpectedVersion());
-      }
-      // qq_group_update 已删除（核心群聊退役，agent-direction issue 20，协议 v14）；
-      // 旧客户端经版本不匹配被拒，旧 CLI 命令只打印退役提示
-      case "qq_inbox_list": {
-        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
-        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
-        }
-        return { entries: runtime.qqListInbox({ groupId: typeof params["group_id"] === "string" ? params["group_id"] : undefined, limit }) };
-      }
-      case "qq_outbox_list": {
-        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
-        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
-        }
-        return { entries: runtime.qqListOutbox({ groupId: typeof params["group_id"] === "string" ? params["group_id"] : undefined, limit }) };
-      }
-      // ---------- issue 04：Telegram owner 入口 ----------
-      case "telegram_configure":
-        return runtime.telegramConfigure({
-          apiBase: typeof params["api_base"] === "string" ? params["api_base"] : undefined,
-          credential: requireString("credential"),
-          ownerUserId: requireString("user_id"),
-          ownerChatId: typeof params["chat_id"] === "string" ? params["chat_id"] : undefined,
-          expectedVersion: optionalExpectedVersion(),
-        });
-      case "telegram_status":
-        return runtime.telegramStatus();
-      case "telegram_set_enabled": {
-        if (typeof params["enabled"] !== "boolean") {
-          throw Object.assign(new Error("enabled 必须是布尔值"), { code: "invalid_params" });
-        }
-        return runtime.telegramSetEnabled(params["enabled"], optionalExpectedVersion());
-      }
-      // ---------- issue 03：调度计划与通知发送账本（只查询/取消，不获得发送或改目标能力） ----------
-      case "schedule_list":
-      case "notification_list": {
-        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
-        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
-        }
-        const input = {
-          status: typeof params["status"] === "string" ? params["status"] : undefined,
-          cursor: typeof params["cursor"] === "string" ? params["cursor"] : undefined,
-          limit,
-        };
-        return request.op === "schedule_list" ? runtime.scheduleList(input) : runtime.notificationList(input);
-      }
-      case "schedule_get":
-        return runtime.scheduleGet(requireString("schedule_id"));
-      case "schedule_cancel": {
-        const expected = params["expected_version"];
-        if (!Number.isInteger(expected)) throw Object.assign(new Error("expected_version 必须是整数"), { code: "invalid_params" });
-        return runtime.scheduleCancel({ scheduleId: requireString("schedule_id"), expectedVersion: expected as number, reason: requireString("reason") });
-      }
-      case "notification_get":
-        return runtime.notificationGet(requireString("op_id"));
-      case "notification_cancel":
-        return runtime.notificationCancel({ opId: requireString("op_id"), reason: requireString("reason") });
-      // ---------- issue 10：长期操作授权目录（只查询/带版本撤销，不获得创建或扩大能力） ----------
-      case "service_grant_list": {
-        const limit = params["limit"] === undefined ? undefined : Number(params["limit"]);
-        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-          throw Object.assign(new Error("limit 必须是正整数"), { code: "invalid_params" });
-        }
-        return runtime.serviceGrantList({
-          cursor: typeof params["cursor"] === "string" ? params["cursor"] : undefined,
-          limit,
-        });
-      }
-      case "service_grant_get":
-        return runtime.serviceGrantGet(requireString("permission_id"));
       // ---------- issue 11：工作委托与 SubAgent（只读查询；委派经模型委派工具） ----------
       case "work_list": {
         const sessionId = params["session_id"];
@@ -1293,11 +1297,6 @@ export class ControlServer {
           throw Object.assign(new Error("reason 必须是字符串"), { code: "invalid_params" });
         }
         return runtime.cancelWork(requireString("work_id"), { reason: reason as string | undefined });
-      }
-      case "service_grant_revoke": {
-        const expected = params["expected_version"];
-        if (!Number.isInteger(expected) || (expected as number) < 1) throw Object.assign(new Error("expected_version 必须是正整数"), { code: "invalid_params" });
-        return runtime.serviceGrantRevoke(requireString("permission_id"), expected as number);
       }
       case "stop": {
         void runtime.stop("control_plane").catch(() => {});
@@ -1391,17 +1390,24 @@ export class ControlServer {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    clearTimeout(this.repairTimer ?? undefined);
+    this.repairTimer = null;
+    await this.repairInFlight;
     if (this.runtime.desktopBrowserCall) this.runtime.desktopBrowserCall = null;
-    // 强制关闭全部连接：server.close() 会等待已建立的连接，不主动销毁
-    // 则任何仍在线的客户端都会让停止悬挂
     for (const socket of this.connections) socket.destroy();
     this.subscribers.clear();
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
+    for (const listener of this.listeners.keys()) if (listener.listening) listener.close();
+    await Promise.all(this.listeners.values());
     try {
-      fs.rmSync(this.runtime.socketPath(), { force: true });
-    } catch {
-      // 忽略
+      verifyProfile(this.runtime.config.profile);
+      const socket = this.socketStat();
+      if (socket && this.socketIdentity && this.endpointIdentity && sameFileIdentity(socket, this.socketIdentity) &&
+          sameFileIdentity(fs.lstatSync(path.dirname(this.runtime.socketPath())), this.endpointIdentity)) fs.unlinkSync(this.runtime.socketPath());
+    } catch (error) {
+      // Shutdown must not unlink an address whose current binding cannot be verified.
+      this.reportEndpointFailure(error);
     }
+    this.server = null;
   }
 }
 

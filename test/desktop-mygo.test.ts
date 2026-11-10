@@ -9,6 +9,7 @@ import { sidecarBuildOptions } from "../apps/desktop/scripts/mygo.mjs";
 import { vendorTerminal } from "../apps/desktop/build/terminal.mjs";
 import { test } from "node:test";
 import type { DesktopBridge, DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
+import { profileChildEnv, selectProfile } from "@ruukoto/core/profile.ts";
 
 const preload = fs.readFileSync(new URL("../apps/desktop/mygo/preload.js", import.meta.url), "utf8");
 function fixture(main = true, href = "mygo://localhost/") {
@@ -32,19 +33,18 @@ test("MyGo 只在固定顶层文档安装 bridge，监听先于订阅且支持�
   const updates: DesktopUpdate[] = [];
   const unsubscribe = f.window.ruukoto!.subscribe("code", update => updates.push(update));
   assert.equal(f.calls[0].method, "Desktop.Subscribe");
-  f.send("personal", { type: "state", state: "closed" });
+  f.send("unknown", { type: "state", state: "closed" });
   f.send("code", { type: "state", state: "online" });
   assert.deepEqual(updates, [{ type: "state", state: "online" }]);
   unsubscribe();
   assert.equal(f.removed(), true);
-  const params = { request: { v: 1, op: "settings.read" } };
-  await f.window.ruukoto!.request("personal", "desktop_personal_settings_request", params);
-  assert.deepEqual(f.calls[1], { method: "Desktop.Request", args: ["personal", "desktop_personal_settings_request", params] });
+  const params = {};
+  await f.window.ruukoto!.request("code", "get_model_config", params);
+  assert.deepEqual(f.calls[1], { method: "Desktop.Request", args: ["code", "get_model_config", params] });
   await f.window.ruukoto!.pickAttachments("code-session");
-  await f.window.ruukoto!.pickAttachments("main-session", "personal");
   await f.window.ruukoto!.pickDraftAttachments();
   await f.window.ruukoto!.uploadDraftAttachments("code-session", ["draft_1"]);
-  assert.deepEqual(f.calls.slice(2), [{ method: "Desktop.PickAttachments", args: ["code-session", "code"] }, { method: "Desktop.PickAttachments", args: ["main-session", "personal"] }, { method: "Desktop.PickDraftAttachments", args: [] }, { method: "Desktop.UploadDraftAttachments", args: ["code-session", ["draft_1"], "code"] }]);
+  assert.deepEqual(f.calls.slice(2), [{ method: "Desktop.PickAttachments", args: ["code-session", "code"] }, { method: "Desktop.PickDraftAttachments", args: [] }, { method: "Desktop.UploadDraftAttachments", args: ["code-session", ["draft_1"], "code"] }]);
 });
 
 test("MyGo 传输拒绝保留 disconnected，不能变成未发送或自动重放", async () => {
@@ -60,10 +60,6 @@ test("MyGo 传输拒绝保留 disconnected，不能变成未发送或自动重�
 test("MyGo 不暴露技能目录选择桥", () => {
   const f = fixture();
   assert.equal(Object.hasOwn(f.window.ruukoto!, "pickSkillFolder"), false);
-  const main = fs.readFileSync(new URL("../apps/desktop/mygo/main.go", import.meta.url), "utf8");
-  const sidecar = fs.readFileSync(new URL("../apps/desktop/src/mygo/sidecar.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(main, /PickSkillFolder/);
-  assert.doesNotMatch(sidecar, /skill_pick_begin|skill_pick_preview/);
 });
 
 test("MyGo终端四方法复用本机Request并按ID透传输出", async () => {
@@ -85,17 +81,12 @@ test("MyGo终端四方法复用本机Request并按ID透传输出", async () => {
 
 test("共用 DesktopHost 经真实控制面订阅和限制操作，选择器期间的旧实例不读取附件", async () => {
   const { startTestRuntime, waitFor } = await import("./helpers/testkit.ts");
-  const { product } = await import("../apps/ruukoto-code/src/product.ts");
   const { DesktopHost } = await import("../apps/desktop/src/main/host.ts");
   const { adoptEnvironment } = await import("../apps/desktop/src/main/environment.ts");
-  const os = await import("node:os");
   const path = await import("node:path");
-  const t = await startTestRuntime("mygo-host", async () => ({ kind: "text", text: "ready" }), { config: { product: product.runtime } });
-  const control = fs.mkdtempSync(path.join(os.tmpdir(), "rmg-c-"));
+  const t = await startTestRuntime("mygo-host", async () => ({ kind: "text", text: "ready" }), {});
   const previous = { ...process.env };
-  fs.symlinkSync(path.join(t.runtime.controlDir(), "owner.token"), path.join(control, "owner.token"));
-  fs.symlinkSync(t.runtime.socketPath(), path.join(control, "control.sock"));
-  Object.assign(process.env, { RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: control, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir });
+  Object.assign(process.env, profileChildEnv(t.runtime.config.profile.selection, { RUUKOTO_DESKTOP_MANAGED: "1" }));
   const updates: DesktopUpdate[] = [];
   const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), path.join(t.dirs.root, "mygo-user-data"), { publish: (target, update) => { if (target === "code") updates.push(update); }, focused: () => true, notice() {}, badge() {} });
   try {
@@ -115,11 +106,10 @@ test("共用 DesktopHost 经真实控制面订阅和限制操作，选择器期�
     await host.close();
     adoptEnvironment(previous);
     await t.shutdown();
-    fs.rmSync(control, { recursive: true, force: true });
   }
 });
 
-test("实际 MyGo ESM sidecar 能装载 ws 并应答首个私有管道请求，不加载外部可选模块", async () => {
+test("Actual bundled MyGo sidecar answers the first private request without credential initialization", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mygo-sidecar-bundle-"));
   const output = path.join(root, "out"), marker = path.join(root, "external-loaded");
   fs.mkdirSync(output);
@@ -133,10 +123,10 @@ test("实际 MyGo ESM sidecar 能装载 ws 并应答首个私有管道请求，�
     const repository = path.resolve(import.meta.dirname, "..");
     vendorTerminal(output);
     await build(sidecarBuildOptions(path.join(repository, "apps/desktop"), repository, output));
-    const frames = [{ kind: "credential_ready", v: 1, generation: "a".repeat(32) }, { id: 1, method: "focus", args: [false] }];
+    const frames = [{ id: 1, method: "focus", args: [false] }];
     const result = spawnSync(process.execPath, ["--disable-sigusr1", "--no-global-search-paths", path.join(output, "sidecar.mjs"), path.join(root, "user-data")], {
       input: frames.map(frame => JSON.stringify(frame) + "\n").join(""), encoding: "utf8", timeout: 10_000,
-      env: { ...process.env, WS_NO_BUFFER_UTIL: "", RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_DATA_DIR: path.join(root, "data"), RUUKOTO_CODE_AGENT_DIR: path.join(root, "agent"), RUUKOTO_CODE_CONTROL_DIR: path.join(root, "control"), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` },
+      env: profileChildEnv(selectProfile({ dataDir: path.join(root, "data") }, {}), { ...process.env, RUUKOTO_DESKTOP_MANAGED: "1", PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` }),
     });
     assert.equal(result.status, 0, result.stderr);
     const replies: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));

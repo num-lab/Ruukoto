@@ -8,7 +8,7 @@ import { ControlClientError, type ControlClient } from "@ruukoto/control/client.
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { SESSION_DEFAULT_MODES, type SessionDefaultMode, type Session, type Project } from "@ruukoto/core/types.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import { fakeSnapshot } from "./helpers/fake-control.ts";
@@ -26,7 +26,7 @@ async function fixture(t: TestContext, mode: SessionDefaultMode = "plan") {
   const config = JSON.parse(fs.readFileSync(file, "utf8"));
   config.providers.second = { ...config.providers.mock, models: [{ ...config.providers.mock.models[0], id: "reasoner", reasoning: true, maxTokens: 4096 }] };
   fs.writeFileSync(file, JSON.stringify(config));
-  runtime = await Runtime.start({ product: product.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir, socketPath: path.join(dirs.root, "c.sock"), modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", toolFactory: context => createMockTools(context) });
+  runtime = await Runtime.start({ profile: dirs.profile, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", toolFactory: context => createMockTools(context) });
   await ControlServer.start(runtime);
   client = await connectAuthedClient(runtime);
   const source = (await runtime.openWorkspace({ cwd: work[0] })).session;
@@ -51,7 +51,7 @@ async function fixture(t: TestContext, mode: SessionDefaultMode = "plan") {
 
 function rendererFixture(mode: SessionDefaultMode) {
   const work = ["/work/first", "/work/second"];
-  const source: Session = { id: "source", projectId: "project", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: work[0], cwdReal: work[0], cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...selected }, modelSelectionVersion: 1, defaultAccessMode: mode, defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "now" };
+  const source: Session = { id: "source", projectId: "project", kind: "dev", name: null, branchSource: null, cwd: work[0], cwdReal: work[0], cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...selected }, modelSelectionVersion: 1, defaultAccessMode: mode, defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "now" };
   const project: Project = { id: source.projectId, name: "工作区", createRequestId: null, rootDir: { cwd: work[0], cwdReal: work[0], dev: 1, ino: 1 }, instructionFiles: [], settingsVersion: 1, createdAt: "now" };
   const creations: { op: string; params: Record<string, unknown> }[] = [];
   const model = new CodeState({ request: async (_target, op, params) => {

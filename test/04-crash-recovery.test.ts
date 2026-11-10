@@ -25,6 +25,7 @@ import {
 } from "./helpers/testkit.ts";
 import { killBackend, spawnBackend, spawnBackendRaw, type Backend } from "./helpers/backend.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 
 test("工具已产生标记但未记录结果时崩溃：中断保留事实，不重放，排队不自动启动", async () => {
   const server = new MockModelServer(
@@ -66,11 +67,11 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     markerPath = path.join(made.work[1]!, "marker.txt");
 
     // 启动后台（第一个实例）
-    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
+    backend = await spawnBackend(dirs.profile);
     const { projectId, sessionId } = await createProjectSession(backend.client, workA);
 
-    // 第二个实例必须被拒绝（进程级）
-    const second = spawnBackendRaw(["apps/ruukoto-code/src/main.ts", "start", "--data-dir", dirs.dataDir, "--agent-dir", dirs.agentDir], { RUUKOTO_CODE_DATA_DIR: dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control"), RUUKOTO_CODE_PENDING_DIR: path.join(dirs.root, "pending") });
+    // A second process must resolve the same raw selection and reject the live owner.
+    const second = spawnBackendRaw(["apps/ruukoto/src/main.ts", "start"], profileChildEnv(dirs.profile.selection));
     const secondCode: number | null = await new Promise((resolve) => {
       second.once("exit", (code) => resolve(code));
       setTimeout(() => resolve(-999), 30_000);
@@ -95,7 +96,7 @@ test("工具已产生标记但未记录结果时崩溃：中断保留事实，�
     await killBackend(backend);
 
     // 重启恢复
-    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
+    backend = await spawnBackend(dirs.profile);
     const snapshot = await backend.client.request<any>("get_task", { task_id: taskA.id });
     assert.equal(snapshot.task.status, "interrupted", "活动任务重启后标为中断");
     assert.equal(snapshot.task.interruptReason, "backend_restart");
@@ -159,7 +160,7 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
     dirs = made.dirs;
     await writeModelsJson(dirs, baseUrl);
 
-    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
+    backend = await spawnBackend(dirs.profile);
     const { sessionId } = await createProjectSession(backend.client, made.work[0]!);
     const task = await backend.client.request<any>("submit", { model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" },
       session_id: sessionId,
@@ -170,7 +171,7 @@ test("首次 assistant 消息前崩溃：不宣布消息已持久化，请求保
     await new Promise((r) => setTimeout(r, 300)); // 首个 assistant 消息尚未产生
     await killBackend(backend);
 
-    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
+    backend = await spawnBackend(dirs.profile);
     const detail = await taskStatus(backend.client, task.id);
     assert.equal(detail.task.status, "interrupted", "重启后标为中断");
     assert.equal(detail.task.input, "SLOWFIRST:第一个请求", "已接收请求必须保留");
@@ -204,15 +205,15 @@ test("后台夹具固定 Coding 临时目录，不继承日常控制目录与拥
   const { dirs } = await makeTestDirs("backend-env", 0);
   const server = new MockModelServer(() => ({ kind: "text", text: "ok" }));
   const daily = path.join(dirs.root, "daily");
-  const inherited = { RUUKOTO_PRODUCT: "bogus", RUUKOTO_CODE_DATA_DIR: path.join(daily, "data"), RUUKOTO_CODE_AGENT_DIR: path.join(daily, "agent"), RUUKOTO_CODE_CONTROL_DIR: path.join(daily, "control"), RUUKOTO_CODE_PENDING_DIR: path.join(daily, "pending"), RUUKOTO_OWNER_TOKEN: "daily-token", RUUKOTO_OWNER_TOKEN_FILE: path.join(daily, "owner.token") };
+  const inherited = { RUUKOTO_DATA_DIR: path.join(daily, "data"), RUUKOTO_AGENT_DIR: path.join(daily, "agent"), RUUKOTO_CONTROL_DIR: path.join(daily, "control"), RUUKOTO_PENDING_DIR: path.join(daily, "pending"), RUUKOTO_OWNER_TOKEN: "daily-token", RUUKOTO_OWNER_TOKEN_FILE: path.join(daily, "owner.token") };
   const previous = new Map(Object.keys(inherited).map(key => [key, process.env[key]]));
   let backend: Backend | undefined;
   try {
     await writeModelsJson(dirs, await server.start());
     Object.assign(process.env, inherited);
-    backend = await spawnBackend(dirs.dataDir, dirs.agentDir);
-    assert.equal((await backend.client.handshake()).snapshot.product, "ruukoto-code");
-    assert.ok(fsSync.existsSync(path.join(dirs.root, "control", "control.sock")));
+    backend = await spawnBackend(dirs.profile);
+    assert.equal((await backend.client.handshake()).snapshot.product, "ruukoto");
+    assert.ok(fsSync.existsSync(dirs.profile.socketPath));
     assert.equal(fsSync.existsSync(daily), false);
   } finally {
     for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }

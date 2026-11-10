@@ -18,12 +18,10 @@ interface Observation {
 }
 
 // Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
-// Note: See .agents/notes/implemented/feature/2026-11-04-personal-desktop-file-loop.md
 export class DesktopNotifications {
   private readonly targets = new Map<DesktopTarget, Observation>();
   constructor(private readonly focused: () => boolean, private readonly show: (notice: DesktopNotice) => void, private readonly badge: (count: number) => void, private readonly query: (target: DesktopTarget, taskId: string) => Promise<OpResult<"get_task">>, private readonly querySchedule?: (planId: string, offset: number) => Promise<OpResult<"code_schedule">>) {}
   update(target: DesktopTarget, update: DesktopUpdate): void {
-    if (target === "personal") return;
     if (update.type !== "snapshot" && update.type !== "event") return;
     let observation = this.targets.get(target);
     if (update.type === "snapshot") {
@@ -56,7 +54,7 @@ export class DesktopNotifications {
   private updateBadge(): void { this.badge([...this.targets.values()].reduce((count, item) => count + item.view.pendingApprovals().length, 0)); }
   private notice(target: DesktopTarget, observation: Observation, sessionId: string, taskId: string, title: string, body: string, silent: boolean): void {
     if (silent || this.focused()) return;
-    try { this.show({ target, instanceId: observation.view.instanceId!, sessionId, taskId, title: `${target === "code" ? "Code" : "Personal"} · ${title}`, body }); }
+    try { this.show({ target, instanceId: observation.view.instanceId!, sessionId, taskId, title: `ruukoto · ${title}`, body }); }
     catch { process.stderr.write("[ruukoto:desktop] System notification not delivered; check system notification settings.\n"); }
   }
   private terminal(target: DesktopTarget, observation: Observation, taskId: string, sessionId: string, status: TaskStatus, silent: boolean, reason?: string): void {

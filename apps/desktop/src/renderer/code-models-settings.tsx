@@ -193,7 +193,7 @@ export function CodeModelsEditor({ state, scope, online }: { state: CodeModelsSt
   };
   if (adding) return <AddProviderPage state={state} onBack={() => setAdding(false)} onAdd={() => setAdding(false)} />;
   return <>
-    <SettingsPage title="Models" description="Manage the Code default model, providers and model catalog.">
+    <SettingsPage title="Models" description="Manage the default model, providers and model catalog.">
       {!state.view ? <Notices state={state} scope={scope} online={online} /> : <>
         <DefaultSettings state={state} />
         <SettingsGroup title="Providers" action={<SettingsButton variant="primary" onClick={() => { state.addProvider("custom-" + crypto.randomUUID()); setAdding(true); }} disabled={state.disabled || state.dirty}><Plus />Add provider</SettingsButton>}>
@@ -217,6 +217,6 @@ function CodeModelsForm({ settings, scope, code }: SettingsPageProps) {
 }
 
 export function CodeModelsSettings(props: SettingsPageProps) {
-  if (!props.scope.instanceId) return <SettingsPage title="Models" description="Manage the Code default model, providers and model catalog."><SettingsNotice>Code is offline. Restore the backend connection to manage models.</SettingsNotice></SettingsPage>;
+  if (!props.scope.instanceId) return <SettingsPage title="Models" description="Manage the default model, providers and model catalog."><SettingsNotice>Backend offline. Restore the connection to manage models.</SettingsNotice></SettingsPage>;
   return <CodeModelsForm {...props} />;
 }

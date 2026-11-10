@@ -37,14 +37,12 @@ async function fixture(prefix: string, vision = true, holdFirst = false) {
     protectedRoots: [kit.dirs.dataDir], onOccupancyReleased: () => {}, hostToolFamilies: [],
   });
   const imageTask = () => kit.store.withTx(() => {
-    const { event } = kit.store.registerInboundEvent({ source: "telegram", externalId: randomId("incoming"), actor: "telegram:owner", targetRole: "main", body: "这两张图有什么区别？" });
-    const task = kit.store.insertQueuedTask({ sessionId: session.id, requestId: randomId("req"), input: event.body,
-      modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, submissionDigest: randomId("digest"), sourceEventId: event.id }).task;
-    const ids = [PNG, JPEG].map((bytes, index) => kit.deps.artifacts.importImage({ id: randomId("art"), taskId: task.id, sessionId: session.id,
-      name: `inbound-image:${index}`, mimeType: index === 0 ? "image/png" : "image/jpeg", byteCount: bytes.length,
-      contentHash: createHash("sha256").update(bytes).digest("hex") }, bytes).id);
-    kit.store.markInboundQueued(event.id, task.id);
-    kit.store.db.prepare("UPDATE inbound_events SET artifact_refs = ? WHERE id = ?").run(JSON.stringify(ids), event.id);
+    const task = kit.store.insertQueuedTask({ sessionId: session.id, requestId: randomId("req"), input: "这两张图有什么区别？",
+      modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" }, submissionDigest: randomId("digest") }).task;
+    const images = [PNG, JPEG].map((bytes, index) => kit.deps.artifacts.importImage({ id: randomId("art"), taskId: task.id, sessionId: session.id,
+      name: `owner-image:${index}`, mimeType: index === 0 ? "image/png" : "image/jpeg", byteCount: bytes.length,
+      contentHash: createHash("sha256").update(bytes).digest("hex") }, bytes));
+    kit.store.appendEvent({ type: "task.attachments", taskId: task.id, sessionId: session.id, attachments: images.map(image => ({ id: image.id, taskId: task.id, sessionId: session.id, name: image.name, size: image.byteCount!, mimeType: image.mimeType!, contentHash: image.contentHash! })) }, { taskId: task.id, sessionId: session.id });
     return task;
   });
   const run = async (driver: Driver, task: Task) => {

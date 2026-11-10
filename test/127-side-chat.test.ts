@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { parseSessionFileStrict, snapshotSessionHistory } from "@ruukoto/core/history.ts";
 import { getSideChatByParent } from "@ruukoto/core/side-chat.ts";
 import { TASK_START_MARKER, TASK_END_MARKER, randomId, type Session } from "@ruukoto/core/types.ts";
@@ -51,7 +51,7 @@ function messagesOf(file: string): string[] {
 }
 
 async function fixture(prefix: string, responder: Parameters<typeof startTestRuntime>[1] = async () => ({ kind: "text", text: "侧聊回复" })) {
-  const t = await startTestRuntime(prefix, responder, { config: { product: product.runtime } });
+  const t = await startTestRuntime(prefix, responder);
   const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
   return { t, session, h: history(t, session) };
 }
@@ -203,13 +203,4 @@ test("侧聊 queued 任务跨重启中断且队列不暂停；绑定与历史保
     assert.equal(reopened.id, side.id);
     assert.equal(restarted.store.getSessionIdentity(side.id)?.kind, "side");
   } finally { await restarted?.stop("test_end"); await t.shutdown(); }
-});
-
-test("产品能力关闭时侧聊不可用", async () => {
-  const t = await startTestRuntime("side-disabled", async () => ({ kind: "text", text: "x" }));
-  try {
-    const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
-    await assert.rejects(() => t.runtime.openSideChat({ sessionId: session.id, requestId: "side-off" }), (e: any) => e.code === "unavailable");
-    await assert.rejects(() => t.client.request("open_side_chat", { session_id: session.id, request_id: "side-off-client" }), (e: any) => e.code === "unavailable");
-  } finally { await t.shutdown(); }
 });

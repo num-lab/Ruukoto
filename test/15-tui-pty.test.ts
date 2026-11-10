@@ -1,17 +1,9 @@
-/**
- * PTY 端到端：真实终端行为（issue 04 §6.6）。
- *
- * 以独立进程启动真实后台（mock 模型），TUI 经 Python 标准库 pty 在伪终端
- * 中运行：验证宽窄布局、工作流逐层选择、中文输入、流式输出、Ctrl+C 与 /quit
- * 退出后终端恢复（进程退出、alt screen 离开）、退出后后台任务继续执行。
- *
- * 需要 python3；无 python3 时跳过（在诚实清单中标注）。
- * Note: 见 .agents/notes/implemented/testing/2026-10-24-test-suite-reduction.md
- */
+/** Real Python PTY coverage of input, streaming, workspace/workflow navigation and detached backend work. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -22,9 +14,10 @@ import {
   lastUserText,
   startTestRuntime,
 } from "./helpers/testkit.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { getWorkflowQuestion, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import type { SessionCompactionRequest } from "@ruukoto/core/types.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
+import type { TestDirs } from "./helpers/testkit.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
@@ -179,17 +172,17 @@ interface PtyResult {
 }
 
 async function runTuiInPty(opts: {
-  env: Record<string, string>;
+  env: NodeJS.ProcessEnv;
   sessionId?: string;
   inputs: Array<[number | string[], string | { columns: number; rows: number }]>;
   size?: { columns: number; rows: number };
   expect: string[];
   timeout?: number;
 }): Promise<PtyResult> {
-  const args = ["tui"];
+  const args: string[] = [];
   if (opts.sessionId) args.push("--session", opts.sessionId);
   const payload = JSON.stringify({
-    cmd: ["npx", "tsx", "apps/ruukoto-code/src/main.ts", ...args],
+    cmd: [process.execPath, "--import", "tsx", "apps/ruukoto/src/main.ts", ...args],
     env: { ...opts.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
     inputs: opts.inputs,
     size: opts.size,
@@ -215,12 +208,12 @@ async function runTuiInPty(opts: {
   });
 }
 
-test("PTY: fresh Coding selector, managed /new and branch retain workspace identity", { timeout: 60_000 }, async () => {
+test("PTY: fresh workspace selector, managed /new and branch retain workspace identity", { timeout: 60_000 }, async () => {
   assert.equal(hasPython3(), true, "Python PTY support is required");
-  const t = await startTestRuntime("pty-managed", request => ({ kind: "text", text: "MANAGED-OK:" + lastUserText(request) }), { workDirs: 0, config: { product: codeProduct.runtime, socketPath: undefined } });
+  const t = await startTestRuntime("pty-managed", request => ({ kind: "text", text: "MANAGED-OK:" + lastUserText(request) }), { workDirs: 0 });
   try {
     const result = await runTuiInPty({
-      env: { RUUKOTO_PRODUCT: "ruukoto-code", RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+      env: profileChildEnv(t.dirs.profile.selection, {}),
       inputs: [[['选择工作区', 'No workspace'], "\r"], [['No workspace', 'Ask for approval'], "第一条管理对话\r"],
         [['MANAGED-OK:第一条管理对话'], "/new\r"], [['No workspace', 'Ask for approval'], "第二条管理对话\r"],
         [['MANAGED-OK:第二条管理对话'], "/branch 管理分支\r"], [[' · 管理分支 · '], "分支后续\r"],
@@ -230,7 +223,7 @@ test("PTY: fresh Coding selector, managed /new and branch retain workspace ident
     assert.equal(result.exitCode, 0, result.tail);
     assert.equal(result.expectSeen, result.expectTotal, result.tail);
     assert.ok(result.all.includes("\x1b[?1049l"));
-    const sessions = t.runtime.store.listSessions().filter(session => !t.runtime.store.listAgentRoles().some(role => role.sessionId === session.id));
+    const sessions = t.runtime.store.listSessions();
     assert.equal(sessions.length, 3);
     const branch = sessions.find(session => session.branchSource)!;
     assert.ok(branch);
@@ -242,7 +235,7 @@ test("PTY: fresh Coding selector, managed /new and branch retain workspace ident
     const roots = workspaces.map(project => project.rootDir!.cwdReal);
     assert.equal(new Set(roots).size, 2);
     assert.ok(workspaces.every(project => project.managed));
-    assert.equal(fs.readdirSync(path.join(t.dirs.root, "workspace")).length, 2);
+    assert.equal(fs.readdirSync(t.dirs.profile.workspaceDir).length, 2);
   } finally { await t.shutdown(); }
 });
 
@@ -251,7 +244,7 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
   const t = await startTestRuntime("pty-compact", async request => {
     if (!request.tools?.length) await new Promise(resolve => setTimeout(resolve, 400));
     return { kind: "text", text: request.tools?.length ? "已有对话回复" : "迁移摘要，保留未完成验证" };
-  }, { config: { product: codeProduct.runtime, socketPath: undefined } });
+  });
   try {
     const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
     for (let index = 0; index < 2; index++) {
@@ -262,7 +255,7 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
     const bytes = fs.readFileSync(file);
     const calls = t.server.calls.length;
     const result = await runTuiInPty({ sessionId: session.id,
-      env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+      env: profileChildEnv(t.dirs.profile.selection, {}),
       inputs: [[4, "/compact 保留  迁移细节\r"], [10, "/quit\r"]],
       expect: ["已接收", "上下文已压缩", "已退出 TUI"], timeout: 30 });
     assert.equal(result.exitCode, 0, result.tail);
@@ -278,14 +271,14 @@ test("PTY：Coding Agent /compact 中文指引、真实反馈与退出后的持�
 });
 
 test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留后台运行", { timeout: 60_000 }, async context => {
-  if (!hasPython3()) { context.skip("python3 不可用"); return; }
-  const t = await startTestRuntime("pty-workflow", async request => ({ kind: "text", text: "CHAT-OK:" + lastUserText(request) }), { config: { product: codeProduct.runtime, socketPath: undefined } });
+  assert.equal(hasPython3(), true, "Python PTY support is required");
+  const t = await startTestRuntime("pty-workflow", async request => ({ kind: "text", text: "CHAT-OK:" + lastUserText(request) }));
   try {
     const session = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
     const text = Array.from({ length: 40 }, (_, index) => "STAGE-LOG " + index + " 中文阶段").join("\n");
     await t.runtime.saveWorkflowDefinition({ name: "batch", script: 'await progress("state",{text:' + JSON.stringify(text) + '}); return await ask("q",{prompt:"继续?"});', expectedDigest: null, requestKey: "owner:save" });
     const result = await runTuiInPty({ sessionId: session.id, size: { columns: 140, rows: 30 },
-      env: { RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(), RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending") },
+      env: profileChildEnv(t.dirs.profile.selection, {}),
       inputs: [[["连接：在线", "（暂无历史消息）"], "/workflow\r"], [["工作流 · 当前会话", "启动工作流"], "\x1b[B\r"],
         [["工作流 · 选择已保存定义", "batch"], "\r"], [["工作流 · 业务参数"], "\r"],
         [["工作流 · 简短任务说明"], "终端逐层操作\r"], [["工作流 · 确认启动", "终端逐层操作"], "\r"],
@@ -317,41 +310,47 @@ test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留
   } finally { await t.shutdown(); }
 });
 
-/** 以独立进程启动真实后台（mock 模型，mock 工具；正式入口默认 native，本例不运行 worker）。 */
-async function startBackendProcess(dirs: { root: string; dataDir: string; agentDir: string }, baseUrl: string) {
+interface BackendProcess {
+  child: ChildProcess;
+  controlDir: string;
+  env: NodeJS.ProcessEnv;
+}
+
+/** Start the actual lock-owning backend directly, without a launcher process to outlive. */
+async function startBackendProcess(dirs: TestDirs, baseUrl: string): Promise<BackendProcess> {
   await writeModelsJson(dirs, baseUrl);
-  const env = {
-    ...process.env,
-    RUUKOTO_CODE_DATA_DIR: dirs.dataDir,
-    RUUKOTO_CODE_AGENT_DIR: dirs.agentDir,
-    RUUKOTO_CODE_PENDING_DIR: path.join(dirs.root, "pending"),
-    RUUKOTO_CODE_CONTROL_DIR: path.join(dirs.root, "control"),
-    RUUKOTO_OWNER_TOKEN: "",
-    RUUKOTO_OWNER_TOKEN_FILE: "",
-  };
-  const child = spawn("npx", ["tsx", "apps/ruukoto-code/src/main.ts", "start", "--tools", "mock", "--model", "mock/mock-model"], {
+  const env = profileChildEnv(dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" });
+  const child = spawn(process.execPath, ["--import", "tsx", "apps/ruukoto/src/main.ts", "server", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿
   });
   let stderr = "";
   child.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
-  const controlDir = path.join(dirs.root, "control");
-  await waitFor(
-    "后台 socket 就绪",
-    () => fs.existsSync(path.join(controlDir, "control.sock")) && fs.existsSync(path.join(controlDir, "owner.token")),
-    30_000,
-  );
-  return { child, stderr: () => stderr, controlDir, env };
+  const controlDir = dirs.profile.controlDir;
+  try {
+    await waitFor("backend socket ready", () => {
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Backend exited before readiness: ${stderr}`);
+      return fs.existsSync(dirs.profile.socketPath) && fs.existsSync(path.join(controlDir, "owner.token"));
+    }, 30_000);
+  } catch (error) {
+    await stopBackendProcess(child);
+    throw error;
+  }
+  return { child, controlDir, env };
 }
+
+async function stopBackendProcess(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const closed = once(child, "close");
+  child.kill("SIGTERM");
+  await closed;
+}
+
 test(
   "PTY：80×24 布局、中文输入、流式输出、Ctrl+C 退出后终端恢复且任务继续",
   { timeout: 180_000 },
   async (t) => {
-    if (!hasPython3()) {
-      t.skip("python3 不可用");
-      return;
-    }
+    assert.equal(hasPython3(), true, "Python PTY support is required");
     const { dirs, work } = await makeTestDirs("pty", 1);
     const server = new MockModelServer(async (req) => {
       const text = lastUserText(req);
@@ -359,13 +358,15 @@ test(
       await new Promise((r) => setTimeout(r, slow ? 4000 : 800));
       return { kind: "text", text: slow ? "后台继续完成" : `回声：${text.slice(0, 40)}` };
     });
-    const baseUrl = await server.start();
-    const { child: backend, controlDir, env } = await startBackendProcess(dirs, baseUrl);
+    let backend: BackendProcess | undefined;
+    let client: ControlClient | undefined;
     try {
-      // 经 CLI 创建项目与会话
+      const baseUrl = await server.start();
+      backend = await startBackendProcess(dirs, baseUrl);
+      const { controlDir, env } = backend;
       const token = readOwnerToken(controlDir)!;
-      const client = await ControlClient.connect(path.join(controlDir, "control.sock"));
-      await client.authenticate(token);
+      client = await ControlClient.connect(dirs.profile.socketPath);
+      await client.authenticate(token, dirs.profile);
       const project = await client.request<{ id: string }>("create_project", { name: "pty-demo" });
       const session = await client.request<{ id: string }>("create_session", { project_id: project.id, cwd: work[0] });
 
@@ -405,22 +406,14 @@ test(
       await waitFor(
         "任务在 TUI 退出后继续完成",
         async () => {
-          const snap = await client.request<{ tasks: Array<{ status: string }> }>("list_tasks", { session_id: session.id });
+          const snap = await client!.request<{ tasks: Array<{ status: string }> }>("list_tasks", { session_id: session.id });
           return snap.tasks.filter((x) => x.status === "completed").length >= 2;
         },
         30_000,
       );
-      client.close();
     } finally {
-      backend.kill("SIGTERM");
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        process.kill(-backend.pid!, "SIGKILL"); // 整组：覆盖 npx 垫片下的真实后台
-      } catch {
-        backend.kill("SIGKILL");
-      }
-      backend.stdout?.destroy();
-      backend.stderr?.destroy();
+      client?.close();
+      if (backend) await stopBackendProcess(backend.child);
       await server.close();
       await cleanupDirs(dirs);
     }

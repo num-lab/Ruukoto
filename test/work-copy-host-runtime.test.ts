@@ -63,7 +63,7 @@ test("捕获停止未核实独立保留副本占用，父任务保留来源；�
     await assert.rejects(rt.resumeQueue(session.id), { code: "stop_unverified" });
     assert.equal(rt.store.getOccupancyByDir(copyDir)?.taskId, host.id);
     assert.equal(rt.store.getOccupancyByDir(session.cwdReal)?.taskId, parent.id);
-    await rt.resumeQueue(session.id, undefined, true);
+    await rt.resumeQueue(session.id, true);
     assert.equal(rt.store.getOccupancyByDir(copyDir), null);
     assert.equal(rt.store.getOccupancyByDir(session.cwdReal), null);
     assert.equal(workCopyHostFor(rt.store.getTask(host.id)!)!.stopVerified, true);

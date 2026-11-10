@@ -1,5 +1,5 @@
 import type { DesktopResult } from "../shared/bridge.ts";
-import type { DesktopChatOp, PendingOp } from "../shared/bridge.ts";
+import type { DesktopChatOp } from "../shared/bridge.ts";
 import { DesktopError } from "./environment.ts";
 import { serializeFailure } from "./controller.ts";
 import type { OpParams, TuiOp } from "@ruukoto/control/ops.ts";
@@ -14,7 +14,7 @@ export const DESKTOP_OPS = [...CODE_SCHEDULE_OPS, ...CODE_MODEL_OPS, ...CODE_MCP
 export type DesktopOp = typeof DESKTOP_OPS[number];
 export const TERMINAL_OPS = ["desktop_terminal_open", "desktop_terminal_input", "desktop_terminal_resize", "desktop_terminal_kill"] as const;
 export const CHAT_OPS = ["desktop_chat_start", "desktop_chat_drafts", "desktop_chat_finish", "desktop_chat_prepare_submission", "desktop_workspace_path"] as const satisfies readonly DesktopChatOp[];
-type LocalOp = PendingOp | DesktopChatOp | typeof TERMINAL_OPS[number];
+type LocalOp = DesktopChatOp | typeof TERMINAL_OPS[number];
 
 export async function ipcResult<T>(action: () => T | Promise<T>): Promise<DesktopResult<T>> {
   try { return { ok: true, value: await action() }; }
@@ -23,17 +23,12 @@ export async function ipcResult<T>(action: () => T | Promise<T>): Promise<Deskto
 
 export async function handleRequest(target: unknown, op: unknown, params: unknown, reconnect: () => Promise<void>, request: (op: DesktopOp, params: OpParams<DesktopOp>) => Promise<unknown>, local?: (op: LocalOp, params: Record<string, unknown>) => unknown): Promise<DesktopResult<unknown>> {
   return ipcResult(async () => {
-    if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "This connection target isn't enabled yet.");
-    if (target === "personal") throw new DesktopError("op_not_allowed", "The Personal Agent uses its own personal-connection ops; update the client page.");
-    if (typeof op !== "string" || (op !== "reconnect" && op !== "desktop_pending_read" && op !== "desktop_pending_clear" && !CHAT_OPS.some(value => value === op) && !TERMINAL_OPS.some(value => value === op) && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "This operation isn't open to desktop clients.");
+    if (target !== "code") throw new DesktopError("target_unavailable", "This connection target is unavailable.");
+    if (typeof op !== "string" || (op !== "reconnect" && !CHAT_OPS.some(value => value === op) && !TERMINAL_OPS.some(value => value === op) && !DESKTOP_OPS.some(value => value === op))) throw new DesktopError("op_not_allowed", "This operation isn't open to desktop clients.");
     if (!params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "Operation parameters must be an object.");
     if (op === "reconnect") {
       if (Object.keys(params).length !== 0) throw new DesktopError("invalid_params", "Reconnect takes no parameters.");
       return reconnect();
-    }
-    if (op === "desktop_pending_read" || op === "desktop_pending_clear") {
-      if (!local) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before handling the original input.");
-      return local(op, params as Record<string, unknown>);
     }
     if (CHAT_OPS.some(value => value === op)) {
       if (!local) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before sending.");

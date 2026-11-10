@@ -1,101 +1,27 @@
-/**
- * CLI 入口（拥有者可信入口）：任务界面、工作区、配置中心与后台启动的统一
- * 分发（issue 21）。顶层分发决策见 cli-entry.ts 的 resolveEntry。
- *
- *   ruukoto [路径] [--session <id> | --demo]   任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）
- *   ruukoto -- <路径>                          显式工作区入口（目录与命令同名时使用，如 ruukoto -- config）
- *   ruukoto config [--offline]                 独立配置中心
- *   ruukoto server [--data-dir D] [--agent-dir A] [--execution native]
- *                  （两个产品默认且只接受 native）
- *   ruukoto start                              server 的兼容别名（同一代码路径；文档推荐 server）
- *   ruukoto tui                                旧拼法：打印迁移指引后仍启动任务界面
- *   ruukoto create-project <name>
- *   ruukoto create-session <project> <cwd> [--confirm-tools a,b]
- *   ruukoto submit <session> <request-id> [--mode confirm|full_access|auto-review|plan]
- *                  [--grant <path>:<read|read_write>[:<用途>];...] <input...>
- *   ruukoto switch-mode <task> <confirm|full_access|auto-review> [--grant ...]
- *   ruukoto status [task]                             任务/快照查询
- *   ruukoto events                                    订阅并打印事件流
- *   ruukoto interrupt <task> | cancel <task> | resume-queue <session>
- *   ruukoto confirm <confirmation-id> approve|reject
- *   ruukoto service-grant list [--cursor C] [--limit N] | show <id> | revoke <id> --expected-version N
- *   ruukoto read-artifact <task> <artifact> [--offset N] [--length N] | --output <file>
- *   ruukoto credentials list
- *   ruukoto credentials add --name N --host H --header H --purpose P --secret-env VAR
- *   ruukoto credentials remove <name>
- *   ruukoto qq configure --endpoint ws://... --self-id N [--credential N] | status | enable | disable
- *   ruukoto qq inbox|outbox [--group G] [--limit N]（旧群归档；核心群聊已退役）
- *   ruukoto telegram configure --credential N --user-id U [--chat-id C] [--api-base URL] | status | enable | disable
- *   ruukoto stop
- *
- * 两条 bin 入口：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent，
- * issue 01），产品身份经 RUUKOTO_PRODUCT 固定注入。数据目录默认 ~/.ruukoto
- * （ruukoto-code 为 ~/.ruukoto-code）；控制面目录为其兄弟目录 control/
- * （socket 与拥有者令牌）。路径环境变量按产品隔离：ruukoto 读 RUUKOTO_*_DIR，
- * ruukoto-code 读 RUUKOTO_CODE_*_DIR。管理命令都需要拥有者令牌：取
- * RUUKOTO_OWNER_TOKEN 或受控目录的 owner.token（0600，部署时以 0400 复制给
- * 拥有者）。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
- */
+/** CLI dispatch for the local runtime, configuration center and task interface. */
 
 import { ControlClient,requestOutcome } from "@ruukoto/control/client.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
-import { controlDirFor,defaultAgentDir,defaultDataDir,resolveClientConfig,resolveOwnerToken } from "@ruukoto/control/connect.ts";
-import { acquireInstanceLock,INSTANCE_LOCK_EXIT_CODE,InstanceLockError } from "@ruukoto/core/instance-lock.ts";
-import { dirEnvFor,productFromEnv } from "@ruukoto/core/product.ts";
-import { isSessionDefaultMode,randomId,SESSION_DEFAULT_MODES,type Artifact,type GrantedPath,type ModelSelection,type Session,type SessionDefaultMode,type Task } from "@ruukoto/core/types.ts";
-import { createHash } from "node:crypto";
+import { resolveClientConfig } from "@ruukoto/control/connect.ts";
+import { INSTANCE_LOCK_EXIT_CODE, InstanceLockError } from "@ruukoto/core/instance-lock.ts";
+import { bootstrapProfile, readProfile, selectProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
+import { isSessionDefaultMode,SESSION_DEFAULT_MODES,type Artifact,type GrantedPath,type ModelSelection,type Session,type SessionDefaultMode,type Task } from "@ruukoto/core/types.ts";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { exportArtifact } from "./artifact-export.ts";
-import { resolveEntry } from "./cli-entry.ts";
+import { parseDirectoryFlags, resolveEntry } from "./cli-entry.ts";
 import { parseWorkflowControl, type WorkflowControl } from "@ruukoto/core/workflow.ts";
-import { LEGACY_PROJECT_WRITE_HINT } from "./tui/commands.ts";
+import { runTui, type TuiOptions } from "./tui/index.ts";
+import { runConfigTui } from "./config-tui/index.ts";
+import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
+import { ControlServer } from "@ruukoto/control/server.ts";
+import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 
-export interface ImportFns {
-  preview(deps: import("@ruukoto/core/import-support.ts").LegacyImportDeps, input: {
-    from: string;
-    plan?: { renames?: Record<string, string>; personal_memories?: string[] };
-  }): {
-    plan: { from: string; renames: Record<string, string>; personal_memories?: string[] };
-    source: { instance_id: string };
-    revision: string | null;
-    plan_errors: string[];
-  };
-  apply(deps: import("@ruukoto/core/import-support.ts").LegacyImportDeps, input: {
-    plan: { from: string; renames?: Record<string, string>; personal_memories?: string[] };
-    source_instance_id: string;
-    revision: string;
-    request_id: string;
-  }): unknown;
-  revert(deps: import("@ruukoto/core/import-support.ts").LegacyImportDeps, importId: string): { ok: boolean };
-  list(deps: import("@ruukoto/core/import-support.ts").LegacyImportDeps): unknown;
-  Err: typeof import("@ruukoto/core/import-support.ts").LegacyImportError;
-}
-
-export interface CliProduct {
-  runtime: import("@ruukoto/runtime/runtime.ts").RuntimeProduct;
-  defaultExecution: "local" | "native";
-  allowedExecution?: readonly CliProduct["defaultExecution"][];
-  legacyProjectWrites: boolean;
-  importPersonalMemories: boolean;
-  imports(): Promise<ImportFns>;
-}
-
-/** 正式入口的后端配置无效时返回 null，保留现有后台与档案。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
- */
-function resolveExecutionBackend(product: CliProduct, override: string | undefined): CliProduct["defaultExecution"] | null {
-  const backend = override ?? product.defaultExecution;
-  const allowed = product.allowedExecution ?? [product.defaultExecution];
-  if ((backend !== "local" && backend !== "native") || !allowed.includes(backend)) {
-    const hint = allowed.length === 1 && allowed[0] === "native"
-      ? "受限执行仅支持 native；改为 --execution native 或移除 --execution / RUUKOTO_EXECUTION_BACKEND 覆盖"
-      : `${allowed.join(" | ")}；完全访问使用启动账户，不施加任务沙箱`;
-    process.stderr.write(`[ruukoto:cli] --execution 取值无效：${backend}（${hint}）\n`);
+function resolveExecutionBackend(override: string | undefined): "native" | null {
+  if (override !== undefined && override !== "native") {
+    process.stderr.write("[ruukoto:cli] 受限执行仅支持 native；移除 --execution / RUUKOTO_EXECUTION_BACKEND 覆盖或设置 native。\n");
     return null;
   }
-  return backend;
+  return "native";
 }
 
 function parseArgs(argv: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -118,18 +44,12 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; positional:
   return { flags, positional };
 }
 
-export function defaultDirs(): { dataDir: string; agentDir: string } {
-  return {
-    dataDir: defaultDataDir(),
-    agentDir: defaultAgentDir(),
-  };
-}
-
-async function withClient<T>(fn: (client: ControlClient) => Promise<T>): Promise<T> {
-  const config = resolveClientConfig();
+async function withClient<T>(profile: ProfilePaths, fn: (client: ControlClient) => Promise<T>): Promise<T> {
+  const config = resolveClientConfig(profile);
   const client = await ControlClient.connect(config.socketPath);
   try {
-    await client.authenticate(config.token);
+    await client.authenticate(config.token, profile);
+    await client.handshake();
     return await fn(client);
   } finally {
     client.close();
@@ -172,86 +92,85 @@ function parseMode(raw: string | undefined): SessionDefaultMode | undefined {
   throw new Error(`--mode 无效：${raw}（${SESSION_DEFAULT_MODES.join(" | ")}）`);
 }
 
-export async function runCli(argv: string[], product: CliProduct): Promise<number> {
-  // 产品身份（issue 01）：两条 bin 入口注入 RUUKOTO_PRODUCT；非法取值在所有入口
-  // 之前快速失败，不以错误产品触碰数据目录
-  try {
-    productFromEnv();
-  } catch (err) {
-    console.error((err as Error).message);
+export async function runCli(argv: string[]): Promise<number> {
+  const parsed = parseDirectoryFlags(argv);
+  const entry = parsed.error ? { kind: "help" as const, error: parsed.error } : resolveEntry(parsed.argv);
+  if (entry.kind === "help") {
+    if (entry.error) console.error(entry.error);
+    console.error(defaultHelp());
+    return entry.error === undefined ? 0 : 1;
+  }
+  if (entry.kind === "tui" && entry.demo) return runTaskTui({ demo: true });
+  const interactive = entry.kind === "tui" || entry.kind === "workspace" || entry.kind === "config" || (entry.kind === "command" && entry.command === "mcp" && entry.argv[0] === "cua");
+  if (entry.kind === "command" && entry.command === "mcp" && entry.argv.some(arg => arg === "--project" || arg.startsWith("--project="))) {
+    process.stderr.write("[ruukoto:cli] MCP 按实例配置，不接受 --project。\n");
     return 1;
   }
-  process.env.RUUKOTO_PRODUCT = product.runtime.type;
-  const entry = resolveEntry(argv);
-  switch (entry.kind) {
-    case "help":
-      if (entry.error) console.error(entry.error);
-      console.error(defaultHelp());
-      return entry.error === undefined ? 0 : 1;
-    case "tui":
-      return runTaskTui({ sessionId: entry.sessionId, demo: entry.demo }, product);
-    case "workspace":
-      return runTaskTui({ workspace: { path: entry.path } }, product);
-    case "config": {
-      const { runConfigTui } = await import("./config-tui/index.ts");
-      return await runConfigTui({ offline: entry.offline });
+  if (interactive && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    process.stderr.write("[ruukoto:cli] TUI 需要交互式终端（TTY）。\n");
+    return 1;
+  }
+  if (entry.kind === "server") {
+    const { flags } = parseArgs(entry.argv);
+    if (flags["model"] && !/^[^/]+\/.+$/.test(flags["model"])) {
+      process.stderr.write("[ruukoto:cli] --model 格式为 provider/model。\n");
+      return 1;
     }
-    case "server":
-      try {
-        return await runServer(entry.argv, product);
-      } catch (err) {
-        // 锁冲突收口为退出码（语义见 INSTANCE_LOCK_EXIT_CODE）：已确认竞争=42 等胜者复用；
-        // 无法核实持锁身份=普通失败，保留锁供人工处理
-        if (err instanceof InstanceLockError) {
-          console.error(err.message);
-          return err.unverifiable ? 1 : INSTANCE_LOCK_EXIT_CODE;
-        }
-        throw err;
+    if (flags["tools"] && !["coding", "mock"].includes(flags["tools"])) {
+      process.stderr.write("[ruukoto:cli] --tools 仅接受 coding 或 mock。\n");
+      return 1;
+    }
+  }
+  const serverFlags = entry.kind === "server" ? parseArgs(entry.argv).flags : undefined;
+  if ((entry.kind === "server" || entry.kind === "tui" || entry.kind === "workspace") &&
+      resolveExecutionBackend(serverFlags?.["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND) === null) return 1;
+  try {
+    const selection = selectProfile(parsed.directories);
+    const profile = entry.kind === "command" && !(entry.command === "mcp" && entry.argv[0] === "cua")
+      ? readProfile(selection)
+      : await bootstrapProfile(selection);
+    if (!profile) {
+      process.stderr.write("[ruukoto:cli] 所选实例尚未初始化；先运行 ruukoto config --offline。\n");
+      return 1;
+    }
+    switch (entry.kind) {
+      case "tui": return await runTaskTui({ profile, sessionId: entry.sessionId });
+      case "workspace": return await runTaskTui({ profile, workspace: { path: entry.path } });
+      case "config": {
+        return await runConfigTui({ profile, offline: entry.offline });
       }
-    case "legacy":
-      return runLegacy(entry.command, entry.argv, product);
+      case "server": return await runServer(entry.argv, profile);
+      case "command": return await runManagement(entry.command, entry.argv, profile);
+    }
+  } catch (error) {
+    process.stderr.write(`[ruukoto:cli] ${error instanceof Error ? error.message : String(error)}\n`);
+    return error instanceof InstanceLockError && !error.unverifiable ? INSTANCE_LOCK_EXIT_CODE : 1;
   }
 }
 
-/** 任务 TUI 调用参数：workspace 由 TUI 侧实现后并入其 Options（issue 21 接口契约）。 */
-type TaskTuiOpts = Parameters<typeof import("./tui/index.ts")["runTui"]>[0] & { workspace?: { path: string } };
-
-async function runTaskTui(opts: TaskTuiOpts, product: CliProduct): Promise<number> {
-  if (!opts.demo && resolveExecutionBackend(product, process.env.RUUKOTO_EXECUTION_BACKEND) === null) return 1;
+async function runTaskTui(opts: TuiOptions): Promise<number> {
   // TUI 入口：只连接已运行的后台，不创建 SDK 会话、不加载模型凭据。
   // demo：合成调试会话，不连后台、不需要令牌、不产生真实副作用。
-  const { runTui } = await import("./tui/index.ts");
   if (opts.demo) {
     console.error("合成调试会话：不连接后台，数据为静态构造，仅用于调试界面渲染");
   }
   return await runTui(opts);
 }
 
-/** server/start：前台启动后台（单实例锁、信号处理、优雅停止；启动失败非零退出）。 */
-async function runServer(rest: string[], product: CliProduct): Promise<number> {
+/** Foreground backend lifecycle; runtime owns the instance lock. */
+async function runServer(rest: string[], profile: ProfilePaths): Promise<number> {
   const { flags } = parseArgs(rest);
-  const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
-  const { ControlServer } = await import("@ruukoto/control/server.ts");
-  const dirs = defaultDirs();
-  const dataDir = flags["data-dir"] ?? dirs.dataDir;
-  const agentDir = flags["agent-dir"] ?? dirs.agentDir;
   const modelFlag = flags["model"] ?? "";
   const split = modelFlag.indexOf("/");
   if (modelFlag && (split <= 0 || split === modelFlag.length - 1)) throw new Error("--model 格式为 provider/model");
   const modelProvider = split < 0 ? undefined : modelFlag.slice(0, split);
   const modelId = split < 0 ? undefined : modelFlag.slice(split + 1);
-  // 正式入口按产品声明限定执行后端；库层 local 注入不受 CLI 限制。
-  // Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
-  const execFlag = resolveExecutionBackend(product, flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND);
+  const execFlag = resolveExecutionBackend(flags["execution"] ?? process.env.RUUKOTO_EXECUTION_BACKEND);
   if (execFlag === null) return 1;
-  if (execFlag === "local") {
-    console.error("警告：local 执行后端无隔离，仅用于开发/验证；受限任务生产部署请使用 --execution native");
-  }
   // 工具集：默认真实编码工具；mock 仅供模拟测试（crash 恢复集成验证使用）
   const toolsFlag = flags["tools"] ?? "coding";
-  let toolFactory: import("@ruukoto/runtime/runtime.ts").RuntimeConfig["toolFactory"];
+  let toolFactory: RuntimeConfig["toolFactory"];
   if (toolsFlag === "mock") {
-    const { createMockTools } = await import("@ruukoto/agent/mock-tools.ts");
     toolFactory = (ctx) => createMockTools(ctx);
   } else if (toolsFlag === "coding") {
     toolFactory = undefined; // 运行时默认：真实编码工具（路由器 + 工具工作进程）
@@ -259,36 +178,15 @@ async function runServer(rest: string[], product: CliProduct): Promise<number> {
     console.error(`--tools 取值无效：${toolsFlag}（coding | mock）`);
     return 1;
   }
-  // 服务器服务管理（agent-direction issue 09）：显式部署配置才装配；只配置
-  // 一半是部署错误，直接拒绝启动而不是静默降级为无能力
-  const serviceHelper = process.env.RUUKOTO_SERVICE_HELPER;
-  const servicePolicy = process.env.RUUKOTO_SERVICE_POLICY;
-  if ((serviceHelper && !servicePolicy) || (!serviceHelper && servicePolicy)) {
-    console.error("RUUKOTO_SERVICE_HELPER 与 RUUKOTO_SERVICE_POLICY 必须同时设置（见 deploy/systemd/README.md）");
-    return 1;
-  }
   const runtime = await Runtime.start({
-    dataDir,
-    agentDir,
-    // 路径环境变量按产品隔离（issue 01）：ruukoto-code 只读 RUUKOTO_CODE_CONTROL_DIR
-    controlDir: dirEnvFor(product.runtime.type, "CONTROL"),
-    product: product.runtime,
+    profile,
     // 未显式指定时不传：持久默认的思考档位才能生效（显式 --thinking 优先）
     thinkingLevel: flags["thinking"] as ModelSelection["thinkingLevel"] | undefined,
     modelProvider,
     modelId,
     execution: { backend: execFlag },
     toolFactory,
-    service: serviceHelper ? { helperPath: serviceHelper, policyPath: servicePolicy! } : undefined,
     browser: { binaryPath: process.env.RUUKOTO_BROWSER_BINARY, chromePath: process.env.RUUKOTO_BROWSER_CHROME },
-    // dev 开发实例（issue 21 §1）：RUUKOTO_DISABLE_QQ=1 停用真实 QQ 通道
-    qqDisabled: process.env.RUUKOTO_DISABLE_QQ === "1",
-    // 同上（issue 04）：RUUKOTO_DISABLE_TELEGRAM=1 停用真实 Telegram 通道
-    telegramDisabled: process.env.RUUKOTO_DISABLE_TELEGRAM === "1",
-    // 显式文件参数，不从环境继承；开发实例不会自动接纳生产 webhook。
-    githubWebhook: flags["github-webhook-config"]
-      ? JSON.parse(fs.readFileSync(flags["github-webhook-config"], "utf8"))
-      : undefined,
   });
   await ControlServer.start(runtime);
   const stopAndExit = (reason: string) => {
@@ -296,138 +194,42 @@ async function runServer(rest: string[], product: CliProduct): Promise<number> {
   };
   process.on("SIGINT", () => stopAndExit("signal_sigint"));
   process.on("SIGTERM", () => stopAndExit("signal_sigterm"));
-  console.error(`${product} 后台已启动 dataDir=${dataDir} socket=${runtime.socketPath()} (pid ${process.pid})`);
-  const webhook = runtime.githubWebhookAddress();
-  if (webhook) console.error(`GitHub webhook http://${webhook.address}:${webhook.port}/github/webhook`);
+  console.error(`ruukoto 后台已启动 dataDir=${profile.dataDir} agentDir=${profile.agentDir} controlDir=${profile.controlDir} pendingDir=${profile.pendingDir} socket=${profile.socketPath} (pid ${process.pid})`);
   return 0;
 }
 
-/** ruukoto-code 不再提供旧项目写入路径（agent-direction issue 23）：新会话一律经工作区入口。 */
-function legacyProjectWriteRefused(): number {
-  console.error(LEGACY_PROJECT_WRITE_HINT);
-  return 1;
-}
-
 /** 管理命令与旧拼法 tui：保持既有手卷解析与输出，供脚本与非 TTY 使用。 */
-async function runLegacy(cmd: string, rest: string[], product: CliProduct): Promise<number> {
+async function runManagement(cmd: string, rest: string[], profile: ProfilePaths): Promise<number> {
   const { flags, positional } = parseArgs(rest);
   switch (cmd) {
     case "workflow":
-      return runWorkflowCli(positional, flags, product.runtime.type);
-    case "legacy-import": {
-      // 跨实例导入（agent-direction issue 21/22）：两条入口按产品
-      // 分流——ruukoto-code 迁入开发资料，ruukoto 迁入个人资料（镜像方向）；
-      // 离线执行（不走控制面），持目标实例锁运行，源实例全程只读
-      // Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
-      // Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
-      return runLegacyImport(positional, flags, product);
-    }
-    case "create-project":
-      if (!product.legacyProjectWrites) return legacyProjectWriteRefused();
-      print(await withClient((c) => c.request("create_project", { name: positional[0] ?? "" })));
-      return 0;
+      return runWorkflowCli(positional, flags, profile);
     case "project": {
       // 项目指令配置（issue 05 §3；拥有者入口）：set-instructions <项目id> <工作区相对路径...>
       const sub = positional[0];
       if (sub === "set-instructions") {
         const projectId = positional[1] ?? "";
         const files = positional.slice(2);
-        print(await withClient((c) => c.request("set_project_instructions", { project_id: projectId, files })));
+        print(await withClient(profile, (c) => c.request("set_project_instructions", { project_id: projectId, files })));
         return 0;
       }
-      // 旧数据 → 工作区组织迁移（agent-direction issue 07）：migration-preview 只读，
-      // --plan 校验选择并把绑定最终选择的修订写回计划文件；migration-apply 按计划文件应用
-      if (sub === "migration-preview") {
-        const projectId = positional[1] ?? "";
-        if (!projectId) {
-          console.error("用法：ruukoto project migration-preview <项目id> [--plan <文件>] [--limit N]");
-          return 1;
-        }
-        const planFile = flags["plan"];
-        const plan = planFile ? readJsonFile(planFile) : undefined;
-        const limit = flags["limit"] ? Number(flags["limit"]) : undefined;
-        const preview = await withClient((c) =>
-          c.request<{ instance_id: string; revision: string | null; plan_errors: string[] }>("preview_workspace_migration", {
-            project_id: projectId,
-            plan,
-            limit,
-          }),
-        );
-        if (planFile && preview.revision) {
-          // 把绑定最终选择的修订写回计划文件（选择内容不动），供 migration-apply 使用
-          fs.writeFileSync(
-            planFile,
-            JSON.stringify(
-              { ...(plan as Record<string, unknown>), project_id: projectId, instance_id: preview.instance_id, revision: preview.revision },
-              null,
-              2,
-            ) + "\n",
-          );
-        }
-        print(preview);
-        return preview.plan_errors.length > 0 ? 1 : 0;
-      }
-      if (sub === "migration-apply") {
-        const planFile = flags["plan"];
-        if (!planFile) {
-          console.error(
-            "用法：ruukoto project migration-apply --plan <文件> [--request-id <id>]\n" +
-              "  计划文件由 migration-preview --plan 生成；回退：{ \"project_id\": \"…\", \"instance_id\": \"…\", \"action\": \"revert\", \"revert_request_id\": \"…\" }",
-          );
-          return 1;
-        }
-        const saved = readJsonFile(planFile) as Record<string, unknown>;
-        const { project_id, instance_id, revision, ...plan } = saved;
-        // 缺省请求键按计划文件内容派生：同一文件重发即原键核实（不重复执行），可用 --request-id 覆盖
-        const requestId = flags["request-id"] ?? `mig_${createHash("sha256").update(JSON.stringify(saved)).digest("hex").slice(0, 24)}`;
-        print(
-          await withClient((c) =>
-            c.request("apply_workspace_migration", {
-              project_id: typeof project_id === "string" ? project_id : "",
-              instance_id: typeof instance_id === "string" ? instance_id : "",
-              request_id: requestId,
-              plan,
-              expected_revision: typeof revision === "string" ? revision : undefined,
-            }),
-          ),
-        );
-        return 0;
-      }
-      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）；ruukoto project migration-preview <项目id> [--plan <文件>] [--limit N]；ruukoto project migration-apply --plan <文件> [--request-id <id>]");
+      console.error("用法：ruukoto project set-instructions <项目id> <工作区相对路径...>（空列表 = 清除）");
       return 1;
     }
-    case "create-session": {
-      if (!product.legacyProjectWrites) return legacyProjectWriteRefused();
-      const confirmTools = (flags["confirm-tools"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-      print(
-        await withClient((c) =>
-          c.request("create_session", {
-            project_id: positional[0] ?? "",
-            cwd: positional[1] ?? "",
-            confirm_tools: confirmTools,
-          }),
-        ),
-      );
-      return 0;
-    }
     case "models":
-      print(await withClient((c) => c.request("list_models", { provider: flags["provider"], offset: Number(flags["offset"] ?? 0), limit: Number(flags["limit"] ?? 100) })));
+      print(await withClient(profile, (c) => c.request("list_models", { provider: flags["provider"], offset: Number(flags["offset"] ?? 0), limit: Number(flags["limit"] ?? 100) })));
       return 0;
     case "set-model":
-      print(await withClient(async (c) => {
+      print(await withClient(profile, async (c) => {
         const session = await c.request<Session>("get_session", { session_id: positional[0] ?? "" });
         return c.request("set_session_model", { session_id: session.id, expected_version: session.modelSelectionVersion, model_selection: parseSelection(positional[1], flags["thinking"]) });
       }));
       return 0;
     case "submit":
-      print(await withClient(async (c) => {
+      print(await withClient(profile, async (c) => {
         const sessionId = positional[0] ?? "";
         const requestId = positional[1] ?? "";
         const existing = await c.request<{ task: Task | null }>("find_task", { session_id: sessionId, request_id: requestId });
-        if (existing.task && !existing.task.modelSelection) {
-          console.error("旧任务已接收，关联原任务；旧记录无法还原完整提交参数");
-          return existing.task;
-        }
         const session = existing.task ? null : await c.request<Session>("get_session", { session_id: sessionId });
         const selection = flags["model"] ? parseSelection(flags["model"], flags["thinking"]) : existing.task?.modelSelection ?? session?.modelSelection;
         if (!selection) throw new Error("会话缺少模型选择，请先 set-model");
@@ -445,7 +247,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       return 0;
     case "switch-mode":
       print(
-        await withClient((c) =>
+        await withClient(profile, (c) =>
           c.request("switch_mode", {
             task_id: positional[0] ?? "",
             mode: positional[1] ?? "",
@@ -456,7 +258,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       return 0;
     case "set-session-mode":
       print(
-        await withClient(async (c) => {
+        await withClient(profile, async (c) => {
           const session = await c.request<Session>("get_session", { session_id: positional[0] ?? "" });
           return c.request("set_session_mode", { session_id: session.id, mode: positional[1] ?? "", expected_version: session.defaultAccessModeVersion });
         }),
@@ -464,34 +266,34 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       return 0;
     case "status": {
       if (positional[0]) {
-        print(await withClient((c) => c.request("get_task", { task_id: positional[0] })));
+        print(await withClient(profile, (c) => c.request("get_task", { task_id: positional[0] })));
       } else {
-        const result = await withClient((c) => c.handshake());
+        const result = await withClient(profile, (c) => c.handshake());
         print(result.snapshot);
       }
       return 0;
     }
     case "events": {
-      const controlDir = controlDirFor(defaultDataDir());
-      const client = await ControlClient.connect(path.join(controlDir, "control.sock"));
-      await client.authenticate(resolveOwnerToken(controlDir));
+      const config = resolveClientConfig(profile);
+      const client = await ControlClient.connect(config.socketPath);
+      await client.authenticate(config.token, profile);
       const handshake = await client.handshake();
       console.error(`已连接（seq=${handshake.seq}），等待事件… Ctrl+C 退出`);
       client.onEvent((event) => console.log(JSON.stringify(event)));
       return 0;
     }
     case "interrupt":
-      print(await withClient((c) => c.request("interrupt", { task_id: positional[0] ?? "" })));
+      print(await withClient(profile, (c) => c.request("interrupt", { task_id: positional[0] ?? "" })));
       return 0;
     case "cancel":
-      print(await withClient((c) => c.request("cancel", { task_id: positional[0] ?? "" })));
+      print(await withClient(profile, (c) => c.request("cancel", { task_id: positional[0] ?? "" })));
       return 0;
     case "resume-queue":
-      print(await withClient((c) => c.request("resume_queue", { session_id: positional[0] ?? "", ...(flags["model"] ? { model_selection: parseSelection(flags["model"], flags["thinking"]) } : {}), ...(flags["stop-confirmed"] === "true" ? { stop_confirmed: true } : {}) })));
+      print(await withClient(profile, (c) => c.request("resume_queue", { session_id: positional[0] ?? "", ...(flags["stop-confirmed"] === "true" ? { stop_confirmed: true } : {}) })));
       return 0;
     case "confirm":
       print(
-        await withClient((c) =>
+        await withClient(profile, (c) =>
           c.request("respond_confirmation", {
             confirmation_id: positional[0] ?? "",
             decision: positional[1] ?? "",
@@ -508,7 +310,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         }
         let artifact: Artifact;
         try {
-          artifact = await withClient((c) => exportArtifact(c, positional[0] ?? "", positional[1] ?? "", output));
+          artifact = await withClient(profile, (c) => exportArtifact(c, positional[0] ?? "", positional[1] ?? "", output));
         } catch (error) {
           process.stderr.write(`[ruukoto:cli] 产物导出失败，目标文件未替换：${error instanceof Error ? error.message : String(error)}\n`);
           return 1;
@@ -516,7 +318,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         process.stderr.write(`[ruukoto:cli] 已完整导出产物 ${artifact.id}（${artifact.byteCount} 字节）\n`);
         return 0;
       }
-      const result = await withClient((c) =>
+      const result = await withClient(profile, (c) =>
         c.request<OpResult<"read_artifact">>(
           "read_artifact",
           {
@@ -540,13 +342,13 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         console.error("用法：ruukoto web-search <on|off>");
         return 1;
       }
-      print(await withClient((c) => c.request("set_web_search", { enabled: state === "on" })));
+      print(await withClient(profile, (c) => c.request("set_web_search", { enabled: state === "on" })));
       return 0;
     }
     case "credentials": {
       const sub = positional[0];
       if (sub === "list") {
-        print(await withClient((c) => c.request("list_credentials", {})));
+        print(await withClient(profile, (c) => c.request("list_credentials", {})));
         return 0;
       }
       if (sub === "add") {
@@ -555,7 +357,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         const secret = process.env[secretEnv];
         if (!secret) throw new Error(`环境变量 ${secretEnv} 为空`);
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("add_credential", {
               name: flags["name"] ?? "",
               host: flags["host"] ?? "",
@@ -568,18 +370,10 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         return 0;
       }
       if (sub === "remove") {
-        print(await withClient((c) => c.request("remove_credential", { name: positional[1] ?? "" })));
+        print(await withClient(profile, (c) => c.request("remove_credential", { name: positional[1] ?? "" })));
         return 0;
       }
       console.error("用法：ruukoto credentials list | add --name N --host H --header H --purpose P --secret-env VAR | remove <name>");
-      return 1;
-    }
-    case "github": {
-      // issue 17：专用 GitHub 模块已退役。旧命令不再执行业务操作，只保留静态迁移提示。
-      console.error(
-        "GitHub 专用模块已退役（issue 17）：PR/issue/CI 等操作请改用通用 MCP 服务（ruukoto mcp configure …，见 docs/usage.md「MCP 服务」）。\n" +
-          "历史草稿与发布记录已归档为原任务产物（清单：<数据目录>/github-archive-manifest.json）；旧待审批/待发布操作已失效，不会发送。",
-      );
       return 1;
     }
     case "mcp": {
@@ -589,8 +383,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       }
       const sub = positional[0];
       if (sub === "cua") {
-        const { runConfigTui } = await import("./config-tui/index.ts");
-        return runConfigTui();
+        return await runConfigTui({ profile });
       }
       if (sub === "configure") {
         // --tools 条目：name = 只读工具；name:write / name:unknown = 有副作用/副作用不明（逐次审批）
@@ -604,7 +397,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
           return { name: entry.slice(0, idx), effect };
         });
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("mcp_configure", {
               name: flags["name"] ?? "",
               endpoint: flags["endpoint"] ?? "",
@@ -618,12 +411,12 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         return 0;
       }
       if (sub === "list") {
-        print(await withClient((c) => c.request("mcp_list", {})));
+        print(await withClient(profile, (c) => c.request("mcp_list", {})));
         return 0;
       }
       if (sub === "enable" || sub === "disable") {
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("mcp_set_enabled", {
               service_id: positional[1] ?? "",
               enabled: sub === "enable",
@@ -635,7 +428,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       }
       if (sub === "remove") {
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("mcp_remove", {
               service_id: positional[1] ?? "",
               expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
@@ -647,7 +440,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       if (sub === "check") {
         // 检查连接前明确展示将联系的服务（端点），再发请求
         print(
-          await withClient(async (c) => {
+          await withClient(profile, async (c) => {
             const list = (await c.request("mcp_list", {})) as any;
             const target = (list.services as any[]).find((s) => s.id === positional[1]);
             if (target) console.error(`连接检查：${target.name}（${target.cua?.kind ?? target.endpoint}）`);
@@ -662,159 +455,34 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
           "    （--tools 条目：name = 只读工具；name:write / name:unknown = 有副作用/副作用不明，confirm 模式逐次审批）\n" +
           "  ruukoto mcp list | enable <service-id> | disable <service-id> | remove <service-id> [--expected-version N]\n" +
           "  ruukoto mcp check <service-id>（连接检查 + 工具列表，标注允许/未允许与副作用类别）\n" +
-          "  ruukoto-code mcp cua（打开配置界面，从 MCP 服务选择本机电脑与人工恢复）",
+          "  ruukoto mcp cua（打开配置界面，从 MCP 服务选择本机电脑与人工恢复）",
       );
       return 1;
     }
     case "stop":
-      print(await withClient((c) => c.request("stop", {})));
+      print(await withClient(profile, (c) => c.request("stop", {})));
       return 0;
-    case "qq": {
-      // QQ 群聊入口（issue 07，NapCat OneBot v11）：token 凭据先经
-      // credentials add --purpose qq_onebot 登记，再以 --credential 引用名称
-      const sub = positional[0];
-      if (sub === "configure") {
-        print(
-          await withClient((c) =>
-            c.request("qq_configure", {
-              endpoint: flags["endpoint"] ?? "",
-              // --no-credential 显式清除凭据引用；缺省 --credential 则保留现有
-              credential: flags["no-credential"] !== undefined ? null : flags["credential"],
-              self_id: flags["self-id"] ?? "",
-              owner_user_id: flags["no-owner"] !== undefined ? null : flags["owner-id"],
-              max_reply_chars: flags["max-reply-chars"] === undefined ? undefined : Number(flags["max-reply-chars"]),
-              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
-            }),
-          ),
-        );
-        return 0;
-      }
-      if (sub === "status") {
-        print(await withClient((c) => c.request("qq_status", {})));
-        return 0;
-      }
-      if (sub === "enable" || sub === "disable") {
-        print(
-          await withClient((c) =>
-            c.request("qq_set_enabled", {
-              enabled: sub === "enable",
-              expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
-            }),
-          ),
-        );
-        return 0;
-      }
-      // 核心群聊已退役（agent-direction issue 20）：旧命令只打印退役提示
-      if (sub === "group") {
-        console.error("核心群聊已退役：不再维护允许群（正式 QQ 群聊外挂将在后续阶段交付）；旧群资料可用 ruukoto qq inbox / outbox 查阅");
-        return 1;
-      }
-      if (sub === "inbox" || sub === "outbox") {
-        print(
-          await withClient((c) =>
-            c.request(sub === "inbox" ? "qq_inbox_list" : "qq_outbox_list", {
-              group_id: flags["group"],
-              limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
-            }),
-          ),
-        );
-        return 0;
-      }
-      console.error(
-        "用法：\n" +
-          "  ruukoto qq configure --endpoint ws://127.0.0.1:3001 --self-id <QQ号> [--credential <名称> | --no-credential] [--owner-id <拥有者QQ号> | --no-owner] [--max-reply-chars N] [--expected-version N]\n" +
-          "    （owner 私聊需 token；仅接好友纯文本，共享 main 会话；--no-owner 关闭私聊）\n" +
-          "    （token 先经 ruukoto credentials add --name N --host H --header authorization --purpose qq_onebot --secret-env VAR 登记）\n" +
-          "  ruukoto qq status | enable | disable\n" +
-          "  ruukoto qq inbox [--group <群号>] [--limit N] | outbox [--group <群号>] [--limit N]（旧群归档）",
-      );
-      return 1;
-    }
-    case "telegram": {
-      // Telegram owner 入口（issue 04）：bot token 先经
-      // credentials add --purpose telegram_bot 登记，再以 --credential 引用名称
-      const sub = positional[0];
-      const expected_version = flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]);
-      if (sub === "configure") {
-        print(await withClient((c) => c.request("telegram_configure", {
-          credential: flags["credential"] ?? "",
-          user_id: flags["user-id"] ?? "",
-          chat_id: flags["chat-id"],
-          api_base: flags["api-base"],
-          expected_version,
-        })));
-        return 0;
-      }
-      if (sub === "status") {
-        print(await withClient((c) => c.request("telegram_status", {})));
-        return 0;
-      }
-      if (sub === "enable" || sub === "disable") {
-        print(await withClient((c) => c.request("telegram_set_enabled", { enabled: sub === "enable", expected_version })));
-        return 0;
-      }
-      console.error(
-        "用法：\n" +
-          "  ruukoto telegram configure --credential <名称> --user-id <owner user_id> [--chat-id <chat_id>] [--api-base https://...] [--expected-version N]\n" +
-          "    （token 先经 ruukoto credentials add --name N --host api.telegram.org --header none --purpose telegram_bot --secret-env VAR 登记）\n" +
-          "  ruukoto telegram status | enable | disable",
-      );
-      return 1;
-    }
-    case "schedule":
-    case "notify": {
-      // 调度计划与通知发送账本（issue 03）：列表/详情/取消；审批仍在 TUI
-      const sub = positional[0];
-      const isSchedule = cmd === "schedule";
-      const idKey = isSchedule ? "schedule_id" : "op_id";
-      if (sub === "list") {
-        print(await withClient((c) => c.request(isSchedule ? "schedule_list" : "notification_list", {
-          status: flags["status"],
-          cursor: flags["cursor"],
-          limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
-        })));
-        return 0;
-      }
-      if (sub === "show" && positional[1]) {
-        print(await withClient((c) => c.request(isSchedule ? "schedule_get" : "notification_get", { [idKey]: positional[1] })));
-        return 0;
-      }
-      if (sub === "cancel" && positional[1]) {
-        print(await withClient((c) => c.request(isSchedule ? "schedule_cancel" : "notification_cancel", {
-          [idKey]: positional[1],
-          reason: flags["reason"] ?? "",
-          ...(isSchedule ? { expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]) } : {}),
-        })));
-        return 0;
-      }
-      console.error(
-        "用法：\n" +
-          "  ruukoto schedule list [--status active|completed|canceled] [--cursor C] [--limit N] | show <id> | cancel <id> --expected-version N --reason R\n" +
-          "  ruukoto notify list [--status pending|sending|sent|failed|effect_unknown|canceled] [--cursor C] [--limit N] | show <op-id> | cancel <op-id> --reason R",
-      );
-      return 1;
-    }
     case "work": {
       // 工作委托与 SubAgent（agent-direction issue 11）：只读查询；委派经模型工具
       const sub = positional[0];
       if (sub === "list") {
-        print(await withClient((c) => c.request("work_list", {
+        print(await withClient(profile, (c) => c.request("work_list", {
           session_id: flags["session"],
         })));
         return 0;
       }
       if (sub === "show" && positional[1]) {
-        print(await withClient((c) => c.request("work_get", { work_id: positional[1] })));
+        print(await withClient(profile, (c) => c.request("work_get", { work_id: positional[1] })));
         return 0;
       }
       // 显式关闭 SubAgent（issue 12）：有活动任务拒绝并提示先 cancel；已关闭幂等
       if (sub === "close" && positional[1]) {
-        print(await withClient((c) => c.request("subagent_close", { sub_agent_id: positional[1] })));
+        print(await withClient(profile, (c) => c.request("subagent_close", { sub_agent_id: positional[1] })));
         return 0;
       }
       // 整项取消工作（issue 14）：停止其活动与排队任务，其他工作不受影响；已取消幂等
       if (sub === "cancel" && positional[1]) {
-        print(await withClient((c) => c.request("work_cancel", { work_id: positional[1], reason: flags["reason"] })));
+        print(await withClient(profile, (c) => c.request("work_cancel", { work_id: positional[1], reason: flags["reason"] })));
         return 0;
       }
       console.error(
@@ -826,41 +494,11 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       );
       return 1;
     }
-    case "service-grant": {
-      // 长期操作授权（agent-direction issue 10）：入口停用后的遗留目录管理；
-      // 目录权限不能用于放行旧授权；创建首版只经原 IM 待审批请求
-      const sub = positional[0];
-      if (sub === "list") {
-        print(await withClient((c) => c.request("service_grant_list", {
-          cursor: flags["cursor"],
-          limit: flags["limit"] === undefined ? undefined : Number(flags["limit"]),
-        })));
-        return 0;
-      }
-      if (sub === "show" && positional[1]) {
-        print(await withClient((c) => c.request("service_grant_get", { permission_id: positional[1] })));
-        return 0;
-      }
-      if (sub === "revoke" && positional[1]) {
-        print(await withClient((c) => c.request("service_grant_revoke", {
-          permission_id: positional[1],
-          expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
-        })));
-        return 0;
-      }
-      console.error(
-        "用法：\n" +
-          "  ruukoto service-grant list [--cursor C] [--limit N]\n" +
-          "  ruukoto service-grant show <授权ID>\n" +
-          "  ruukoto service-grant revoke <授权ID> --expected-version N",
-      );
-      return 1;
-    }
     case "grant": {
       const sub = positional[0];
       if (sub === "create") {
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("create_data_grant", {
               from_project_id: flags["from"] ?? "",
               to_project_id: flags["to"] ?? "",
@@ -872,11 +510,11 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         return 0;
       }
       if (sub === "revoke") {
-        print(await withClient((c) => c.request("revoke_data_grant", { grant_id: positional[1] ?? "" })));
+        print(await withClient(profile, (c) => c.request("revoke_data_grant", { grant_id: positional[1] ?? "" })));
         return 0;
       }
       if (sub === "list") {
-        print(await withClient((c) => c.request("list_data_grants", { include_revoked: flags["all"] !== undefined })));
+        print(await withClient(profile, (c) => c.request("list_data_grants", { include_revoked: flags["all"] !== undefined })));
         return 0;
       }
       console.error("用法：ruukoto grant create --from <项目> --to <项目> --category <history|artifact|memory> [--purpose P]\n" +
@@ -886,7 +524,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
     case "history-search": {
       const cursorRaw = flags["cursor"];
       const cursor = cursorRaw ? JSON.parse(Buffer.from(cursorRaw, "base64").toString("utf8")) : undefined;
-      const result = await withClient((c) =>
+      const result = await withClient(profile, (c) =>
         c.request<{ hits: unknown[]; complete: boolean; cursor: unknown; scanned: number; unindexedSessionIds: string[] }>(
           "search_history",
           {
@@ -918,7 +556,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       const sub = positional[0];
       if (sub === "list") {
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("list_memories", {
               project_id: flags["project"],
               personal: flags["personal"] !== undefined,
@@ -928,16 +566,16 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
         return 0;
       }
       if (sub === "show") {
-        print(await withClient((c) => c.request("get_memory", { memory_id: positional[1] ?? "" })));
+        print(await withClient(profile, (c) => c.request("get_memory", { memory_id: positional[1] ?? "" })));
         return 0;
       }
       if (sub === "save") {
         const contentFile = flags["content-file"];
         const content = contentFile
-          ? (await import("node:fs")).readFileSync(contentFile, "utf8")
+          ? fs.readFileSync(contentFile, "utf8")
           : positional.slice(1).join(" ");
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("save_memory", {
               memory_id: flags["id"],
               expected_version: flags["expected-version"] === undefined ? undefined : Number(flags["expected-version"]),
@@ -955,7 +593,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       }
       if (sub === "revoke") {
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("revoke_memory", {
               memory_id: positional[1] ?? "",
               expected_version: Number(flags["expected-version"] ?? "0"),
@@ -967,7 +605,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       }
       if (sub === "restore") {
         print(
-          await withClient((c) =>
+          await withClient(profile, (c) =>
             c.request("restore_memory", {
               memory_id: positional[1] ?? "",
               from_version: Number(flags["from-version"] ?? "0"),
@@ -989,7 +627,7 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
     }
     case "selection-records": {
       print(
-        await withClient((c) =>
+        await withClient(profile, (c) =>
           c.request("list_selection_records", {
             task_id: flags["task"],
             session_id: flags["session"],
@@ -999,21 +637,14 @@ async function runLegacy(cmd: string, rest: string[], product: CliProduct): Prom
       );
       return 0;
     }
-    case "tui": {
-      // 旧拼法（已迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo）：
-      // 打印迁移指引后仍按旧行为启动任务界面。
-      console.error(
-        "ruukoto tui 为旧拼法，请改用：无参 ruukoto（默认会话）、ruukoto --session <id>、ruukoto --demo；本次仍按旧拼法启动",
-      );
-      return await runTaskTui({ sessionId: flags["session"], demo: flags["demo"] !== undefined }, product);
-    }
     default:
       console.error(defaultHelp());
       return 1;
   }
 }
 
-async function runWorkflowCli(positional: string[], flags: Record<string, string>, bin: string): Promise<number> {
+async function runWorkflowCli(positional: string[], flags: Record<string, string>, profile: ProfilePaths): Promise<number> {
+  const bin = "ruukoto";
   const sub = positional[0] ?? "list", id = positional[1];
   const required = (key: string): string => {
     if (!flags[key]) throw new Error("缺少 --" + key + "；" + bin + " workflow help 查看用法");
@@ -1037,24 +668,24 @@ async function runWorkflowCli(positional: string[], flags: Record<string, string
   };
   let write = false, check = bin + " workflow list";
   try {
-    if (sub === "definitions") { print(await withClient(c => c.request("workflow_definitions", { offset: slice.offset, limit: Number(flags["limit"] ?? 50) }))); return 0; }
+    if (sub === "definitions") { print(await withClient(profile, c => c.request("workflow_definitions", { offset: slice.offset, limit: Number(flags["limit"] ?? 50) }))); return 0; }
     if ((sub === "definition" || sub === "version") && id) {
-      print(await withClient(c => c.request("workflow_definition", { ...(sub === "definition" ? { name: id } : { definition_id: id }), ...slice, version_offset: Number(flags["version-offset"] ?? 0) }))); return 0;
+      print(await withClient(profile, c => c.request("workflow_definition", { ...(sub === "definition" ? { name: id } : { definition_id: id }), ...slice, version_offset: Number(flags["version-offset"] ?? 0) }))); return 0;
     }
-    if (sub === "list") { print(await withClient(c => c.request("workflow_list", { session_id: flags["session"], offset: slice.offset, limit: Number(flags["limit"] ?? 50) }))); return 0; }
-    if (sub === "show" && id) { print(await withClient(c => c.request("workflow_get", { run_id: id, step_offset: Number(flags["step-offset"] ?? 0) }))); return 0; }
-    if (sub === "logs" && id) { print(await withClient(c => c.request("workflow_logs", { run_id: id, ...slice }))); return 0; }
+    if (sub === "list") { print(await withClient(profile, c => c.request("workflow_list", { session_id: flags["session"], offset: slice.offset, limit: Number(flags["limit"] ?? 50) }))); return 0; }
+    if (sub === "show" && id) { print(await withClient(profile, c => c.request("workflow_get", { run_id: id, step_offset: Number(flags["step-offset"] ?? 0) }))); return 0; }
+    if (sub === "logs" && id) { print(await withClient(profile, c => c.request("workflow_logs", { run_id: id, ...slice }))); return 0; }
     if ((sub === "step" || sub === "question") && id && positional[2]) {
-      print(await withClient(c => c.request(sub === "step" ? "workflow_step" : "workflow_question", { run_id: id, step_key: positional[2], ...slice }))); return 0;
+      print(await withClient(profile, c => c.request(sub === "step" ? "workflow_step" : "workflow_question", { run_id: id, step_key: positional[2], ...slice }))); return 0;
     }
-    if (sub === "saved") { print(await withClient(c => c.request("workflow_saved", { request_id: requestId() }))); return 0; }
-    if (sub === "find") { print(await withClient(c => c.request("workflow_find", { session_id: required("session"), request_id: requestId() }))); return 0; }
+    if (sub === "saved") { print(await withClient(profile, c => c.request("workflow_saved", { request_id: requestId() }))); return 0; }
+    if (sub === "find") { print(await withClient(profile, c => c.request("workflow_find", { session_id: required("session"), request_id: requestId() }))); return 0; }
     if (sub === "save" && id) {
       const file = required("script-file");
       const script = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(fs.readFileSync(file));
       const key = requestId(), expected = flags["expected-digest"] ?? null;
       check = bin + " workflow saved --request-id " + key; write = true;
-      print(await withClient(c => c.request("workflow_save", { name: id, script, expected_digest: expected, request_id: key }))); return 0;
+      print(await withClient(profile, c => c.request("workflow_save", { name: id, script, expected_digest: expected, request_id: key }))); return 0;
     }
     if (sub === "run" && (id || flags["script-file"])) {
       const key = requestId(), session = required("session"), input = inputJson("input", {});
@@ -1062,14 +693,14 @@ async function runWorkflowCli(positional: string[], flags: Record<string, string
       if (id && script !== undefined) throw new Error("名称和 --script-file 二选一");
       const title = script === undefined ? flags["title"] : required("title");
       check = bin + " workflow find --session " + session + " --request-id " + key; write = true;
-      print(await withClient(c => c.request("workflow_start", { session_id: session, request_id: key, name: id, script, title, description: flags["description"], input,
+      print(await withClient(profile, c => c.request("workflow_start", { session_id: session, request_id: key, name: id, script, title, description: flags["description"], input,
         max_attempts: flags["max-attempts"] === undefined ? undefined : Number(flags["max-attempts"]),
         duration_ms: flags["duration-ms"] === undefined ? undefined : Number(flags["duration-ms"]) }))); return 0;
     }
     if (sub === "answer" && id && positional[2]) {
       const key = requestId(), answer = inputJson("answer"), version = Number(required("question-version")), runVersion = Number(required("run-version"));
       check = bin + " workflow question " + id + " " + positional[2]; write = true;
-      print(await withClient(c => c.request("workflow_answer", { run_id: id, step_key: positional[2], question_version: version, run_version: runVersion, request_id: key, answer }))); return 0;
+      print(await withClient(profile, c => c.request("workflow_answer", { run_id: id, step_key: positional[2], question_version: version, run_version: runVersion, request_id: key, answer }))); return 0;
     }
     if (["pause", "resume", "cancel", "budget"].includes(sub) && id) {
       const key = requestId(), version = Number(required("expected-version"));
@@ -1085,7 +716,7 @@ async function runWorkflowCli(positional: string[], flags: Record<string, string
       } else control = { action: sub === "pause" ? "pause" : "cancel" };
       control = parseWorkflowControl(control);
       check = bin + " workflow show " + id; write = true;
-      print(await withClient(c => c.request("workflow_control", { run_id: id, expected_version: version, request_id: key, control }))); return 0;
+      print(await withClient(profile, c => c.request("workflow_control", { run_id: id, expected_version: version, request_id: key, control }))); return 0;
     }
     console.log([
       bin + " workflow definitions | definition <名称> [--version-offset N] | version <版本ID> [--offset N --length N]",
@@ -1108,167 +739,14 @@ async function runWorkflowCli(positional: string[], flags: Record<string, string
   }
 }
 
-/**
- * 跨实例导入（agent-direction issue 21/22）。按产品分流：
- * ruukoto-code 把旧实例开发资料迁入 Coding Agent；ruukoto 把旧实例个人资料
- * （main 会话、应用数据、调度、平台绑定与必要凭据）迁入全新实例。目标侧离线
- * 执行（不走控制面）：预览/应用都要求目标后台已停止，持目标实例锁运行；源实例
- * 全程只读，源后台存活时拒绝。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-04-legacy-instance-import.md
- * Note: 见 .agents/notes/implemented/architecture/2026-10-05-personal-instance-import.md
- *   legacy-import preview --from <源数据目录> [--plan <文件>]
- *   legacy-import apply --plan <文件> [--request-id <id>]
- *   legacy-import revert <导入ID>
- *   legacy-import list
- */
-async function runLegacyImport(positional: string[], flags: Record<string, string>, product: CliProduct): Promise<number> {
-  const personal = !product.importPersonalMemories;
-  const fns = await product.imports();
-  const bin = product.runtime.type;
-  const dirs = defaultDirs();
-  const deps = {
-    targetDataDir: flags["data-dir"] ?? dirs.dataDir,
-    targetAgentDir: flags["agent-dir"] ?? dirs.agentDir,
-  };
-  const sub = positional[0];
-  const lockIfDirExists = (dir: string) => (fs.existsSync(dir) ? acquireInstanceLock(dir) : null);
-  try {
-    if (sub === "preview") {
-      const from = flags["from"] ?? "";
-      if (!from) {
-        console.error(`用法：${bin} legacy-import preview --from <源数据目录> [--plan <文件>] [--data-dir D] [--agent-dir A]`);
-        return 1;
-      }
-      const planFile = flags["plan"];
-      let plan: Record<string, unknown> | undefined;
-      if (planFile && fs.existsSync(planFile)) plan = readJsonFile(planFile) as Record<string, unknown>;
-      const lock = lockIfDirExists(deps.targetDataDir);
-      try {
-        const preview = fns.preview(deps, { from, plan });
-        if (planFile) {
-          // 把绑定最终选择的修订与源实例写回计划文件（renames 等选择不动），供 apply 使用
-          fs.writeFileSync(
-            planFile,
-            JSON.stringify(
-              {
-                ...(plan ?? {}),
-                from: preview.plan.from,
-                renames: preview.plan.renames,
-                ...(personal ? {} : { personal_memories: preview.plan.personal_memories }),
-                source_instance_id: preview.source.instance_id,
-                revision: preview.revision,
-              },
-              null,
-              2,
-            ) + "\n",
-          );
-        }
-        print(preview);
-        return preview.plan_errors.length > 0 ? 1 : 0;
-      } finally {
-        lock?.release();
-      }
-    }
-    if (sub === "apply") {
-      const planFile = flags["plan"];
-      if (!planFile) {
-        console.error(`用法：${bin} legacy-import apply --plan <文件> [--request-id <id>]（计划文件由 preview --plan 生成）`);
-        return 1;
-      }
-      const saved = readJsonFile(planFile) as Record<string, unknown>;
-      const { source_instance_id, revision, from, renames, personal_memories } = saved;
-      if (typeof from !== "string" || from === "") {
-        console.error("计划文件缺少 from（源数据目录）");
-        return 1;
-      }
-      // 缺省请求键按计划文件内容派生：同一文件重发即原键核实（不重复执行），可用 --request-id 覆盖
-      const requestId = flags["request-id"] ?? `imp_${createHash("sha256").update(JSON.stringify(saved)).digest("hex").slice(0, 24)}`;
-      fs.mkdirSync(deps.targetDataDir, { recursive: true, mode: 0o700 });
-      const lock = acquireInstanceLock(deps.targetDataDir);
-      try {
-        const result = fns.apply(deps, {
-          plan: personal
-            ? { from, renames: renames as Record<string, string> | undefined }
-            : {
-                from,
-                renames: renames as Record<string, string> | undefined,
-                personal_memories: personal_memories as string[] | undefined,
-              },
-          source_instance_id: typeof source_instance_id === "string" ? source_instance_id : "",
-          revision: typeof revision === "string" ? revision : "",
-          request_id: requestId,
-        });
-        print(result);
-        return 0;
-      } finally {
-        lock.release();
-      }
-    }
-    if (sub === "revert") {
-      const importId = positional[1] ?? "";
-      if (!importId) {
-        console.error(`用法：${bin} legacy-import revert <导入ID>（导入 ID 见 legacy-import list）`);
-        return 1;
-      }
-      const lock = lockIfDirExists(deps.targetDataDir);
-      try {
-        const result = fns.revert(deps, importId);
-        print(result);
-        return result.ok ? 0 : 1;
-      } finally {
-        lock?.release();
-      }
-    }
-    if (sub === "list") {
-      const lock = lockIfDirExists(deps.targetDataDir);
-      try {
-        print(fns.list(deps));
-        return 0;
-      } finally {
-        lock?.release();
-      }
-    }
-    console.error(
-      `用法：${bin} legacy-import preview --from <源数据目录> [--plan <文件>] | apply --plan <文件> [--request-id <id>] | revert <导入ID> | list`,
-    );
-    return 1;
-  } catch (err) {
-    if (err instanceof InstanceLockError) {
-      console.error(err.message);
-      return err.unverifiable ? 1 : INSTANCE_LOCK_EXIT_CODE;
-    }
-    if (err instanceof fns.Err) {
-      console.error(`错误[${err.code}]：${err.message}`);
-      return 1;
-    }
-    throw err;
-  }
-}
-
-/**
- * 双产品入口的 CLI 帮助。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
- */
 function defaultHelp(): string {
-  return (
-    "产品：ruukoto（个人 Agent）与 ruukoto-code（Coding Agent）两条入口共用本 CLI。\n" +
-    "      ruukoto-code 使用独立档案目录（默认 ~/.ruukoto-code，环境变量 RUUKOTO_CODE_*_DIR），\n" +
-    "      不启动 QQ/Telegram 连接与个人调度；路径环境变量按产品隔离（RUUKOTO_*_DIR / RUUKOTO_CODE_*_DIR）。\n" +
-    "用法：ruukoto [路径] [--session <id> | --demo]      任务界面：无参进入默认会话；路径打开该工作区（每次启动新建会话）\n" +
-    "      ruukoto -- <路径>                             显式工作区入口（目录与命令同名时用，如 ruukoto -- config）\n" +
-    "      ruukoto config [--offline]                    独立配置中心\n" +
-    "      ruukoto server [启动参数]                     前台启动后台（start 为兼容别名，文档推荐 server）\n" +
-    "管理命令：models | set-model <session> <provider/model> --thinking <level> | set-session-mode <session> <confirm|full_access|auto-review|plan> |\n" +
-    "      create-project | create-session | submit | switch-mode | status | events |\n" +
-    "      interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | qq | telegram | stop | web-search <on|off> |\n" +
-    "      grant | service-grant list/show/revoke | work list/show/close | workflow（详情见 workflow help） | history-search | memory | selection-records |\n" +
-    "      project set-instructions | project migration-preview | project migration-apply\n" +
-    "      legacy-import（两产品分流）：ruukoto-code 迁入旧实例开发资料；ruukoto 迁入旧实例个人资料\n" +
-    "      （main/应用数据/调度/平台绑定与必要凭据，目标为全新实例）。离线执行，要求源与目标后台均已停止；\n" +
-    "      preview --from <源数据目录> [--plan 文件] | apply --plan 文件 | revert <导入ID> | list\n" +
-    "参数：--data-dir / --agent-dir / --execution / --model / --thinking / --github-webhook-config（server）；--mode / --grant（submit/switch-mode）；\n" +
-    "      --session <id>（任务界面：直接进入指定会话，不存在则报错）；--demo（合成调试会话，不连后台）\n" +
-    "旧拼法：ruukoto tui 仍可用，请迁移到无参 ruukoto / ruukoto --session <id> / ruukoto --demo\n" +
-    "认证：RUUKOTO_OWNER_TOKEN、RUUKOTO_OWNER_TOKEN_FILE 或 <数据目录>/../control/owner.token"
-  );
+  return [
+    "用法：ruukoto [路径] | --session <id> | --demo",
+    "      ruukoto -- <路径>（显式工作区入口）",
+    "      ruukoto config [--offline] | server [--execution native]",
+    "目录选择：--data-dir D --agent-dir A --control-dir C --pending-dir P（所有入口；覆盖对应 RUUKOTO_*_DIR）",
+    "管理命令：models | set-model | set-session-mode | submit | switch-mode | status | events | interrupt | cancel | resume-queue | confirm | read-artifact | credentials | mcp | stop | web-search",
+    "          project set-instructions | grant | work | workflow | history-search | memory | selection-records",
+    "实例使用独立的新格式目录；首次配置：ruukoto config --offline。",
+  ].join("\n");
 }

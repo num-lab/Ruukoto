@@ -108,7 +108,6 @@ test("终端标签跨父会话保留、输出不重绘、关闭与迟到open回�
     assert.equal(await starting, false); assert.ok(calls.filter(call => call.op === "desktop_terminal_kill").every(call => call.params.id === first.id));
     inspector.closeParent("b"); assert.equal(inspector.terminalTabs().length, 1);
     inspector.update({ type: "snapshot", instanceChanged: true, result: { seq: 0, replay: [], snapshot: fakeSnapshot() } }); assert.equal(inspector.terminalTabs().length, 0);
-    const personal = new DesktopInspector({ request: async () => { throw new Error("不得请求"); } }, view, async () => {}, () => {}, "personal"); personal.openTerminal("w1"); assert.equal(personal.terminalTabs().length, 0);
   } finally { f.cleanup(); }
 });
 
@@ -116,7 +115,7 @@ test("终端按钮打开当前会话归属的工作区，未归属或无根目�
   const f = fixture(), view = new ViewState();
   view.instanceId = "inst-1";
   view.projects = ["w1", "w2"].map(id => ({ id, name: id, rootDir: id === "w2" ? null : f.identity, createRequestId: null, instructionFiles: [], settingsVersion: 1, createdAt: "" }));
-  view.sessions = [{ id: "a", projectId: "w1", workspaceProjectId: null, kind: "dev", name: null, branchSource: null, cwd: "/work/w1", cwdReal: "/work/w1", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "" }];
+  view.sessions = [{ id: "a", projectId: "w1", kind: "dev", name: null, branchSource: null, cwd: "/work/w1", cwdReal: "/work/w1", cwdDev: 1, cwdIno: 1, piSessionId: "a", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "" }];
   const inspector = new DesktopInspector({ request: async () => { throw new Error("打开前不应请求"); } }, view, async () => {}, () => {});
   try {
     inspector.parentSessionId = "a"; inspector.openTerminal();

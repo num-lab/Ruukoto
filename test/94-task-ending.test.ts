@@ -270,7 +270,7 @@ test("Driver 未核实的完成任务：后台重启仍保留结果、原因与�
     assert.equal(recovered.store.listAllOccupancy()[0]!.taskId, t.task.id);
     assert.equal(recovered.store.getSession(t.session.id)!.queuePauseReason, "occupancy_unverified");
     await assert.rejects(recovered.resumeQueue(t.session.id), { code: "stop_unverified" });
-    await recovered.resumeQueue(t.session.id, undefined, true);
+    await recovered.resumeQueue(t.session.id, true);
     assert.equal(recovered.store.listAllOccupancy().length, 0);
     assert.equal(t.server.calls.length, 1, "核实恢复不重放已完成任务");
   } finally { await recovered?.stop("end"); await t.shutdown(); }

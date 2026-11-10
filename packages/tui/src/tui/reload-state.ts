@@ -6,7 +6,7 @@ import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
 import { isSessionDefaultMode } from "@ruukoto/core/types.ts";
 import type { ManagedChatDraft } from "./managed-chat.ts";
 
-export const RELOAD_STATE_ENV = "RUUKOTO_RELOAD_STATE_FILE";
+export const RELOAD_STATE_ENV = "RUUKOTO_DEV_MANAGED";
 
 export interface TaskTuiReloadState {
   kind: "task-tui";
@@ -28,10 +28,6 @@ export interface ConfigTuiReloadState {
 
 export type ReloadState = TaskTuiReloadState | ConfigTuiReloadState;
 
-/** dev 注入的重载状态文件路径；非 dev 启动返回 null（不启用状态恢复）。 */
-export function reloadStatePathFromEnv(): string | null {
-  return process.env[RELOAD_STATE_ENV] ?? null;
-}
 
 /** 读取重载状态；文件缺失、损坏或形状不符都返回 null（调用方提示后按正常入口继续）。 */
 export function loadReloadState(file: string): ReloadState | null {

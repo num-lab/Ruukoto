@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { getWorkflowStep, listWorkflowExecutions, listWorkflowSteps, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { afterTool, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
@@ -32,7 +32,7 @@ test("编码四输入：共享三名额、失败依赖跳过、独立验证与�
     if (afterTool(req)) return { kind: "text", text: verify ? '{"passed":true,"reason":"独立命令核实实际字节"}' : "修改完成" };
     return { kind: "tool_calls", calls: [{ id: `${verify ? "verify" : "write"}_${id}`, name: verify ? "bash" : "write", arguments: verify ?
       { command: `test "$(cat item-${id}.txt)" = changed-${id} && printf proof > verification-${id}.txt` } : { path: `item-${id}.txt`, content: `changed-${id}\n` } }] };
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  }, { workDirs: 1, config: { ...realTools() } });
   try {
     for (let id = 1; id <= 4; id++) fs.writeFileSync(path.join(t.work[0], `item-${id}.txt`), `base-${id}\n`);
     fs.writeFileSync(path.join(t.work[0], "check.mjs"), 'import assert from "node:assert/strict"; import {readFileSync} from "node:fs"; for(let i=1;i<=4;i++) assert.equal(readFileSync(`item-${i}.txt`,"utf8"),i===3?"base-3\\n":`changed-${i}\\n`);\n');

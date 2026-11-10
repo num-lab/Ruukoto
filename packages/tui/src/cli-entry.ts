@@ -1,28 +1,34 @@
-/**
- * CLI 顶层分发决策（issue 21）：纯函数、无副作用、不碰文件系统，供 cli.ts
- * 消费与单元测试。
- *
- * 优先级：命令名 > 路径。首参为已知命令（含兼容别名 start、旧拼法 tui）
- * 按命令分发；首参为 `--` 标志按默认任务界面入口严格解析（布尔不吞下一
- * token）；其余首参一律视为工作区路径（存在性由 TUI 侧校验）。`-- <路径>`
- * 为显式工作区入口，用于打开与命令同名的目录（如 config；./config 亦可）。
- */
+/** Pure entry parsing; directory flags are removed before command dispatch. */
 
 import { parseArgs } from "node:util";
+import type { ProfileDirectoryOptions } from "@ruukoto/core/profile.ts";
+
+export function parseDirectoryFlags(argv: string[]): { argv: string[]; directories: ProfileDirectoryOptions; error?: string } {
+  const directories: ProfileDirectoryOptions = {};
+  const rest: string[] = [];
+  const keys = { "data-dir": "dataDir", "agent-dir": "agentDir", "control-dir": "controlDir", "pending-dir": "pendingDir" } as const;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--") { rest.push(...argv.slice(i)); break; }
+    const match = /^--(data-dir|agent-dir|control-dir|pending-dir)(?:=(.*))?$/.exec(arg);
+    if (!match) { rest.push(arg); continue; }
+    const value = match[2] ?? argv[++i];
+    if (!value || value.startsWith("--")) return { argv: rest, directories, error: `${match[1]} 需要目录路径` };
+    directories[keys[match[1] as keyof typeof keys]] = value;
+  }
+  return { argv: rest, directories };
+}
 
 export type CliEntry =
   | { kind: "tui"; sessionId?: string; demo?: boolean }
   | { kind: "workspace"; path: string }
   | { kind: "config"; offline: boolean }
   | { kind: "server"; argv: string[] }
-  | { kind: "legacy"; command: string; argv: string[] }
+  | { kind: "command"; command: string; argv: string[] }
   | { kind: "help"; error?: string };
 
-/** 管理命令与旧拼法 tui：保持既有手卷解析与输出，供脚本与非 TTY 使用。 */
-const LEGACY_COMMANDS = new Set([
-  "create-project",
+const MANAGEMENT_COMMANDS = new Set([
   "project",
-  "create-session",
   "models",
   "set-model",
   "submit",
@@ -36,22 +42,15 @@ const LEGACY_COMMANDS = new Set([
   "confirm",
   "read-artifact",
   "credentials",
-  "github",
   "mcp",
   "stop",
-  "qq",
-  "telegram",
-  "schedule",
-  "notify",
   "grant",
-  "service-grant",
   "work",
   "workflow",
   "history-search",
   "memory",
+  "web-search",
   "selection-records",
-  "legacy-import",
-  "tui",
 ]);
 
 function flagError(err: unknown): CliEntry {
@@ -99,6 +98,7 @@ function configEntry(rest: string[]): CliEntry {
 
 export function resolveEntry(argv: string[]): CliEntry {
   const [first, ...rest] = argv;
+  if (first === "--help" || first === "-h" || first === "help") return { kind: "help" };
 
   // 无参：默认任务界面（沿用既有默认会话选择）
   if (first === undefined) return { kind: "tui" };
@@ -114,9 +114,9 @@ export function resolveEntry(argv: string[]): CliEntry {
   if (first.startsWith("--")) return tuiEntry(argv);
 
   // 命令名优先于路径
-  if (first === "server" || first === "start") return { kind: "server", argv: rest };
+  if (first === "server") return { kind: "server", argv: rest };
   if (first === "config") return configEntry(rest);
-  if (LEGACY_COMMANDS.has(first)) return { kind: "legacy", command: first, argv: rest };
+  if (MANAGEMENT_COMMANDS.has(first)) return { kind: "command", command: first, argv: rest };
 
   // 其余首参一律视为工作区路径（存在性由 TUI 侧校验）
   if (rest.some((a) => a.startsWith("--"))) {

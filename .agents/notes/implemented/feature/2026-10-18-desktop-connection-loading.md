@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 After approving the loading page, the owner requested removing its visible Ruukoto title, centering the remaining content, and migrating it to Desktop. Real connections may synchronously replay an old online state before a snapshot, or retry indefinitely after an initial failure. Copying Demo's timer invents readiness; waiting for all retries can conceal recovery controls forever.

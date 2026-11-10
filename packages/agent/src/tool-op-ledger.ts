@@ -5,15 +5,13 @@
  * - 结果与 `task.tool_result` 事件成对写入，落库与事件是同一句；条件更新以
  *   先写者为准，重复补记不重复发布；
  * - 效果未知：操作标记 + `task.tool_effect_unknown` + 任务标记，已标记即跳过；
- *   已消费的服务审批范围另使同目标（main/本机/单元/动作）所有有效长期授权失效
- *   （agent-direction issue 10；与效果未知登记同一事务）；
  * - 分类（对结果缺失、未标未知的操作，停止与重启同一个）：
  *   1. 有审批且全部未消费 → 已知未执行（批准没消费即证明没执行，证据强于其余各条）；
  *   2. 无写入效果的工具 → 「未完成：只读操作…中止，无写入效果」；
  *   3. 工具族能按宿主操作 ID 核实 → 已提交 / 已知未提交；无法核实 → 效果未知；
  *   4. 其余 → 效果未知（不重放，由拥有者核实）。
  *
- * 静态宿主工具的规则由族清单提供；路由工具与旧操作的规则仍穷尽登记。
+ * Host-tool families own their rules; routed tools are listed here.
  * MCP 动态工具与未登记名字按审批判定。记忆族不登记核实：`memory_revoke` 只改状态、不写带 tool_op_id 的
  * 版本行，无法从磁盘证明撤销已发生。普通 HTTPS MCP 读工具的副作用类别不在 tool_ops 里，
  * 重启时拿不到钉版计划，也按审批判定。
@@ -44,15 +42,11 @@ type StaticToolName =
   | "tool_search"
   | "present"
   | (typeof MOCK_TOOL_NAMES)[number]
-  | "worktree_start"
-  // 已删除的旧工具（agent-direction issue 23）：升级前在途操作的恢复核实仍按原规则
-  | "coding_delegate"
-  | "agent_wait";
+  | "worktree_start";
 
 type Rule = HostToolRule;
 
 const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) => Rule)> = {
-  agent_wait: "no_effect",
   read: "no_effect",
   present: "no_effect",
   tool_search: "no_effect",
@@ -68,8 +62,6 @@ const RULES: Record<StaticToolName, Rule | ((params: Record<string, unknown>) =>
   // 临时 worker 的启动定位先落盘；Git 写入另记执行意图，不把 ready 前取消标成未知写入。
   // Note: 见 .agents/notes/implemented/bug-fix/2026-10-11-preserve-unverified-worker-stop.md
   worktree_start: "no_effect",
-  // 旧工具已删除（issue 23），只读兼容：analyze 按 SubAgent 登记核实，draft 按旧 coding 子任务核实
-  coding_delegate: (p) => ({ family: p.mode === "analyze" ? "subagent" : "delegation" }),
   // 模拟工具代表可能有副作用的通用工具（mock_mark 写外部标记）
   mock_delay: "approval",
   mock_gate: "approval",
@@ -108,7 +100,6 @@ function approvalUnconsumed(op: ToolOp, confirmations: ConfirmationRequest[]): b
 export class ToolOpLedger {
   constructor(
     readonly store: Store,
-    private readonly legacyChecks: Partial<Record<string, FamilyCheck>> = {},
     private readonly hostLedgers: readonly HostToolLedger[] = [],
   ) {}
 
@@ -146,23 +137,6 @@ export class ToolOpLedger {
       { taskId: task.id, sessionId: task.sessionId },
     );
     this.store.setEffectUnknown(task.id);
-    // 长期授权失效扩散（agent-direction issue 10）：已消费的服务审批范围 → 同一
-    // main、本机、单元与动作的所有有效长期授权失效（覆盖所有入口；记录触发操作 ID）。
-    // 效果未知阻止换 ID 自动重试；重新建立授权需要拥有者显式决定。
-    const scopes = [op.authorization?.scope, ...this.store.listConfirmationsByTask(task.id)
-      .filter((c) => c.toolOpId === opId && c.consumedAt !== null).map((c) => c.scope)];
-    const identity = this.store.getSessionIdentity(task.sessionId);
-    const sessionId = identity?.kind === "scheduled" ? this.store.getAgentRole("main")?.sessionId : task.sessionId;
-    for (const scope of scopes) {
-      if (scope?.kind !== "service_operation" || !sessionId) continue;
-      this.store.invalidateStandingForTarget({
-        sessionId,
-        machineId: scope.machineId,
-        unit: scope.unit,
-        action: scope.action,
-        opId,
-      });
-    }
     return true;
   }
 
@@ -245,7 +219,7 @@ export class ToolOpLedger {
   private recordFamilyVerdict(task: TaskRef, op: ToolOp, when: string): boolean {
     const rule = ruleOf(op, this.hostLedgers);
     const hostCheck = this.hostLedgers.find((ledger) => ledger.names.includes(op.toolName))?.familyCheck;
-    const check = rule === "no_effect" || rule === "approval" ? undefined : hostCheck ?? this.legacyChecks[rule.family];
+    const check = rule === "no_effect" || rule === "approval" ? undefined : hostCheck;
     const verdict = check?.verify(op) ?? "unverifiable";
     if (!check || verdict === "unverifiable") return false;
     const committed = verdict === "committed";

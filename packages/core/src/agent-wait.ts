@@ -39,7 +39,6 @@ export interface AgentWait {
   sessionId: string;
   targets: AgentWaitTarget[];
   source: WorkflowSource;
-  sourceEventId: string | null;
   snapshot: AgentReferenceSnapshot;
   phase: AgentWaitPhase;
   reason: string | null;
@@ -50,7 +49,6 @@ export interface AgentReport {
   key: string;
   target: AgentReportTarget;
   source: WorkflowSource;
-  sourceEventId: string | null;
   parentSessionId: string;
   dependencyTaskIds: string[];
   claimTaskId: string | null;
@@ -58,7 +56,7 @@ export interface AgentReport {
   parkedFallbackTaskIds: string[];
   fallbackState: "queued" | "parked" | "running" | "completed" | null;
   consumption: { taskId: string; entryId: string; consumedAt: string } | null;
-  proof: { taskId: string; entryId: string | null; outboxOpId: string | null } | null;
+  proof: { taskId: string; entryId: string | null } | null;
   status: "pending" | "reported" | "undelivered";
   reason: string | null;
 }
@@ -68,20 +66,16 @@ export class AgentWaitError extends Error {
 
 export function sameAgentReportSource(a: WorkflowSource, b: WorkflowSource): boolean {
   return a.taskId === b.taskId && a.sessionId === b.sessionId && a.projectId === b.projectId &&
-    a.scheduledRunId === b.scheduledRunId && a.codeScheduledRunId === b.codeScheduledRunId && isDeepStrictEqual(a.replyTarget, b.replyTarget);
+    a.codeScheduledRunId === b.codeScheduledRunId;
 }
 export function agentReportKey(target: AgentReportTarget): string {
   return target.kind === "task" ? `task:${target.taskId}` : `workflow:${target.runId}:${target.terminalVersion}`;
 }
-function sourceEventId(store: Store, source: WorkflowSource): string | null {
+function assertSource(store: Store, source: WorkflowSource): void {
   const task = store.getTask(source.taskId);
   if (!task || task.sessionId !== source.sessionId || store.getSession(source.sessionId)?.projectId !== source.projectId) throw new AgentWaitError("source_invalid");
   const scheduled = getCodeScheduledTaskSource(store, task.id);
   if (source.codeScheduledRunId !== scheduled?.runId) throw new AgentWaitError("source_invalid");
-  const event = task.sourceEventId ? store.getInboundEvent(task.sourceEventId) : null;
-  if (task.sourceEventId && !event) throw new AgentWaitError("source_invalid");
-  if (!source.scheduledRunId && !isDeepStrictEqual(event?.replyTarget ?? null, source.replyTarget)) throw new AgentWaitError("source_invalid");
-  return task.sourceEventId;
 }
 function targetSource(store: Store, target: AgentWaitTarget): { sourceTaskId: string; parentSessionId: string } {
   if (target.kind === "workflow") {
@@ -148,10 +142,10 @@ export function latestAgentReferenceSnapshot(store: Store, sessionId: string): A
 export function agentWaitCovers(store: Store, target: AgentWaitTarget, sessionId: string): boolean {
   return listAgentWaits(store, { sessionId }).some(wait => wait.targets.some(candidate => isDeepStrictEqual(candidate, target)));
 }
-export function registerAgentWait(store: Store, input: Omit<AgentWait, "phase" | "reason" | "createdAt" | "endedAt" | "sourceEventId">): AgentWait {
+export function registerAgentWait(store: Store, input: Omit<AgentWait, "phase" | "reason" | "createdAt" | "endedAt">): AgentWait {
   const existing = getAgentWait(store, input.id);
   if (existing) {
-    const { phase: _phase, reason: _reason, createdAt: _createdAt, endedAt: _endedAt, sourceEventId: _sourceEventId, ...registered } = existing;
+    const { phase: _phase, reason: _reason, createdAt: _createdAt, endedAt: _endedAt, ...registered } = existing;
     if (!isDeepStrictEqual(registered, input)) throw new AgentWaitError("request_conflict");
     return existing;
   }
@@ -161,7 +155,8 @@ export function registerAgentWait(store: Store, input: Omit<AgentWait, "phase" |
   if (listAgentWaits(store, { taskId: input.taskId }).some(wait => wait.phase !== "ended")) throw new AgentWaitError("already_waiting");
   checkTargets(store, input.targets, input.sessionId, input.source);
   checkTaskSource(store, input.taskId, input.source);
-  const wait: AgentWait = { ...input, sourceEventId: sourceEventId(store, input.source), phase: "releasing", reason: null, createdAt: new Date().toISOString(), endedAt: null };
+  assertSource(store, input.source);
+  const wait: AgentWait = { ...input, phase: "releasing", reason: null, createdAt: new Date().toISOString(), endedAt: null };
   store.db.prepare("INSERT INTO agent_waits (id, task_id, session_id, payload) VALUES (?, ?, ?, ?)").run(wait.id, wait.taskId, wait.sessionId, JSON.stringify(wait));
   waitEvent(store, wait);
   return wait;
@@ -203,7 +198,8 @@ export function registerAgentReport(store: Store, input: Pick<AgentReport, "targ
   const dependencyTaskIds = input.target.kind === "workflow" ? listWorkflowExecutions(store, input.target.runId).map(execution => execution.taskId)
     : (store.db.prepare("SELECT id FROM tasks WHERE session_id = (SELECT session_id FROM tasks WHERE id = ?) AND rowid <= (SELECT rowid FROM tasks WHERE id = ?) ORDER BY rowid")
       .all(input.target.taskId, input.target.taskId) as { id: string }[]).map(task => task.id);
-  const report: AgentReport = { ...input, key, dependencyTaskIds, sourceEventId: sourceEventId(store, input.source), claimTaskId: null, fallbackTaskId: null, parkedFallbackTaskIds: [], fallbackState: null, consumption: null, proof: null, status: "pending", reason: null };
+  assertSource(store, input.source);
+  const report: AgentReport = { ...input, key, dependencyTaskIds, claimTaskId: null, fallbackTaskId: null, parkedFallbackTaskIds: [], fallbackState: null, consumption: null, proof: null, status: "pending", reason: null };
   store.db.prepare("INSERT INTO agent_reports (report_key, parent_session_id, payload) VALUES (?, ?, ?)").run(key, input.parentSessionId, JSON.stringify(report));
   reportEvent(store, report);
   return report;
@@ -263,7 +259,6 @@ export interface AgentReportCompletion {
   status: "reported" | "undelivered";
   reason?: string | null;
   entryId?: string | null;
-  outboxOpId?: string | null;
   reportInput?: { entryId: string; keys: string[] };
 }
 /** 共享后备须整组接受事实，否则释放；接管旧消费须由宿主核实本轮 JSONL 输入证明。 */
@@ -283,7 +278,7 @@ export function completeAgentReports(store: Store, taskId: string, input: AgentR
   const reports = claimed.filter(report => !deferredKeys.has(report.key));
   for (const report of deferred) saveReport(store, { ...report, claimTaskId: null, fallbackState: "queued", reason: "report_group_not_consumed" });
   const completed = reports.filter(accepted).map(report => saveReport(store, { ...report,
-    status: input.status, reason: input.reason ?? null, proof: { taskId, entryId: input.entryId ?? null, outboxOpId: input.outboxOpId ?? null } }));
+    status: input.status, reason: input.reason ?? null, proof: { taskId, entryId: input.entryId ?? null } }));
   for (const report of reports.filter(report => !accepted(report))) saveReport(store, { ...report,
     claimTaskId: null, fallbackState: report.fallbackState === "parked" ? "queued" : report.fallbackState, reason: "parent_result_not_consumed" });
   return completed;
@@ -297,8 +292,7 @@ export function bindAgentReportFallback(store: Store, key: string, taskId: strin
   }
   if (report.status !== "pending") throw new AgentWaitError("report_owned");
   const workflow = report.target.kind === "workflow" ? requireWorkflowRun(store, report.target.runId) : null;
-  const ordinary = report.target.kind === "task" && task.requestId === `wake:${report.target.taskId}` && task.parentTaskId === report.target.taskId;
-  if (task.status !== "queued" && workflow?.delivery?.taskId !== task.id && !ordinary) throw new AgentWaitError("fallback_invalid");
+  if (task.status !== "queued" && workflow?.delivery?.taskId !== task.id) throw new AgentWaitError("fallback_invalid");
   const fallbackState = task.status === "queued" ? report.claimTaskId ? "parked" : "queued" : isTerminalTaskStatus(task.status) ? "completed" : "running";
   if (report.claimTaskId && fallbackState !== "parked") throw new AgentWaitError("report_owned");
   return saveReport(store, { ...report, fallbackTaskId: taskId, fallbackState });
@@ -340,9 +334,9 @@ export function finishAgentReportFallback(store: Store, taskId: string, input: A
   const endedBeforeStart = input.status === "undelivered" && task && isTerminalTaskStatus(task.status);
   if (reports.some(report => report.fallbackState !== "running" && !(endedBeforeStart && ["queued", "parked"].includes(report.fallbackState ?? "") && !report.claimTaskId))) throw new AgentWaitError("report_owned");
   return reports.map(report => saveReport(store, { ...report, status: input.status, fallbackState: "completed", reason: input.reason ?? null,
-    proof: { taskId, entryId: input.entryId ?? null, outboxOpId: input.outboxOpId ?? null } }));
+    proof: { taskId, entryId: input.entryId ?? null } }));
 }
-/** 重启只结束旧等待；报告认领由宿主先核实 JSONL 与发送证明再仲裁。 */
+/** Restart ends prior waits; the host arbitrates claims using committed history proof. */
 export function recoverAgentWaits(store: Store): void {
   for (const wait of listAgentWaits(store)) if (wait.phase !== "ended") endAgentWait(store, wait.id, "backend_restart");
 }

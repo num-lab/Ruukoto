@@ -1,26 +1,18 @@
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
-/**
- * 发布联合路径（agent-direction issue 24）：复用各票已验证的接缝，检查迁移、
- * 重启、协作取消、成果冲突与回退相互作用。Runtime / SQLite / JSONL / Git
- * 为真实执行；模型为 MockModelServer，local 工具后端无隔离，不代替权限冒烟。
- */
+
+/** Restart, canceled work delivery and conflicting work-copy integration use real persistence and Git with a mock model. */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { Db } from "@ruukoto/core/db.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
-import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
-import { listLegacyImports } from "@ruukoto/core/import-support.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
-import { cleanupDirs, lastUserText, makeTestDirs, realTools, startTestRuntime, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor, writeModelsJson } from "./helpers/testkit.ts";
+import { seedTestRole } from "./helpers/subagent-definition.ts";
 
-test("迁移与重启后协作取消：迟到同级消息不重启工作，副本冲突保留成果，回退保护目标事实", async () => {
-  const source = await startTestRuntime("release-src", () => ({ kind: "text", text: "迁移前的历史回答" }), { workDirs: 1 });
-  const { dirs } = await makeTestDirs("release-dst", 0);
-  const { dirs: cleanDirs } = await makeTestDirs("release-clean", 0);
+test("restart preserves history, canceled peer delivery and conflicting work-copy results", async () => {
+  const { dirs, work } = await makeTestDirs("release", 1);
   let release: (() => void) | undefined;
   let releaseParent: (() => void) | undefined;
   const server = new MockModelServer(async (req) => {
@@ -34,32 +26,27 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
   });
   let rt: Runtime | undefined;
   try {
-    const file = path.join(source.work[0]!, "value.ts");
+    const file = path.join(work[0], "value.ts");
     fs.writeFileSync(file, "export const value = 1\n");
-    initGitRepo(source.work[0]!);
-    const session = await source.runtime.createSession({ projectName: "release", cwd: source.work[0]! });
-    const parent = await source.runtime.submit({ sessionId: session.id, requestId: "seed", input: "保留这段历史", modelSelection: source.runtime.defaultSelection });
-    await waitFor("源任务完成", () => source.runtime.store.getTask(parent.id)!.status === "completed");
-    const history = fs.readFileSync(source.runtime.store.getSession(session.id)!.sessionFile!);
-    const artifact = source.runtime.store.listArtifactsByTask(parent.id).find((a) => a.name.includes("prompt"))!;
-    assert.ok(artifact, "源任务有 prompt 快照产物");
-    const artifactBytes = fs.readFileSync(path.join(source.dirs.dataDir, "artifacts", `${artifact.id}.bin`));
-    source.client.close();
-    await source.runtime.stop("test_migration");
-    const sourceDb = fs.readFileSync(path.join(source.dirs.dataDir, "ruukoto.db"));
-
-    const deps = { targetDataDir: dirs.dataDir, targetAgentDir: dirs.agentDir };
-    const preview = previewLegacyImport(deps, { from: source.dirs.dataDir });
-    const imported = applyLegacyImport(deps, { plan: { from: source.dirs.dataDir }, source_instance_id: preview.source.instance_id, revision: preview.revision!, request_id: "release-import" });
+    initGitRepo(work[0]);
     await writeModelsJson(dirs, await server.start());
-    const config: RuntimeConfig = { dataDir: dirs.dataDir, agentDir: dirs.agentDir, product: codingProduct.runtime, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools() };
+    seedTestRole(dirs.agentDir);
+    const config: RuntimeConfig = { profile: dirs.profile, modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off", ...realTools() };
     rt = await Runtime.start(config);
+    const session = await rt.createSession({ projectName: "release", cwd: work[0] });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "seed", input: "保留这段历史", modelSelection: rt.defaultSelection });
+    await waitFor("seed task completed", () => rt!.store.getTask(parent.id)!.status === "completed");
+    const history = fs.readFileSync(rt.store.getSession(session.id)!.sessionFile!);
+    const artifact = rt.store.listArtifactsByTask(parent.id).find((a) => a.name.includes("prompt"))!;
+    assert.ok(artifact);
+    const artifactBytes = fs.readFileSync(path.join(dirs.dataDir, "artifacts", `${artifact.id}.bin`));
+    const seedCalls = server.calls.length;
     await rt.stop("test_restart");
     rt = await Runtime.start(config);
-    assert.equal(server.calls.length, 0, "迁移与重启不重放旧任务");
+    assert.equal(server.calls.length, seedCalls, "restart does not replay completed work");
     assert.deepEqual(fs.readFileSync(rt.store.getSession(session.id)!.sessionFile!), history);
     assert.deepEqual(fs.readFileSync(path.join(dirs.dataDir, "artifacts", `${artifact.id}.bin`)), artifactBytes);
-    assert.equal(rt.readTaskReplyText(parent.id), "迁移前的历史回答");
+    assert.equal(rt.readTaskReplyText(parent.id), "联合验收完成");
 
     const currentParent = await rt.submit({ sessionId: session.id, requestId: "live-parent", input: "HOLD-PARENT 创建工作", modelSelection: rt.defaultSelection });
     await waitFor("父任务持有目录", () => releaseParent !== undefined);
@@ -124,14 +111,8 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     releaseParent!();
     releaseParent = undefined;
     await waitFor("汇总父任务完成", () => rt!.store.getTask(integrateParent.id)!.status === "completed");
-    await rt.stop("test_revert");
+    await rt.stop("test_restart");
     rt = undefined;
-    const blocked = revertLegacyImport(deps, imported.import_id);
-    assert.equal(blocked.ok, false, "目标新增的协作、取消与副本成果阻止破坏性回退");
-    assert.equal(blocked.status, "applied", "回退被挡时响应与实际回执一致");
-    assert.equal(listLegacyImports(deps)[0]!.status, "applied");
-    assert.ok(blocked.blockers!.some((b) => /新任务|新会话|新事件/.test(b)));
-    assert.deepEqual(blocked.files_removed, []);
     const after = await Runtime.start(config);
     rt = after;
     assert.ok(after.store.getSubAgentMessage(sent.message.id));
@@ -139,34 +120,11 @@ test("迁移与重启后协作取消：迟到同级消息不重启工作，副�
     await after.stop("test_end");
     rt = undefined;
 
-    // 同一源的另一导入目标：只启动与重启，无新工作时仍可安全回退。
-    const cleanDeps = { targetDataDir: cleanDirs.dataDir, targetAgentDir: cleanDirs.agentDir };
-    const cleanPreview = previewLegacyImport(cleanDeps, { from: source.dirs.dataDir });
-    const cleanImport = applyLegacyImport(cleanDeps, { plan: { from: source.dirs.dataDir }, source_instance_id: cleanPreview.source.instance_id, revision: cleanPreview.revision!, request_id: "release-clean" });
-    fs.copyFileSync(path.join(dirs.agentDir, "models.json"), path.join(cleanDirs.agentDir, "models.json"));
-    const cleanConfig = { ...config, dataDir: cleanDirs.dataDir, agentDir: cleanDirs.agentDir };
-    rt = await Runtime.start(cleanConfig);
-    await rt.stop("test_restart");
-    rt = await Runtime.start(cleanConfig);
-    await rt.stop("test_revert");
-    rt = undefined;
-    const reverted = revertLegacyImport(cleanDeps, cleanImport.import_id);
-    assert.equal(reverted.ok, true, JSON.stringify(reverted.blockers));
-    assert.equal(reverted.status, "reverted");
-    assert.equal(listLegacyImports(cleanDeps)[0]!.status, "reverted");
-    const db = new Db(cleanDirs.dataDir);
-    try {
-      assert.equal((db.prepare("SELECT count(*) AS n FROM sessions WHERE id = ?").get(session.id) as { n: number }).n, 0, "已导入的会话被移除");
-    } finally { db.close(); }
-    assert.deepEqual(fs.readFileSync(path.join(source.dirs.dataDir, "ruukoto.db")), sourceDb, "全部联合路径不改源库");
-    assert.deepEqual(fs.readFileSync(path.join(source.dirs.dataDir, "artifacts", `${artifact.id}.bin`)), artifactBytes);
   } finally {
     release?.();
     releaseParent?.();
     await rt?.stop("test_end");
     await server.close();
-    await source.shutdown();
     await cleanupDirs(dirs);
-    await cleanupDirs(cleanDirs);
   }
 });

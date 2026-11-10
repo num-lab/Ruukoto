@@ -12,7 +12,7 @@ The trusted bootstrap fully writes `native-started.tmp` in the same private temp
 
 The host still requires both supervisor `started` and a complete marker. Missing markers wait within the existing five-second budget; invalid/unreadable markers fail immediately. Machine-readable error classification, attached unit identity, the twelve-second stop budget, and retention of occupation/directories while stop remains unverified are unchanged. Atomic rename guarantees complete publication to readers, not power-loss durability or atomicity with other state.
 
-This supplements [native execution](../architecture/2026-10-10-native-execution-sandbox.md) without changing platform/stop boundaries. The regression follows [observable async phases](../testing/2026-10-11-await-observed-async-phases.md), releasing the write only after the host observes its window. [Token publication](2026-10-24-personal-token-atomic-publish.md) uses the same primitive but has different ownership. Linux durable identities and persistent macOS backgrounds do not consume this marker.
+This supplements [native execution](../architecture/2026-10-10-native-execution-sandbox.md) without changing platform/stop boundaries. The regression follows [observable async phases](../testing/2026-10-11-await-observed-async-phases.md), releasing the write only after the host observes its window. [Token publication](../../archived/bug-fix/2026-10-24-personal-token-atomic-publish.md) uses the same primitive but has different ownership. Linux durable identities and persistent macOS backgrounds do not consume this marker.
 
 ## Alternatives considered
 

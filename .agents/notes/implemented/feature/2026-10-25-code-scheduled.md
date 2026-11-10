@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [User queue controls](2026-10-30-coding-user-queue.md) removes the continuation exception; [in-task questions](2026-10-30-coding-owner-question-wait.md) answers through the original waiting task. Those decisions own the changed interaction contracts; fixed provenance/configuration and Scheduled ordinary-submission restrictions remain.
 
 ## Problem
@@ -63,7 +65,7 @@ Offline import rejects sources containing Code plans/runs/receipts/scheduled pro
 
 ## Related decisions
 
-This partly supersedes Coding's no-scheduling scope in [generic schedules](2026-10-12-generic-scheduled-tasks.md) and [two products](../architecture/2026-10-02-two-agent-products.md). [Personal durable scheduling](../architecture/2026-10-18-personal-durable-scheduled-work.md) supplies independent-source/whole-run precedent, not shared state. Reuse [new chat](2026-10-20-desktop-new-chat.md), [effort](2026-10-24-desktop-effort-slider.md), [questions](2026-10-21-coding-owner-questions.md), and [background processes](2026-10-21-coding-background-processes.md), extending source applicability without changing their controls/stop proof. Other personal entry/native/import/background, workspace packaging, and sidebar ownership are unchanged. No note is wholly absorbed.
+This partly supersedes Coding's no-scheduling scope in [generic schedules](../../archived/feature/2026-10-12-generic-scheduled-tasks.md) and [two products](../../archived/architecture/2026-10-02-two-agent-products.md). [Personal durable scheduling](../../archived/architecture/2026-10-18-personal-durable-scheduled-work.md) supplies independent-source/whole-run precedent, not shared state. Reuse [new chat](2026-10-20-desktop-new-chat.md), [effort](2026-10-24-desktop-effort-slider.md), [questions](2026-10-21-coding-owner-questions.md), and [background processes](2026-10-21-coding-background-processes.md), extending source applicability without changing their controls/stop proof. Other personal entry/native/import/background, workspace packaging, and sidebar ownership are unchanged. No note is wholly absorbed.
 
 ## Alternatives considered
 

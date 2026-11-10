@@ -1,11 +1,4 @@
-/**
- * CLI 入口分发测试（issue 21）。
- *
- * - 单元：resolveEntry 纯函数覆盖全部入口形态（无参/--session/--demo/路径/
- *   `-- 路径`/config/server/start 别名/旧拼法 tui/各管理命令/错误情形）；
- * - 进程级：tsx 与 bin 入口冒烟（非 TTY 拒绝、迁移指引、server 参数快速失败），
- *   管理命令另经真实后台验证产物分页导出。
- */
+/** CLI parsing and actual authenticated management commands. */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -15,11 +8,11 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import { crc32 } from "node:zlib";
-import { resolveEntry } from "@ruukoto/tui/cli-entry.ts";
+import { resolveEntry, parseDirectoryFlags } from "@ruukoto/tui/cli-entry.ts";
 import type { Task } from "@ruukoto/core/types.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
 import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
@@ -69,25 +62,16 @@ test("路径入口：普通路径、./config、`-- config`", () => {
 test("命令名优先于路径：config / status 不按路径处理", () => {
   assert.deepStrictEqual(resolveEntry(["config"]), { kind: "config", offline: false });
   assert.deepStrictEqual(resolveEntry(["config", "--offline"]), { kind: "config", offline: true });
-  assert.deepStrictEqual(resolveEntry(["status"]), { kind: "legacy", command: "status", argv: [] });
+  assert.deepStrictEqual(resolveEntry(["status"]), { kind: "command", command: "status", argv: [] });
 });
 
-test("server 与兼容别名 start 同一路径", () => {
-  assert.deepStrictEqual(resolveEntry(["server", "--data-dir", "x"]), { kind: "server", argv: ["--data-dir", "x"] });
-  assert.deepStrictEqual(resolveEntry(["start", "--data-dir", "x"]), { kind: "server", argv: ["--data-dir", "x"] });
+test("server dispatch", () => {
   assert.deepStrictEqual(resolveEntry(["server"]), { kind: "server", argv: [] });
 });
 
-test("旧拼法 tui 与全部管理命令保持 legacy 分发", () => {
-  const legacy = [
-    "create-project", "project", "create-session", "models", "set-model",
-    "submit", "switch-mode", "set-session-mode", "status", "events",
-    "interrupt", "cancel", "resume-queue", "confirm", "read-artifact",
-    "credentials", "github", "mcp", "stop", "qq", "grant", "history-search",
-    "memory", "selection-records", "legacy-import", "tui", "workflow",
-  ];
-  for (const cmd of legacy) {
-    assert.deepStrictEqual(resolveEntry([cmd, "--x", "1"]), { kind: "legacy", command: cmd, argv: ["--x", "1"] }, cmd);
+test("management dispatch", () => {
+  for (const command of ["project", "models", "set-model", "submit", "switch-mode", "set-session-mode", "status", "events", "interrupt", "cancel", "resume-queue", "confirm", "read-artifact", "credentials", "mcp", "stop", "grant", "history-search", "memory", "selection-records", "workflow"]) {
+    assert.deepStrictEqual(resolveEntry([command, "--x", "1"]), { kind: "command", command, argv: ["--x", "1"] });
   }
 });
 
@@ -113,12 +97,11 @@ test("错误情形 → help + error", () => {
 
 // ---- 进程级冒烟（不需要后台） ----
 
-async function runCli(args: string[], opts: { bin?: boolean; product?: "ruukoto" | "ruukoto-code"; env?: NodeJS.ProcessEnv } = {}): Promise<{ status: number; stdout: Buffer; stderr: string }> {
-  const product = opts.product ?? "ruukoto-code";
+async function runCli(args: string[], opts: { bin?: boolean; env?: NodeJS.ProcessEnv } = {}): Promise<{ status: number; stdout: Buffer; stderr: string }> {
   const cmd = opts.bin ? process.execPath : tsxBin;
-  const argv = opts.bin ? [path.join(repoRoot, "apps", product, "bin", `${product}.mjs`), ...args] : ["scripts/start.ts", ...args];
+  const argv = opts.bin ? [path.join(repoRoot, "apps/ruukoto/bin/ruukoto.mjs"), ...args] : ["apps/ruukoto/src/main.ts", ...args];
   return await new Promise((resolve, reject) => {
-    childProcess.execFile(cmd, argv, { cwd: repoRoot, env: { ...process.env, ...opts.env, RUUKOTO_PRODUCT: "ruukoto-code" }, encoding: "buffer", timeout: 120_000 }, (error, stdout, stderr) => {
+    childProcess.execFile(cmd, argv, { cwd: repoRoot, env: { ...process.env, ...opts.env }, encoding: "buffer", timeout: 120_000 }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") { reject(error); return; }
       resolve({ status: error ? Number(error.code) : 0, stdout, stderr: stderr.toString("utf8") });
     });
@@ -131,12 +114,6 @@ test("进程：未知名字按工作区路径处理，非 TTY 下退出 1 并提
   assert.match(r.stderr, /TTY/);
 });
 
-test("进程：tui 旧拼法打印迁移指引，且非 TTY 拒绝", async () => {
-  const r = await runCli(["tui", "--demo"]);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /旧拼法/);
-  assert.match(r.stderr, /TTY/);
-});
 
 test("进程：bin 入口引导 TS，未知名字退出 1", async () => {
   const r = await runCli(["bogus"], { bin: true });
@@ -147,7 +124,7 @@ test("进程：bin 入口引导 TS，未知名字退出 1", async () => {
 test("进程：server --execution 非法值在启动前快速失败", async () => {
   const r = await runCli(["server", "--execution", "bogus"]);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /--execution 取值无效/);
+  assert.match(r.stderr, /仅支持 native/);
 });
 
 test("进程：config 非 TTY 拒绝", async () => {
@@ -172,12 +149,9 @@ test("进程：所有 MCP 子命令在连接后台前拒绝旧 --project", async
 });
 
 test("进程：空 Code 实例通过 CLI 创建受限 MCP 凭据、绑定并发现工具，通用删除保留引用", async () => {
-  const t = await startTestRuntime("mcp-cli-instance", async () => ({ kind: "text", text: "done" }), { config: { product: codeProduct.runtime, socketPath: undefined } });
+  const t = await startTestRuntime("mcp-cli-instance", async () => ({ kind: "text", text: "done" }));
   const mcp = await startMockMcp({ tools: [{ name: "fetch" }], requireAuth: true });
-  const env = { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined,
-    RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CONTROL_DIR: t.runtime.controlDir(),
-    RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir(),
-    RUUKOTO_CLI_MCP_SECRET: MOCK_MCP_SECRET };
+  const env = profileChildEnv(t.dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined, RUUKOTO_CLI_MCP_SECRET: MOCK_MCP_SECRET });
   try {
     for (const projectArg of [["--project", "old-project"], ["--project=old-project"]]) {
       const refused = await runCli(["mcp", "configure", "--name", "old", "--endpoint", mcp.url, "--disabled", ...projectArg], { bin: true, env });
@@ -209,7 +183,7 @@ test("进程：空 Code 实例通过 CLI 创建受限 MCP 凭据、绑定并发�
 });
 
 test("进程：Coding 完整导出超过 720 KiB 的 PNG；分页失败、元数据变化与坏图均保留原目标", async () => {
-  const t = await startTestRuntime("art-cli", async () => ({ kind: "text", text: "done" }), { config: { socketPath: undefined } });
+  const t = await startTestRuntime("art-cli", async () => ({ kind: "text", text: "done" }));
   const query = t.runtime.queryArtifact.bind(t.runtime);
   try {
     const session = await t.runtime.createSession({ projectName: "artifact-cli", cwd: t.work[0] });
@@ -226,14 +200,12 @@ test("进程：Coding 完整导出超过 720 KiB 的 PNG；分页失败、元数
     const output = path.join(t.dirs.root, "exported image.png");
     const source = path.join(t.dirs.dataDir, "artifacts", `${artifact.id}.bin`);
     const args = ["read-artifact", task.id, artifact.id];
-    const env = { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined,
-      RUUKOTO_DATA_DIR: t.dirs.dataDir, RUUKOTO_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CONTROL_DIR: t.runtime.controlDir(),
-      RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir() };
+    const env = profileChildEnv(t.dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined });
     const offsets: number[] = [];
     t.runtime.queryArtifact = (input) => { offsets.push(input.offset ?? 0); return query(input); };
-    for (const product of ["ruukoto-code"] as const) {
+    {
       offsets.length = 0;
-      const result = await runCli([...args, "--output", output], { bin: true, product, env });
+      const result = await runCli([...args, "--output", output], { bin: true, env });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(offsets, [0, 720 * 1024]);
       assert.equal(result.stdout.length, 0);
@@ -299,4 +271,16 @@ test("进程：Coding 完整导出超过 720 KiB 的 PNG；分页失败、元数
       assert.deepEqual(fs.readFileSync(output), text, "没有哈希的文本与空产物也可完整导出");
     }
   } finally { t.runtime.queryArtifact = query; await t.shutdown(); }
+});
+
+test("directory flags precede every entry and preserve workspace delimiters", () => {
+  const directories = { dataDir: "/raw/data", agentDir: "/raw/agent", controlDir: "/raw/control", pendingDir: "/raw/pending" };
+  for (const args of [[], ["server"], ["config", "--offline"], ["status"], ["/workspace"], ["--", "config"]]) {
+    const parsed = parseDirectoryFlags(["--data-dir=/raw/data", "--agent-dir", "/raw/agent", "--control-dir", "/raw/control", "--pending-dir=/raw/pending", ...args]);
+    assert.deepEqual(parsed.directories, directories);
+    assert.deepEqual(parsed.argv, args);
+    assert.equal(parsed.error, undefined);
+  }
+  assert.ok(parseDirectoryFlags(["config", "--data-dir"]).error);
+  assert.deepEqual(parseDirectoryFlags(["--", "--data-dir"]).argv, ["--", "--data-dir"]);
 });

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import type { Session } from "@ruukoto/core/types.ts";
 import { getWorkflowStep, listWorkflowExecutions, listWorkflowSteps, requireWorkflowRun, workflowTerminal } from "@ruukoto/core/workflow.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { afterTool, lastToolText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 import { controlledWorkCopy } from "./helpers/controlled-work-copy.ts";
@@ -21,7 +21,7 @@ function source(rt: Runtime, session: Session, requestId = "owner") {
 }
 const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
-for (const product of [codeProduct.runtime]) test(`真实 ${product?.type ?? "ruukoto"} Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本`, async () => {
+test("真实 ruukoto Driver：原任务结束后修改、冻结、独立验证及汇总，验证写入留在独立副本", async () => {
   const t = await startTestRuntime("workflow-real", req => {
     const verify = lastUserText(req).includes('"verify":"change"');
     if (afterTool(req)) return { kind: "text", text: verify ? '{"passed":true,"reason":"真实文件正确"}' : "修改完成" };
@@ -29,7 +29,7 @@ for (const product of [codeProduct.runtime]) test(`真实 ${product?.type ?? "ru
     assert.ok(!toolNamesOf(req).some(name => name.startsWith("subagent_")));
     return { kind: "tool_calls", calls: [{ id: verify ? "verify" : "modify", name: verify ? "bash" : "write",
       arguments: verify ? { command: "test \"$(cat value.txt)\" = changed && printf proof > verification.txt" } : { path: "value.txt", content: "changed\n" } }] };
-  }, { config: { ...realTools(), ...(product ? { product } : {}) }, workDirs: 1 });
+  }, { config: realTools(), workDirs: 1 });
   try {
     fs.writeFileSync(path.join(t.work[0], "value.txt"), "base\n");
     initGitRepo(t.work[0]);

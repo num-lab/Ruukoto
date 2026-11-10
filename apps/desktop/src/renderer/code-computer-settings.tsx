@@ -78,7 +78,7 @@ export function CodeComputerEditor({ state }: { state: CodeMcpState }) {
   return (
     <SettingsPage title="Computer" description="Manage the local Cua Driver and computer recovery.">
       <SettingsGroup title="Services" action={<SettingsButton variant="primary" onClick={() => state.select(null)} disabled={state.disabled || state.dirty}><Plus />Add computer</SettingsButton>}>
-        {!state.connected && <SettingsNotice>Code is offline. Restore the connection.</SettingsNotice>}
+        {!state.connected && <SettingsNotice>ruukoto is offline. Restore the connection.</SettingsNotice>}
         {state.reading && <SettingsNotice>Loading configuration…</SettingsNotice>}
         <SettingsList label="Computer services" empty="No local computer configured yet.">
           {state.services.filter(service => service.cua).map(service => <SettingsListItem key={service.id} title={service.name} description={`Local Cua Driver · ${service.toolAllowlist.length} allowed tools`} expanded={state.editing && state.selectedId === service.id} toggleLabel={`${state.editing && state.selectedId === service.id ? "Collapse" : "Edit"} ${service.name}`} onToggle={() => state.editing && state.selectedId === service.id ? state.closeEditor() : state.select(service.id)} details={state.editing && state.selectedId === service.id ? <ComputerDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /> : undefined}>
@@ -102,6 +102,6 @@ function CodeComputerForm({ settings, scope, code }: SettingsPageProps) {
 
 export function CodeComputerSettings(props: SettingsPageProps) {
   if (props.settings.form instanceof CodeMcpState && props.settings.form.pending) return <CodeComputerForm {...props} />;
-  if (!props.scope.instanceId) return <SettingsPage title="Computer" description="Manage the local Cua Driver and computer recovery."><SettingsNotice>Code is offline. Restore the connection to manage computers.</SettingsNotice></SettingsPage>;
+  if (!props.scope.instanceId) return <SettingsPage title="Computer" description="Manage the local Cua Driver and computer recovery."><SettingsNotice>ruukoto is offline. Restore the connection to manage computers.</SettingsNotice></SettingsPage>;
   return <CodeComputerForm {...props} />;
 }

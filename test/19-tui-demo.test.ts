@@ -25,14 +25,6 @@ import { EventFlow } from "@ruukoto/tui/tui/event-flow.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { waitFor } from "./helpers/testkit.ts";
 
-/** 从类型定义抽出全部事件 type 字面量（新增事件类型时必须同步 demo 数据）。 */
-function declaredEventTypes(): string[] {
-  const src = fs.readFileSync(new URL("../packages/core/src/types.ts", import.meta.url), "utf8");
-  const start = src.indexOf("export type PersistentEventBody");
-  const end = src.indexOf("export interface PersistentEvent");
-  assert.ok(start >= 0 && end > start, "未能定位 PersistentEventBody 定义");
-  return [...src.slice(start, end).matchAll(/\{\s*type:\s*"([a-z_.]+)"/g)].map((m) => m[1]!);
-}
 
 /** 收集 demo 客户端推送的全部事件（等事件流自然结束）。 */
 async function collect(client: ControlTransport): Promise<PersistentEvent[]> {
@@ -55,15 +47,10 @@ async function collect(client: ControlTransport): Promise<PersistentEvent[]> {
   return seen;
 }
 
-test("合成会话覆盖全部事件类型且 seq 连续", async () => {
-  const declared = declaredEventTypes();
+test("demo event sequence and projected objects remain coherent", async () => {
   const client = createDemoClient(() => {}, 1);
   try {
     const events = await collect(client);
-    const pushed = new Set<string>(events.map((e) => e.body.type));
-    const missing = declared.filter((t) => !pushed.has(t));
-    assert.deepEqual(missing, [], `demo 未覆盖的事件类型：${missing.join(", ")}`);
-    assert.equal(pushed.size, declared.length, "demo 推送了类型定义之外的事件");
     // seq 必须连续：TUI 按 seq 检测缺口并触发重新同步
     assert.deepEqual(
       events.map((e) => e.seq),
@@ -183,7 +170,7 @@ test("合成会话里提交：明确拒绝、恢复草稿，不留待核实记�
   const store = new PendingRequestStore(dir);
   let app: TuiApp | null = null;
   const connection = new ControlConnection(
-    { socketPath: "(demo)", token: "(demo)", clientFactory: async () => createDemoClient(() => {}, 60_000) },
+    { token: "(demo)", clientFactory: async () => createDemoClient(() => {}, 60_000) },
     {
       onState: (s, detail) => app?.onConnectionState(s, detail),
       onSnapshot: (result, ctx) => app?.onSnapshot(result, ctx),

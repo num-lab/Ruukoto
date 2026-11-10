@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 The user queue previously included internal summaries and question answers. Arbitrary queued messages could not be retrieved independently, and interrupting the current task did not pause later dispatch. Desktop also automatically turned the next input after interruption into continuation of the old task, obscuring what a submission controls.
@@ -35,6 +37,8 @@ Distinguish everyday queue resumption from verification of retained occupancy. K
 Remove `Runtime.continueTask`, control `continue`, CLI `continue`, TUI `/continue`, Desktop continuation intent/automatic continuation drafts after stopping, associated help and Scheduled continuation exceptions. Later input always creates a new ordinary task in the same conversation. Do not broaden ordinary-submission eligibility for active Scheduled conversations.
 
 Retain historical `resumesTaskId`, read-only continuation provenance, attachment/source closures and existing idempotency fields in old submission digests. Old pending continue requests retain original instance, key, text and attachments as retired requests verifiable by the original version; never discard, automatically replay or convert them to submit. Old profiles and pending requests are not migrated into the new instance.
+
+[Single-product fresh journals](../architecture/2026-11-10-single-product.md) supersedes pending-format compatibility: current clients admit only current submissions and question answers, retain malformed files without replay, and provide no retired-request or missing-model restoration path. Original-key recovery remains for valid current requests.
 
 ## Related decision audit
 

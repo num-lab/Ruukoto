@@ -10,7 +10,8 @@ import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { getCodeScheduleRun, getCodeScheduleRunForTask, type CodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
+
 
 test("真实模型 Scheduled：原Task等待回答后按固定配置精确审批单文件并结束", {
   skip: process.env.RUN_MODEL_CHECK !== "1" ? "真实模型仅在 RUN_MODEL_CHECK=1 时执行" : false,
@@ -25,8 +26,10 @@ test("真实模型 Scheduled：原Task等待回答后按固定配置精确审批
   const selected = Object.entries(catalog.providers).flatMap(([provider, config]) => config.models.map(model => ({ provider, modelId: model.id })))[0];
   assert.ok(selected, "显式模型配置须含至少一个模型");
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-code-scheduler-model-")));
-  const agentDir = path.join(root, "agent"), workspace = path.join(root, "work"), models = path.join(agentDir, "models.json");
-  fs.mkdirSync(agentDir, { mode: 0o700 }); fs.mkdirSync(workspace, { mode: 0o700 });
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const { agentDir } = profile;
+  const workspace = path.join(root, "work"), models = path.join(agentDir, "models.json");
+  fs.mkdirSync(workspace, { mode: 0o700 });
   const markerFile = path.join(workspace, "scheduled-acceptance.txt"), marker = `CODE_SCHEDULED_MODEL_${randomBytes(8).toString("hex")}`;
   const questions = [{ question: "是否允许写入本次固定验收文件？", options: ["允许写入", "停止"] }, { question: "本次验收口令？" }];
   const answerToken = `SCHEDULED_ANSWER_${randomBytes(8).toString("hex")}`;
@@ -44,8 +47,8 @@ test("真实模型 Scheduled：原Task等待回答后按固定配置精确审批
   };
   try {
     fs.writeFileSync(models, source, { mode: 0o600 });
-    runtime = await Runtime.start({ product: product.runtime, dataDir: path.join(root, "data"), agentDir, socketPath: path.join(root, "c.sock"),
-      modelProvider: selected.provider, modelId: selected.modelId, thinkingLevel: "off", qqDisabled: true,
+    runtime = await Runtime.start({ profile,
+      modelProvider: selected.provider, modelId: selected.modelId, thinkingLevel: "off",
       scheduler: { now: () => clock, tickMs: 60_000 },
       toolFactory: ({ router }) => createCodingTools(router).filter(tool => tool.name === "request_file_access").map(tool => ({ ...tool,
         execute: (...args: Parameters<typeof tool.execute>) => {

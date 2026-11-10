@@ -70,7 +70,7 @@ export function AddServicePage({ state, onCancel, onSaved }: { state: CodeMcpSta
   };
   return (
     <SettingsSubpage title="Add service" description="Configure the MCP HTTP service and allowed tools." onBack={onCancel}>
-      {!state.connected && <SettingsNotice>Code is offline. Restore the connection.</SettingsNotice>}
+      {!state.connected && <SettingsNotice>ruukoto is offline. Restore the connection.</SettingsNotice>}
       <SettingsGroup title="Services">
         <SettingsCard><ServiceFields state={state} onAdopt={onSaved} /></SettingsCard>
       </SettingsGroup>
@@ -95,9 +95,9 @@ export function CodeMcpEditor({ state }: { state: CodeMcpState }) {
   const cancelAdd = () => { if (state.phase === "saving" || state.phase === "unknown") return; state.closeEditor(); setAdding(false); };
   if (adding) return <AddServicePage state={state} onCancel={cancelAdd} onSaved={() => setAdding(false)} />;
   return (
-    <SettingsPage title="MCP" description="Manage HTTP services shared by this Code instance.">
+    <SettingsPage title="MCP" description="Manage HTTP services shared by this ruukoto instance.">
       <SettingsGroup title="Services" action={<SettingsButton variant="primary" onClick={() => { state.select(null); setAdding(true); }} disabled={state.disabled || state.dirty}><Plus />Add service</SettingsButton>}>
-        {!state.connected && <SettingsNotice>Code is offline. Restore the connection.</SettingsNotice>}
+        {!state.connected && <SettingsNotice>ruukoto is offline. Restore the connection.</SettingsNotice>}
         {state.reading && <SettingsNotice>Loading configuration…</SettingsNotice>}
         <SettingsList label="MCP services" empty="No HTTP services configured yet.">
           {state.services.filter(service => !service.cua).map(service => <SettingsListItem key={service.id} title={service.name} description={`${service.endpoint} · ${service.credential ? state.credentials.some(credential => credential.name === service.credential) ? "Credential configured" : "Credential unavailable" : "Anonymous"} · ${service.toolAllowlist.length} allowed tools`} expanded={state.editing && state.selectedId === service.id} toggleLabel={`${state.editing && state.selectedId === service.id ? "Collapse" : "Edit"} ${service.name}`} onToggle={() => state.editing && state.selectedId === service.id ? state.closeEditor() : state.select(service.id)} details={state.editing && state.selectedId === service.id ? <ServiceDetails state={state} confirmation={confirmation} setConfirmation={setConfirmation} /> : undefined}>
@@ -125,6 +125,6 @@ function CodeMcpForm({ settings, scope, code }: SettingsPageProps) {
 
 export function CodeMcpSettings(props: SettingsPageProps) {
   if (props.settings.form instanceof CodeMcpState && props.settings.form.pending) return <CodeMcpForm {...props} />;
-  if (!props.scope.instanceId) return <SettingsPage title="MCP" description="Manage HTTP services shared by this Code instance."><SettingsNotice>Code is offline. Restore the connection to manage MCP.</SettingsNotice></SettingsPage>;
+  if (!props.scope.instanceId) return <SettingsPage title="MCP" description="Manage HTTP services shared by this ruukoto instance."><SettingsNotice>ruukoto is offline. Restore the connection to manage MCP.</SettingsNotice></SettingsPage>;
   return <CodeMcpForm {...props} />;
 }

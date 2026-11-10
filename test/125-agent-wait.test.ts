@@ -7,13 +7,13 @@ import { getAgentReport, agentReportKey, listAgentWaits } from "@ruukoto/core/ag
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { createCodingTools } from "@ruukoto/agent/tool-router.ts";
 import { getWorkflowStep, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { initGitRepo } from "./helpers/git-fixture.ts";
 import { afterTool, lastToolText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 const SCRIPT = 'await agent("change",{request:"修改",target:"."}); await agent("validate",{request:"独立验证",verify:"change",dependsOn:["change"]}); return await integrate("merge",{steps:["validate"],dependsOn:["validate"],check:"test \\"$(cat value.txt)\\" = changed"});';
 
-for (const product of [codeProduct.runtime]) test(`wait ${product?.type ?? "ruukoto"}：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告`, async () => {
+test("wait ruukoto：父轮让出真实 worker 与目录，修改、冻结、验证、汇总后继续检查且唯一报告", async () => {
   let parentPhase = 0, runId = "";
   const t = await startTestRuntime("agent-wait-workflow", req => {
     if (lastUserText(req) === "等待修改工作流") {
@@ -43,7 +43,7 @@ for (const product of [codeProduct.runtime]) test(`wait ${product?.type ?? "ruuk
     if (afterTool(req)) return { kind: "text", text: verify ? '{"passed":true,"reason":"字节已核实"}' : "修改完成" };
     return { kind: "tool_calls", calls: [{ id: verify ? "verify" : "change", name: verify ? "bash" : "write", arguments: verify
       ? { command: 'test "$(cat value.txt)" = changed' } : { path: "value.txt", content: "changed\n" } }] };
-  }, { config: { ...realTools(), ...(product ? { product } : {}) }, workDirs: 1 });
+  }, { config: realTools(), workDirs: 1 });
   try {
     fs.writeFileSync(path.join(t.work[0], "value.txt"), "base\n");
     initGitRepo(t.work[0]);
@@ -82,7 +82,7 @@ test("wait：超时或人工问题只结束一次等待，后台工作仍继续"
     const result = JSON.parse(lastToolText(req)) as { reason: string };
     assert.ok(["timeout", "attention"].includes(result.reason));
     return { kind: "text", text: "工作仍在等待业务回答" };
-  }, { config: { product: codeProduct.runtime } });
+  });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "wait", cwd: t.work[0] });
     const parent = await rt.submit({ sessionId: session.id, requestId: "parent", input: "等待业务回答", modelSelection: rt.defaultSelection });
@@ -118,7 +118,7 @@ test("非 Git 子任务持真实目录：拥有者引导解除父等待并接入
     return { kind: "tool_calls", calls: [{ id: "child-write", name: "bash", arguments: {
       command: "printf started > child-started; while [ ! -f child-release ]; do sleep 0.05; done; printf changed > value.txt",
     } }] };
-  }, { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  }, { config: { ...realTools() }, workDirs: 1 });
   rt = t.runtime;
   try {
     const session = await rt.createSession({ projectName: "direct", cwd: t.work[0] });
@@ -173,7 +173,7 @@ test("非 Git 持目录等待真实审批：attention 与新输入可对话，�
     if (childPhase === 2) return { kind: "tool_calls", calls: [{ id: "approval-read", name: "read", arguments: { path: "approval-fixture" } }] };
     assert.match(lastToolText(req), /APPROVED_FILE/);
     return { kind: "text", text: "获批修改完成" };
-  }, { workDirs: 1, config: { product: codeProduct.runtime, toolFactory: ({ router }) => createCodingTools(router).map(tool => tool.name !== "read" ? tool : {
+  }, { workDirs: 1, config: { toolFactory: ({ router }) => createCodingTools(router).map(tool => tool.name !== "read" ? tool : {
     ...tool,
     // 普通写入子工具不开放审批操作；此适配器只将已登记 read 导向真实审批闸门以验证持目录等待。
     execute: async (sdkCallId, _params, signal) => {

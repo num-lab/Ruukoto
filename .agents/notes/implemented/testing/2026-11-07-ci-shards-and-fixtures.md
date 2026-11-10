@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 The owner's November 7 timing report identifies long MCP discovery waits and repeated real setup in corruption matrices. The successful [CI baseline](https://github.com/num-lab/Ruukoto/actions/runs/42325386963) spends 40m16s checking macOS and 31m48s checking Linux. The report's proposed reductions group cases with similar titles, but missing verification evidence, unknown effects, permission changes and cold recovery exercise different guards. Removing these cases would lose regression coverage.

@@ -8,14 +8,6 @@ export interface Draft { text: string; attachments?: DesktopAttachment[]; attach
 
 /** task_queue receipts (coding-message-control): order/revision/eligibility are server-authoritative. */
 export type QueueDetail = OpResult<"task_queue">;
-export type QueueDecision = { kind: "select_model" } | { kind: "confirm"; count: number; selection: ModelSelection } | { kind: "send"; params: OpParams<"resume_queue"> };
-export function queueDecision(view: ViewState, session: Session, confirmed = false): QueueDecision {
-  const count = view.queuedTasksFor(session.id).filter(task => !task.modelSelection).length;
-  if (!count) return { kind: "send", params: { session_id: session.id } };
-  if (!session.modelSelection) return { kind: "select_model" };
-  if (!confirmed) return { kind: "confirm", count, selection: session.modelSelection };
-  return { kind: "send", params: { session_id: session.id, model_selection: session.modelSelection } };
-}
 /** Reorder eligible items only; the server preserves ineligible items at their original positions. */
 export function queueOrderAfterMove(order: readonly string[], taskId: string, targetId: string, placement: "before" | "after"): string[] | null {
   if (taskId === targetId || !order.includes(taskId) || !order.includes(targetId)) return null;
@@ -40,6 +32,7 @@ export class CodeWrites {
   entries = new Map<string, PendingInput>();
   corrupt: string[] = [];
   pendingDir = "";
+  private profile: { instanceId: string; draftKey: string } | null = null;
   models: OpResult<"list_models">["models"] = [];
   message: string | null = null;
   readonly busy = new Set<string>();
@@ -55,7 +48,6 @@ export class CodeWrites {
   private modelRead = 0;
   private readonly submitting = new Map<string, HeldInput>();
   private readonly held = new Map<string, HeldInput>();
-  private readonly restoring = new Set<string>();
   private readonly queues = new Map<string, QueueDetail>();
   queueDetail(sessionId: string): QueueDetail | undefined { return this.queues.get(`${this.view.instanceId}:${sessionId}`); }
   private readonly recallStates = new Map<string, RecallState>();
@@ -89,12 +81,11 @@ export class CodeWrites {
     const held = this.heldRecall.get(this.key(sessionId));
     return !!held && !held.installed;
   }
-  defer(): void { this.report("The original record is kept; you can restore input later. Sending stays disabled."); }
   blocked(sessionId: string): boolean {
     return !this.online() || this.recallPending(sessionId) || !!this.draft(sessionId).attaching || this.busy.has(sessionId) || this.checking(sessionId) || [...this.entries.values()].some(({ record }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId);
   }
   checking(sessionId: string): boolean {
-    return this.recallPending(sessionId) || this.submitting.has(this.key(sessionId)) || [...this.held.values()].some(held => !held.settled && held.draft === this.draft(sessionId)) || [...this.entries.values()].some(({ record, result }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId && result?.kind !== "needs_resubmit" && result?.kind !== "rejected");
+    return this.recallPending(sessionId) || this.submitting.has(this.key(sessionId)) || [...this.held.values()].some(held => !held.settled && held.draft === this.draft(sessionId)) || [...this.entries.values()].some(({ record, result }) => record.instanceId === this.view.instanceId && record.params.session_id === sessionId && result?.kind !== "rejected");
   }
   settingsPending(sessionId: string): boolean {
     const unknown = this.unknown.get(sessionId);
@@ -128,15 +119,10 @@ export class CodeWrites {
       if (input.attachments) draft.attachments = [...input.attachments, ...(draft.attachments ?? []).filter(item => !input.attachments!.some(original => original.id === item.id))];
     }
   }
-  async preparePending(sessionId: string): Promise<void> {
-    for (const { record, result } of this.entries.values()) {
+  preparePending(sessionId: string): void {
+    for (const { record } of this.entries.values()) {
       if (record.instanceId !== this.view.instanceId || record.params.session_id !== sessionId) continue;
       this.hold(record);
-      if ((result?.kind === "needs_resubmit" || result?.kind === "rejected") && !this.restoring.has(record.requestId)) {
-        this.restoring.add(record.requestId);
-        await this.restore(record.requestId);
-        this.restoring.delete(record.requestId);
-      }
     }
     this.changed();
   }
@@ -161,6 +147,7 @@ export class CodeWrites {
     this.changed();
   }
   update(update: DesktopUpdate): void {
+    if (update.type === "profile") { this.profile = update.profile; return; }
     const modelChanged = update.type === "event" && update.event.body.type === "model.config_changed";
     if (update.type === "snapshot" || modelChanged || (update.type === "state" && update.state !== "online")) {
       ++this.modelGeneration;
@@ -186,10 +173,10 @@ export class CodeWrites {
       }
     }
     if (update.type === "pending") {
-      this.entries = new Map(update.entries.filter(entry => entry.record.op === "submit" || entry.record.op === "continue").map(entry => [entry.record.requestId, entry]));
+      this.entries = new Map(update.entries.filter(entry => entry.record.op === "submit").map(entry => [entry.record.requestId, entry]));
       this.corrupt = update.corrupt;
       this.pendingDir = update.dir;
-    } else if (update.type === "submission" && (update.record.op === "submit" || update.record.op === "continue")) {
+    } else if (update.type === "submission" && update.record.op === "submit") {
       const { record, result } = update;
       if (result.kind === "linked" || result.kind === "resent" || result.kind === "rejected") {
         this.entries.delete(record.requestId);
@@ -205,13 +192,14 @@ export class CodeWrites {
         if (result.kind !== "rejected" && typeof record.params.session_id === "string") this.finishFirstChat(record.params.session_id);
       } else this.entries.set(record.requestId, { record, result });
     } else if (update.type === "snapshot") {
+      if (this.profile && this.profile.instanceId !== this.view.instanceId) this.profile = null;
       // After a cold start, verify the saved request key still owns the edit window before restoring its draft.
       for (const session of this.view.sessions) {
         let stored: string | null = null;
         try { stored = localStorage.getItem(this.storageKey(session.id)); } catch { stored = null; }
         if (!stored) continue;
         let held: HeldRecall;
-        try { held = JSON.parse(stored) as HeldRecall; } catch { held = { requestId: stored }; }
+        try { held = JSON.parse(stored) as HeldRecall; } catch { continue; }
         if (!held || typeof held.requestId !== "string") continue;
         if (!this.heldRecall.get(this.key(session.id))?.installed) this.heldRecall.set(this.key(session.id), held);
         void this.loadRecallState(session.id, held.requestId);
@@ -226,17 +214,6 @@ export class CodeWrites {
         }
       }
     }
-  }
-  async restore(requestId: string): Promise<void> {
-    try {
-      // Delivered input only retries the cleanup confirmation, to avoid re-sending after a lost response.
-      if (!this.restored.has(requestId)) this.merge(await this.request<PendingRequest>("desktop_pending_read", { request_id: requestId }));
-      if (!this.restored.has(requestId)) { this.report("The input wasn't delivered. Reconnect to the original data instance and retry."); return; }
-      await this.request("desktop_pending_clear", { request_id: requestId });
-      this.entries.delete(requestId);
-      this.held.delete(requestId);
-      this.report("Input restored. Select a model and send.");
-    } catch (error) { this.report(error instanceof Error ? error.message : "Couldn't restore input; the original record is kept. Try again."); }
   }
   /** Queue detail cache (refreshed when the panel opens or on events); keys self-isolate on instance switch. */
   async loadQueue(sessionId: string): Promise<void> {
@@ -306,7 +283,10 @@ export class CodeWrites {
   }
 
   /** Persist the initiating request key so a cold start can verify edit-window ownership and restore the draft. */
-  private storageKey(sessionId: string): string { return `ruukoto.recallDraft:${this.key(sessionId)}`; }
+  private storageKey(sessionId: string): string {
+    if (!this.profile || this.profile.instanceId !== this.view.instanceId) throw new Error("The desktop profile is unavailable; reconnect before editing the original message.");
+    return `${this.profile.draftKey}:${sessionId}`;
+  }
   private rememberRecall(sessionId: string, held: HeldRecall): void {
     this.heldRecall.set(this.key(sessionId), held);
     try { localStorage.setItem(this.storageKey(sessionId), JSON.stringify({ requestId: held.requestId, ...(held.params ? { params: held.params } : {}) })); }
@@ -531,12 +511,10 @@ export class CodeWrites {
     await this.write(op, { task_id: taskId }, { op, sessionId, taskId, instanceId: this.view.instanceId });
   }
   stopConfirmationNeeded(sessionId: string): boolean { return this.stopConfirmations.has(this.key(sessionId)); }
-  async resume(session: Session, confirmed = false, stopConfirmed = false): Promise<void> {
+  async resume(session: Session, stopConfirmed = false): Promise<void> {
     if (this.settingsPending(session.id)) { this.report("Chat settings are still saving or unverified. Reconnect to confirm the actual backend settings before resuming the queue."); return; }
-    const decision = queueDecision(this.view, session, confirmed);
-    if (decision.kind !== "send") return;
     const revision = this.queueRevision;
-    const saved = await this.write("resume_queue", { ...decision.params, ...(stopConfirmed ? { stop_confirmed: true } : {}) }, { op: "resume_queue", sessionId: session.id, instanceId: this.view.instanceId });
+    const saved = await this.write("resume_queue", { session_id: session.id, ...(stopConfirmed ? { stop_confirmed: true } : {}) }, { op: "resume_queue", sessionId: session.id, instanceId: this.view.instanceId });
     if (saved) { this.applyQueue(saved, revision); this.changed(); }
   }
 }

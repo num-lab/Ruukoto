@@ -5,16 +5,15 @@ import { execFile } from "node:child_process";
 import { test } from "node:test";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { getWorkflowQuestion, listWorkflowRuns, rememberWorkflowDefinition, requireWorkflowRun, saveWorkflowDefinition } from "@ruukoto/core/workflow.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 
 test("Coding CLI 实际进程保存、列出、带参运行、原键核实、查看阶段、回答与取消", async () => {
-  const t = await startTestRuntime("workflow-cli", async () => ({ kind: "text", text: "FINAL" }), { config: { product: codeProduct.runtime, socketPath: undefined } });
+  const t = await startTestRuntime("workflow-cli", async () => ({ kind: "text", text: "FINAL" }));
   const cli = (args: string[]) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
-    execFile(process.execPath, ["node_modules/.bin/tsx", "apps/ruukoto-code/src/main.ts", "workflow", ...args], {
+    execFile(process.execPath, ["node_modules/.bin/tsx", "apps/ruukoto/src/main.ts", "workflow", ...args], {
       cwd: process.cwd(), timeout: 15000,
-      env: { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined,
-        RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: t.runtime.controlDir() },
+      env: profileChildEnv(t.dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: undefined, RUUKOTO_OWNER_TOKEN_FILE: undefined }),
     }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") { reject(error); return; }
       resolve({ code: error ? Number(error.code) : 0, stdout, stderr });

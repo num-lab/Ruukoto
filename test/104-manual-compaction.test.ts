@@ -5,12 +5,13 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { configRevision, saveSummaryModel } from "@ruukoto/agent/model-config.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { reserveCompactionRequest } from "@ruukoto/core/compaction.ts";
 import { TASK_END_MARKER, TASK_START_MARKER, type Session, type SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { authenticateClient, connectAuthedClient, inputText, startTestRuntime, waitFor, type TestRuntime } from "./helpers/testkit.ts";
@@ -44,7 +45,7 @@ function history(t: TestRuntime, session: Session) {
 }
 
 async function fixture(prefix: string, respond: Responder = async req => ({ kind: "text", text: req.tools?.length ? "主任务完成" : "结构化摘要：迁移已确认，下一步验证。" }), config: Parameters<typeof startTestRuntime>[2] = {}) {
-  const t = await startTestRuntime(prefix, respond, { ...config, config: { product: product.runtime, ...config.config } });
+  const t = await startTestRuntime(prefix, respond, config);
   const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
   const file = history(t, session);
   return { t, session, file };
@@ -145,14 +146,7 @@ test("接收先占会话，覆盖提交解析窗口与任务启动窗口；无�
     const task = await t.runtime.submit({ sessionId: fresh.id, requestId: "queued", input: "任务正在启动", modelSelection: t.runtime.defaultSelection });
     await assert.rejects(() => t.runtime.compactSession({ sessionId: fresh.id, requestId: "busy" }), (e: { code?: string }) => e.code === "session_busy");
     await waitFor("任务结束", () => t.runtime.store.getTask(task.id)!.status === "completed");
-    const main = t.runtime.store.getAgentRole("main")!;
-    await assert.rejects(() => t.runtime.compactSession({ sessionId: main.sessionId, requestId: "main" }), (e: { code?: string }) => e.code === "invalid_state");
   } finally { await t.shutdown(); }
-  const personal = await startTestRuntime("manual-personal", async () => ({ kind: "text", text: "回复" }));
-  try {
-    const session = (await personal.runtime.createSession({ projectName: "项目", cwd: personal.work[0]! }));
-    await assert.rejects(() => personal.runtime.compactSession({ sessionId: session.id, requestId: "unsupported" }), (e: { code?: string }) => e.code === "unavailable");
-  } finally { await personal.shutdown(); }
 });
 
 test("失败和提交冲突保留原点，坏行及部分尾不修复；已失效旧点明确作废", async () => {
@@ -428,17 +422,17 @@ test("真实 Coding Agent 后台摘要中 SIGKILL：重启中断原请求，旧�
     const bytes = fs.readFileSync(file);
     await t.runtime.stop("before_crash_process");
     pause = true;
-    child = spawn(process.execPath, ["--import", "tsx", "apps/ruukoto-code/src/main.ts", "start", "--data-dir", t.dirs.dataDir, "--agent-dir", t.dirs.agentDir,
+    child = spawn(process.execPath, ["--import", "tsx", "apps/ruukoto/src/main.ts", "server",
       "--tools", "mock", "--model", "mock/mock-model", "--thinking", "off"], {
-      detached: true, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, RUUKOTO_CODE_CONTROL_DIR: t.dirs.root },
+      detached: true, stdio: ["ignore", "ignore", "pipe"], env: profileChildEnv(t.dirs.profile.selection),
     });
     let stderr = "";
     child.stderr!.on("data", chunk => { stderr += String(chunk); });
     await waitFor("Coding Agent 子后台启动", async () => {
       if (child!.exitCode !== null || child!.signalCode !== null) throw new Error(`子后台提前退出：${stderr}`);
       try {
-        client = await ControlClient.connect(path.join(t.dirs.root, "control.sock"), 500);
-        await authenticateClient(client, t.dirs.root);
+        client = await ControlClient.connect(t.dirs.profile.socketPath, 500);
+        await authenticateClient(client, t.dirs.profile);
         await client.handshake();
         return true;
       } catch {

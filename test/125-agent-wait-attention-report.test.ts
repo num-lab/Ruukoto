@@ -10,7 +10,6 @@ import { agentReportKey, getAgentReport, isAgentReportFallback, listAgentReports
 import type { AgentWaitResult } from "@ruukoto/agent/agent-wait-tools.ts";
 import { TASK_END_MARKER, type Task } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { FakeBotApi } from "./helpers/fake-bot-api.ts";
 import { afterTool, lastToolText, lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 function attentionChildren(rt: Runtime, parent: Task): string[] {
@@ -23,7 +22,7 @@ function attentionChildren(rt: Runtime, parent: Task): string[] {
       activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
     rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: parent.id, subAgentId: agentId,
       requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: now });
-    const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(rt["workflowSource"](parent.id, false, true)), sessionId: childSession.id, requestId: key, input: key, accessMode: parent.accessMode,
+    const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(rt["workflowSource"](parent.id)), sessionId: childSession.id, requestId: key, input: key, accessMode: parent.accessMode,
       modelSelection: rt.defaultSelection, submissionDigest: key, parentTaskId: parent.id, workId, subAgentId: agentId }).task;
     if (key === "first") {
       rt.store.endTask(child.id, ["queued"], "completed"); rt.store.setTaskResult(child.id, "FIRST-COMPLETED", "{}");
@@ -35,11 +34,10 @@ function attentionChildren(rt: Runtime, parent: Task): string[] {
   }));
 }
 
-for (const layout of ["batch", "sequential"] as const) test(`main 父轮 ${layout} 等待后完成介入回复：部分结果不算最终报告，剩余完成后共一份证明和外发`, async () => {
-  const token = "123:wait-attention", api = new FakeBotApi({ token, ownerId: 42 }), apiBase = await api.start();
-  let rt!: Runtime, parentTaskId = "", firstId = "", secondId = "";
+for (const layout of ["batch", "sequential"] as const) test(`owner ${layout} wait reports partial attention separately and produces one final group proof`, async () => {
+  let rt!: Runtime, sessionId = "", parentTaskId = "", firstId = "", secondId = "";
   const t = await startTestRuntime("wait-attention-report", req => {
-    const main = rt.store.getAgentRole("main")!, current = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!;
+    const current = rt.store.listTasksBySession(sessionId).find(task => task.status === "running")!;
     if (isAgentReportFallback(rt.store, current.id)) return { kind: "text", text: "GROUP-ONLY-FINAL 两份结果共同完成" };
     if (afterTool(req)) {
       const result = JSON.parse(lastToolText(req)) as AgentWaitResult;
@@ -59,22 +57,19 @@ for (const layout of ["batch", "sequential"] as const) test(`main 父轮 ${layou
     const ids = attentionChildren(rt, parent);
     [firstId, secondId] = ids;
     return { kind: "tool_calls", calls: [{ id: "wait-partial", name: "wait", arguments: { targets: (layout === "batch" ? ids : [firstId]).map(task_id => ({ kind: "task", task_id })) } }] };
-  }, { config: { qqDisabled: true, scheduler: { tickMs: 20 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
+  });
   rt = t.runtime;
   try {
-    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: token });
-    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" }); await rt.telegramSetEnabled(true);
-    await waitFor("Telegram 在线", () => rt.telegramStatus().online === true);
-    api.push({ text: "MAIN ATTENTION 两项结果一起处理" });
+    const session = await rt.createSession({ projectName: "attention-report", cwd: t.work[0] });
+    sessionId = session.id;
+    await rt.submit({ sessionId, requestId: "parent", input: "OWNER ATTENTION 两项结果一起处理", modelSelection: rt.defaultSelection });
     await waitFor("父轮介入回复完成且登记原结果", () => !!parentTaskId && rt.store.getTask(parentTaskId)!.status === "completed" && rt.store.getTask(parentTaskId)!.resultSummary !== null);
     const firstKey = agentReportKey({ kind: "task", taskId: firstId }), before = getAgentReport(rt.store, firstKey)!;
     assert.equal(before.status, "pending", "完成问答轮次不能把部分结果登记为整组最终报告");
     assert.equal(before.claimTaskId, null); assert.equal(before.proof, null);
     assert.equal(before.consumption!.taskId, parentTaskId);
     const originalConsumption = before.consumption;
-    await waitFor("介入问题经普通原事件回复发送", () => api.sends.some(body => String(body.text).includes("PARTIAL-QUESTION")));
-    const questionOp = rt.sched.listOps({ limit: 50 }).items.find(op => op.sourceKind === "owner_reply" && op.taskId === parentTaskId)!;
-    assert.equal(questionOp.sourceKey, rt.store.getTask(parentTaskId)!.sourceEventId);
+    assert.match(rt.readTaskReply(parentTaskId)!.text, /PARTIAL-QUESTION/);
     assert.equal(listAgentReports(rt.store).filter(report => report.status === "reported").length, 0);
     assert.equal(t.server.calls.length, layout === "batch" ? 2 : 3);
     rt.store.withTx(() => rt.store.endTask(secondId, ["awaiting_confirmation"], "completed"));
@@ -83,25 +78,23 @@ for (const layout of ["batch", "sequential"] as const) test(`main 父轮 ${layou
     assert.deepEqual(first.consumption, originalConsumption, "原父轮消费不迁给后备或重复注入");
     assert.deepEqual(reports[0].proof, reports[1].proof);
     const proof = reports[0].proof!;
-    assert.notEqual(proof.taskId, parentTaskId); assert.ok(proof.entryId); assert.ok(proof.outboxOpId);
+    assert.notEqual(proof.taskId, parentTaskId); assert.ok(proof.entryId);
     assert.ok(isAgentReportFallback(rt.store, proof.taskId));
     assert.equal(rt.readTaskReply(proof.taskId)!.text, "GROUP-ONLY-FINAL 两份结果共同完成");
-    await waitFor("唯一整组最终回报实际发送", () => rt.sched.getOp(proof.outboxOpId!)!.status === "sent");
-    assert.equal(api.sends.filter(body => String(body.text).includes("PARTIAL-QUESTION")).length, 1);
-    assert.equal(api.sends.filter(body => String(body.text).includes("GROUP-ONLY-FINAL")).length, 1);
-    assert.equal(rt.sched.listOps({ limit: 50 }).items.filter(op => op.sourceKind === "owner_reply").length, 2);
+    const replies = rt.store.listTasksBySession(sessionId).map(task => rt.readTaskReply(task.id)?.text ?? "");
+    assert.equal(replies.filter(text => text.includes("PARTIAL-QUESTION")).length, 1);
+    assert.equal(replies.filter(text => text.includes("GROUP-ONLY-FINAL")).length, 1);
     assert.equal(t.server.calls.length, layout === "batch" ? 3 : 4, JSON.stringify(t.server.calls.map(call => ({ input: lastUserText(call).slice(0, 250), afterTool: afterTool(call) }))));
-  } finally { await t.shutdown(); await api.close(); }
+  } finally { await t.shutdown(); }
 });
 
-test("续接 main 冷恢复：first 来源撤销清除整组认领后，普通 owner_reply 仍取消且不实际发送", async () => {
-  const token = "123:wait-cold-source", api = new FakeBotApi({ token, ownerId: 42 }), apiBase = await api.start();
-  let rt!: Runtime, restarted: Runtime | null = null, parentTaskId = "", followupTaskId = "", firstId = "", secondId = "", memoryId = "", inputAccepted = false;
+test("owner continuation cold recovery invalidates the complete revoked report group without another model request", async () => {
+  let rt!: Runtime, restarted: Runtime | null = null, sessionId = "", parentTaskId = "", followupTaskId = "", firstId = "", secondId = "", memoryId = "", inputAccepted = false;
   let resumeProvider!: () => void;
   const providerGate = new Promise<void>(resolve => { resumeProvider = resolve; });
   const t = await startTestRuntime("wait-takeover-cold-source", async req => {
-    const input = lastUserText(req), main = rt.store.getAgentRole("main")!;
-    const current = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!;
+    const input = lastUserText(req);
+    const current = rt.store.listTasksBySession(sessionId).find(task => task.status === "running")!;
     assert.ok(!isAgentReportFallback(rt.store, current.id), "恢复无需另生成总结");
     if (input.includes("OWNER CONTINUE SECOND")) {
       if (afterTool(req)) {
@@ -134,33 +127,32 @@ test("续接 main 冷恢复：first 来源撤销清除整组认领后，普通 o
       rt.store.db.prepare("UPDATE tasks SET result_summary = ? WHERE id = ?").run("PRIVATE-FIRST-ONLY", first.id);
     });
     return { kind: "tool_calls", calls: [{ id: "cold-original-result", name: "wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
-  }, { config: { qqDisabled: true, scheduler: { tickMs: 0 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
+  });
   rt = t.runtime;
   try {
-    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: token });
-    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" }); await rt.telegramSetEnabled(true);
-    await waitFor("Telegram 在线", () => rt.telegramStatus().online === true);
-    api.push({ text: "ORIGINAL WAIT THEN ATTENTION" });
+    const parentSession = await rt.createSession({ projectName: "attention-cold-recovery", cwd: t.work[0] });
+    sessionId = parentSession.id;
+    await rt.submit({ sessionId, requestId: "parent", input: "ORIGINAL WAIT THEN ATTENTION", modelSelection: rt.defaultSelection });
     await waitFor("原父轮完成介入回复", () => !!parentTaskId && rt.store.getTask(parentTaskId)!.status === "completed" && rt.store.getTask(parentTaskId)!.resultSummary !== null);
-    await rt.scheduler!.tick(); await rt.scheduler!.idle();
-    assert.equal(api.sends.filter(body => String(body.text).includes("PARTIAL-QUESTION")).length, 1);
+    assert.match(rt.readTaskReply(parentTaskId)!.text, /PARTIAL-QUESTION/);
     const firstKey = agentReportKey({ kind: "task", taskId: firstId }), originalConsumption = getAgentReport(rt.store, firstKey)!.consumption!;
     assert.equal(originalConsumption.taskId, parentTaskId);
     rt.store.withTx(() => rt.store.transitionTask(secondId, ["awaiting_confirmation"], "running"));
-    api.push({ text: "OWNER CONTINUE SECOND yes，继续并汇总" });
+    await rt.submit({ sessionId, requestId: "followup", input: "OWNER CONTINUE SECOND yes，继续并汇总", modelSelection: rt.defaultSelection });
     await waitFor("Q 真实 SDK 等待第二项", () => !!followupTaskId && listAgentWaits(rt.store, { taskId: followupTaskId }).some(wait => wait.phase === "waiting"));
     rt.store.withTx(() => rt.store.endTask(secondId, ["running"], "completed"));
     await waitFor("provider 接受 Q 的完整报告输入", () => inputAccepted);
     assert.equal(rt.store.getTask(followupTaskId)!.status, "running");
     assert.deepEqual(getAgentReport(rt.store, firstKey)!.consumption, originalConsumption);
 
-    // 从真实 SDK 输入截取崩溃窗口，保留旧会话文件，只在独立恢复档案追加终态证明。
-    const coldDataDir = path.join(t.dirs.root, "cold-data"), session = rt.store.getSession(rt.store.getTask(followupTaskId)!.sessionId)!;
-    fs.cpSync(t.dirs.dataDir, coldDataDir, { recursive: true, filter: file => path.basename(file) !== "runtime.lock" && !path.basename(file).startsWith("ruukoto.db") });
-    rt.store.db.prepare("VACUUM INTO ?").run(path.join(coldDataDir, "ruukoto.db"));
-    const coldHistory = path.join(coldDataDir, path.relative(t.dirs.dataDir, session.sessionFile!));
+    // Snapshot the accepted request before stopping, then recover it under the same activated profile.
+    const snapshot = path.join(t.dirs.root, "cold.db"), session = rt.store.getSession(sessionId)!;
+    const coldHistory = path.join(t.dirs.root, "cold-history.jsonl");
+    fs.copyFileSync(session.sessionFile!, coldHistory);
+    rt.store.db.prepare("VACUUM INTO ?").run(snapshot);
     t.client.close(); await rt.stop("fixture_offline"); resumeProvider();
-    const db = new Db(coldDataDir), store = new Store(db);
+    fs.copyFileSync(snapshot, path.join(t.dirs.dataDir, "ruukoto.db"));
+    const db = new Db(t.dirs.dataDir), store = new Store(db);
     try {
       const history = SessionManager.open(coldHistory);
       history.appendMessage({ role: "assistant", content: [{ type: "text", text: "Q-COLD-ONLY-FINAL PRIVATE-FIRST-ONLY 和第二份结果" }], api: "openai-completions", provider: "mock", model: "mock-model",
@@ -174,30 +166,25 @@ test("续接 main 冷恢复：first 来源撤销清除整组认领后，普通 o
       assert.ok(listAgentReports(store).every(report => report.claimTaskId === followupTaskId));
     } finally { db.close(); }
     const callsBeforeRecovery = t.server.calls.length;
-    restarted = await Runtime.start({ ...rt.config, dataDir: coldDataDir, socketPath: path.join(t.dirs.root, "cold.sock") });
+    restarted = await Runtime.start(rt.config);
     const recovered = restarted;
-    await waitFor("冷恢复 Q 原最终正文与普通回复登记", () => recovered.store.getTask(followupTaskId)!.status === "completed" && recovered.sched.listOps({ limit: 50 }).items.some(op => op.sourceKind === "owner_reply" && op.taskId === followupTaskId));
+    await waitFor("cold recovery records the original final reply", () => recovered.store.getTask(followupTaskId)!.status === "completed" && recovered.store.getTask(followupTaskId)!.resultSummary !== null);
     const reports = listAgentReports(recovered.store);
+    assert.equal(recovered.store.getTask(followupTaskId)!.resultSummary, "Q-COLD-ONLY-FINAL PRIVATE-FIRST-ONLY 和第二份结果");
+    assert.equal(reports.length, 2);
     assert.ok(reports.every(report => report.status === "undelivered" && report.reason === "source_invalid" && report.claimTaskId === null));
     assert.deepEqual(getAgentReport(recovered.store, firstKey)!.consumption, originalConsumption);
-    const op = recovered.sched.listOps({ limit: 50 }).items.find(item => item.sourceKind === "owner_reply" && item.taskId === followupTaskId)!;
-    assert.equal(op.sourceKey, recovered.store.getTask(followupTaskId)!.sourceEventId);
-    assert.match(op.text, /Q-COLD-ONLY-FINAL/);
-    await waitFor("恢复 Telegram 在线", () => recovered.telegramStatus().online === true);
-    await recovered.scheduler!.tick(); await recovered.scheduler!.idle();
-    assert.equal(api.sends.filter(body => String(body.text).includes("Q-COLD-ONLY-FINAL")).length, 0, `Q 最终正文必须被实际发送器拒绝，outbox=${recovered.sched.getOp(op.id)!.status}`);
-    assert.equal(recovered.sched.getOp(op.id)!.status, "canceled", "认领失效后普通 owner_reply 也须保留 first 来源闭包");
-    assert.match(recovered.sched.getOp(op.id)!.errorMessage!, /source_revoked/);
+    assert.match(recovered.readTaskReply(followupTaskId)!.text, /Q-COLD-ONLY-FINAL/);
+    assert.ok(reports.every(report => report.proof === null));
     assert.equal(t.server.calls.length, callsBeforeRecovery, "冷恢复只补登记，不重新调用模型");
-  } finally { resumeProvider(); await restarted?.stop("test_end"); await t.shutdown(); await api.close(); }
+  } finally { resumeProvider(); await restarted?.stop("test_end"); await t.shutdown(); }
 });
 
-for (const providerError of [false, true]) test(`后续可信 main 仅等待第二目标：${providerError ? "provider 未接受整组输入则不完成旧消费报告" : "接管整组只回报一次且保留原消费"}`, async () => {
-  const token = "123:wait-followup", api = new FakeBotApi({ token, ownerId: 42 }), apiBase = await api.start();
-  let rt!: Runtime, parentTaskId = "", followupTaskId = "", firstId = "", secondId = "", fallbackCalls = 0, canonicalTaskId = "";
+for (const providerError of [false, true]) test(`owner followup waits for the second target: ${providerError ? "failed input does not consume the original report" : "one final proof retains original consumption"}`, async () => {
+  let rt!: Runtime, sessionId = "", parentTaskId = "", followupTaskId = "", firstId = "", secondId = "", fallbackCalls = 0, canonicalTaskId = "";
   const t = await startTestRuntime("wait-attention-followup", req => {
-    const input = lastUserText(req), main = rt.store.getAgentRole("main")!;
-    const running = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!;
+    const input = lastUserText(req);
+    const running = rt.store.listTasksBySession(sessionId).find(task => task.status === "running")!;
     if (isAgentReportFallback(rt.store, running.id)) { fallbackCalls++; return { kind: "text", text: "FALLBACK-ONLY-FINAL 两份结果共同完成" }; }
     if (input.includes("OWNER CONTINUE SECOND")) {
       if (afterTool(req)) {
@@ -211,7 +198,7 @@ for (const providerError of [false, true]) test(`后续可信 main 仅等待第�
         if (providerError) throw new Error("provider_error_before_valid_assistant");
         return { kind: "text", text: "Q-ONLY-FINAL 两份结果共同完成" };
       }
-      followupTaskId = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!.id;
+      followupTaskId = running.id;
       return { kind: "tool_calls", calls: [{ id: "followup-wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: secondId }] } }] };
     }
     if (afterTool(req)) {
@@ -220,37 +207,36 @@ for (const providerError of [false, true]) test(`后续可信 main 仅等待第�
       assert.equal(result.reason, "attention");
       return { kind: "text", text: "PARTIAL-QUESTION 第二项需要介入，请回复 yes" };
     }
-    const parent = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!;
+    const parent = running;
     parentTaskId = parent.id; [firstId, secondId] = attentionChildren(rt, parent);
     canonicalTaskId = rt.store.withTx(() => rt.store.insertQueuedTask({ sessionId: parent.sessionId, requestId: `wake:${firstId}`, parentTaskId: firstId,
-      input: "原排队第一项回报输入", submissionDigest: "original-canonical", agentId: main.id,
+      input: "原排队第一项回报输入", submissionDigest: "original-canonical",
       accessMode: parent.accessMode, grantedPaths: parent.grantedPaths, sourcePermissionVersion: parent.permissionVersion,
       modelSelection: parent.modelSelection ?? rt.defaultSelection }).task.id);
     return { kind: "tool_calls", calls: [{ id: "original-result", name: "wait", arguments: { targets: [{ kind: "task", task_id: firstId }] } }] };
-  }, { config: { qqDisabled: true, scheduler: { tickMs: 20 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
+  });
   rt = t.runtime;
   try {
-    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: token });
-    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" }); await rt.telegramSetEnabled(true);
-    await waitFor("Telegram 在线", () => rt.telegramStatus().online === true);
-    api.push({ text: "ORIGINAL WAIT THEN ATTENTION" });
-    await waitFor("原父轮完成普通介入回复", () => !!parentTaskId && rt.store.getTask(parentTaskId)!.resultSummary !== null && api.sends.some(body => String(body.text).includes("PARTIAL-QUESTION")));
+    const session = await rt.createSession({ projectName: "attention-followup", cwd: t.work[0] });
+    sessionId = session.id;
+    await rt.submit({ sessionId, requestId: "parent", input: "ORIGINAL WAIT THEN ATTENTION", modelSelection: rt.defaultSelection });
+    await waitFor("原父轮完成普通介入回复", () => !!parentTaskId && rt.store.getTask(parentTaskId)!.status === "completed" && rt.store.getTask(parentTaskId)!.resultSummary !== null);
+    assert.match(rt.readTaskReply(parentTaskId)!.text, /PARTIAL-QUESTION/);
     const firstKey = agentReportKey({ kind: "task", taskId: firstId }), before = getAgentReport(rt.store, firstKey)!;
     assert.equal(before.status, "pending"); assert.equal(before.claimTaskId, null); assert.equal(before.proof, null);
     assert.equal(before.fallbackTaskId, canonicalTaskId); assert.equal(rt.store.getTask(canonicalTaskId)!.status, "queued");
     const originalConsumption = before.consumption!;
     assert.equal(originalConsumption.taskId, parentTaskId);
     rt.store.withTx(() => rt.store.transitionTask(secondId, ["awaiting_confirmation"], "running"));
-    api.push({ text: "OWNER CONTINUE SECOND yes，继续第二项并汇总两份结果" });
+    await rt.submit({ sessionId, requestId: "followup", input: "OWNER CONTINUE SECOND yes，继续第二项并汇总两份结果", modelSelection: rt.defaultSelection });
     await waitFor("后续父轮固定等待第二项", () => !!followupTaskId && listAgentWaits(rt.store, { taskId: followupTaskId }).some(wait => wait.phase === "waiting"));
     rt.store.withTx(() => rt.store.endTask(secondId, ["running"], "completed"));
     await waitFor("整组报告完成且仅一个最终证明", () => listAgentReports(rt.store).length === 2 && listAgentReports(rt.store).every(report => report.status === "reported"));
     const reports = listAgentReports(rt.store), proof = reports[0].proof!;
     assert.deepEqual(reports[0].proof, reports[1].proof);
     assert.deepEqual(getAgentReport(rt.store, firstKey)!.consumption, originalConsumption);
-    assert.equal(getAgentReport(rt.store, firstKey)!.sourceEventId, rt.store.getTask(parentTaskId)!.sourceEventId);
-    assert.ok(proof.entryId); assert.ok(proof.outboxOpId);
-    await waitFor("唯一最终报告实际发送", () => rt.sched.getOp(proof.outboxOpId!)!.status === "sent");
+    assert.equal(getAgentReport(rt.store, firstKey)!.source.taskId, parentTaskId);
+    assert.ok(proof.entryId);
     if (providerError) {
       assert.equal(rt.store.getTask(followupTaskId)!.status, "failed");
       assert.notEqual(proof.taskId, followupTaskId, "请求失败不能凭旧消费完成报告");
@@ -259,14 +245,13 @@ for (const providerError of [false, true]) test(`后续可信 main 仅等待第�
     } else {
       assert.equal(proof.taskId, followupTaskId); assert.equal(fallbackCalls, 0);
       assert.equal(rt.store.getTask(followupTaskId)!.status, "completed");
-      assert.equal(rt.sched.getOp(proof.outboxOpId!)!.sourceKey, rt.store.getTask(followupTaskId)!.sourceEventId);
       assert.equal(rt.readTaskReply(followupTaskId)!.text, "Q-ONLY-FINAL 两份结果共同完成");
       assert.equal(reports.find(report => report.target.kind === "task" && report.target.taskId === secondId)!.consumption!.taskId, followupTaskId);
       assert.equal(rt.store.getTask(canonicalTaskId)!.status, "queued");
     }
     assert.equal(rt.store.getTask(canonicalTaskId)!.requestId, `wake:${firstId}`);
     assert.equal(rt.store.getTask(canonicalTaskId)!.input, "原排队第一项回报输入");
-    assert.equal(api.sends.filter(body => String(body.text).includes("ONLY-FINAL")).length, 1);
+    assert.equal(rt.store.listTasksBySession(sessionId).filter(task => rt.readTaskReply(task.id)?.text.includes("ONLY-FINAL")).length, 1);
     assert.equal(t.server.calls.length, providerError ? 6 : 5);
-  } finally { await t.shutdown(); await api.close(); }
+  } finally { await t.shutdown(); }
 });

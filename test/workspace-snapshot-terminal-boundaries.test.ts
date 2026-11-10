@@ -9,7 +9,6 @@ import { agentReportKey, bindAgentReportFallback, getAgentReport, registerAgentR
 import type { TaskStatus } from "@ruukoto/core/types.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { snapshotWorkspace, WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
-import { QqStore } from "@ruukoto/channels/qq/store.ts";
 import { Orchestrator, type OrchestratorDeps } from "@ruukoto/runtime/orchestrator.ts";
 import { ParentDelivery, type ParentDeliveryDeps } from "@ruukoto/runtime/parent-delivery.ts";
 import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
@@ -32,8 +31,6 @@ function kit() {
       cwdIno: identity.ino, piSessionId: `pi-${counter}`, confirmTools: [] });
   };
   const main = session(), dev = session();
-  store.insertAgentRole({ id: "main", projectId: project.id, sessionId: main.id, workDir: main.cwdReal, modelSelection: SELECTION,
-    tools: [], createdAt: main.createdAt });
   const task = (sessionId: string, status: TaskStatus, params: { parentTaskId?: string; workId?: string; subAgentId?: string; requestId?: string } = {}) => {
     const value = store.insertQueuedTask({ sessionId, requestId: `request-${++counter}`, input: "任务", modelSelection: SELECTION,
       submissionDigest: `digest-${counter}`, ...params }).task;
@@ -55,8 +52,8 @@ function kit() {
     const execution = task(sub.id, status, { workId, subAgentId, parentTaskId: parent.id });
     if (withResult) store.setTaskResult(execution.id, "真实执行结果", JSON.stringify({ outcome: "completed", workId }));
     fs.writeFileSync(path.join(target.path, "preserved.txt"), "保留成果\n");
-    const reportSource: WorkflowSource = { product: "ruukoto-code", projectId: project.id, sessionId: parentSessionId, taskId: parent.id,
-      permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
+    const reportSource: WorkflowSource = { product: "ruukoto", projectId: project.id, sessionId: parentSessionId, taskId: parent.id,
+      permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [] };
     const report = () => store.withTx(() => registerAgentReport(store, { target: { kind: "task", taskId: execution.id }, source: reportSource, parentSessionId }));
     const corrupt = (code: "snapshot_missing" | "snapshot_corrupt" | "target_corrupt") => {
       const { snapshot: _snapshot, ...withoutSnapshot } = target;
@@ -68,18 +65,14 @@ function kit() {
     return { task: store.getTask(execution.id)!, parent, subAgentId, workId, target, report, corrupt };
   };
   const submissions: Parameters<ParentDeliveryDeps["submit"]>[0][] = [];
-  const deliveryDeps: ParentDeliveryDeps = { verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => SELECTION, readReply: () => "汇报正文", isReviewEvent: () => false,
-    resultNotice: () => null, sendWorkReport: () => { throw new Error("未取得外发资格"); },
+  const deliveryDeps: ParentDeliveryDeps = { verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => SELECTION, readReply: () => "汇报正文",
     submit: async input => { submissions.push(input); return store.insertQueuedTask({ ...input, submissionDigest: input.requestId }).task; } };
   const delivery = new ParentDelivery(deliveryDeps);
-  const finalized: string[] = [];
-  const deps: OrchestratorDeps = { store, qqStore: new QqStore(db), dataDir: root, parentDelivery: delivery,
-    resultData: value => { finalized.push(value.id); return {}; },
-    bridge: { submit: deliveryDeps.submit, cancelTask: async id => store.getTask(id)!, findProjectByName: name => store.findProjectByName(name),
-      createProject: name => store.createProject(name), createSession: async () => session(), readTaskReply: () => null,
+  const deps: OrchestratorDeps = { store, parentDelivery: delivery,
+    bridge: { submit: deliveryDeps.submit, cancelTask: async id => store.getTask(id)!, readTaskReply: () => null,
       resumeQueue: async () => undefined, kickSession: () => {}, defaultModelSelection: () => SELECTION } };
   const rawWork = (workId: string) => (store.db.prepare("SELECT write_target FROM work_delegations WHERE id = ?").get(workId) as { write_target: string }).write_target;
-  return { root, db, store, main, dev, task, child, deps, deliveryDeps, delivery, finalized, submissions, rawWork,
+  return { root, db, store, main, dev, task, child, deps, deliveryDeps, delivery, submissions, rawWork,
     cleanup: () => { db.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -99,10 +92,9 @@ for (const [code, status] of [["snapshot_missing", "interrupted"], ["snapshot_co
       assert.equal(JSON.parse(result.resultRef!).outcome, "failed");
       assert.equal(k.rawWork(broken.workId), bytes);
       assert.equal(fs.readFileSync(path.join(broken.target.path, "preserved.txt"), "utf8"), "保留成果\n");
-      assert.ok(!k.finalized.includes(broken.task.id), "坏基线不制作交付产物");
-      assert.ok(k.finalized.includes(healthy.task.id));
       assert.equal(k.store.findTaskByRequest(k.main.id, `wake:${broken.task.id}`), null);
-      assert.ok(k.store.findTaskByRequest(k.main.id, `wake:${healthy.task.id}`));
+      assert.equal(k.store.findTaskByRequest(k.main.id, `wake:${healthy.task.id}`), null);
+      assert.deepEqual(k.delivery.takeInjection(k.main.id).results.map(task => task.id), [healthy.task.id]);
       const failures = () => k.store.getEventsAfter(0).filter(event => event.body.type === "subagent_task.failed" && event.body.taskId === broken.task.id);
       assert.equal(failures().length, 1);
       const failure = failures()[0].body;
@@ -111,7 +103,8 @@ for (const [code, status] of [["snapshot_missing", "interrupted"], ["snapshot_co
       orchestrator = new Orchestrator(k.deps);
       await orchestrator.start();
       assert.equal(failures().length, 1);
-      assert.equal(k.submissions.filter(input => input.requestId === `wake:${healthy.task.id}`).length, 1);
+      assert.deepEqual(k.delivery.takeInjection(k.main.id).results.map(task => task.id), [healthy.task.id]);
+      assert.deepEqual(k.submissions, []);
       assert.equal(k.store.getTask(broken.task.id)!.resultDeliveredAt, null);
     } finally { await orchestrator?.stop(); k.cleanup(); }
   });

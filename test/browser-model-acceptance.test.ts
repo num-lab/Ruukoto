@@ -7,8 +7,9 @@ import * as path from "node:path";
 import { test } from "node:test";
 import type { ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
+
+
 import { waitFor } from "./helpers/testkit.ts";
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-14-agent-browser.md
@@ -18,7 +19,7 @@ interface AcceptanceModels {
   providers: Record<string, { models: Array<{ id: string; input?: string[] }>; [key: string]: unknown }>;
 }
 
-for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${product.type} 真实模型：截图读取 canvas 随机短码并通过浏览器唯一提交`, {
+test("ruukoto 真实模型：截图读取 canvas 随机短码并通过浏览器唯一提交", {
   skip: process.env.RUN_MODEL_CHECK !== "1" ? "真实模型仅在 RUN_MODEL_CHECK=1 时运行" : false,
   timeout: 240_000,
 }, async () => {
@@ -38,8 +39,10 @@ for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${pr
     .filter(model => model.input?.includes("image")).map(model => ({ provider, model, value })))[0];
   assert.ok(selected, "显式配置须含声明 input 包括 image 的视觉模型");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-browser-model-"));
-  const agentDir = path.join(root, "agent"), workspace = path.join(root, "work");
-  fs.mkdirSync(agentDir); fs.mkdirSync(workspace);
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const { agentDir } = profile;
+  const workspace = path.join(root, "work");
+  fs.mkdirSync(workspace);
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: { [selected.provider]: { ...selected.value, models: [selected.model] } } }), { mode: 0o600 });
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const code = [...randomBytes(6)].map(byte => alphabet[byte % alphabet.length]).join("");
@@ -69,8 +72,8 @@ for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${pr
     const address = server.address();
     assert.ok(address && typeof address !== "string");
     const url = `http://127.0.0.1:${address.port}/`;
-    rt = await Runtime.start({ product, agentDir, dataDir: path.join(root, "data"), socketPath: path.join(root, "c.sock"),
-      modelProvider: selected.provider, modelId: selected.model.id, qqDisabled: true, toolFactory: () => [],
+    rt = await Runtime.start({ profile,
+      modelProvider: selected.provider, modelId: selected.model.id, toolFactory: () => [],
       browser: { binaryPath: binary, chromePath: chrome, headed: false, noSandbox: process.env.RUN_BROWSER_NO_SANDBOX === "1" } });
     let option: ModelOption | undefined;
     for (let offset = 0; ;) {
@@ -83,7 +86,7 @@ for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${pr
     const selection = { ...rt.defaultSelection, thinkingLevel: option.thinkingLevels.includes("off") ? "off" as const : option.thinkingLevels[0] };
     const actualModel = await rt.models.current.modelCatalog.resolve(selection);
     assert.ok(actualModel.input.includes("image"), "SDK 实际模型必须支持图片，不能只依赖配置声明");
-    const session = product.type === "ruukoto-code" ? await rt.createSession({ projectName: "browser-model", cwd: workspace }) : rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!;
+    const session = await rt.createSession({ projectName: "browser-model", cwd: workspace });
     await rt.setSessionDefaultMode({ sessionId: session.id, expectedVersion: session.defaultAccessModeVersion, mode: "full_access" });
     const task = await rt.submit({ sessionId: session.id, requestId: "visual-submit", modelSelection: selection,
       input: `仅使用 browser 工具完成真实视觉验收，不调用其他工具。先 start，再 open ${url}，然后 snapshot 获取输入框与提交按钮引用；canvas 中的六位短码不在快照文本里，必须 screenshot 看图读取。用 fill 将看见的六位原样填入输入框，再 click 提交按钮。提交只能一次，错误也不要重试。结束后 close 浏览器并简短回复完成。不要请求或读取网页源码。` });
@@ -118,7 +121,7 @@ for (const product of [personalProduct.runtime, codeProduct.runtime]) test(`${pr
       assert.ok(history.includes(block.data), "视觉块须能从 JSONL 重建");
       assert.ok(snapshots.some(snapshot => snapshot.includes(block.data)), "模型发送前的 prompt 快照必须包含实际视觉输入");
     }
-    process.stdout.write(`[ruukoto:browser-model] ${product.type} task=${task.id} posts=${posts} images=${images.length} accepted=true\n`);
+    process.stdout.write(`[ruukoto:browser-model] task=${task.id} posts=${posts} images=${images.length} accepted=true\n`);
     passed = true;
   } finally {
     let stopped = false;

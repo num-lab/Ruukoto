@@ -162,10 +162,10 @@ test("取消回执可重取，不能生成答案与续接；答案与取消同�
 test("真实拥有者来源才能提问，Plan保留资格，当前轮只开放宿主状态查询", t => {
   const f = fixture(t);
   assert.equal(ownerQuestionTaskEligible(f.store, f.task), true);
-  for (const task of [{ ...f.task, parentTaskId: f.task.id }, { ...f.task, sourceEventId: "event" }, { ...f.task, sourcePermissionVersion: 1 }, { ...f.task, workId: "work" }, { ...f.task, subAgentId: "sub" }]) assert.equal(ownerQuestionTaskEligible(f.store, task), false);
+  for (const task of [{ ...f.task, parentTaskId: f.task.id }, { ...f.task, sourcePermissionVersion: 1 }, { ...f.task, workId: "work" }, { ...f.task, subAgentId: "sub" }]) assert.equal(ownerQuestionTaskEligible(f.store, task), false);
   assert.equal(allowsCategory("dev", "owner_question"), true);
-  assert.equal(allowsCategory("main", "owner_question"), false);
-  assert.equal(subAgentAllows({ write: true, review: false }, "ask_user"), false);
+  assert.equal(allowsCategory("side", "owner_question"), false);
+  assert.equal(subAgentAllows({ write: true }, "ask_user"), false);
   const profile = { toolClass: "dev" as const, sourceProjectId: f.project.id, categories: ["owner_question" as const], tools: ["ask_user"] };
   assert.equal(sourceAllows(profile, "ask_user"), false);
   assert.equal(workflowAllows(profile, "ask_user"), false);
@@ -186,8 +186,8 @@ test("ask_user waits for its original question result and releases the host hand
   const runtime: HostToolRuntime = {
     registry: createManagedProcessRegistry(), toolClass: "dev",
     call: { taskContext: () => input, bindCall: () => ({ context: input, release: () => { released++; } }) },
-    identity: { verifyMain: () => null, verifyHost: () => null },
-    approval: { request: () => assert.fail("Business questions do not approve operations"), requestStanding: () => assert.fail() },
+    identity: { verifyHost: () => null },
+    approval: { request: () => assert.fail("Business questions do not approve operations") },
     effects: { recordArtifact: () => assert.fail(), markEffectUnknown: () => assert.fail() }, skills: () => null,
     ownerQuestions: {
       create: (ctx, items) => f.store.withTx(() => createOwnerQuestion(f.store, { ...ctx, questions: items })),
@@ -208,7 +208,7 @@ test("ask_user waits for its original question result and releases the host hand
   assert.match(JSON.stringify(result.content), /canceled/);
   assert.doesNotMatch(JSON.stringify(result.content), /"answers"/);
   assert.equal(released, 1);
-  const uncommitted = f.op(), ledger = new ToolOpLedger(f.store, {}, [family.ledger!]);
+  const uncommitted = f.op(), ledger = new ToolOpLedger(f.store, [family.ledger!]);
   f.store.withTx(() => ledger.settleAll());
   assert.equal(f.store.getToolOp(input.hostOpId)?.isError, false);
   assert.match(f.store.getToolOp(input.hostOpId)?.resultSummary ?? "", /不证明回答已交给模型/);

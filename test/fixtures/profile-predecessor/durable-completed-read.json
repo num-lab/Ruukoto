@@ -1,0 +1,266 @@
+{
+  "provenance": "Frozen slices from personal-file-io-legacy/completed-read.json (archive e7838ea5d1b1); no model transcripts or credentials.",
+  "schema": [
+    "CREATE INDEX conversations_by_owner_conversation ON conversations (owner_conversation_id, id)",
+    "CREATE INDEX conversations_by_owner_task ON conversations (owner_task_id, id)",
+    "CREATE INDEX document_revisions_by_kind ON document_revisions (document_id, kind, seq DESC)",
+    "CREATE INDEX documents_by_address\n\t\t\tON documents (kind, scope_kind, owner_id, family, key_value, created_at DESC, retired_at)",
+    "CREATE INDEX documents_by_scope ON documents (scope_kind, owner_id, id)",
+    "CREATE INDEX documents_by_scope_kind ON documents (scope_kind, owner_id, kind, id)",
+    "CREATE INDEX entries_by_conversation ON entries (conversation_id, id DESC)",
+    "CREATE INDEX entry_heads_by_conversation ON entries (conversation_id, id DESC) WHERE head IS NOT NULL",
+    "CREATE INDEX submissions_by_conversation ON submissions (conversation_id, id)",
+    "CREATE INDEX submissions_by_request ON submissions (conversation_id, request_id)",
+    "CREATE INDEX submissions_by_status ON submissions (status, id)",
+    "CREATE INDEX tasks_by_abort_requested ON tasks (abort_requested, id)",
+    "CREATE INDEX tasks_by_background ON tasks (background, id)",
+    "CREATE INDEX tasks_by_conversation ON tasks (conversation_id, id)",
+    "CREATE INDEX tasks_by_kind ON tasks (kind, id)",
+    "CREATE INDEX tasks_by_status ON tasks (status, id)",
+    "CREATE TABLE conversations (\n\t\t\tid INTEGER PRIMARY KEY,\n\t\t\towner_conversation_id INTEGER,\n\t\t\towner_task_id INTEGER,\n\t\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t\t) STRICT",
+    "CREATE TABLE document_revisions (\n\t\t\tdocument_id INTEGER NOT NULL,\n\t\t\tseq INTEGER NOT NULL,\n\t\t\tkind TEXT NOT NULL CHECK (kind IN ('base', 'delta')),\n\t\t\tversion INTEGER NOT NULL,\n\t\t\tcontent TEXT NOT NULL CHECK (json_valid(content)),\n\t\t\tPRIMARY KEY (document_id, seq)\n\t\t) STRICT",
+    "CREATE TABLE documents (\n\t\t\tid INTEGER PRIMARY KEY,\n\t\t\tkind TEXT NOT NULL,\n\t\t\tfamily INTEGER NOT NULL CHECK (family IN (0, 1)),\n\t\t\tkey_value TEXT NOT NULL,\n\t\t\tscope_kind TEXT NOT NULL CHECK (scope_kind IN ('session', 'conversation', 'task')),\n\t\t\towner_id INTEGER NOT NULL,\n\t\t\tcreated_at INTEGER NOT NULL,\n\t\t\tretired_at INTEGER,\n\t\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t\t) STRICT",
+    "CREATE TABLE durable_metadata (\n\t\t\tsingleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n\t\t\tnext_id TEXT NOT NULL,\n\t\t\tnext_seq INTEGER NOT NULL\n\t\t) STRICT",
+    "CREATE TABLE durable_schema (\n\t\t\tsingleton INTEGER PRIMARY KEY CHECK (singleton = 1),\n\t\t\tversion INTEGER NOT NULL CHECK (version >= 0)\n\t\t) STRICT",
+    "CREATE TABLE entries (\n\t\t\tid INTEGER PRIMARY KEY,\n\t\t\tconversation_id INTEGER NOT NULL,\n\t\t\thead INTEGER,\n\t\t\tcommit_seq INTEGER NOT NULL,\n\t\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t\t) STRICT",
+    "CREATE TABLE record_ids (\n\t\t\tid INTEGER PRIMARY KEY,\n\t\t\trecord_type TEXT NOT NULL CHECK (record_type IN ('conversation', 'entry', 'task', 'submission', 'document'))\n\t\t) STRICT",
+    "CREATE TABLE submissions (\n\t\t\tid INTEGER PRIMARY KEY,\n\t\t\tconversation_id INTEGER NOT NULL,\n\t\t\trequest_id TEXT,\n\t\t\tstatus TEXT NOT NULL CHECK (status IN ('queued', 'placed', 'done', 'unanswered')),\n\t\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t\t) STRICT",
+    "CREATE TABLE tasks (\n\t\t\tid INTEGER PRIMARY KEY,\n\t\t\tconversation_id INTEGER NOT NULL,\n\t\t\tkind TEXT NOT NULL,\n\t\t\tstatus TEXT NOT NULL CHECK (status IN ('pending', 'running', 'waiting', 'completing', 'terminal')),\n\t\t\tabort_requested INTEGER NOT NULL CHECK (abort_requested IN (0, 1)),\n\t\t\tbackground INTEGER NOT NULL CHECK (background IN (0, 1)),\n\t\t\trecord TEXT NOT NULL CHECK (json_valid(record))\n\t\t) STRICT"
+  ],
+  "manifest": {
+    "product": "ruukoto",
+    "format": 1,
+    "pi": "1.3.0",
+    "extensions": {
+      "personal": 2
+    },
+    "configuration": 1
+  },
+  "documents": [
+    {
+      "id": 3,
+      "kind": "\"ruukoto.format\"",
+      "family": 0,
+      "key_value": "\"\"",
+      "scope_kind": "session",
+      "owner_id": 0,
+      "created_at": 1,
+      "retired_at": null,
+      "record": "{\"id\":3,\"kind\":\"ruukoto.format\",\"scope\":{\"kind\":\"session\"},\"createdAt\":1}"
+    },
+    {
+      "id": 21,
+      "kind": "\"ruukoto.tools\"",
+      "family": 0,
+      "key_value": "\"\"",
+      "scope_kind": "session",
+      "owner_id": 0,
+      "created_at": 12,
+      "retired_at": null,
+      "record": "{\"id\":21,\"kind\":\"ruukoto.tools\",\"scope\":{\"kind\":\"session\"},\"createdAt\":12}"
+    },
+    {
+      "id": 28,
+      "kind": "\"ruukoto.subagents\"",
+      "family": 0,
+      "key_value": "\"\"",
+      "scope_kind": "session",
+      "owner_id": 0,
+      "created_at": 13,
+      "retired_at": null,
+      "record": "{\"id\":28,\"kind\":\"ruukoto.subagents\",\"scope\":{\"kind\":\"session\"},\"createdAt\":13}"
+    },
+    {
+      "id": 43,
+      "kind": "\"ruukoto.work\"",
+      "family": 1,
+      "key_value": "\"legacy-work\"",
+      "scope_kind": "session",
+      "owner_id": 0,
+      "created_at": 28,
+      "retired_at": null,
+      "record": "{\"id\":43,\"kind\":\"ruukoto.work\",\"key\":\"legacy-work\",\"scope\":{\"kind\":\"session\"},\"createdAt\":28}"
+    },
+    {
+      "id": 63,
+      "kind": "\"ruukoto.tool-operation\"",
+      "family": 1,
+      "key_value": "\"61\"",
+      "scope_kind": "session",
+      "owner_id": 0,
+      "created_at": 41,
+      "retired_at": null,
+      "record": "{\"id\":63,\"kind\":\"ruukoto.tool-operation\",\"key\":\"61\",\"scope\":{\"kind\":\"session\"},\"createdAt\":41}"
+    }
+  ],
+  "revisions": [
+    {
+      "document_id": 3,
+      "seq": 1,
+      "kind": "base",
+      "version": 1,
+      "content": "{\"product\":\"ruukoto\",\"format\":1,\"pi\":\"1.3.0\",\"extensions\":{\"personal\":2},\"configuration\":1}"
+    },
+    {
+      "document_id": 21,
+      "seq": 12,
+      "kind": "base",
+      "version": 1,
+      "content": "{\"operations\":[],\"grants\":[],\"grantVersion\":1}"
+    },
+    {
+      "document_id": 28,
+      "seq": 13,
+      "kind": "base",
+      "version": 1,
+      "content": "{\"agents\":[]}"
+    },
+    {
+      "document_id": 21,
+      "seq": 15,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"s\",[\"config\"],{\"version\":1,\"generation\":\"file-io-legacy\",\"workspace\":\"@@WORKSPACE@@\",\"identity\":{\"dev\":\"@@WORKSPACE_DEV@@\",\"ino\":\"@@WORKSPACE_INO@@\"},\"credentials\":[]}]]"
+    },
+    {
+      "document_id": 43,
+      "seq": 28,
+      "kind": "base",
+      "version": 1,
+      "content": "{\"fingerprint\":\"438efe0c15673891bc68d1e3268562b89100d6f204445a84e4700f58aeb0a4d9\",\"cancelRequested\":false,\"ref\":{\"requestId\":\"legacy-work\",\"taskId\":51,\"agentId\":45},\"source\":{\"requestId\":\"legacy-src\",\"submissionId\":37,\"entryId\":36},\"permission\":{\"mode\":\"full_access\",\"version\":2}}"
+    },
+    {
+      "document_id": 28,
+      "seq": 28,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"p\",[\"agents\"],0,0,[{\"id\":45,\"label\":\"子 Agent\",\"closed\":false,\"work\":{\"requestId\":\"legacy-work\",\"taskId\":51,\"agentId\":45}}]]]"
+    },
+    {
+      "document_id": 43,
+      "seq": 32,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"s\",[\"submissionId\"],53]]"
+    },
+    {
+      "document_id": 21,
+      "seq": 41,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"p\",[\"operations\"],0,0,[61]]]"
+    },
+    {
+      "document_id": 63,
+      "seq": 41,
+      "kind": "base",
+      "version": 1,
+      "content": "{\"operation\":{\"operation\":61,\"origin\":{\"conversationId\":45,\"generation\":54,\"inputs\":[53],\"sources\":[37],\"source\":{\"requestId\":\"legacy-src\",\"submissionId\":37,\"entryId\":36},\"permission\":{\"mode\":\"full_access\",\"version\":2},\"work\":{\"ref\":{\"requestId\":\"legacy-work\",\"taskId\":51,\"agentId\":45},\"permission\":{\"mode\":\"full_access\",\"version\":2},\"inputs\":[53]}},\"kind\":\"read_file\",\"params\":{\"path\":\"@@WORKSPACE@@/legacy\"},\"config\":{\"version\":1,\"generation\":\"file-io-legacy\",\"workspace\":\"@@WORKSPACE@@\",\"identity\":{\"dev\":\"@@WORKSPACE_DEV@@\",\"ino\":\"@@WORKSPACE_INO@@\"},\"credentials\":[]},\"grantVersion\":1,\"prepared\":{\"kind\":\"file\",\"request\":{\"path\":\"@@WORKSPACE@@/legacy\",\"access\":\"read\",\"targetDev\":\"@@TARGET_DEV@@\",\"targetIno\":\"@@TARGET_INO@@\",\"originalSha256\":\"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881\",\"protectedRoots\":[]}},\"approval\":\"unneeded\",\"admission\":62,\"started\":false,\"stopped\":true,\"effect\":\"not_executed\",\"code\":\"ready\"}}"
+    },
+    {
+      "document_id": 63,
+      "seq": 42,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"s\",[\"operation\",\"started\"],true],[\"s\",[\"operation\",\"stopped\"],false],[\"s\",[\"operation\",\"effect\"],\"effect_unknown\"],[\"s\",[\"operation\",\"code\"],\"started\"],[\"s\",[\"operation\",\"startEntry\"],64]]"
+    },
+    {
+      "document_id": 63,
+      "seq": 43,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"s\",[\"operation\",\"effect\"],\"returned\"],[\"s\",[\"operation\",\"code\"],\"file_returned\"],[\"s\",[\"operation\",\"stopped\"],true],[\"s\",[\"operation\",\"artifact\"],{\"id\":\"778b870d-9271-401a-aba1-83b944c88614\",\"bytes\":1,\"sha256\":\"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881\",\"partial\":false,\"mime\":\"application/octet-stream\",\"identity\":{\"dev\":\"@@ARTIFACT_DEV@@\",\"ino\":\"@@ARTIFACT_INO@@\"}}],[\"s\",[\"operation\",\"observation\"],65]]"
+    },
+    {
+      "document_id": 28,
+      "seq": 53,
+      "kind": "delta",
+      "version": 1,
+      "content": "[[\"d\",[\"agents\",0,\"work\"]]]"
+    }
+  ],
+  "entries": [
+    {
+      "id": 62,
+      "conversation_id": 45,
+      "head": null,
+      "commit_seq": 41,
+      "record": "{\"data\":{\"operation\":61,\"origin\":{\"conversationId\":45,\"generation\":54,\"inputs\":[53],\"sources\":[37],\"source\":{\"requestId\":\"legacy-src\",\"submissionId\":37,\"entryId\":36},\"permission\":{\"mode\":\"full_access\",\"version\":2},\"work\":{\"ref\":{\"requestId\":\"legacy-work\",\"taskId\":51,\"agentId\":45},\"permission\":{\"mode\":\"full_access\",\"version\":2},\"inputs\":[53]}},\"kind\":\"read_file\",\"params\":{\"path\":\"@@WORKSPACE@@/legacy\"},\"config\":{\"version\":1,\"generation\":\"file-io-legacy\",\"workspace\":\"@@WORKSPACE@@\",\"identity\":{\"dev\":\"@@WORKSPACE_DEV@@\",\"ino\":\"@@WORKSPACE_INO@@\"},\"credentials\":[]},\"grantVersion\":1,\"prepared\":{\"kind\":\"file\",\"request\":{\"path\":\"@@WORKSPACE@@/legacy\",\"access\":\"read\",\"targetDev\":\"@@TARGET_DEV@@\",\"targetIno\":\"@@TARGET_INO@@\",\"originalSha256\":\"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881\",\"protectedRoots\":[]}},\"approval\":\"unneeded\"},\"kind\":\"ruukoto.tool-admission\",\"id\":62,\"conversationId\":45,\"byTaskId\":61}"
+    },
+    {
+      "id": 64,
+      "conversation_id": 45,
+      "head": null,
+      "commit_seq": 42,
+      "record": "{\"data\":{\"operation\":61,\"admission\":62},\"kind\":\"ruukoto.tool-start\",\"id\":64,\"conversationId\":45,\"byTaskId\":61}"
+    },
+    {
+      "id": 65,
+      "conversation_id": 45,
+      "head": null,
+      "commit_seq": 43,
+      "record": "{\"data\":{\"operation\":61,\"admission\":62,\"effect\":\"returned\",\"code\":\"file_returned\",\"stopped\":true,\"artifact\":{\"id\":\"778b870d-9271-401a-aba1-83b944c88614\",\"bytes\":1,\"sha256\":\"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881\",\"partial\":false,\"mime\":\"application/octet-stream\",\"identity\":{\"dev\":\"@@ARTIFACT_DEV@@\",\"ino\":\"@@ARTIFACT_INO@@\"}}},\"kind\":\"ruukoto.tool-observation\",\"id\":65,\"conversationId\":45}"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 38,
+      "conversation_id": 1,
+      "kind": "\"pi.generation\"",
+      "status": "terminal",
+      "abort_requested": 0,
+      "background": 0,
+      "record": "{\"id\":38,\"conversationId\":1,\"kind\":\"pi.generation\",\"version\":1,\"input\":{},\"background\":false,\"abortRequested\":false,\"state\":{\"status\":\"terminal\",\"outcome\":{\"status\":\"completed\",\"result\":{\"entryId\":42}}},\"startedAt\":1793687047515,\"endedAt\":1793687047634}"
+    },
+    {
+      "id": 51,
+      "conversation_id": 1,
+      "kind": "\"ruukoto.background-work\"",
+      "status": "terminal",
+      "abort_requested": 0,
+      "background": 1,
+      "record": "{\"id\":51,\"conversationId\":1,\"kind\":\"ruukoto.background-work\",\"version\":2,\"input\":{},\"background\":true,\"abortRequested\":false,\"state\":{\"status\":\"terminal\",\"outcome\":{\"status\":\"completed\",\"result\":{\"submissionId\":53}}},\"startedAt\":1793687047637,\"endedAt\":1793687047694}"
+    },
+    {
+      "id": 54,
+      "conversation_id": 45,
+      "kind": "\"pi.generation\"",
+      "status": "terminal",
+      "abort_requested": 0,
+      "background": 0,
+      "record": "{\"id\":54,\"conversationId\":45,\"kind\":\"pi.generation\",\"version\":1,\"input\":{},\"background\":false,\"abortRequested\":false,\"state\":{\"status\":\"terminal\",\"outcome\":{\"status\":\"completed\",\"result\":{\"entryId\":60}}},\"startedAt\":1793687047637,\"endedAt\":1793687047687}"
+    },
+    {
+      "id": 61,
+      "conversation_id": 45,
+      "kind": "\"pi.tool\"",
+      "status": "terminal",
+      "abort_requested": 0,
+      "background": 0,
+      "record": "{\"id\":61,\"conversationId\":45,\"kind\":\"pi.tool\",\"version\":2,\"input\":{},\"owner\":54,\"background\":false,\"abortRequested\":false,\"state\":{\"status\":\"terminal\",\"outcome\":{\"status\":\"completed\",\"result\":{\"kind\":\"model\",\"entryId\":66}}},\"startedAt\":1793687047649,\"endedAt\":1793687047686}"
+    },
+    {
+      "id": 67,
+      "conversation_id": 45,
+      "kind": "\"pi.generation\"",
+      "status": "terminal",
+      "abort_requested": 0,
+      "background": 0,
+      "record": "{\"id\":67,\"conversationId\":45,\"kind\":\"pi.generation\",\"version\":1,\"input\":{},\"background\":false,\"abortRequested\":false,\"state\":{\"status\":\"terminal\",\"outcome\":{\"status\":\"completed\",\"result\":{\"entryId\":70}}},\"startedAt\":1793687047687,\"endedAt\":1793687047693}"
+    }
+  ],
+  "conversations": [
+    {
+      "id": 1,
+      "owner_conversation_id": null,
+      "owner_task_id": null,
+      "record": "{\"id\":1}"
+    },
+    {
+      "id": 45,
+      "owner_conversation_id": null,
+      "owner_task_id": null,
+      "record": "{\"id\":45}"
+    }
+  ]
+}

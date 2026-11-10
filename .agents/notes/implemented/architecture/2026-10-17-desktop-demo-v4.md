@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[Lazy Git/directory pages](../feature/2026-10-24-directory-pages-lazy-git.md) makes production Git queries click-triggered with a persistent new-tab entry and non-repository feedback after entry. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) replaces whole Git-metadata scans/external-reference restrictions, while [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md) replaces protected-root browsing restrictions. Fixed read-only commands, budgets, identity and page consistency remain. Old shared-runtime Personal wiring described below is superseded by the [durable product entry](../simplification/2026-10-18-personal-product-entry.md), not a claim that today's Personal uses the old protocol.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[Lazy Git/directory pages](../feature/2026-10-24-directory-pages-lazy-git.md) makes production Git queries click-triggered with a persistent new-tab entry and non-repository feedback after entry. [Operation-specific checks](../bug-fix/2026-10-24-operation-specific-checks.md) replaces whole Git-metadata scans/external-reference restrictions, while [owner browsing](../feature/2026-10-24-owner-workspace-browsing.md) replaces protected-root browsing restrictions. Fixed read-only commands, budgets, identity and page consistency remain. Old shared-runtime Personal wiring described below is superseded by the [durable product entry](../../archived/simplification/2026-10-18-personal-product-entry.md), not a claim that today's Personal uses the old protocol.
 
 ## Problem
 
@@ -24,7 +26,7 @@ This migration introduced protocol 29 for mainSessionId/Git reads without SQLite
 
 ## Related decisions
 
-The original active-note audit searched Desktop, Personal, Git, tabs, attachments, snapshots and glass. [Current migration](2026-10-16-desktop-current-demo.md)/[Trace](2026-10-16-desktop-trace-migration.md) retain send/tool/scroll semantics while this updates visual source/Personal entry. [Personal demo](../feature/2026-10-17-demo-personal-main-tab.md), [connection settings](../feature/2026-10-17-demo-personal-connection-settings.md), [tab ordering](../feature/2026-10-17-demo-tab-reorder.md), [dynamic widths](../feature/2026-10-17-demo-responsive-tab-width.md), [Git graph](../feature/2026-10-17-demo-git-graph.md) and [commit details](../feature/2026-10-17-demo-git-commit-details.md) retain sample acceptance, not production data. [MyGo shell](2026-10-17-desktop-mygo-experiment.md) owns host choice/isolation.
+The original active-note audit searched Desktop, Personal, Git, tabs, attachments, snapshots and glass. [Current migration](2026-10-16-desktop-current-demo.md)/[Trace](2026-10-16-desktop-trace-migration.md) retain send/tool/scroll semantics while this updates visual source/Personal entry. [Personal demo](../../archived/feature/2026-10-17-demo-personal-main-tab.md), [connection settings](../../archived/feature/2026-10-17-demo-personal-connection-settings.md), [tab ordering](../feature/2026-10-17-demo-tab-reorder.md), [dynamic widths](../feature/2026-10-17-demo-responsive-tab-width.md), [Git graph](../feature/2026-10-17-demo-git-graph.md) and [commit details](../feature/2026-10-17-demo-git-commit-details.md) retain sample acceptance, not production data. [MyGo shell](2026-10-17-desktop-mygo-experiment.md) owns host choice/isolation.
 
 ## Alternatives considered
 

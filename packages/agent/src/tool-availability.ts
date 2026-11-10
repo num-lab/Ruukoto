@@ -1,8 +1,7 @@
 /**
  * 工具可用性（架构工单 03）：这个会话、这个任务允许哪些工具，被拒的原因是什么。
  *
- * - 会话类别 → 工具类别：一张静态表，唯一来源。新工具族默认对所有会话不可见，
- *   写进哪份清单才出现；独立定时会话复用 main 的个人业务类别；
+ * - Conversation identity selects one static category list; new families are unavailable until listed.
  * - 本任务允许的工具 = 已装配的工具减去任务收窄（计划模式、宿主按任务收窄）与
  *   关闭的 Web Search。装配、激活、发送前与调用门都用同一结论；
  * - 执行画像（架构工单 08）：按会话身份与任务算出的工具集、MCP 规划、资料范围、
@@ -17,29 +16,18 @@ import type { McpToolEffect } from "./mcp/store.ts";
 import { PLAN_TOOL_NAMES } from "./plan-mode.ts";
 import { WEB_SEARCH_TOOL_NAMES } from "./web-search.ts";
 
-/**
- * 工具类别按会话身份选择；独立定时会话复用 main，已退役归档不运行任务。
- */
-export type SessionToolClass = Exclude<SessionIdentity["kind"], "retired" | "scheduled">;
+/** Host-bound conversation identity selects the tool category list. */
+export type SessionToolClass = SessionIdentity["kind"];
 
 const SESSION_TOOL_CATEGORIES: Record<SessionToolClass, readonly ToolCategory[]> = {
   dev: ["coding", "host_data", "web_search", "browser", "desktop_browser", "mcp", "skills", "subagent", "workflow", "owner_question", "background_process"],
-  // main：日常对话/信息整理/编排，不持有编码工具；service 仅装配另要求
-  // 产品 ruukoto + Linux + 显式部署配置（agent-direction issue 09）
-  main: ["host_data", "web_search", "browser", "app_data", "scheduler", "delegation", "chat_results", "service", "skills", "subagent", "workflow"],
-  // subagent（agent-direction issue 11）：工具按执行画像的 SubAgent 工具集单独装配
-  // （不走注册来源类别），子身份不能再委派下级；宿主评审任务（issue 19）的只读
-  // MCP 由画像按任务另开，不在本静态清单
+  // SubAgents use their frozen execution profile and cannot delegate another level.
   subagent: [],
   // 侧聊（coding-side-chat）：纯文本、无工具；历史里的工具调用只是复制的正文
   side: [],
 };
 
-/**
- * SubAgent 任务的静态只读工具白名单（装配、发送前与调用门同一结论；伪造调用
- * 与未知工具默认拒绝）。宿主评审任务（issue 19）在此之外另开 effect=read
- * 的 MCP（收窄规则见 Driver 的任务工具集）。
- */
+/** Default-deny read-only SubAgent tools, shared by assembly and execution checks. */
 export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "list_files", "search_files", "read_artifact"]);
 
 /**
@@ -49,30 +37,24 @@ export const SUBAGENT_READONLY_TOOL_NAMES: ReadonlySet<string> = new Set(["read"
  */
 export const SUBAGENT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"]);
 
-/** SubAgent 本任务的工具集：写入目标决定只读或写入集合；宿主评审另开只读 MCP、关 subagent_message。 */
+/** The work's write target selects the SubAgent tool set. */
 export interface SubAgentToolSet {
   write: boolean;
-  review: boolean;
 }
 
 /** SubAgent 工具集是否含该工具（装配过滤与任务收窄同一结论）。 */
-export function subAgentAllows(set: SubAgentToolSet, name: string, effect?: McpToolEffect): boolean {
-  // 工作内协作消息（issue 13）；宿主评审任务（issue 19 固定单 Agent 流程）不开放
-  if (name === "subagent_message") return !set.review;
-  // 写入目标在哪，工具集就在哪：修改工作为写入集合，只读工作为只读分析集合
-  return (set.write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES).has(name) || (set.review && effect === "read");
+export function subAgentAllows(set: SubAgentToolSet, name: string): boolean {
+  if (name === "subagent_message") return true;
+  return (set.write ? SUBAGENT_WRITE_TOOL_NAMES : SUBAGENT_READONLY_TOOL_NAMES).has(name);
 }
 
-/**
- * 执行画像（架构工单 08）：由会话身份、任务所属工作与是否宿主评审算出，任务开始
- * 算一次、钉到任务结束。装配、MCP 规划、资料范围、计划模式与系统提示都只读它。
- */
+/** Identity and work authority are pinned for the task and shared by every tool gate. */
 export interface ExecutionProfile {
   /** 会话类别：工具类别表与系统提示键。 */
   toolClass: SessionToolClass;
   /** SubAgent 本任务工具集；非 SubAgent 为 null（按类别表与宿主按任务收窄）。 */
   subAgentTools: SubAgentToolSet | null;
-  /** 规划 MCP：类别含 mcp，或 SubAgent 宿主评审任务。 */
+  /** Plan MCP only when the frozen category list includes it. */
   planMcp: boolean;
   /**
    * 资料受限（SubAgent）：不自动注入记忆、父聊天或展开 /skill；项目指令、技能及
@@ -89,7 +71,7 @@ export interface ExecutionProfile {
 
 /** 宿主解析的步骤能力；来源身份不改变步骤的独立上下文。 */
 export interface WorkflowExecutionProfile {
-  toolClass: "dev" | "main";
+  toolClass: "dev";
   sourceProjectId: string;
   categories: ToolCategory[];
   grantIds?: string[];
@@ -100,14 +82,14 @@ export interface WorkflowExecutionProfile {
 }
 
 export function sourceAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && name !== "coding_delegate" && name !== "browser" && name !== "desktop_browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && name !== "browser" && name !== "desktop_browser" &&
     (!profile.hostVerify || SUBAGENT_WRITE_TOOL_NAMES.has(name)) &&
     !name.startsWith("workflow_") && (!name.startsWith("subagent_") || (name === "subagent_message" && profile.collaboration === true)) &&
     (!profile.tools || profile.tools.includes(name));
 }
 
 export function workflowAllows(profile: WorkflowExecutionProfile, name: string): boolean {
-  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !(profile.toolClass === "main" && name === "todo_write") && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "coding_delegate" && name !== "browser" && name !== "desktop_browser" &&
+  return !name.startsWith("process_") && name !== "ask_user" && name !== "present" && !name.startsWith("subagent_") && !name.startsWith("workflow_") && name !== "browser" && name !== "desktop_browser" &&
     (profile.verifyTarget === true || !["edit", "write", "bash", "request_file_access"].includes(name)) &&
     (!profile.tools || profile.tools.includes(name));
 }
@@ -116,15 +98,12 @@ export function executionProfile(input: {
   identity: SessionIdentity;
   /** 任务所属工作有写入目标。 */
   writeTarget: boolean;
-  /** 宿主评审任务（issue 19）。 */
-  review: boolean;
   /** 提交时固定到任务的 Plan 选择。 */
   planMode: boolean;
   workflow?: WorkflowExecutionProfile | null;
   source?: WorkflowExecutionProfile | null;
 }): ExecutionProfile {
   const { identity } = input;
-  if (identity.kind === "retired") throw new Error(`已退役的只读归档不运行任务（${identity.reason}）`);
   if (input.source) {
     if (identity.kind !== "subagent") throw new WorkflowError("workflow_binding_invalid");
     const source = input.source;
@@ -133,19 +112,19 @@ export function executionProfile(input: {
   }
   if (input.workflow) {
     if (identity.kind !== "subagent" || !identity.workflow) throw new WorkflowError("workflow_binding_invalid");
-    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "delegation", "workflow", "browser", "desktop_browser"].includes(category)) };
+    const workflow = { ...input.workflow, categories: input.workflow.categories.filter(category => !["subagent", "workflow", "browser", "desktop_browser"].includes(category)) };
     return { toolClass: workflow.toolClass, subAgentTools: null, planMcp: workflow.categories.includes("mcp"), restricted: true,
       plan: false, toolSignature: `workflow:${JSON.stringify(workflow)}`, workflow };
   }
-  const sub = identity.kind === "subagent" ? { write: input.writeTarget, review: input.review } : null;
-  const toolClass = identity.kind === "scheduled" ? "main" : identity.kind;
+  const sub = identity.kind === "subagent" ? { write: input.writeTarget } : null;
+  const toolClass = identity.kind;
   return {
     toolClass,
     subAgentTools: sub,
-    planMcp: allowsCategory(toolClass, "mcp") || Boolean(sub?.review),
+    planMcp: allowsCategory(toolClass, "mcp"),
     restricted: sub !== null,
     plan: identity.kind === "dev" && input.planMode,
-    toolSignature: sub ? `subagent:${sub.write ? "write" : "read"}${sub.review ? "+review" : ""}` : identity.kind,
+    toolSignature: sub ? `subagent:${sub.write ? "write" : "read"}` : identity.kind,
   };
 }
 
@@ -153,7 +132,7 @@ export function allowsCategory(cls: SessionToolClass, category: ToolCategory): b
   return SESSION_TOOL_CATEGORIES[cls].includes(category);
 }
 
-/** 会话类别的工具类别清单（新建角色记录时写入；运行时不读回，以本表为准）。 */
+/** Copy the category list for a host-bound conversation identity. */
 export function sessionToolCategories(cls: SessionToolClass): ToolCategory[] {
   return [...SESSION_TOOL_CATEGORIES[cls]];
 }
@@ -185,7 +164,7 @@ export function taskToolSet(input: {
   /** MyGo 绑定任务开放桌面浏览器；与旧 browser 工具互斥。 */
   desktopBrowserEnabled?: boolean;
   mcpEffect: (name: string) => McpToolEffect | undefined;
-  /** 宿主按任务收窄（GitHub 评审等；已绑定任务）。 */
+  /** Host-narrowed tools for the currently bound task. */
   narrow?: (name: string, mcpEffect?: McpToolEffect) => boolean;
   resourcePhase?: AgentResourcePhase;
   ownerQuestionsEnabled?: boolean;

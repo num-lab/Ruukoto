@@ -521,9 +521,11 @@ test("提交多行中文与流式显示：终端持续呈现中间帧，最终�
 });
 
 test("任务运行中退出 TUI：重连后看到运行状态与最终历史，不重复建任务", async () => {
+  let releaseReply!: () => void;
+  const replyGate = new Promise<void>(resolve => { releaseReply = resolve; });
   const t = await startTestRuntime("tui-reconnect", async (req) => {
     const text = lastUserText(req);
-    await new Promise((r) => setTimeout(r, 1200));
+    await replyGate;
     return { kind: "text", text: `慢任务结果：${text}` };
   });
   const apps: AppHarness[] = [];
@@ -532,29 +534,36 @@ test("任务运行中退出 TUI：重连后看到运行状态与最终历史，�
     const h1 = await startApp(t, { sessionId });
     apps.push(h1);
     await submitViaEditor(h1, "慢任务");
-    await waitFor("任务开始", () => [...h1.state.tasks.values()][0]?.status === "running");
-    // 首次回复前关闭 TUI
+    await waitFor("model request is running", () => t.server.calls.length === 1 && [...h1.state.tasks.values()][0]?.status === "running");
+    const originalTaskId = [...h1.state.tasks.values()][0]!.id;
     h1.app.quit(0);
     await waitFor("h1 退出", () => h1.exitCode() === 0);
     assert.ok(h1.exitMessage()?.includes("后台任务继续运行"), "退出提示说明任务继续");
 
-    // 重连：仍在运行
     const h2 = await startApp(t, { sessionId });
     apps.push(h2);
+    await waitFor("reconnected history restores the original input", () => {
+      const view = h2.state.sessionViews.get(sessionId);
+      return view?.historyLoaded === true && view.flow.items.some(entry => entry.kind === "message" && entry.role === "user" && entry.text === "慢任务");
+    });
     const running = [...h2.state.tasks.values()][0];
-    assert.equal(running.status, "running", "重连后看到真实运行状态");
-    assert.equal([...h2.state.tasks.values()].length, 1, "不自动新建任务");
-    const view2 = h2.state.sessionViews.get(sessionId)!;
-    assert.ok(view2.historyLoaded, "历史已从后台重建");
+    assert.equal(running.status, "running", "The gated model response keeps the original task active through history restoration");
+    assert.equal(running.id, originalTaskId);
+    assert.equal(h2.state.tasks.size, 1);
+    assert.equal(t.server.calls.length, 1);
 
+    releaseReply();
     await waitFor("任务完成", async () => (await taskStatus(t.client, running.id)).task.status === "completed");
     await waitFor("最终消息进入历史", () => {
       const v = h2.state.sessionViews.get(sessionId)!;
       return v.flow.items.some((i) => i.kind === "message" && i.role === "assistant" && !i.streaming && i.text.includes("慢任务结果"));
     });
+    assert.equal(h2.state.tasks.size, 1);
+    assert.equal(t.server.calls.length, 1);
     h2.app.quit(0);
     await waitFor("h2 退出", () => h2.exitCode() === 0);
   } finally {
+    releaseReply();
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
     await t.shutdown();

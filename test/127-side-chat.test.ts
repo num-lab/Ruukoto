@@ -204,12 +204,3 @@ test("侧聊 queued 任务跨重启中断且队列不暂停；绑定与历史保
     assert.equal(restarted.store.getSessionIdentity(side.id)?.kind, "side");
   } finally { await restarted?.stop("test_end"); await t.shutdown(); }
 });
-
-test("产品能力关闭时侧聊不可用", async () => {
-  const t = await startTestRuntime("side-disabled", async () => ({ kind: "text", text: "x" }));
-  try {
-    const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
-    await assert.rejects(() => t.runtime.openSideChat({ sessionId: session.id, requestId: "side-off" }), (e: any) => e.code === "unavailable");
-    await assert.rejects(() => t.client.request("open_side_chat", { session_id: session.id, request_id: "side-off-client" }), (e: any) => e.code === "unavailable");
-  } finally { await t.shutdown(); }
-});

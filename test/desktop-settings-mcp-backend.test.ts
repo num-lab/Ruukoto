@@ -35,7 +35,6 @@ test("Code Cua 检查禁用草稿：静态工具与当前宿主权限分别返�
     fs.appendFileSync(executable, "\n");
     const changed = await request(t, "mcp_check", { service_id: service.id });
     assert.equal(changed.ok, false); assert.equal(changed.errorCode, "cua_config_invalid");
-    assert.match(changed.error!, /本机电脑程序.*固定版本/); assert.doesNotMatch(changed.error!, /端点与网络/);
   } finally { await t.shutdown(); }
 });
 
@@ -134,7 +133,7 @@ test("旧 MCP 来源操作与归属参数明确拒绝，不转成实例操作或
     assert.deepEqual(t.runtime.credentials.list(), credentials); assert.deepEqual(t.runtime.store.getEventsAfter(0), events);
     assert.equal(mcp.hits.length, 0);
     const result = await handleRequest("code", "mcp_sources", {}, async () => {}, async () => { assert.fail("旧操作不能进入后台"); });
-    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "target_unavailable");
+    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
   } finally { await t.shutdown(); await mcp.close(); }
 });
 

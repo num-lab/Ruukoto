@@ -141,13 +141,13 @@ test("Jev 配置中心：选择凭据、披露数据发送、处理并发冲突�
   let done: Promise<number> | undefined;
   const see = (text: string) => waitFor(text, () => terminal.output.includes(text));
   try {
-    const projectId = (await t.runtime.createSession({ projectName: "jev-config", cwd: t.work[0] })).projectId;
+    const { session: { projectId } } = await t.runtime.openWorkspace({ cwd: t.work[0] });
     await t.client.request("add_credential", binding);
     done = runConfigTui({ terminal, profile: t.dirs.profile });
     await see("配置分区");
     terminal.send(down, enter);
-    await see("指令 ");
-    const index = t.runtime.store.listProjects().findIndex((project) => project.id === projectId);
+    await see(t.runtime.store.getProject(projectId)!.name);
+    const index = t.runtime.store.listProjects().filter(project => project.rootDir !== null).findIndex((project) => project.id === projectId);
     terminal.send(...Array.from({ length: index }, () => down), enter);
     await see("Jev 上下文筛选实验");
     terminal.send(down, enter);

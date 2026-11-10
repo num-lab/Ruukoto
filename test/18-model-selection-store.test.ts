@@ -3,8 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DatabaseSync } from "node:sqlite";
-import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
+import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { isAccessMode, isSessionDefaultMode, SESSION_DEFAULT_MODES, type ModelSelection } from "@ruukoto/core/types.ts";
 
@@ -90,14 +89,21 @@ test("session model CAS and immutable submission digests commit with their event
   const f = fixture();
   const { store, db, session } = f;
   try {
+    const initial = store.getSession(session.id)!;
+    const v1 = store.withTx(() => store.setSessionModel(session.id, a, initial.modelSelectionVersion));
+    assert.deepEqual(v1.modelSelection, a);
+    assert.equal(v1.modelSelectionVersion, initial.modelSelectionVersion + 1);
+    assert.deepEqual(store.getEventsAfter(0).filter(event => event.body.type === "session.model_selection_changed").map(event => event.body), [
+      { type: "session.model_selection_changed", sessionId: session.id, modelSelection: a, modelSelectionVersion: v1.modelSelectionVersion },
+    ]);
     const seq = store.getMaxSeq();
-    const v1 = store.getSession(session.id)!;
     store.withTx(() => store.setSessionModel(session.id, a, v1.modelSelectionVersion));
     assert.equal(store.getMaxSeq(), seq);
     assert.throws(() => store.withTx(() => store.setSessionModel(session.id, b, 0)), { code: "model_selection_conflict" });
     db.exec("CREATE TRIGGER reject_model_event BEFORE INSERT ON events WHEN json_extract(NEW.body, '$.type') = 'session.model_selection_changed' BEGIN SELECT RAISE(ABORT, 'event failure'); END");
     assert.throws(() => store.withTx(() => store.setSessionModel(session.id, b, 1)), /event failure/);
     assert.deepEqual(store.getSession(session.id), v1);
+    assert.equal(store.getMaxSeq(), seq);
     db.exec("DROP TRIGGER reject_model_event");
     store.withTx(() => store.setSessionModel(session.id, b, 1));
     const input = { sessionId: session.id, requestId: "r1", input: "hello", modelSelection: a, submissionDigest: "original" };

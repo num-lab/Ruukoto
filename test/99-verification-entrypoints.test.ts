@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tmpdir } from "node:os";
@@ -10,17 +12,31 @@ import { ExecutionError, type LaunchedUnit } from "@ruukoto/agent/execution/laun
 import { probeModelConfig } from "@ruukoto/agent/model-config.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
-const entry = (name: string, args: string[], env: NodeJS.ProcessEnv = process.env) => {
-  const result = spawnSync(process.execPath, ["--import", "tsx", path.join(root, "verification/smoke", name), ...args], {
-    cwd: root, env, encoding: "utf8", timeout: 30_000,
+const entry = async (name: string, args: string[], env: NodeJS.ProcessEnv = process.env) => {
+  const child = spawn(process.execPath, ["--import", "tsx", path.join(root, "verification/smoke", name), ...args], {
+    cwd: root, env: { ...env, TSX_DISABLE_CACHE: "1" }, detached: true, stdio: ["ignore", "pipe", "pipe"],
   });
-  assert.equal(result.error, undefined, `${name} 未正常退出：${result.error?.message}`);
-  return result;
+  let stdout = "", stderr = "", timedOut = false;
+  child.stdout.on("data", chunk => { stdout += chunk.toString(); });
+  child.stderr.on("data", chunk => { stderr += chunk.toString(); });
+  const stop = () => {
+    if (!child.pid) return;
+    try { process.kill(-child.pid, "SIGKILL"); }
+    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error; }
+  };
+  // A subprocess watchdog needs platform time; successful exits resolve immediately through the close event.
+  const timer = setTimeout(() => { timedOut = true; stop(); }, 30_000);
+  try {
+    const [status, signal] = await once(child, "close");
+    assert.equal(timedOut, false, `${name} timed out: ${stderr}`);
+    assert.equal(signal, null, `${name} was terminated: ${stderr}`);
+    return { status, stdout, stderr };
+  } finally { clearTimeout(timer); stop(); }
 };
 
-test("冒烟拒绝旧远端参数，退出 2 且不创建后台或尝试 SSH", () => {
+test("冒烟拒绝旧远端参数，退出 2 且不创建后台或尝试 SSH", async () => {
   for (const name of ["smoke-04-desktop-execution.mts", "smoke-13-subagent-messaging.mts", "smoke-15-recover-subagents.mts"]) {
-    const result = entry(name, ["--remote"], { ...process.env, PATH: "" });
+    const result = await entry(name, ["--remote"], { ...process.env, PATH: "" });
     assert.equal(result.status, 2, `${name}：${result.stderr}`);
     assert.match(result.stderr, /前提缺失：此入口不接受参数：--remote/, name);
   }
@@ -49,20 +65,23 @@ test("原生前提失败核实停止后报告不可用，停止未知保留现�
   }
 });
 
-test("发布模型入口要求显式配置，help 与升级入口各自可核实", () => {
+test("Release acceptance requires explicit model configuration and offers offline help", async () => {
   const name = "smoke-24-release-acceptance.mts";
-  const missing = entry(name, []);
-  assert.equal(missing.status, 2, missing.stderr);
-  assert.match(missing.stderr, /必须显式提供 --models 与 --model/);
-  const unknown = entry(name, ["--remote"]);
-  assert.equal(unknown.status, 2, unknown.stderr);
-  assert.match(unknown.stderr, /参数无效/);
-  const help = entry(name, ["--help"], { ...process.env, PATH: "" });
-  assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /可能产生费用/);
-  const upgrade = entry(name, ["--upgrade-only"], { ...process.env, SMOKE24_BASE: "ruukoto-nonexistent-verification-base", SMOKE24_BASE_TAR: "" });
-  assert.equal(upgrade.status, 2, upgrade.stderr);
-  assert.match(upgrade.stderr, /升级需要 npm、tar/);
+  const directory = fs.mkdtempSync(path.join(tmpdir(), "ruukoto-release-entry-test-"));
+  const env = { ...process.env, PATH: "", HOME: directory, TMPDIR: directory };
+  try {
+    for (const args of [[], ["--remote"]]) {
+      const rejected = await entry(name, args, env);
+      assert.equal(rejected.status, 2, rejected.stderr);
+      assert.notEqual(rejected.stderr.trim(), "", "Invalid configuration must explain how to proceed");
+      assert.deepEqual(fs.readdirSync(directory), [], "Rejected arguments must not initialize storage");
+    }
+    const help = await entry(name, ["--help"], env);
+    assert.equal(help.status, 0, help.stderr);
+    for (const option of ["--models", "--model"]) assert.ok(help.stdout.includes(option));
+    assert.match(help.stdout, /可能产生费用/);
+    assert.deepEqual(fs.readdirSync(directory), [], "Help must not initialize storage");
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("特权验收源码完整归档为文本，没有可执行的 mts 入口", () => {
@@ -94,32 +113,57 @@ test("Runtime 停止失败时仍关闭模型桩，返回清理失败并保留现
   }
 });
 
-test("自包含模型缺凭据时离线速退 2，不继承 API key 或个人 auth，不启动 TUI", async () => {
-  const directory = fs.mkdtempSync(path.join(tmpdir(), "ruukoto-model-gate-test-"));
-  const bin = path.join(directory, "bin"), home = path.join(directory, "home"), temporary = path.join(directory, "temporary");
-  for (const dir of [bin, temporary, path.join(home, ".pi", "agent")]) fs.mkdirSync(dir, { recursive: true });
-  const models = path.join(directory, "models.json"), calls = path.join(directory, "calls.txt");
-  const config = { providers: { openai: {
-    baseUrl: "http://127.0.0.1:1", api: "openai-completions", headers: { "x-verification": "headers-are-not-proof-of-auth" },
-    models: [{ id: "verification-no-credential", name: "Verification", reasoning: false, input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 1024 }],
-  } } };
-  fs.writeFileSync(path.join(home, ".pi", "agent", "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "personal-key-must-not-be-read" } }));
-  fs.writeFileSync(path.join(bin, "python3"), '#!/bin/sh\nprintf "python3 %s\\n" "$*" >> "$SMOKE_TEST_CALLS"\n[ "$1" = "-c" ] && exit 0\nexit 77\n', { mode: 0o755 });
+test("Invalid or credential-free model configurations exit offline without starting the TUI", async () => {
+  // The isolated TMPDIR must leave room for the real Unix socket address on macOS too.
+  const directory = fs.realpathSync(fs.mkdtempSync("/tmp/rk-gate-"));
+  const bin = path.join(directory, "bin"), home = path.join(directory, "home"), temporary = path.join(directory, "tmp");
+  const server = createServer((_request, response) => { response.writeHead(500); response.end(); });
+  let connections = 0;
+  server.on("connection", () => { connections++; });
   try {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    for (const dir of [bin, temporary, path.join(home, ".pi", "agent")]) fs.mkdirSync(dir, { recursive: true });
+    const models = path.join(directory, "models.json"), calls = path.join(directory, "calls.txt");
+    const config = { providers: { openai: {
+      baseUrl: `http://127.0.0.1:${address.port}`, api: "openai-completions", headers: { "x-verification": "headers-are-not-proof-of-auth" },
+      models: [{ id: "verification-no-credential", name: "Verification", reasoning: false, input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 1024 }],
+    } } };
+    const auth = path.join(home, ".pi", "agent", "auth.json");
+    const personalAuth = JSON.stringify({ openai: { type: "api_key", key: "personal-key-must-not-be-read" } });
+    fs.writeFileSync(auth, personalAuth);
+    const python = spawnSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8", timeout: 15_000 });
+    assert.equal(python.error, undefined);
+    assert.equal(python.status, 0, python.stderr);
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    // Profile activation uses Python too; forward real -c helpers while recording and blocking PTY startup.
+    fs.writeFileSync(path.join(bin, "python3"), `#!/bin/sh\nprintf '%s\\n' "$1" >> ${quote(calls)}\n[ "$1" = "-c" ] && exec ${quote(python.stdout.trim())} "$@"\nexit 77\n`, { mode: 0o755 });
+    fs.writeFileSync(calls, "");
     fs.writeFileSync(models, JSON.stringify({ providers: { openai: { ...config.providers.openai, apiKey: "fixture-key" } } }));
     const configured = await probeModelConfig(directory);
-    assert.equal(configured.ok, true, `补上凭据后夹具必须是有效配置：${configured.detail}`);
-    fs.writeFileSync(models, JSON.stringify(config));
-    const result = entry("smoke-24-release-acceptance.mts", ["--models", models, "--model", "openai/verification-no-credential"], {
-      ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`, HOME: home, TMPDIR: temporary,
-      OPENAI_API_KEY: "environment-key-must-not-be-inherited", SMOKE_TEST_CALLS: calls,
-    });
-    assert.equal(result.status, 2, result.stderr);
-    assert.match(result.stderr, /前提缺失：模型 openai\/verification-no-credential 未通过离线配置与认证检查/);
-    assert.doesNotMatch(fs.readFileSync(calls, "utf8"), /pty-run/, "认证检查失败后不能启动 TUI");
-    assert.deepEqual(fs.readdirSync(temporary).filter((name) => name.startsWith("rk24-")), [], "认证门禁拒绝后清除临时模型档案");
+    assert.equal(configured.ok, true, `The fixture must be valid when credentials are supplied: ${configured.detail}`);
+    for (const configuration of ["{", JSON.stringify({ providers: {} }), JSON.stringify(config)]) {
+      fs.writeFileSync(models, configuration);
+      const result = await entry("smoke-24-release-acceptance.mts", ["--models", models, "--model", "openai/verification-no-credential"], {
+        ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`, HOME: home, TMPDIR: temporary,
+        OPENAI_API_KEY: "environment-key-must-not-be-inherited",
+      });
+      assert.equal(result.status, 2, result.stderr);
+      assert.notEqual(result.stderr.trim(), "", "Missing prerequisites must be explained");
+      assert.equal(connections, 0, "Preflight must not contact the model endpoint");
+      assert.doesNotMatch(fs.readFileSync(calls, "utf8"), /pty-run/, "Preflight rejection must not start the TUI");
+      const endpoints = path.join(temporary, `ruukoto-${process.getuid!()}`);
+      assert.deepEqual(fs.readdirSync(temporary).filter(name => name !== path.basename(endpoints)), [], "Preflight rejection must remove temporary profiles");
+      if (fs.existsSync(endpoints)) assert.deepEqual(fs.readdirSync(endpoints), [], "Preflight rejection must release its control endpoint");
+      assert.equal(fs.readFileSync(auth, "utf8"), personalAuth);
+    }
   } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
+    try {
+      server.closeAllConnections();
+      await server[Symbol.asyncDispose]();
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   }
 });

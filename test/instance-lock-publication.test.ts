@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -47,8 +47,7 @@ for (const [name, acquire] of [["instance", acquireInstanceLock], ["configuratio
       incorrectlyAcquired?.release();
       child?.kill();
       if (exited) await exited;
-      const stale = path.join(root, name === "instance" ? "runtime.lock" : "config.lock");
-      if (fs.existsSync(stale)) fs.chmodSync(stale, 0o700);
+      acquire(root).release();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -164,6 +163,11 @@ for (const [name, acquire] of [["instance", acquireInstanceLock], ["configuratio
       first.release();
       assert.equal(probeLockHolder(lockPath).held, true);
       assert.deepEqual(fs.readFileSync(path.join(lockPath, "owner.json")), bytes);
-    } finally { second.release(); fs.chmodSync(retired, 0o700); fs.rmSync(root, { recursive: true, force: true }); }
+    } finally {
+      second.release();
+      if (process.platform === "darwin") execFileSync("chflags", ["nouchg", path.join(retired, "owner.json")]);
+      fs.chmodSync(retired, 0o700);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 }

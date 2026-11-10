@@ -170,6 +170,8 @@ test("owner continuation cold recovery invalidates the complete revoked report g
     const recovered = restarted;
     await waitFor("cold recovery records the original final reply", () => recovered.store.getTask(followupTaskId)!.status === "completed" && recovered.store.getTask(followupTaskId)!.resultSummary !== null);
     const reports = listAgentReports(recovered.store);
+    assert.equal(recovered.store.getTask(followupTaskId)!.resultSummary, "Q-COLD-ONLY-FINAL PRIVATE-FIRST-ONLY 和第二份结果");
+    assert.equal(reports.length, 2);
     assert.ok(reports.every(report => report.status === "undelivered" && report.reason === "source_invalid" && report.claimTaskId === null));
     assert.deepEqual(getAgentReport(recovered.store, firstKey)!.consumption, originalConsumption);
     assert.match(recovered.readTaskReply(followupTaskId)!.text, /Q-COLD-ONLY-FINAL/);

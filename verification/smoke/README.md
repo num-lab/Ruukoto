@@ -16,7 +16,7 @@ Run from a complete checkout with dependencies and native assets built. Scripts 
 
 All active scripts use the sole `ruukoto` entry and core's `ruukoto-single-v1` profile contract. Raw data/agent/control/pending selections go to child processes; resolved paths remain in-process. Old configuration, history and pending requests are never imported. [Issue #58](https://github.com/num-lab/Ruukoto/issues/58) owns predecessor preservation, crash recovery, client identity and integrated acceptance.
 
-Real-model smoke copies only the selected provider/model into a temporary `0600` file. Offline configuration/authentication preflight uses the same child-environment allowlist as startup, explicit auth/model paths and no catalog refresh. Adjacent `auth.json`, daily profiles and inherited model API keys are not discovered. Thinking is off; select a model that supports it. Missing independent authentication exits 2 before model execution.
+Real-model smoke copies only the selected provider/model into a temporary `0600` file. Help and invalid arguments create no profile or temporary HOME. Offline configuration/authentication preflight uses the same child-environment allowlist as startup, explicit auth/model paths and no catalog refresh. Adjacent `auth.json`, daily profiles and inherited model API keys are not discovered. Thinking is off; select a model that supports it. Missing independent authentication exits 2 before model execution and removes the unused temporary profile.
 
 ## Environment and Cleanup
 

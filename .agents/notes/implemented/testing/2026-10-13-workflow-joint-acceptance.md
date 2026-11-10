@@ -34,6 +34,8 @@ The application entry discovers all test/*.test.ts. On macOS, worker-stop, nativ
 
 Missing fixed files, launch errors, unknown exits, signals, and nonzero status fail the entry. No retry/skip-batch success. Real models remain off. Release-model precondition failure before backend startup cleans temporary profiles because no execution began; actual execution failure/unknown stop/abnormal occupancy preserves them. Connectivity fixtures use a work subdirectory separate from control data, never the data root's ancestor as workspace.
 
+Release-model argument validation and help do not initialize storage or change HOME. The entry uses direct authenticated control calls and a private bounded wait rather than importing the application test runtime, whose import-time HOME isolation can create unowned temporary directories before preflight. Credential preflight exercises real profile publication, rejects before any model connection or PTY startup, and cleans only its own prepared profiles.
+
 The [workflow decision](../feature/2026-10-12-agent-workflows.md), [script isolation](../architecture/2026-10-13-workflow-script-isolation.md), [real steps](../architecture/2026-10-13-workflow-step-capabilities.md), and [final delivery](../feature/2026-10-13-workflow-owner-input-and-delivery.md) retain product/authority/effect semantics. This note owns combination fixtures/evidence levels only, not relaxed execution or acceptance requirements.
 
 ## Alternatives considered

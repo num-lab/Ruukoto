@@ -35,6 +35,21 @@ def install(stage, target):
     os.fsync(parent)
 
 
+def owner_immutable(owner, enabled):
+    if sys.platform != "darwin":
+        return
+    current = os.fstat(owner).st_flags
+    flags = current | stat.UF_IMMUTABLE if enabled else current & ~stat.UF_IMMUTABLE
+    if flags == current:
+        return
+    change = ctypes.CDLL(None, use_errno=True).fchflags
+    change.argtypes = [ctypes.c_int, ctypes.c_uint]
+    change.restype = ctypes.c_int
+    if change(owner, flags) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
 def remove_lock(target, expected):
     try:
         actual = os.stat(target, dir_fd=parent, follow_symlinks=False)
@@ -55,23 +70,29 @@ def remove_lock(target, expected):
             info = os.fstat(owner)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
                 return False
-            os.fchmod(owner, 0o400)
+            if sys.platform != "darwin" or not info.st_flags & stat.UF_IMMUTABLE:
+                os.fchmod(owner, 0o400)
+            owner_immutable(owner, True)
             os.fsync(owner)
             with os.fdopen(owner, "rb", closefd=False) as stream:
                 digest = hashlib.sha256(stream.read(16385)).hexdigest()
+            if digest != expected["ownerHash"]:
+                return False
+            if not identity(os.stat(target, dir_fd=parent, follow_symlinks=False), expected):
+                return False
+            # Older macOS requires a writable directory for rename; its owner stays immutable.
+            if sys.platform == "darwin":
+                os.fchmod(directory, 0o700)
+            retired = "." + target + ".released-" + str(uuid.uuid4())
+            install(target, retired)
+            owner_immutable(owner, False)
+            os.fchmod(directory, 0o700)
+            os.unlink("owner.json", dir_fd=directory)
+            os.fsync(directory)
+            os.rmdir(retired, dir_fd=parent)
+            os.fsync(parent)
         finally:
             os.close(owner)
-        if digest != expected["ownerHash"]:
-            return False
-        if not identity(os.stat(target, dir_fd=parent, follow_symlinks=False), expected):
-            return False
-        retired = "." + target + ".released-" + str(uuid.uuid4())
-        install(target, retired)
-        os.fchmod(directory, 0o700)
-        os.unlink("owner.json", dir_fd=directory)
-        os.fsync(directory)
-        os.rmdir(retired, dir_fd=parent)
-        os.fsync(parent)
         return True
     finally:
         os.close(directory)
@@ -105,11 +126,36 @@ elif action in ("claim", "release"):
         source = os.stat(stage, dir_fd=parent, follow_symlinks=False)
         if not stat.S_ISDIR(source.st_mode) or not identity(source, request["identity"]):
             raise ValueError("staging identity changed")
+        directory = os.open(stage, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        owner = None
         try:
-            install(stage, target)
-            print(json.dumps({"status": "installed"}))
-        except FileExistsError:
-            print(json.dumps({"status": "exists"}))
+            if not identity(os.fstat(directory), request["identity"]):
+                raise ValueError("staging identity changed")
+            if sys.platform == "darwin":
+                owner = os.open("owner.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+                info = os.fstat(owner)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
+                    raise ValueError("invalid staging owner")
+                owner_immutable(owner, True)
+                os.fsync(owner)
+            try:
+                install(stage, target)
+                print(json.dumps({"status": "installed"}))
+            except FileExistsError:
+                print(json.dumps({"status": "exists"}))
+        finally:
+            if owner is not None:
+                try:
+                    # Failed private staging may be cleaned up; a published owner must stay sealed.
+                    remaining = os.stat(stage, dir_fd=parent, follow_symlinks=False)
+                except FileNotFoundError:
+                    remaining = None
+                try:
+                    if remaining is not None and identity(remaining, request["identity"]):
+                        owner_immutable(owner, False)
+                finally:
+                    os.close(owner)
+            os.close(directory)
 elif action == "mkdir":
     target = name(request["target"])
     try:

@@ -117,9 +117,8 @@ export function acquireDirectoryLock(lockDir: string, label = "Profile lock"): A
     const ownerFd = fs.openSync(ownerPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     try { fs.fsyncSync(ownerFd); } finally { fs.closeSync(ownerFd); }
     fs.chmodSync(ownerPath, 0o400);
-    // Archived contenders delete stale locks recursively without joining our flock.
-    // A nonwritable final directory keeps its owner present until atomic retirement.
-    fs.chmodSync(stage, 0o500);
+    // Linux blocks predecessor unlink through the directory mode; macOS seals the owner before publication.
+    fs.chmodSync(stage, process.platform === "darwin" ? 0o700 : 0o500);
     const stageFd = fs.openSync(stage, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
     try { fs.fsyncSync(stageFd); } finally { fs.closeSync(stageFd); }
     for (let attempt = 0; attempt < 16; attempt++) {

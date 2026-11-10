@@ -2,7 +2,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -181,7 +182,7 @@ async function runTuiInPty(opts: {
   const args: string[] = [];
   if (opts.sessionId) args.push("--session", opts.sessionId);
   const payload = JSON.stringify({
-    cmd: ["npx", "tsx", "apps/ruukoto/src/main.ts", ...args],
+    cmd: [process.execPath, "--import", "tsx", "apps/ruukoto/src/main.ts", ...args],
     env: { ...opts.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" },
     inputs: opts.inputs,
     size: opts.size,
@@ -207,7 +208,7 @@ async function runTuiInPty(opts: {
   });
 }
 
-test("PTY: fresh Coding selector, managed /new and branch retain workspace identity", { timeout: 60_000 }, async () => {
+test("PTY: fresh workspace selector, managed /new and branch retain workspace identity", { timeout: 60_000 }, async () => {
   assert.equal(hasPython3(), true, "Python PTY support is required");
   const t = await startTestRuntime("pty-managed", request => ({ kind: "text", text: "MANAGED-OK:" + lastUserText(request) }), { workDirs: 0 });
   try {
@@ -309,25 +310,42 @@ test("PTY：工作流逐层启动与日志、宽窄缩放和 Tab 聊天均保留
   } finally { await t.shutdown(); }
 });
 
-/** 以独立进程启动真实后台（mock 模型，mock 工具；正式入口默认 native，本例不运行 worker）。 */
-async function startBackendProcess(dirs: TestDirs, baseUrl: string) {
+interface BackendProcess {
+  child: ChildProcess;
+  controlDir: string;
+  env: NodeJS.ProcessEnv;
+}
+
+/** Start the actual lock-owning backend directly, without a launcher process to outlive. */
+async function startBackendProcess(dirs: TestDirs, baseUrl: string): Promise<BackendProcess> {
   await writeModelsJson(dirs, baseUrl);
   const env = profileChildEnv(dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" });
-  const child = spawn("npx", ["tsx", "apps/ruukoto/src/main.ts", "server", "--tools", "mock", "--model", "mock/mock-model"], {
+  const child = spawn(process.execPath, ["--import", "tsx", "apps/ruukoto/src/main.ts", "server", "--tools", "mock", "--model", "mock/mock-model"], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true, // 独立进程组：npx 垫片被杀时其 node 孙进程随组回收，不遗留持有管道的孤儿
   });
   let stderr = "";
   child.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
   const controlDir = dirs.profile.controlDir;
-  await waitFor(
-    "后台 socket 就绪",
-    () => fs.existsSync(dirs.profile.socketPath) && fs.existsSync(path.join(controlDir, "owner.token")),
-    30_000,
-  );
-  return { child, stderr: () => stderr, controlDir, env };
+  try {
+    await waitFor("backend socket ready", () => {
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Backend exited before readiness: ${stderr}`);
+      return fs.existsSync(dirs.profile.socketPath) && fs.existsSync(path.join(controlDir, "owner.token"));
+    }, 30_000);
+  } catch (error) {
+    await stopBackendProcess(child);
+    throw error;
+  }
+  return { child, controlDir, env };
 }
+
+async function stopBackendProcess(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const closed = once(child, "close");
+  child.kill("SIGTERM");
+  await closed;
+}
+
 test(
   "PTY：80×24 布局、中文输入、流式输出、Ctrl+C 退出后终端恢复且任务继续",
   { timeout: 180_000 },
@@ -340,12 +358,14 @@ test(
       await new Promise((r) => setTimeout(r, slow ? 4000 : 800));
       return { kind: "text", text: slow ? "后台继续完成" : `回声：${text.slice(0, 40)}` };
     });
-    const baseUrl = await server.start();
-    const { child: backend, controlDir, env } = await startBackendProcess(dirs, baseUrl);
+    let backend: BackendProcess | undefined;
+    let client: ControlClient | undefined;
     try {
-      // 经 CLI 创建项目与会话
+      const baseUrl = await server.start();
+      backend = await startBackendProcess(dirs, baseUrl);
+      const { controlDir, env } = backend;
       const token = readOwnerToken(controlDir)!;
-      const client = await ControlClient.connect(dirs.profile.socketPath);
+      client = await ControlClient.connect(dirs.profile.socketPath);
       await client.authenticate(token, dirs.profile);
       const project = await client.request<{ id: string }>("create_project", { name: "pty-demo" });
       const session = await client.request<{ id: string }>("create_session", { project_id: project.id, cwd: work[0] });
@@ -386,22 +406,14 @@ test(
       await waitFor(
         "任务在 TUI 退出后继续完成",
         async () => {
-          const snap = await client.request<{ tasks: Array<{ status: string }> }>("list_tasks", { session_id: session.id });
+          const snap = await client!.request<{ tasks: Array<{ status: string }> }>("list_tasks", { session_id: session.id });
           return snap.tasks.filter((x) => x.status === "completed").length >= 2;
         },
         30_000,
       );
-      client.close();
     } finally {
-      backend.kill("SIGTERM");
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        process.kill(-backend.pid!, "SIGKILL"); // 整组：覆盖 npx 垫片下的真实后台
-      } catch {
-        backend.kill("SIGKILL");
-      }
-      backend.stdout?.destroy();
-      backend.stderr?.destroy();
+      client?.close();
+      if (backend) await stopBackendProcess(backend.child);
       await server.close();
       await cleanupDirs(dirs);
     }

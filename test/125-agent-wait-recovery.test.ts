@@ -86,7 +86,7 @@ for (const window of ["parent", "parent-repeated", "parent-process", "fallback",
       const result = (taskId: string) => ({ reason: "result", targets: [{ ...target, status: "completed", resultSummary: "持久结果", reportOwnerTaskId: taskId }] });
       history.appendCustomEntry(TASK_START_MARKER, { taskId: origin.id, requestId: origin.requestId });
       history.appendMessage({ role: "user", content: "旧父轮等待", timestamp: Date.now() });
-      history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-wait-call", isError: false,
+      history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-wait-call", isError: false,
         content: [{ type: "text", text: JSON.stringify(result(origin.id)) }], timestamp: Date.now() });
       history.appendMessage(assistant("旧父轮被打断", "aborted"));
       history.appendCustomEntry(TASK_END_MARKER, { taskId: origin.id, status: "interrupted" });
@@ -113,9 +113,9 @@ for (const window of ["parent", "parent-repeated", "parent-process", "fallback",
       reportTaskId = reportTask.id;
       history.appendCustomEntry(TASK_START_MARKER, { taskId: reportTask.id, requestId: reportTask.requestId });
       const inputId = history.appendMessage({ role: "user", content: "当前报告轮次", timestamp: Date.now() });
-      if (window === "parent-repeated") history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-wait-call", isError: false,
+      if (window === "parent-repeated") history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-wait-call", isError: false,
         content: [{ type: "text", text: JSON.stringify({ reason: "timeout", targets: [{ ...target, status: "running", resultSummary: null, reportOwnerTaskId: null }] }) }], timestamp: Date.now() });
-      if (owner === "parent") resultEntryId = history.appendMessage({ role: "toolResult", toolName: window === "parent-process" ? "wait" : "agent_wait", toolCallId: "reused-wait-call", isError: false,
+      if (owner === "parent") resultEntryId = history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-wait-call", isError: false,
         content: [{ type: "text", text: JSON.stringify(result(reportTask.id)) }], timestamp: Date.now() });
       else {
         resultEntryId = inputId;
@@ -182,7 +182,7 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
       const history = SessionManager.create(session.cwdReal, path.join(t.dirs.dataDir, "sessions"), { id: session.piSessionId });
       history.appendCustomEntry(TASK_START_MARKER, { taskId: p.id, requestId: p.requestId });
       history.appendMessage({ role: "user", content: "原先等待两项", timestamp: Date.now() });
-      const oldInput = history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-call", isError: false, timestamp: Date.now(),
+      const oldInput = history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-call", isError: false, timestamp: Date.now(),
         content: [{ type: "text", text: JSON.stringify({ reason: "result", targets: [{ ...targets[0], status: "completed", resultSummary: "结果0", reportOwnerTaskId: p.id }, { ...targets[1], status: "running", resultSummary: null }] }) }] });
       history.appendMessage(assistant("first已经完成，second需要yes")); history.appendCustomEntry(TASK_END_MARKER, { taskId: p.id, status: "completed" });
       store.withTx(() => {
@@ -199,7 +199,7 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
       history.appendCustomEntry(TASK_START_MARKER, { taskId: q.id, requestId: q.requestId });
       history.appendMessage({ role: "user", content: "yes，然后只等second", timestamp: Date.now() });
       const states = targets.map((target, i) => ({ ...target, status: "completed", resultSummary: `结果${i}`, stopVerified: true, effectUnknown: false, artifactIds: [], artifactCount: 0, reportOwnerTaskId: q.id }));
-      inputId = history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "reused-call", isError: false, timestamp: Date.now(),
+      inputId = history.appendMessage({ role: "toolResult", toolName: "wait", toolCallId: "reused-call", isError: false, timestamp: Date.now(),
         content: [{ type: "text", text: JSON.stringify({ reason: "result", targets: [states[1]], reportTargets: states }) }] });
       requestProof(store, t.dirs.dataDir, history, q, [{ entryId: inputId, keys }]);
       finalId = history.appendMessage(assistant("唯一完整总结first和second"));

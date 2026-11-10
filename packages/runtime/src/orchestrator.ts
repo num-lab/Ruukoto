@@ -1,4 +1,5 @@
 /** SubAgent results, parent delivery, deadline cancellation and restart recovery. */
+// Note: See .agents/notes/implemented/architecture/2026-10-14-agent-wait-and-report-ownership.md
 
 import type { Store } from "@ruukoto/core/store.ts";
 import { getOpenCodeScheduleRunForSession } from "@ruukoto/core/code-scheduler.ts";
@@ -174,14 +175,14 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * 启动巡检：① 重启窗口内到达终态的角色任务补记结果与事件（handleTerminal 内含
-   * 建唤醒）；② 父级送达补建缺失的结果唤醒与消息唤醒。
-   */
+  /** Recover terminal results and delivery bookkeeping without replaying model requests. */
   private async sweepPendingResults(): Promise<void> {
-    const pending = new Map(this.store.listTasksByStatus(["completed", "failed", "canceled", "interrupted"]).filter(task => task.subAgentId && task.resultSummary === null).map(task => [task.id, task]));
+    // Recovery may clear claims before this sweep; historical ownership selects bookkeeping, not queue admission.
+    const reportTasks = new Set((this.store.db.prepare(
+      "SELECT DISTINCT task_id FROM events WHERE task_id IS NOT NULL AND json_extract(body, '$.type') = 'agent_report.changed'").all() as { task_id: string }[]).map(row => row.task_id));
+    const pending = new Map<string, Task>();
     for (const task of this.store.listTasksByStatus(["completed", "failed", "canceled", "interrupted"])) {
-      if (task.resultSummary === null && this.deps.parentDelivery.needsResult?.(task)) pending.set(task.id, task);
+      if (task.resultSummary === null && (task.subAgentId || reportTasks.has(task.id) || this.deps.parentDelivery.needsResult?.(task))) pending.set(task.id, task);
     }
     for (const task of pending.values()) {
       await this.handleTerminal(task, childOutcome(task));

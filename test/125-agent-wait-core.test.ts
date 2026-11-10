@@ -252,19 +252,26 @@ test("重启结束等待且保留正文、消费和报告认领，宿主核实�
   } finally { f.cleanup(); }
 });
 
-test("既有普通结果唤醒按真实来源采用，已运行或终态均拒绝第二报告认领", () => {
+test("Report ownership requires a queued binding, not a wake-shaped request key", () => {
   const f = fixture();
   try {
     for (const status of ["running", "completed"] as const) {
       const child = f.child(), report = f.report(child.id);
-      const fake = f.task(f.parentSession.id, status, { requestId: `wake:${child.id}`, parentTaskId: f.parent.id });
+      const fake = f.task(f.parentSession.id, status, { requestId: `wake:${child.id}:owner`, parentTaskId: f.parent.id });
       assert.throws(() => f.store.withTx(() => bindAgentReportFallback(f.store, report.key, fake.id)), { code: "fallback_invalid" });
-      const fallback = f.task(f.parentSession.id, status, { requestId: `wake:${child.id}:real`, parentTaskId: child.id });
-      assert.throws(() => f.store.withTx(() => bindAgentReportFallback(f.store, report.key, fallback.id)), { code: "fallback_invalid" });
-      f.store.withTx(() => f.store.db.prepare("UPDATE tasks SET request_id = ? WHERE id = ?").run(`wake:${child.id}:fake`, fake.id));
-      f.store.withTx(() => f.store.db.prepare("UPDATE tasks SET request_id = ? WHERE id = ?").run(`wake:${child.id}`, fallback.id));
-      const adopted = f.store.withTx(() => bindAgentReportFallback(f.store, report.key, fallback.id));
-      assert.equal(adopted.fallbackState, status === "running" ? "running" : "completed");
+      const unbound = f.task(f.parentSession.id, status, { requestId: `wake:${child.id}`, parentTaskId: child.id });
+      assert.throws(() => f.store.withTx(() => bindAgentReportFallback(f.store, report.key, unbound.id)), { code: "fallback_invalid" });
+      const fallback = f.task(f.parentSession.id, "queued", { requestId: `agent-final:${child.id}`, parentTaskId: f.parent.id });
+      f.store.withTx(() => {
+        bindAgentReportFallback(f.store, report.key, fallback.id);
+        startAgentReportFallback(f.store, fallback.id);
+        f.store.transitionTask(fallback.id, ["queued"], "running");
+        if (status === "completed") {
+          f.store.endTask(fallback.id, ["running"], "completed");
+          finishAgentReportFallback(f.store, fallback.id, { status: "reported", entryId: "fallback-final" });
+        }
+      });
+      assert.equal(f.store.withTx(() => bindAgentReportFallback(f.store, report.key, fallback.id)).fallbackState, status);
       assert.throws(() => f.store.withTx(() => claimAgentReports(f.store, { taskId: f.parent.id, keys: [report.key] })), { code: "report_owned" });
       assert.equal(getAgentReport(f.store, report.key)!.fallbackTaskId, fallback.id);
     }

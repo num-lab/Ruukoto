@@ -98,10 +98,6 @@ function quitAll(apps: AppHarness[]): void {
   for (const h of apps) h.app.quit(0);
 }
 
-async function renderFlush(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 80));
-}
-
 
 // ---------- 创建幂等（存储/运行时/控制面） ----------
 
@@ -295,13 +291,12 @@ test("工作区入口：无候选项目时自动创建项目（建议名）并�
   }
 });
 
-test("工作区入口：唯一候选项目被复用，仍创建新会话", async () => {
+test("workspace entry reuses its registered directory identity and creates a new conversation", async () => {
   const t = await startTestRuntime("ws-tui-reuse", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
-    const { projectId, sessionId: oldSessionId } = await createProjectSession(t.client, t.work[0]!, {
-      projectName: "已有项目",
-    });
+    const { session: original } = await t.runtime.openWorkspace({ cwd: t.work[0]! });
+    const { projectId, id: oldSessionId } = original;
     const baseSessions = t.runtime.store.listSessions().length;
     const baseProjects = t.runtime.store.listProjects().length;
 
@@ -326,57 +321,26 @@ test("工作区入口：唯一候选项目被复用，仍创建新会话", async
   }
 });
 
-test("工作区入口：多个候选项目先选择，选中后创建会话进入", async () => {
-  const t = await startTestRuntime("ws-tui-pick", async () => ({ kind: "text", text: "x" }));
+test("workspace entry ignores unbound projects whose conversations use the same directory", async () => {
+  const t = await startTestRuntime("ws-tui-unbound", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
     const first = await createProjectSession(t.client, t.work[0]!, { projectName: "项目甲" });
-    await createProjectSession(t.client, t.work[0]!, { projectName: "项目乙" });
-    const baseSessions = t.runtime.store.listSessions().length;
-
-    const h = await startApp(t, { workspace: { path: t.work[0]! } });
-    apps.push(h);
-    await waitFor("候选面板出现", () => {
-      const out = h.terminal.output();
-      return out.includes("项目甲") && out.includes("项目乙");
-    });
-    assert.equal(h.state.currentSessionId, null, "选择前不进入任何会话");
-    // 回车选中第一项（按快照顺序为项目甲）
-    h.terminal.send("\r");
-    await waitFor("进入选中项目的会话", () => h.state.currentSessionId !== null);
-    assert.equal(t.runtime.store.listSessions().length, baseSessions + 1, "选中后只创建一条会话");
-    await waitFor("会话落库", () => t.runtime.store.getSession(h.state.currentSessionId!) !== null);
-    const session = t.runtime.store.getSession(h.state.currentSessionId!)!;
-    assert.equal(session.projectId, first.projectId, "进入选中项目的新会话");
-    h.app.quit(0);
-    await waitFor("退出", () => h.exitCode() === 0);
-  } finally {
-    quitAll(apps);
-    await new Promise((r) => setTimeout(r, 100));
-    await t.shutdown();
-  }
-});
-
-test("工作区入口：多项目选择取消后不创建任何项目/会话，回落正常启动流程", async () => {
-  const t = await startTestRuntime("ws-tui-cancel", async () => ({ kind: "text", text: "x" }));
-  const apps: AppHarness[] = [];
-  try {
-    await createProjectSession(t.client, t.work[0]!, { projectName: "项目甲" });
-    await createProjectSession(t.client, t.work[0]!, { projectName: "项目乙" });
+    const second = await createProjectSession(t.client, t.work[0]!, { projectName: "项目乙" });
     const baseSessions = t.runtime.store.listSessions().length;
     const baseProjects = t.runtime.store.listProjects().length;
 
     const h = await startApp(t, { workspace: { path: t.work[0]! } });
     apps.push(h);
-    await waitFor("候选面板出现", () => h.terminal.output().includes("项目甲"));
-    h.terminal.send("\x1b"); // Esc 取消
-    await renderFlush();
-    assert.equal(t.runtime.store.listSessions().length, baseSessions, "取消不创建会话");
-    assert.equal(t.runtime.store.listProjects().length, baseProjects, "取消不创建项目");
-    assert.equal(h.state.currentSessionId, null, "不留下选中的会话");
-    // 回落正常启动流程：已有会话时打开项目选择（「选择项目」面板；候选面板标题
-    // 是「选择要进入的项目」、首帧页眉是「未选择会话」，两者都不含这个连续子串）
-    await waitFor("回落到项目选择", () => h.terminal.output().includes("选择项目"), 30_000);
+    await waitFor("registered workspace conversation", () => h.state.currentSessionId !== null);
+    const session = t.runtime.getSession(h.state.currentSessionId!);
+    assert.notEqual(session.projectId, first.projectId);
+    assert.notEqual(session.projectId, second.projectId);
+    assert.equal(t.runtime.store.getProject(first.projectId)!.rootDir, null);
+    assert.equal(t.runtime.store.getProject(second.projectId)!.rootDir, null);
+    assert.equal(t.runtime.store.listSessions().length, baseSessions + 1);
+    assert.equal(t.runtime.store.listProjects().length, baseProjects + 1);
+    assert.equal(t.runtime.store.getProject(session.projectId)!.rootDir!.cwdReal, fs.realpathSync(t.work[0]!));
     h.app.quit(0);
     await waitFor("退出", () => h.exitCode() === 0);
   } finally {
@@ -386,11 +350,12 @@ test("工作区入口：多项目选择取消后不创建任何项目/会话，�
   }
 });
 
+
 test("工作区入口：符号链接路径按相同目录身份归属已有项目", async () => {
   const t = await startTestRuntime("ws-tui-symlink", async () => ({ kind: "text", text: "x" }));
   const apps: AppHarness[] = [];
   try {
-    const { projectId } = await createProjectSession(t.client, t.work[0]!, { projectName: "真实路径项目" });
+    const { session: { projectId } } = await t.runtime.openWorkspace({ cwd: t.work[0]! });
     const link = path.join(t.dirs.root, "link-work0");
     fs.symlinkSync(t.work[0]!, link);
 

@@ -41,13 +41,12 @@ for (const hasCurrent of [true, false]) test(`offline App ${hasCurrent ? "retain
   internals.H = {
     useState(initial: unknown) {
       const value = typeof initial === "function" ? initial() : initial;
-      if (value && typeof value === "object" && "code" in value && value.code instanceof CodeModel) {
-        const code = value.code;
-        model = code;
-        code.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: hasCurrent ? [session] : [] }), replay: [], seq: 0 }, false);
-        code.view.currentSessionId = hasCurrent ? session.id : null;
-        code.status = { type: "state", state: "reconnecting", detail: "Disconnected fixture" };
-        Object.assign(code.writes.draft(session.id), { text: "/help", attachments: [attachment] });
+      if (value instanceof CodeModel) {
+        model = value;
+        model.view.applySnapshot({ snapshot: fakeSnapshot({ sessions: hasCurrent ? [session] : [] }), replay: [], seq: 0 }, false);
+        model.view.currentSessionId = hasCurrent ? session.id : null;
+        model.status = { type: "state", state: "reconnecting", detail: "Disconnected fixture" };
+        Object.assign(model.writes.draft(session.id), { text: "/help", attachments: [attachment] });
       }
       return [value, () => {}];
     },

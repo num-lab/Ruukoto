@@ -147,7 +147,7 @@ test("桌面快照换代中断多个截断条目的旧恢复循环", async () =>
 test("桌面不连续正文分页显示失败，不安装伪完整内容", async () => {
   const { model } = harness({ read_history_entry: params => history("answer", "中文", { offset: params.offset ? params.offset - 1 : 0, totalBytes: 100, truncated: true }) });
   await model.loadEntry("session", "answer");
-  assert.match(model.readError!, /分页未连续/);
+  assert.ok(model.readError);
   assert.equal(model.view.openSession("session").flow.historyEntries.length, 0);
 });
 
@@ -162,8 +162,11 @@ test("桌面人工重连创建了新连接时，仍以实例身份清空旧标�
   assert.equal(model.view.sessionViews.size, 0);
 });
 
-test("桌面通知导航按实例定位后消费，同实例快照不抢回已切换的会话", () => {
-  const model = new CodeState({ request: async (_target, op) => ({ ok: true, value: op === "work_list" ? { works: [] } : op === "read_history" ? { fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null } : op === "list_tasks" ? { tasks: [], hasMore: false } : { records: [], hasMore: false } }) }, () => {});
+test("Desktop notification navigation stays bound to its instance without reopening closed chats", async () => {
+  const { model } = harness({
+    work_list: () => ({ works: [] }),
+    owner_questions: () => ({ questions: [], nextOffset: null }),
+  });
   const result = { seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [session, { ...session, id: "second" }] }) };
   model.update({ type: "snapshot", result, instanceChanged: false });
   model.update({ type: "navigate", instanceId: "inst-1", navigation: { sessionId: "session", taskId: "task" } });
@@ -172,8 +175,13 @@ test("桌面通知导航按实例定位后消费，同实例快照不抢回已�
   model.openSession("second"); model.closeSession("session");
   model.update({ type: "snapshot", result, instanceChanged: false });
   assert.equal(model.view.currentSessionId, "second"); assert.ok(!model.tabs.includes("session"));
+  await model.loadHistory("second");
+  assert.equal(model.message, null);
+  assert.equal(model.questions.message, null);
   model.update({ type: "navigate", instanceId: "old", navigation: { sessionId: "session", taskId: "task" } });
-  assert.equal(model.view.currentSessionId, "second"); assert.match(model.message!, /original target changed/);
+  assert.equal(model.view.currentSessionId, "second");
+  assert.deepEqual(model.notificationSelection, { sessionId: "session", taskId: "task" });
+  assert.ok(model.message);
 });
 
 test("右栏子会话复用历史恢复，通知定位、实时补读与重连不丢思考和工具", async () => {

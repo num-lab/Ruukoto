@@ -105,6 +105,8 @@ Once historical execution is quiescent, recall fixes the omission list, appends 
 
 Trusted reports arriving during request N wait for its tools to settle, then enter N+1 of the same task. Report claims preserve each original source and complete fallback group; actual effective input, request binding and an eligible response establish consumption. The receiving task keeps its identity and permissions. When idle, runnable internal summaries precede user messages in the same conversation. Parked or unready groups do not block the user queue.
 
+Cold recovery registers a report participant's original terminal result even after releasing or invalidating its claims. Durable ownership events preserve eligibility for that bookkeeping, not delivery authority; revoked reports stay undelivered and recovery does not issue another model request.
+
 ## Invariants and Failure Handling
 
 - Identical `(sessionId, requestId)` replay returns the original task; changed parameters produce `request_conflict`.

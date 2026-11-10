@@ -46,7 +46,7 @@ async function selectManaged(h: Awaited<ReturnType<typeof startApp>>) {
   assert.equal(h.state.currentSessionId, null);
 }
 
-test("fresh Coding TUI opens a local No workspace draft with model/mode controls, then creates on first send", async () => {
+test("fresh TUI opens a local No workspace draft with model/mode controls, then creates on first send", async () => {
   const t = await startTestRuntime("managed-tui-fresh", () => ({ kind: "text", text: "managed response" }), { workDirs: 0 });
   const apps: TuiApp[] = [];
   try {
@@ -59,7 +59,7 @@ test("fresh Coding TUI opens a local No workspace draft with model/mode controls
     await selectManaged(h);
     assert.equal(workspaces(t).length, 0);
     assert.equal(chats(t).length, 0);
-    assert.equal(fs.existsSync(path.join(t.dirs.root, "workspace")), false);
+    assert.deepEqual(fs.readdirSync(t.dirs.profile.workspaceDir), []);
     h.terminal.send("\x1b[Z");
     await flush();
     assert.match(h.terminal.output(), /Full access/);
@@ -75,7 +75,7 @@ test("fresh Coding TUI opens a local No workspace draft with model/mode controls
     const session = t.runtime.getSession(h.state.currentSessionId!);
     const project = t.runtime.store.getProject(session.projectId)!;
     assert.equal(project.managed, true);
-    assert.equal(session.cwdReal, fs.realpathSync(path.join(t.dirs.root, "workspace", project.id)));
+    assert.equal(session.cwdReal, fs.realpathSync(path.join(t.dirs.profile.workspaceDir, project.id)));
     assert.deepEqual(session.modelSelection, selection);
     assert.equal(session.defaultAccessMode, "plan");
     assert.equal(t.runtime.store.listTasksBySession(session.id)[0].planMode, true);
@@ -90,7 +90,7 @@ test("fresh Coding TUI opens a local No workspace draft with model/mode controls
     await waitFor("reopen managed conversation", () => h.state.currentSessionId === session.id);
     assert.equal(workspaces(t).length, 1);
     assert.equal(chats(t).length, 1);
-    assert.deepEqual(fs.readdirSync(path.join(t.dirs.root, "workspace")), [project.id]);
+    assert.deepEqual(fs.readdirSync(t.dirs.profile.workspaceDir), [project.id]);
     h.terminal.send("/new\r"); await flush();
     h.terminal.send("second managed message\r");
     await waitFor("independent managed conversation", () => h.state.currentSessionId !== null && h.state.currentSessionId !== session.id);
@@ -112,12 +112,18 @@ test("ordinary workspace /new still creates a session in the selected workspace 
     const original = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
     const h = await startApp(t, undefined, undefined, original.id); app = h.app;
     h.terminal.send("/new\r");
-    await waitFor("ordinary new session", () => h.state.currentSessionId !== original.id);
+    await waitFor("ordinary new session", () => h.state.currentSessionId !== null && h.state.currentSessionId !== original.id);
     const next = t.runtime.getSession(h.state.currentSessionId!);
     assert.equal(next.projectId, original.projectId);
     assert.equal(next.cwdReal, original.cwdReal);
     assert.equal(workspaces(t).length, 1);
-    assert.equal(fs.existsSync(path.join(t.dirs.root, "workspace")), false);
+    assert.deepEqual(fs.readdirSync(t.dirs.profile.workspaceDir), []);
+    h.terminal.send("retained ordinary draft"); await flush();
+    h.app["switchSession"](original.id);
+    h.app["switchSession"](next.id);
+    assert.equal(editor(h.app).getExpandedText(), "retained ordinary draft");
+    assert.equal(chats(t).length, 2);
+    assert.equal(t.runtime.store.listTasksBySession(next.id).length, 0);
   } finally {
     app?.quit();
     await t.shutdown();
@@ -501,7 +507,7 @@ test("development reload restores an unsubmitted managed draft and its local set
     assert.equal(workspaces(t).length, 0);
     assert.equal(chats(t).length, 0);
     assert.equal(t.server.calls.length, 0);
-    assert.equal(fs.existsSync(path.join(t.dirs.root, "workspace")), false);
+    assert.deepEqual(fs.readdirSync(t.dirs.profile.workspaceDir), []);
   } finally {
     for (const app of apps) app.quit();
     await t.shutdown();

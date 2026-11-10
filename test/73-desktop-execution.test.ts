@@ -18,6 +18,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as childProcess from "node:child_process";
+import { once } from "node:events";
+import * as fs from "node:fs";
+import { tmpdir } from "node:os";
 import * as nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { ControlClient } from "@ruukoto/control/client.ts";
@@ -32,7 +35,7 @@ import {
   writeModelsJson,
 } from "./helpers/testkit.ts";
 import { killProcessTree } from "./helpers/backend.ts";
-import { profileChildEnv, type ProfilePaths } from "@ruukoto/core/profile.ts";
+import { profileChildEnv, selectProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
 
 const repoRoot = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -186,43 +189,72 @@ test(`${product} 显式 native（flag 或环境变量）：握手展示原生执
   }
 });
 
-test(`${product} 的旧 local/container flag 与环境覆盖拒绝，并给出迁移指引`, async () => {
-  const { dirs } = await makeTestDirs("x73legacy", 0);
+const REJECTION_PTY = `
+import errno, json, os, pty, select, signal, subprocess, sys, time
+
+master, slave = pty.openpty()
+child = subprocess.Popen(json.loads(sys.argv[1]), stdin=slave, stdout=slave, stderr=slave,
+                         env=dict(os.environ, PATH=""), start_new_session=True)
+os.close(slave)
+deadline = time.monotonic() + 25
+output = bytearray()
+try:
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([master], [], [], remaining)[0]:
+            raise TimeoutError("CLI did not reject before the deadline")
+        try:
+            chunk = os.read(master, 65536)
+        except OSError as error:
+            if error.errno != errno.EIO:
+                raise
+            break
+        if not chunk:
+            break
+        output.extend(chunk)
+    status = child.wait(timeout=max(0, deadline - time.monotonic()))
+finally:
+    try:
+        os.killpg(child.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    child.wait()
+    os.close(master)
+sys.stdout.buffer.write(output)
+sys.stdout.buffer.flush()
+sys.exit(status)
+`;
+
+test(`${product} rejects unsupported execution overrides before server startup or profile activation`, async () => {
+  const directory = fs.mkdtempSync(nodePath.join(tmpdir(), "ruukoto-execution-rejection-"));
+  const home = nodePath.join(directory, "home");
+  fs.mkdirSync(home);
+  const profileRoot = nodePath.join(directory, "profile");
+  const selection = selectProfile({ dataDir: nodePath.join(profileRoot, "data") }, {});
   try {
-    for (const execution of ["local", "container"]) {
-      for (const argv of [["server", "--execution", execution], ["server"], [], [dirs.dataDir], ["tui"]]) {
-        const result = childProcess.spawnSync(process.execPath,
-          [nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv],
-          { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
-            PATH: process.env.PATH, HOME: process.env.HOME,
-            ...profileChildEnv(dirs.profile.selection, {}), RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : execution,
-          } });
-        assert.equal(result.status, 1, `${execution}: ${argv.join(" ")}`);
-        assert.match(result.stderr, /--execution 取值无效/);
-        assert.match(result.stderr, /--execution native/);
-        assert.match(result.stderr, /移除 --execution \/ RUUKOTO_EXECUTION_BACKEND/);
+    for (const execution of ["local", "container", "bogus"]) {
+      for (const argv of [["server", "--execution", execution], ["server"], [], [directory], ["tui"]]) {
+        const command = [process.execPath, nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv];
+        const child = childProcess.spawn("python3", ["-c", REJECTION_PTY, JSON.stringify(command)],
+          { cwd: repoRoot, timeout: 30_000, killSignal: "SIGKILL", detached: true, stdio: ["ignore", "pipe", "pipe"], env: profileChildEnv(selection, {
+            PATH: process.env.PATH, HOME: home, RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : execution,
+          }) });
+        let output = "";
+        child.stdout.on("data", chunk => { output += chunk.toString(); });
+        child.stderr.on("data", chunk => { output += chunk.toString(); });
+        const [status, signal] = await once(child, "close");
+        if (child.pid) {
+          try { process.kill(-child.pid, "SIGKILL"); }
+          catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error; }
+        }
+        assert.equal(signal, null);
+        assert.equal(status, 1, output);
+        for (const option of ["--execution", "RUUKOTO_EXECUTION_BACKEND", "native"]) {
+          assert.ok(output.includes(option), `The diagnostic must identify ${option}: ${output}`);
+        }
+        assert.equal(fs.existsSync(profileRoot), false, "Rejected invocations must not activate storage or start a backend");
+        assert.deepEqual(fs.readdirSync(home), [], "Rejected invocations must not fall back to the personal profile");
       }
     }
-  } finally {
-    await cleanupDirs(dirs);
-  }
-});
-
-test(`${product} 非法执行后端在 server、TUI、工作区与旧 tui 入口提前拒绝`, async () => {
-  const { dirs } = await makeTestDirs("x73bogus", 0);
-  try {
-    for (const argv of [["server", "--execution", "bogus"], [], [dirs.dataDir], ["tui"]]) {
-      const result = childProcess.spawnSync(process.execPath,
-        [nodePath.join(repoRoot, "apps", product, "bin", product + ".mjs"), ...argv],
-        { cwd: repoRoot, encoding: "utf8", timeout: 60_000, env: {
-          PATH: process.env.PATH, HOME: process.env.HOME,
-          ...profileChildEnv(dirs.profile.selection, {}),
-          RUUKOTO_EXECUTION_BACKEND: argv.includes("--execution") ? undefined : "bogus",
-        } });
-      assert.equal(result.status, 1);
-      assert.match(result.stderr, /--execution 取值无效/);
-    }
-  } finally {
-    await cleanupDirs(dirs);
-  }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

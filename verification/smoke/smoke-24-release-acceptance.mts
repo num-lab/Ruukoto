@@ -8,9 +8,10 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { ControlClient } from "@ruukoto/control/client.ts";
+import type { OpResult } from "@ruukoto/control/ops.ts";
 import { probeLockHolder } from "@ruukoto/core/instance-lock.ts";
 import { saveDefaultModel } from "@ruukoto/agent/model-config.ts";
-import { authenticateClient, taskStatus, waitFor } from "../../test/helpers/testkit.ts";
+import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { bootstrapProfile, profileChildEnv, selectProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
 import { prerequisite } from "./gate.ts";
 
@@ -65,6 +66,20 @@ function childEnv(profile: ProfilePaths): NodeJS.ProcessEnv {
 function run(command: string, args: string[], cwd = repo): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", timeout: 180_000 }).trim();
 }
+async function waitFor(description: string, ready: () => boolean | Promise<boolean>, timeout = 15_000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!await ready()) {
+    if (Date.now() >= deadline) throw new Error(`Timed out: ${description}`);
+    await new Promise(resolve => setTimeout(resolve, 40));
+  }
+}
+
+async function authenticateClient(client: ControlClient, profile: ProfilePaths): Promise<void> {
+  const token = readOwnerToken(profile.controlDir);
+  assert.ok(token, "The isolated profile must contain an owner token");
+  await client.authenticate(token, profile);
+}
+
 async function connect(p: ProfilePaths): Promise<ControlClient> {
   let client: ControlClient | undefined;
   await waitFor("后台可认证", async () => {
@@ -103,8 +118,8 @@ async function complete(client: ControlClient, session: any, key: string) {
     model_selection: session.modelSelection });
 }
 async function finished(client: ControlClient, taskId: string, timeout = 60_000) {
-  await waitFor("任务终态", async () => ["completed", "failed", "interrupted", "canceled"].includes((await taskStatus(client, taskId)).task.status), timeout);
-  const detail = await taskStatus(client, taskId);
+  await waitFor("任务终态", async () => ["completed", "failed", "interrupted", "canceled"].includes((await client.request<OpResult<"get_task">>("get_task", { task_id: taskId })).task.status), timeout);
+  const detail = await client.request<OpResult<"get_task">>("get_task", { task_id: taskId });
   assert.equal(detail.task.status, "completed", String(detail.task.errorMessage ?? detail.task.interruptReason ?? "任务未完成"));
   return detail;
 }
@@ -142,19 +157,19 @@ try {
     });
     const task = await complete(client, session, "real-coding");
     assert.equal(await tuiExit, 0);
-    assert.equal((await taskStatus(client, task.id)).task.status, "running", "TUI 退出时任务应仍在执行");
+    assert.equal((await client.request<OpResult<"get_task">>("get_task", { task_id: task.id })).task.status, "running", "TUI 退出时任务应仍在执行");
     const detail = await finished(client, task.id, 240_000);
     assert.equal(fs.readFileSync(path.join(workspace, "check.mjs"), "utf8"), checkSource, "模型必须修代码且保留原检查");
     assert.match(run(process.execPath, ["check.mjs"], workspace), /CHECK_PASS/);
-    const checks = detail.toolOps.filter((op: any) => op.toolName === "bash");
+    const checks = detail.toolOps.filter(op => op.toolName === "bash");
     assert.equal(checks[0]?.isError, true, "修前检查实际失败");
     assert.equal(checks.at(-1)?.isError, false, "修后检查实际通过");
     assert.match(checks.at(-1)?.resultSummary ?? "", /CHECK_PASS/);
-    assert.ok(detail.toolOps.some((op: any) => ["edit", "write"].includes(op.toolName) && !op.isError));
+    assert.ok(detail.toolOps.some(op => ["edit", "write"].includes(op.toolName) && !op.isError));
     assert.ok(detail.artifacts.length > 0, "保留真实工具产物");
     client.close();
     const reconnected = await connect(p);
-    assert.equal((await taskStatus(reconnected, task.id)).task.status, "completed");
+    assert.equal((await reconnected.request<OpResult<"get_task">>("get_task", { task_id: task.id })).task.status, "completed");
     await stop(reconnected, p);
     pass(`真实 ${providerId}/${modelId} 在原生沙箱内修复并通过检查，TUI 退出后继续、重连查到 ${detail.artifacts.length} 项产物`);
   process.stderr.write(`[ruukoto:smoke24] 结果：${passed}/${passed} 通过；真实模型编码\n`);

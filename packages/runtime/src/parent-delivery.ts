@@ -314,7 +314,7 @@ export class ParentDelivery {
     });
   }
 
-  /** 调度运行、等待父轮与内部补报均经编排器的一次性结果登记和启动恢复。 */
+  /** Current scheduled runs, fallback tasks and report claimants require terminal-result registration. */
   needsResult(task: Task): boolean {
     return getCodeScheduleRunForTask(this.store, task.id) !== null || isAgentReportFallback(this.store, task.id) || listAgentReports(this.store).some(report => report.claimTaskId === task.id);
   }

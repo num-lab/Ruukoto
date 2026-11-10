@@ -8,11 +8,17 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { acquireInstanceLock, InstanceLockError, probeLockHolder } from "@ruukoto/core/instance-lock.ts";
 
+function makeOwnerWritable(ownerFile: string): void {
+  if (process.platform === "darwin") childProcess.execFileSync("chflags", ["nouchg", ownerFile]);
+  fs.chmodSync(ownerFile, 0o600);
+}
+
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-"));
   const lockDir = path.join(root, "runtime.lock");
   const ownerFile = path.join(lockDir, "owner.json");
   return { root, lockDir, ownerFile, cleanup: () => {
+    if (fs.existsSync(ownerFile)) makeOwnerWritable(ownerFile);
     if (fs.existsSync(lockDir)) fs.chmodSync(lockDir, 0o700);
     fs.rmSync(root, { recursive: true, force: true });
   } };
@@ -89,11 +95,11 @@ test("相同 PID 的启动标识不同表示遗留锁，损坏的新身份保持
     owner.processIdentity = process.platform === "linux"
       ? original.replace(/:\d+$/, ":0")
       : "darwin:Thu Jan  1 00:00:00 1970";
-    fs.chmodSync(f.ownerFile, 0o600);
+    makeOwnerWritable(f.ownerFile);
     fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
     assert.equal(probeLockHolder(f.lockDir).held, false, "合法但不匹配的启动标识可证明 PID 已复用");
     held = acquireInstanceLock(f.root);
-    fs.chmodSync(f.ownerFile, 0o600);
+    makeOwnerWritable(f.ownerFile);
     for (const pid of [0, -1, 1.5]) {
       fs.writeFileSync(f.ownerFile, JSON.stringify({ ...owner, pid, processIdentity: original }));
       assert.equal(probeLockHolder(f.lockDir).unverifiable, true, "Invalid PIDs cannot prove exit or authorize takeover");
@@ -118,7 +124,7 @@ test("旧 owner 沿命令兼容核实；ps 不可用保留锁，身份采集失�
   const owner = JSON.parse(fs.readFileSync(f.ownerFile, "utf8"));
   const currentOwner = fs.readFileSync(f.ownerFile, "utf8");
   delete owner.processIdentity;
-  fs.chmodSync(f.ownerFile, 0o600);
+  makeOwnerWritable(f.ownerFile);
   fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
   const realExec = childProcess.execFileSync;
   let unavailable = false;

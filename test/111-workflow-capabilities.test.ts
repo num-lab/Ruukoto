@@ -50,9 +50,10 @@ test("宿主步骤画像按来源收窄，旧固定画像不获得额外能力",
 async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?: string[] } = {}) {
   const kit = await startAssemblyKit("workflow-capabilities", { responder, workDirs: 2 });
   const { session: source } = kit.project();
-  const parent = kit.task(source, "主会话私有历史不复制给步骤");
+  const parent = kit.store.insertQueuedTask({ sessionId: source.id, requestId: "source", input: "主会话私有历史不复制给步骤",
+    submissionDigest: "source", accessMode: "full_access", modelSelection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } }).task;
   const authority: WorkflowSource = { product: "ruukoto", projectId: source.projectId, sessionId: source.id, taskId: parent.id,
-    permissionVersion: parent.permissionVersion, accessMode: "full_access", grantedPaths: [], capabilities: profile().categories,
+    permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: profile().categories,
     references: [], authority: { toolClass: "dev", categories: profile().categories,
       grantIds: [], configuration: "test", workspace: { path: source.cwdReal, dev: source.cwdDev, ino: source.cwdIno } } };
   const stat = fs.statSync(kit.work[1]);
@@ -63,7 +64,7 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
   kit.store.insertWorkDelegation({ id: workId, parentSessionId: source.id, originTaskId: parent.id, subAgentId, requestKey: "step",
     paramsDigest: "step", canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: "" });
   const task = kit.store.insertQueuedTask({ sessionId: child.id, requestId: "step", input: "完成此步骤", submissionDigest: "step",
-    accessMode: "full_access", modelSelection: parent.modelSelection, workId, subAgentId, parentTaskId: parent.id, sourcePermissionVersion: parent.permissionVersion }).task;
+    accessMode: parent.accessMode, modelSelection: parent.modelSelection, workId, subAgentId, parentTaskId: parent.id, sourcePermissionVersion: parent.permissionVersion }).task;
   if (!opts.ordinary) {
     const definition = saveWorkflowDefinition(kit.store, 'return await agent("one",{request:"完成此步骤"});');
     const run = createWorkflowRun(kit.store, { interfaceVersion: WORKFLOW_INTERFACE_VERSION, roleCatalog: fixtureSubAgentRoleCatalog(), id: randomId("wfrun"), requestKey: "run", paramsDigest: "run", definitionId: definition.id,
@@ -120,12 +121,38 @@ test("真实 Driver 装配来源业务与技能，步骤自身的技能结果落
     const names = toolNamesOf(k.server.calls[0]);
     for (const name of ["history_search", "memory_save", "skill", "read", "read_artifact"]) assert.ok(names.includes(name), name);
     for (const name of ["edit", "write", "bash"]) assert.ok(names.includes(name), name);
-    for (const name of ["subagent_delegate", "workflow_start", "subagent_message", "request_file_access"]) assert.ok(!names.includes(name), name);
+    for (const name of ["subagent_delegate", "workflow_start", "subagent_message"]) assert.ok(!names.includes(name), name);
     assert.ok(!inputText(k.server.calls[0]).includes("主会话私有历史不复制给步骤"));
     const file = k.store.getSession(k.child.id)!.sessionFile!;
     assert.ok(fs.readFileSync(file, "utf8").includes("只返回此技能的验收说明。"));
     assert.equal(k.store.listToolOpsByTask(k.task.id).length, 1);
   } finally { await k.close(); }
+});
+
+test("Workflow steps execute file access only when the frozen source tools include it", async () => {
+  for (const tools of [["request_file_access"], ["read"]]) {
+    let target = "";
+    const k = await fixture(req => afterTool(req) ? { kind: "text", text: lastToolText(req) } :
+      { kind: "tool_calls", calls: [{ id: "file", name: "request_file_access", arguments: {
+        path: target, operation: "write", content: "source-authorized-write", reason: "Verify inherited file access",
+      } }] }, { tools });
+    try {
+      target = path.join(k.work[0], "workflow-access.txt");
+      fs.writeFileSync(target, "unchanged");
+      assert.equal((await k.run()).status, "completed");
+      assert.deepEqual(toolNamesOf(k.server.calls[0]), tools);
+      assert.deepEqual(k.execution.tools, tools);
+      const allowed = tools.includes("request_file_access");
+      assert.equal(fs.readFileSync(target, "utf8"), allowed ? "source-authorized-write" : "unchanged");
+      const operations = k.store.listToolOpsByTask(k.task.id);
+      if (allowed) {
+        assert.equal(operations.length, 1);
+        assert.equal(operations[0].toolName, "request_file_access");
+        assert.equal(operations[0].isError, false);
+        assert.equal(operations[0].authorization?.source, "full_access");
+      } else assert.deepEqual(operations, []);
+    } finally { await k.close(); }
+  }
 });
 
 

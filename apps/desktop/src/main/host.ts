@@ -1,21 +1,14 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import { isDeepStrictEqual } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { CodeController, serializeFailure } from "./controller.ts";
-import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "./environment.ts";
+import { adoptEnvironment, desktopBackendConfig, DesktopError, selectEnvironment } from "./environment.ts";
 import { handleRequest, ipcResult } from "./ipc.ts";
 import { BrowserDocuments } from "./browser-documents.ts";
-import { PersonalController } from "./personal-controller.ts";
-import { savePersonalOutput } from "./personal-outputs.ts";
-import { loadPersonalConfig, savePersonalConfig, personalOrigin, legacyPersonalMaintenance, acknowledgeLegacyPersonalMaintenance } from "./personal-config.ts";
-import type { PersonalCredentialStorage } from "./personal-credentials.ts";
-import { PersonalSettingsController } from "./personal-settings-controller.ts";
 import { DesktopNotifications, type DesktopNotice } from "./notifications.ts";
-import { personalAttachments, pickAttachments, stageAttachments, type StagedAttachment } from "./attachments.ts";
+import { pickAttachments, stageAttachments, type StagedAttachment } from "./attachments.ts";
 import { DesktopChatDrafts } from "./chat-drafts.ts";
 import type { DesktopAttachment, DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import { verifyDirIdentitySync, type DirIdentity } from "@ruukoto/core/dir-identity.ts";
@@ -30,9 +23,6 @@ export interface DesktopPlatform {
   focused(): boolean;
   notice(notice: DesktopNotice): void;
   badge(count: number): void;
-  credentials?: PersonalCredentialStorage;
-  pickOutput?(name: string): Promise<string | null>;
-  previewOutput?(filename: string, name: string): Promise<() => void | Promise<void>>;
 }
 
 // Note: See .agents/notes/implemented/architecture/2026-10-17-desktop-mygo-experiment.md
@@ -42,16 +32,9 @@ export class DesktopHost {
   private initialization: Promise<void> | null = null;
   private environment: Promise<Awaited<ReturnType<typeof selectEnvironment>>> | null = null;
   private readonly environmentAbort = new AbortController();
-  private personal: PersonalController | null = null;
-  private personalInitialization: Promise<void> | null = null;
-  private personalGeneration = 0;
-  private personalSettings: PersonalSettingsController | null = null;
-  private outputBusy = false;
-  private outputOperation: Promise<unknown> | null = null;
-  private outputPreview: { directory: string; close: () => void | Promise<void> } | null = null;
   private closing: Promise<void> | null = null;
   private readonly subscribed = new Set<DesktopTarget>();
-  private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" }, personal: { type: "state", state: "closed", detail: "No personal connection configured yet" } };
+  private readonly lastState: Record<DesktopTarget, DesktopUpdate> = { code: { type: "state", state: "connecting" } };
   private readonly navigation = new Map<DesktopTarget, Extract<DesktopUpdate, { type: "navigate" }>>();
   private readonly attachmentConnections = new WeakMap<object, string>();
   /** Draft attachment tokens hold local paths until the conversation exists. */
@@ -69,11 +52,11 @@ export class DesktopHost {
   private readonly terminalOpening = new Set<string>();
   private readonly terminalCanceled = new Set<string>();
 
-  constructor(private readonly repository: string, private readonly userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal), terminalFactory: PtyFactory = spawn, private readonly browserTransport?: MyGoBrowserTransport) {
+  constructor(private readonly repository: string, userData: string, private readonly platform: DesktopPlatform, private readonly prepareEnvironment = (signal: AbortSignal) => selectEnvironment(process.env, undefined, signal), terminalFactory: PtyFactory = spawn, private readonly browserTransport?: MyGoBrowserTransport) {
     this.browserDocuments = new BrowserDocuments([userData]);
     this.terminals = new TerminalManager(terminalFactory, update => this.platform.publish("code", update));
     this.notificationState = new DesktopNotifications(platform.focused, platform.notice, platform.badge, (target, taskId) => {
-      const source = target === "code" ? this.controller : null;
+      const source = this.controller;
       if (!source) throw new ControlClientError("connection_unavailable", "Connection unavailable", "not_sent");
       return source.request("get_task", { task_id: taskId });
     }, (planId, offset) => {
@@ -83,7 +66,7 @@ export class DesktopHost {
     this.warmEnvironment();
   }
   private publish(target: DesktopTarget, update: DesktopUpdate): void {
-    if (target === "code" && update.type === "snapshot") {
+    if (update.type === "snapshot") {
       const instance = update.result.snapshot.instanceId;
       if (this.terminalInstance && (update.instanceChanged || this.terminalInstance !== instance)) this.resetTerminals();
       this.terminalInstance = instance;
@@ -94,16 +77,12 @@ export class DesktopHost {
         if (project.rootDir) this.terminalRoots.set(project.id, project.rootDir);
       }
     }
-    if (target === "code" && update.type === "event") {
+    if (update.type === "event") {
       const body = update.event.body;
-      if ((body.type === "project.created" || body.type === "project.root_attached") && body.rootDir) this.terminalRoots.set(body.projectId, body.rootDir);
+      if (body.type === "project.created" && body.rootDir) this.terminalRoots.set(body.projectId, body.rootDir);
       if (body.type === "project.created" && !this.workspaces.has(body.projectId)) this.workspaces.set(body.projectId, { id: body.projectId, name: body.name, rootDir: body.rootDir ?? null, managed: body.managed, createRequestId: body.createRequestId, instructionFiles: [], settingsVersion: 1, createdAt: update.event.createdAt });
-      if (body.type === "project.root_attached") {
-        const project = this.workspaces.get(body.projectId);
-        if (project && !project.rootDir) project.rootDir = body.rootDir;
-      }
     }
-    if (target === "code" && update.type === "state" && update.state === "online") {
+    if (update.type === "state" && update.state === "online") {
       void this.chats?.list().then(drafts => this.publish("code", { type: "chat_drafts", drafts })).catch(error => this.publish("code", { type: "chat_drafts", drafts: [], error: serializeFailure(error).message }));
     }
     this.notificationState.update(target, update);
@@ -127,30 +106,11 @@ export class DesktopHost {
   private async initializeController(): Promise<void> {
     const source = await this.getEnvironment();
     if (this.closing) return;
-    const config = codeTargetConfig(this.repository, source);
-    this.controller = new CodeController(config, update => this.publish("code", update), undefined, new PendingRequestStore(path.join(this.userData, "pending", "code", createHash("sha256").update(config.controlDir).digest("hex"))), this.browserTransport);
-    this.chats = new DesktopChatDrafts(new PendingRequestStore(path.join(this.userData, "pending", "chats", createHash("sha256").update(config.controlDir).digest("hex"))), () => this.controller, id => this.workspaces.get(id), this.draftAttachments);
-  }
-  reconnectPersonal(replace = false): Promise<void> {
-    if (this.closing) return Promise.resolve();
-    if (this.personalInitialization && !replace) return this.personalInitialization;
-    const generation = ++this.personalGeneration;
-    const previous = this.personalInitialization;
-    const closing = Promise.all([this.personal?.close(), this.personalSettings?.close(), this.closeOutputPreview()]);
-    this.personalSettings = null;
-    this.personalInitialization = (async () => {
-      try {
-        await closing;
-        await previous;
-        if (this.closing || generation !== this.personalGeneration) return;
-        const config = loadPersonalConfig(this.userData);
-        if (!config) return;
-        if (this.closing || generation !== this.personalGeneration) return;
-        this.personal = new PersonalController(config, this.userData, update => { if (generation === this.personalGeneration) this.publish("personal", update); }, this.platform.credentials);
-        await this.personal.reconnect();
-      } catch (error) { if (generation === this.personalGeneration && !this.closing) this.publish("personal", { type: "state", state: "failed", error: serializeFailure(error) }); }
-    })().finally(() => { if (generation === this.personalGeneration) this.personalInitialization = null; });
-    return this.personalInitialization;
+    const config = await desktopBackendConfig(this.repository, source);
+    if (this.closing) return;
+    this.browserDocuments.protectPaths([config.profile.dataDir, config.profile.agentDir, config.profile.controlDir, config.profile.pendingDir]);
+    this.controller = new CodeController(config, update => this.publish("code", update), undefined, new PendingRequestStore(config.profile.desktopPendingDir), this.browserTransport);
+    this.chats = new DesktopChatDrafts(new PendingRequestStore(path.join(config.profile.desktopPendingDir, "chats")), () => this.controller, id => this.workspaces.get(id), this.draftAttachments);
   }
   private reconnect(): Promise<void> {
     if (this.closing) return Promise.resolve();
@@ -165,14 +125,14 @@ export class DesktopHost {
     return this.initialization;
   }
   subscribe(target: unknown): void {
-    if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "This connection target isn't enabled yet.");
+    if (target !== "code") throw new DesktopError("target_unavailable", "This connection target is unavailable.");
     this.subscribed.add(target);
-    if (target === "code") this.resetTerminals();
+    if (this.controller) this.publish("code", { type: "profile", profile: { instanceId: this.controller.config.profile.instanceId, draftKey: this.controller.config.profile.desktopDraftKey } });
+    this.resetTerminals();
     this.publish(target, this.lastState[target]);
     const intent = this.navigation.get(target);
     if (intent) { this.navigation.delete(target); this.publish(target, intent); }
-    if (target === "code" && (!this.controller || this.controller.status.state === "online")) void this.reconnect();
-    if (target === "personal" && (!this.personal || this.personal.status.state === "online")) void this.reconnectPersonal();
+    if ((!this.controller || this.controller.status.state === "online")) void this.reconnect();
   }
   /**
    * Native-browser page facts (Go→Node): uplinked to the control plane for the host to consume, and forwarded to the
@@ -188,17 +148,16 @@ export class DesktopHost {
     else this.navigation.set(notice.target, update);
   }
   request(target: unknown, op: unknown, params: unknown) {
-    if (target === "personal" && op !== "desktop_browser_open" && op !== "desktop_browser_release") return this.personalRequest(op, params);
     // Local document access belongs to the host, independently of backend file permissions.
     if (op === "desktop_browser_open" || op === "desktop_browser_release") return ipcResult(async () => {
-      if (target !== "code" && target !== "personal") throw new DesktopError("target_unavailable", "This connection target isn't enabled yet.");
+      if (target !== "code") throw new DesktopError("target_unavailable", "This connection target is unavailable.");
       if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 1) throw new DesktopError("invalid_params", "Invalid local preview parameters; reopen the document.");
       if (this.closing) throw new DesktopError("browser_document_closed", "Local preview closed; reopen the app.");
       if (op === "desktop_browser_open" && "url" in params) return this.browserDocuments.open(params.url);
       if (op === "desktop_browser_release" && "id" in params) return this.browserDocuments.release(params.id);
       throw new DesktopError("invalid_params", "Invalid local preview parameters; reopen the document.");
     });
-    return handleRequest(target, op, params, () => target === "personal" ? this.reconnectPersonal() : this.reconnect(), (op, params) => {
+    return handleRequest(target, op, params, () => this.reconnect(), (op, params) => {
       if (!this.controller) throw new ControlClientError("connection_unavailable", "Connection unavailable: request not sent", "not_sent");
       return this.controller.dispatch(op, params);
     }, (op, params) => {
@@ -215,7 +174,7 @@ export class DesktopHost {
         if (op === "desktop_chat_finish") return chats.finish(params.request_id).then(() => chats.list()).then(drafts => this.publish("code", { type: "chat_drafts", drafts }));
         if (op === "desktop_chat_prepare_submission") {
           const pending = this.controller?.submissions?.store.list(true);
-          if (pending?.corrupt.length || pending?.records.some(record => record.requestId === params.request_id && record.op === "submit")) throw new DesktopError("chat_submission_pending", "The first message is still unverified; restore the original submission before editing.");
+          if (pending?.corrupt.length || pending?.records.some(record => record.requestId === params.request_id && record.op === "submit")) throw new DesktopError("chat_submission_pending", "The first message is still unverified; verify the original submission before editing.");
           return chats.prepareSubmission(params).then(result => {
             if (result.accepted) void chats.list().then(drafts => this.publish("code", { type: "chat_drafts", drafts })).catch(() => { /* The next reconnect rechecks the accepted first message. */ });
             return result;
@@ -227,124 +186,8 @@ export class DesktopHost {
           return result;
         });
       }
-      if (op !== "desktop_pending_read" && op !== "desktop_pending_clear") return this.terminalRequest(op, params);
-      const source = this.controller;
-      if (!source?.submissions) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before handling the original input.");
-      return source.submissions.local(op, params);
+      return this.terminalRequest(op, params);
     });
-  }
-  private async getPersonal(): Promise<PersonalController> {
-    if (!this.personal) await this.reconnectPersonal();
-    if (this.closing || !this.personal) throw new DesktopError("personal_unconfigured", "Save the Personal Agent's HTTPS address and pair first.");
-    return this.personal;
-  }
-  private personalRequest(op: unknown, params: unknown) {
-    return ipcResult(async () => {
-      if (this.closing) throw new DesktopError("personal_closed", "The personal-connection host closed; reopen the app.");
-      if (typeof op !== "string" || !params || typeof params !== "object" || Array.isArray(params)) throw new DesktopError("invalid_params", "Invalid personal-operation parameters; reopen the original page.");
-      const input = params as Record<string, unknown>;
-      const expect = (keys: string[]) => { if (Object.keys(input).length !== keys.length || keys.some(key => !(key in input))) throw new DesktopError("invalid_params", "Invalid personal-operation parameters; read the original page again."); };
-      if (op === "desktop_personal_config_read") { expect([]); return loadPersonalConfig(this.userData); }
-      if (op === "desktop_personal_config_save") {
-        expect(["origin"]);
-        const origin = personalOrigin(input.origin), previous = loadPersonalConfig(this.userData);
-        let release: (() => void) | undefined;
-        if (previous && previous.origin !== origin) {
-          const original = await this.getPersonal();
-          release = await original.assertSwitchable();
-        }
-        try {
-          const config = savePersonalConfig(this.userData, { v: 1, origin, ...(previous?.origin === origin && previous.binding ? { binding: previous.binding } : {}) });
-          await this.reconnectPersonal(true); return config;
-        } finally {
-          release?.();
-        }
-      }
-      if (op === "desktop_personal_legacy_read") { expect([]); return { paths: legacyPersonalMaintenance(this.userData, loadPersonalConfig(this.userData)?.origin ?? "") }; }
-      if (op === "desktop_personal_legacy_acknowledge") {
-        expect(["verified"]);
-        const config = loadPersonalConfig(this.userData);
-        if (!config || input.verified !== true) throw new DesktopError("legacy_maintenance_unverified", "Verify the legacy maintenance's original service and configuration on the server before confirming.");
-        acknowledgeLegacyPersonalMaintenance(this.userData, config.origin); return { paths: [] };
-      }
-      if (op === "reconnect") { expect([]); return this.reconnectPersonal(); }
-      const controller = await this.getPersonal(), generation = this.personalGeneration;
-      let result: unknown;
-      if (op === "desktop_personal_pair") {
-        expect(["code", "label"]);
-        if (typeof input.code !== "string" || typeof input.label !== "string") throw new DesktopError("invalid_params", "Enter the server pairing code and desktop name.");
-        result = await controller.pair(input.code, input.label);
-      } else if (op === "desktop_personal_pair_reconcile") { expect([]); result = await controller.reconcilePairing(); }
-      else if (op === "desktop_personal_pair_restore") { expect([]); result = await controller.restorePairing(); }
-      else if (op === "desktop_personal_input_submit") {
-        expect(["text", ...(Object.hasOwn(input, "attachments") ? ["attachments"] : []), ...(Object.hasOwn(input, "draftId") ? ["draftId"] : [])]); if (typeof input.text !== "string" || input.attachments !== undefined && !personalAttachments(input.attachments) || input.draftId !== undefined && typeof input.draftId !== "string") throw new DesktopError("invalid_params", "Enter a message or choose the original attachments.");
-        result = await controller.submitInput(input.text, input.attachments ?? [], input.draftId);
-      } else if (op === "desktop_personal_draft_read") { expect([]); result = controller.inputDraft(); }
-      else if (op === "desktop_personal_draft_save") {
-        expect(["id", "text"]); if (typeof input.id !== "string" || typeof input.text !== "string") throw new DesktopError("invalid_params", "Keep the original draft before editing the text.");
-        result = controller.saveDraft(input.id, input.text);
-      } else if (op === "desktop_personal_draft_discard") {
-        expect(["id"]); if (typeof input.id !== "string") throw new DesktopError("invalid_params", "Read the original draft before discarding.");
-        result = controller.discardDraft(input.id);
-      } else if (op === "desktop_personal_attachment_remove") {
-        expect(["id", "attachmentId"]); if (typeof input.id !== "string" || typeof input.attachmentId !== "string") throw new DesktopError("invalid_params", "Choose an attachment from the original draft.");
-        result = controller.removeAttachment(input.id, input.attachmentId);
-      } else if (op === "desktop_personal_input_reconcile") { expect([]); result = await controller.reconcileInput(); }
-      else if (op === "desktop_personal_input_restore") { expect([]); result = await controller.restoreInput(); }
-      else if (op === "desktop_personal_output_preview" || op === "desktop_personal_output_save") {
-        expect(["origin", "remoteId", "profileId", "publication", "output"]);
-        if (this.outputBusy) throw new DesktopError("personal_output_busy", "Another file is transferring; try again later.");
-        if (op === "desktop_personal_output_save" ? !this.platform.pickOutput : !this.platform.previewOutput) throw new DesktopError("personal_output_unavailable", "This build doesn't support file preview or download; update the desktop app.");
-        this.outputBusy = true;
-        const transferring = (async () => {
-          const file = await controller.output(input);
-          if (op === "desktop_personal_output_save") {
-            const destination = await this.platform.pickOutput!(file.metadata.name);
-            file.check();
-            if (destination === null) return { state: "canceled" };
-            await file.revalidate(); await savePersonalOutput(destination, file.bytes, file.check); return { state: "saved" };
-          } else {
-            await this.closeOutputPreview(); file.check();
-            const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ruukoto-output-"));
-            try {
-              await fs.promises.chmod(directory, 0o700);
-              const filename = path.join(directory, file.metadata.name);
-              await fs.promises.writeFile(filename, file.bytes, { flag: "wx", mode: 0o600 });
-              await file.revalidate(); file.check();
-              const close = await this.platform.previewOutput!(filename, file.metadata.name);
-              this.outputPreview = { directory, close };
-              try { file.check(); } catch (error) { await this.closeOutputPreview(); throw error; }
-              return { state: "previewed" };
-            } catch (error) { await fs.promises.rm(directory, { recursive: true, force: true }); throw error; }
-          }
-        })();
-        this.outputOperation = transferring;
-        try { result = await transferring; }
-        finally { this.outputBusy = false; this.outputOperation = null; }
-      }
-      else if (op === "desktop_personal_request") {
-        if (Object.keys(input).some(key => !["method", "path", "body", "connection"].includes(key)) || !("method" in input) || !("path" in input)) throw new DesktopError("invalid_params", "Invalid personal request parameters.");
-        if (input.connection !== undefined) {
-          if (input.path !== "/permissions" || input.method !== "GET" && input.method !== "POST") throw new DesktopError("invalid_params", "This operation doesn't accept permission-connection association.");
-          if (!isDeepStrictEqual(input.connection, controller.config)) throw new ControlClientError("personal_identity_changed", "The permission settings don't belong to the current personal connection; read the original archive again.", "not_sent");
-        }
-        result = await controller.business(input.method, input.path, input.body);
-      } else if (["desktop_personal_settings_read", "desktop_personal_settings_request", "desktop_personal_settings_apply", "desktop_personal_settings_operation", "desktop_personal_settings_restore", "desktop_personal_settings_finish"].includes(op)) {
-        expect(op === "desktop_personal_settings_apply" ? ["request", "id"] : op === "desktop_personal_settings_request" ? ["request"] : op === "desktop_personal_settings_operation" ? ["id"] : []);
-        this.personalSettings ??= new PersonalSettingsController(controller, this.userData);
-        const settings = this.personalSettings;
-        result = op === "desktop_personal_settings_read" ? await settings.read() : op === "desktop_personal_settings_request" ? await settings.request(input.request) : op === "desktop_personal_settings_apply" ? await settings.apply(input.request, input.id) : op === "desktop_personal_settings_operation" ? await settings.operation(String(input.id)) : op === "desktop_personal_settings_restore" ? await settings.restore() : await settings.finish();
-      } else throw new DesktopError("op_not_allowed", "This operation isn't open to the Personal Agent.");
-      if (controller !== this.personal || generation !== this.personalGeneration || this.closing) throw new ControlClientError("personal_identity_changed", "The personal connection changed; verify the original request. The late result wasn't applied.", "unknown");
-      return result;
-    });
-  }
-  private async closeOutputPreview(): Promise<void> {
-    const preview = this.outputPreview;
-    if (!preview) return;
-    await preview.close();
-    await fs.promises.rm(preview.directory, { recursive: true, force: true });
-    if (this.outputPreview === preview) this.outputPreview = null;
   }
   resetTerminals(): void {
     ++this.terminalGeneration;
@@ -362,7 +205,7 @@ export class DesktopHost {
     const generation = this.terminalGeneration;
     if (typeof params.workspace_id !== "string" || params.instance_id !== this.terminalInstance || !this.terminalInstance) throw new DesktopError("terminal_workspace_changed", "The terminal workspace changed; select the workspace again.");
     const root = this.terminalRoots.get(params.workspace_id);
-    if (!root) throw new DesktopError("terminal_workspace_missing", "The workspace isn't ready; connect Code and select a workspace.");
+    if (!root) throw new DesktopError("terminal_workspace_missing", "The workspace isn't ready; connect ruukoto and select a workspace.");
     if (typeof params.id !== "string" || this.terminalOpening.has(params.id)) throw new DesktopError("invalid_params", "The terminal reference is invalid or still opening; switch to the original tab.");
     const id = params.id;
     this.terminalOpening.add(id);
@@ -374,23 +217,21 @@ export class DesktopHost {
     } finally { this.terminalOpening.delete(id); this.terminalCanceled.delete(id); }
   }
   private attachmentSource(target: unknown) {
-    if (target !== "code" && target !== "personal") throw new DesktopError("op_not_allowed", "Select Code or the Personal Agent before attaching files.");
-    const source = target === "personal" ? this.personal : this.controller;
+    if (target !== "code") throw new DesktopError("op_not_allowed", "Connect ruukoto before attaching files.");
+    const source = this.controller;
     if (!source || source.status.state !== "online" || !source.instanceId() || !source.connectionIdentity()) throw new DesktopError("connection_unavailable", "Wait for the connection to recover before attaching files.");
     return source;
   }
-  attachmentInstance(target: unknown = "code", draftId?: string): string {
+  attachmentInstance(target: unknown = "code"): string {
     const source = this.attachmentSource(target);
     const connection = source.connectionIdentity()!;
     let id = this.attachmentConnections.get(connection);
     if (!id) { id = randomUUID(); this.attachmentConnections.set(connection, id); }
-    if (source instanceof PersonalController && draftId !== undefined) source.beginAttachmentSelection(draftId);
     return `${id}:${source.instanceId()}`;
   }
   pickAttachments(sessionId: unknown, pick: () => Promise<string[]>, expectedSelection?: string, target: unknown = "code", draftTokens?: string[]) {
     const source = this.attachmentSource(target);
     if (typeof sessionId !== "string") throw new DesktopError("invalid_params", "Select a chat before attaching files.");
-    if (source instanceof PersonalController) return source.pickAttachments(sessionId, pick, expectedSelection !== undefined);
     if (expectedSelection !== undefined && this.attachmentInstance(target) !== expectedSelection) throw new DesktopError("attachment_instance_changed", "The connection target changed; files weren't attached. Choose again.");
     const connection = source.connectionIdentity();
     const current = () => this.controller === source && source.status.state === "online" && source.connectionIdentity() === connection;
@@ -424,7 +265,7 @@ export class DesktopHost {
     this.chats?.verifyUpload(instanceId, sessionId, tokens);
     const files = tokens.map(token => this.draftAttachments.get(token)?.path);
     if (files.some(file => file === undefined)) throw new DesktopError("attachment_expired", "The attachment expired; choose it again.");
-    for (const file of files) if (file && file.startsWith(`${this.userData}${path.sep}`) && fs.realpathSync(file) !== file) throw new DesktopError("chat_attachment_unavailable", "The first-message attachment snapshot changed; check the original app data and try again.");
+    for (const file of files) if (file && file.startsWith(`${source.config.profile.desktopPendingDir}${path.sep}`) && fs.realpathSync(file) !== file) throw new DesktopError("chat_attachment_unavailable", "The first-message attachment snapshot changed; check the original profile pending directory and try again.");
     const uploading = this.pickAttachments(sessionId, async () => files as string[], undefined, target, tokens).then(attachments => {
       this.chats?.uploaded(instanceId, sessionId, tokens, attachments);
       return attachments;
@@ -437,10 +278,9 @@ export class DesktopHost {
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;
-    ++this.personalGeneration;
     this.controller?.close();
     this.environmentAbort.abort();
-    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.personal?.close(), this.personalSettings?.close(), this.personalInitialization, this.initialization, this.outputOperation?.catch(() => { /* The original file action reports its failure to its caller. */ }), this.environment?.catch(() => { /* Aborted reads are unused after exit; connection consumers report earlier failures. */ })]).then(() => this.closeOutputPreview());
+    this.closing = Promise.all([this.terminals.close(), this.terminalReset, this.browserDocuments.close(), this.initialization, this.environment?.catch(() => { /* Aborted reads are unused after exit; connection consumers report earlier failures. */ })]).then(() => {});
     return this.closing;
   }
 }

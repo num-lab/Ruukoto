@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 真实模型连通性检查（默认跳过，凭 RUN_MODEL_CHECK=1 开启）。
  *
@@ -16,6 +16,7 @@ import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { waitFor, taskStatus, authenticateClient } from "./helpers/testkit.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
 
 interface ProviderAttempt {
   provider: string;
@@ -24,12 +25,10 @@ interface ProviderAttempt {
 }
 
 test("真实模型连通性（RUN_MODEL_CHECK=1 开启）", { skip: process.env.RUN_MODEL_CHECK !== "1" }, async () => {
-  const userAgentDir = path.join(os.homedir(), ".pi", "agent");
-  if (!fsSync.existsSync(path.join(userAgentDir, "models.json"))) {
-    console.log("跳过：缺少 ~/.pi/agent/models.json（无模型配置）");
-    return;
-  }
-  const raw = JSON.parse(fsSync.readFileSync(path.join(userAgentDir, "models.json"), "utf8")) as {
+  const modelsFile = process.env.RUN_MODEL_CHECK_MODELS_FILE;
+  assert.ok(modelsFile && path.isAbsolute(modelsFile), "Explicit RUN_MODEL_CHECK_MODELS_FILE is required");
+  const models = fsSync.readFileSync(modelsFile, "utf8");
+  const raw = JSON.parse(models) as {
     providers?: Record<string, { models?: Array<{ id: string }> }>;
   };
   const configured = Object.entries(raw.providers ?? {}).filter(([, p]) => (p.models?.length ?? 0) > 0);
@@ -49,17 +48,17 @@ test("真实模型连通性（RUN_MODEL_CHECK=1 开启）", { skip: process.env.
     const root = await fsSync.promises.mkdtemp(path.join(os.tmpdir(), "ruukoto-modelcheck-"));
     let runtime: Runtime | null = null;
     try {
+      const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+      fsSync.writeFileSync(path.join(profile.agentDir, "models.json"), models, { mode: 0o600 });
       runtime = await Runtime.start({
-    product: personalProduct.runtime,
-        dataDir: path.join(root, "data"),
-        agentDir: userAgentDir,
+        profile,
         thinkingLevel: "off",
         modelProvider: provider,
         modelId,
       });
       await ControlServer.start(runtime);
       const client = await ControlClient.connect(runtime.socketPath());
-      await authenticateClient(client, runtime.controlDir());
+      await authenticateClient(client, profile);
       await client.handshake();
       const project = await client.request<any>("create_project", { name: "model-check" });
       const workspace = path.join(root, "workspace");

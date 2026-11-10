@@ -1,7 +1,7 @@
 /** Git 工作区的原始字节基线；私有对象与 SQLite 引用不构成跨文件系统事务。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-15-current-workspace-snapshots.md
  */
-import { canonicalJson, sha256 } from "./import-files.ts";
+import { canonicalJson, sha256 } from "./json.ts";
 
 export interface SnapshotDirectory { path: string; dev: number; ino: number }
 

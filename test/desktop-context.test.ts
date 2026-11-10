@@ -12,7 +12,7 @@ import { waitFor } from "./helpers/testkit.ts";
 
 const at = "2026-10-16T00:00:00.000Z";
 function session(id: string): Session {
-  return { id, projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: id, sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
+  return { id, projectId: "workspace", kind: "dev", name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: id, sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
 }
 function record(sessionId = "a", id = "latest", overrides: Partial<SelectionRecord> = {}): SelectionRecord {
   return { id, sessionId, taskId: "task", callIndex: 1, strategy: "deterministic-v1", configVersion: 1, model: "mock/model", totalMessages: 3, includedIndices: [0, 1, 2], excluded: [], includedMemories: [], excludedMemories: [], instructionVersion: "", cappedToolResults: [], estimates: { systemPrompt: 100, toolSchemas: 200, memories: 100, mandatoryTurn: 600 }, budget: 1000, estimatedTotal: 1000, usage: { input: 999_999, output: 111 }, promptArtifactId: null, windowSnapshot: { contextWindow: 2000, maxTokens: 500, thinkingBudget: 100, toolResultReserve: 300, safetyMargin: 100 }, createdAt: at, ...overrides };
@@ -178,7 +178,7 @@ test("Desktop exposes Code Context reads but rejects legacy Personal requests an
     assert.deepEqual(result, { ok: true, value: op });
     const personal = await handleRequest("personal", op, {}, async () => {}, async () => { throw new Error("Personal requests must not reach the Code connection"); });
     assert.equal(personal.ok, false);
-    if (!personal.ok) assert.equal(personal.error.code, "op_not_allowed");
+    if (!personal.ok) assert.equal(personal.error.code, "target_unavailable");
   }
   const blocked = await handleRequest("code", "read_prompt_snapshot", {}, async () => {}, async () => { throw new Error("不应发送"); });
   assert.equal(blocked.ok, false);

@@ -1,5 +1,5 @@
 import { browserAddress, browserNavigation, navigateBrowser, type BrowserNavigation } from "./browser-navigation.ts";
-import { sessionDisplayAttribution } from "@ruukoto/control/session-attribution.ts";
+
 import type { OpParams, OpResult } from "@ruukoto/control/ops.ts";
 import type { ViewState } from "@ruukoto/view/state.ts";
 import type { DesktopBridge, DesktopResult, DesktopTarget, DesktopUpdate, DesktopTerminalId, DesktopTerminalUpdate } from "../shared/bridge.ts";
@@ -85,7 +85,7 @@ export class DesktopInspector {
       if (this.visible && active?.kind === "git") void this.loadGit(active.workspaceId);
     } else if (update.type === "event") {
       const body = update.event.body;
-      if (this.target === "code" && update.kind === "live" && body.type === "task.tool_result" && !body.isError && !this.presented.has(body.toolOpId)) {
+      if (update.kind === "live" && body.type === "task.tool_result" && !body.isError && !this.presented.has(body.toolOpId)) {
         const sessionId = update.event.sessionId ?? this.view.tasks.get(body.taskId)?.sessionId;
         const tool = sessionId && this.view.openSession(sessionId).flow.items.find(item => item.kind === "tool" && item.toolOpId === body.toolOpId);
         if (sessionId && tool && tool.kind === "tool" && tool.name === "present") {
@@ -165,7 +165,7 @@ export class DesktopInspector {
   terminalTabs(): TerminalTab[] { return [...this.tabsByParent.values()].flat().filter((tab): tab is TerminalTab => tab.kind === "terminal"); }
   openTerminal(workspaceId = this.workspace()?.id): void {
     const workspace = this.view.projects.find(project => project.id === workspaceId);
-    if (this.target !== "code" || !workspace?.rootDir || !this.view.instanceId) return;
+    if (!workspace?.rootDir || !this.view.instanceId) return;
     this.addTab({ id: crypto.randomUUID(), kind: "terminal", title: `Terminal · ${workspace.managed ? "No workspace" : workspace.name}`, workspaceId: workspace.id, cwd: workspace.rootDir.cwdReal, instanceId: this.view.instanceId });
   }
   listenTerminal(id: DesktopTerminalId, listener: (update: DesktopTerminalUpdate) => void): () => void {
@@ -215,7 +215,7 @@ export class DesktopInspector {
     if (workspace) this.addTab({ id: `git:${workspace.id}`, kind: "git", title: "Git graph", workspaceId: workspace.id });
   }
   async loadGit(workspaceId = this.workspace()?.id, retry = false): Promise<void> {
-    if (this.target !== "code" || !this.online || !workspaceId) return;
+    if (!this.online || !workspaceId) return;
     if (this.repositories.has(workspaceId) && !retry) return;
     const generation = this.generation;
     const state: GitState = { loading: true, value: this.repositories.get(workspaceId)?.value };
@@ -230,7 +230,7 @@ export class DesktopInspector {
   async loadMoreGit(workspaceId: string): Promise<void> {
     const state = this.repositories.get(workspaceId), repository = state?.value?.repository;
     const cursor = repository?.nextCursor;
-    if (this.target !== "code" || !this.online || !state || !repository || !cursor || state.loading || state.loadingMore) return;
+    if (!this.online || !state || !repository || !cursor || state.loading || state.loadingMore) return;
     const generation = this.generation;
     state.loadingMore = true; state.moreError = undefined; this.changed();
     const result = await this.request("read_workspace_git", { workspace_id: workspaceId, cursor });
@@ -245,9 +245,9 @@ export class DesktopInspector {
     this.changed();
   }
   workspace() {
-    if (this.target !== "code") return undefined;
+
     const parent = this.view.sessions.find(session => session.id === this.parentSessionId);
-    const id = parent ? sessionDisplayAttribution(parent, this.view.projects).projectId : null;
+    const id = parent ? parent.projectId : null;
     return this.view.projects.find(project => project.id === id);
   }
   fileKey(workspaceId: string, path: string): string { return `${workspaceId}:${path}`; }
@@ -261,16 +261,16 @@ export class DesktopInspector {
   }
   openFiles(): void {
     const workspace = this.workspace();
-    if (this.target === "code" && workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "Files", workspaceId: workspace.id });
+    if (workspace) this.addTab({ id: `files:${workspace.id}`, kind: "files", title: "Files", workspaceId: workspace.id });
   }
   openBackground(): void {
-    if (this.target !== "code" || !this.parentSessionId) return;
+    if (!this.parentSessionId) return;
     this.addTab({ id: "background", kind: "background", title: "Background" });
   }
-  openFile(workspaceId: string, path: string): void { if (this.target !== "code") return; this.addTab({ id: `file:${workspaceId}:${path}`, kind: "file", title: path.split("/").at(-1) ?? path, workspaceId, path, mode: "preview" }); }
+  openFile(workspaceId: string, path: string): void {  this.addTab({ id: `file:${workspaceId}:${path}`, kind: "file", title: path.split("/").at(-1) ?? path, workspaceId, path, mode: "preview" }); }
   // Note: See .agents/notes/implemented/feature/2026-10-25-code-present.md
   async openPresentation(sessionId: string, tool: DiffTool): Promise<boolean | null> {
-    if (this.target !== "code" || tool.name !== "present" || tool.status !== "done" || !tool.taskId) return false;
+    if (tool.name !== "present" || tool.status !== "done" || !tool.taskId) return false;
     const generation = this.generation, version = (this.presentationVersions.get(sessionId) ?? 0) + 1;
     this.presentationVersions.set(sessionId, version);
     if (tool.paramsTruncated) await this.loadToolParams(sessionId, tool);
@@ -291,7 +291,7 @@ export class DesktopInspector {
     return true;
   }
   async openToolFile(sessionId: string, tool: DiffTool): Promise<boolean | null> {
-    if (this.target !== "code") return false;
+
     const generation = this.generation, parent = this.parentSessionId;
     if (tool.paramsTruncated) await this.loadToolParams(sessionId, tool);
     if (generation !== this.generation || parent !== this.parentSessionId || !this.online) return null;
@@ -320,7 +320,7 @@ export class DesktopInspector {
   }
   // Note: See .agents/notes/implemented/feature/2026-10-24-directory-pages-lazy-git.md
   async loadDirectory(workspaceId: string, path: string, retry = false, canContinue?: () => boolean): Promise<void> {
-    if (this.target !== "code" || !this.online) return;
+    if (!this.online) return;
     const key = this.fileKey(workspaceId, path);
     if (this.directories.has(key) && !retry) return;
     const generation = this.generation, parent = this.parentSessionId;
@@ -355,7 +355,7 @@ export class DesktopInspector {
   }
   async loadMoreDirectory(workspaceId: string, path: string): Promise<void> {
     const key = this.fileKey(workspaceId, path), state = this.directories.get(key), directory = state?.value, cursor = directory?.nextCursor;
-    if (this.target !== "code" || !this.online || !state || !directory || !cursor || state.loading || state.loadingMore || state.error) return;
+    if (!this.online || !state || !directory || !cursor || state.loading || state.loadingMore || state.error) return;
     const generation = this.generation;
     state.loadingMore = true; state.moreError = undefined; this.changed();
     const result = await this.request("list_workspace_files", { workspace_id: workspaceId, path, cursor });
@@ -394,7 +394,7 @@ export class DesktopInspector {
     return refresh;
   }
   async loadFile(workspaceId: string, path: string, retry = false): Promise<void> {
-    if (this.target !== "code" || !this.online) return;
+    if (!this.online) return;
     const key = this.fileKey(workspaceId, path);
     if (this.files.has(key) && !retry) return;
     const generation = this.generation;
@@ -428,7 +428,7 @@ export class DesktopInspector {
     this.changed();
   }
   async loadReadSnapshot(tab: Extract<InspectorTab, { kind: "read-snapshot" }>, retry = false): Promise<void> {
-    if (this.target !== "code" || !this.online || !this.tabs().includes(tab) || this.snapshots.has(tab.id) && !retry) return;
+    if (!this.online || !this.tabs().includes(tab) || this.snapshots.has(tab.id) && !retry) return;
     const generation = this.generation;
     const state: ReadSnapshotState = { loading: true };
     this.snapshots.set(tab.id, state); this.changed();
@@ -471,7 +471,7 @@ export class DesktopInspector {
   }
   seedTabs(): void {
     if (!this.parentSessionId || this.tabsByParent.has(this.parentSessionId) || this.loadingWorks || !this.view.openSession(this.parentSessionId).historyLoaded) return;
-    const tool = this.target === "code" ? this.view.openSession(this.parentSessionId).flow.tools.find(isDiffTool) : undefined;
+    const tool = this.view.openSession(this.parentSessionId).flow.tools.find(isDiffTool);
     const agent = this.agents()[0];
     const visible = this.visible;
     if (tool) this.openDiff(this.parentSessionId, tool);
@@ -519,7 +519,7 @@ export class DesktopInspector {
     return this.view.workDelegations.filter(work => work.parentSessionId === this.parentSessionId);
   }
   openDiff(sessionId: string, tool: DiffTool): void {
-    if (this.target !== "code") return;
+
     if (!this.parentSessionId) this.parentSessionId = sessionId;
     const existing = this.tabs().find(tab => tab.kind === "diff" && tab.selection.sessionId === sessionId && (tab.selection.key === tool.key || (tool.entryId !== null && tab.selection.entryId === tool.entryId)));
     this.addTab(existing ?? { id: `diff:${sessionId}:${tool.entryId ?? tool.key}`, kind: "diff", title: tool.target.split("/").at(-1) || tool.name, selection: { sessionId, key: tool.key, entryId: tool.entryId } });

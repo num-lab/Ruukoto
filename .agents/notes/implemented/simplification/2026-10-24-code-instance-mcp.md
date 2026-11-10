@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Instance configuration/credential authority remains. [MCP host simplification](2026-10-26-mcp-host-responsibilities.md) updates SDK wiring, discovery and tool signatures. Version numbers below identify historical incompatible changes, not current constants. [Coding message control](../feature/2026-10-28-coding-message-control.md) retains strict version transitions without restoring old-store migration.
 
 ## Problem
@@ -39,7 +41,7 @@ The original active-note audit searched MCP, credentials, sources, workspaces an
 | [Desktop settings proposal](../../proposed/feature/2026-10-21-desktop-settings-management.md) | Updates Code MCP plan/spec; original issue 03 reopened because prior engineering evidence did not cover new scope. |
 | [Official Cua](../architecture/2026-10-23-cua-official-mcp.md) | Removes Code 49-to-50 compatibility/project configuration, retaining persistent connections, human recovery and Personal formats. |
 | [Transport](../architecture/2026-10-17-mcp-transport-reuse.md), [write tools](../feature/2026-09-23-mcp-write-tools-approval.md) | Instance assembly retains applicable transport, approval and error semantics. |
-| [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md), [rejected Cua](../../rejected/architecture/2026-10-22-cua-integration.md) | Unaffected by this Code scope change; retain their facts/history. |
+| [Personal MCP](../../archived/architecture/2026-10-17-personal-durable-mcp.md), [rejected Cua](../../rejected/architecture/2026-10-22-cua-integration.md) | Unaffected by this Code scope change; retain their facts/history. |
 
 ## Alternatives considered
 

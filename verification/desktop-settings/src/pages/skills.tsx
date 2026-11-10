@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Puzzle } from "lucide-react";
 import { SettingsButton, SettingsSearch } from "../components/controls.tsx";
 import { SettingsCard, SettingsGroup, SettingsList, SettingsListItem, SettingsPage, SettingsRow } from "../components/settings.tsx";
-import { Tag, TextSetting } from "./shared.tsx";
+import { Tag } from "./shared.tsx";
 
 type Skill = { id: string; name: string; description: string; source: "托管副本" | "外部维护"; explicitOnly?: boolean; enabled: boolean };
 
@@ -36,23 +36,6 @@ function SkillsListGroup() {
 export function CodeSkillsPage() {
   return (
     <SettingsPage title="Skills" description="管理 Code 的外部技能与托管副本。">
-      <SkillsListGroup />
-    </SettingsPage>
-  );
-}
-
-export function PersonalSkillsPage() {
-  const [library, setLibrary] = useState("/srv/ruukoto/skills");
-  return (
-    <SettingsPage title="Skills" description="管理 Personal Agent 的远端技能库与托管副本。">
-      <SettingsGroup title="远端外部技能库" description="库根含 skills 子目录，外部维护项只读。">
-        <SettingsCard>
-          <TextSetting id="pa-skill-library" title="技能库目录" defaultValue={library} />
-          <SettingsRow title="远端目录" description="从远端目录选择技能库，不使用本机路径冒充远端目录。">
-            <SettingsButton onClick={() => setLibrary("/srv/ruukoto/library")}>选择技能库</SettingsButton>
-          </SettingsRow>
-        </SettingsCard>
-      </SettingsGroup>
       <SkillsListGroup />
     </SettingsPage>
   );

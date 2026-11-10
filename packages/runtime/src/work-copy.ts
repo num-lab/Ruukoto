@@ -3,7 +3,7 @@
  *
  * 该模块只知道工作副本的文件系统与受限执行边界；工作归属、任务状态和
  * integrated 事件仍由 SubAgentManager 管理。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
+ * Note: See .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
  */
 
 import * as fs from "node:fs";

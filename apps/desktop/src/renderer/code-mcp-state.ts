@@ -60,7 +60,7 @@ export class CodeMcpState implements SettingsForm {
   }
   invalidate(): void {
     ++this.generation; this.secret = ""; this.reading = false; this.checking = false; this.check = null; this.cuaImages = [];
-    if (this.pending) { this.phase = "unknown"; this.message = "The original instance's operation outcome is unverified. Restore the original Code instance and read again."; }
+    if (this.pending) { this.phase = "unknown"; this.message = "The original instance's operation outcome is unverified. Restore the original ruukoto instance and read again."; }
   }
   discard(): void { this.secret = ""; this.draft = this.service ? draftFor(this.service) : fresh(this.mode); this.baseline = structuredClone(this.draft); this.fieldErrors = {}; if (this.phase === "conflict") this.phase = "ready"; this.changed(); }
   select(id: string | null): void {
@@ -87,7 +87,7 @@ export class CodeMcpState implements SettingsForm {
   async read(preserveDraft = this.dirty, committed = false): Promise<boolean> {
     const current = this.context();
     if (this.reading || this.phase === "saving") return false;
-    if (!current.online || current.instanceId !== this.instanceId) { this.message = "Restore the original Code instance connection and read the configuration."; this.changed(); return false; }
+    if (!current.online || current.instanceId !== this.instanceId) { this.message = "Restore the original ruukoto instance connection and read the configuration."; this.changed(); return false; }
     const generation = ++this.generation;
     this.reading = true; this.checking = false; this.check = null; this.cuaImages = []; this.changed();
     const [services, credentials, targets] = await Promise.all([

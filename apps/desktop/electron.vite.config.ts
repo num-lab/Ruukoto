@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
@@ -6,11 +7,11 @@ import { productionCspPlugin } from "./build/security.mjs";
 import { TERMINAL_MODULE, vendorTerminal } from "./build/terminal.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-// Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
+// Note: See .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
 export default defineConfig(({ command }) => ({
   main: {
     plugins: [{ name: "terminal-runtime", writeBundle: () => vendorTerminal(fileURLToPath(new URL("./out/main", import.meta.url))) }],
-    define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository) },
+    define: { __RUUKOTO_REPOSITORY__: JSON.stringify(repository), __RUUKOTO_EXCLUSIVE_FS_SOURCE__: JSON.stringify(fs.readFileSync(new URL("../../packages/core/src/exclusive-fs.py", import.meta.url), "utf8")) },
     build: { externalizeDeps: false, rollupOptions: { input: { bootstrap: fileURLToPath(new URL("./src/main/bootstrap.ts", import.meta.url)), index: fileURLToPath(new URL("./src/main/index.ts", import.meta.url)) }, external: ["node-pty"], output: { paths: { "node-pty": TERMINAL_MODULE }, format: "es", entryFileNames: "[name].js", chunkFileNames: "[name]-[hash].js" } } },
   },
   preload: {

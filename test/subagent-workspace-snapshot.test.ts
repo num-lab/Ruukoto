@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import type { SubAgentDelegation } from "@ruukoto/runtime/subagents.ts";
 import { workCopyHostFor } from "@ruukoto/core/work-copy-host.ts";
 import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
@@ -10,7 +10,7 @@ import { afterTool, inputText, lastToolText, lastUserText, realTools, startTestR
 import { holdParentResponse } from "./helpers/active-parent.ts";
 import { initGitRepo, shellQuotePathForTest as quote } from "./helpers/git-fixture.ts";
 
-for (const product of [codingProduct]) test(`${product.runtime.type} 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路`, async () => {
+test(`ruukoto 完全访问父级派发 reviewer 审当前内容，真实 native 拒绝源码、Git 与基线写旁路`, async () => {
   let delegated: SubAgentDelegation | null = null;
   let source = "";
   const gate = holdParentResponse(async req => {
@@ -37,8 +37,8 @@ for (const product of [codingProduct]) test(`${product.runtime.type} 完全访�
       "printf REVIEW-SNAPSHOT-OK\n",
     } }] };
   });
-  const t = await startTestRuntime(`snapshot-review-${product.runtime.type}`, gate.responder, {
-    config: { ...realTools(), product: product.runtime, execution: { backend: "native" } },
+  const t = await startTestRuntime(`snapshot-review-ruukoto`, gate.responder, {
+    config: { ...realTools(), execution: { backend: "native" } },
   });
   try {
     const rt = t.runtime;

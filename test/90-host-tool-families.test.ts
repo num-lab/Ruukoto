@@ -10,11 +10,6 @@ import { createSubAgentTools, SUBAGENT_LEDGER, type SubAgentToolsDeps } from "@r
 import { ToolOpLedger, type FamilyCheck } from "@ruukoto/agent/tool-op-ledger.ts";
 import { HOST_DATA_LEDGER } from "@ruukoto/agent/host-tools.ts";
 import { WEB_SEARCH_LEDGER } from "@ruukoto/agent/web-search.ts";
-import { APP_DATA_LEDGER } from "@ruukoto/agent/app-data/tools.ts";
-import { SCHEDULER_LEDGER } from "@ruukoto/channels/scheduler/ledger.ts";
-import { DELEGATION_LEDGER } from "@ruukoto/agent/delegation-tools.ts";
-import { CHAT_RESULT_LEDGER } from "@ruukoto/channels/chat-result-tools.ts";
-import { SERVICE_LEDGER } from "@ruukoto/channels/service-ledger.ts";
 import { SKILL_LEDGER } from "@ruukoto/agent/skills.ts";
 import { TODO_LEDGER } from "@ruukoto/agent/todo.ts";
 
@@ -156,9 +151,8 @@ function ledgerKit(t: TestContext) {
     modelSelection: { provider: "mock", modelId: "mock", thinkingLevel: "off" }, submissionDigest: "host-task",
   });
   store.transitionTask(task.id, ["queued"], "running", {});
-  const ledger = new ToolOpLedger(store, {}, [
-    HOST_DATA_LEDGER, WEB_SEARCH_LEDGER, APP_DATA_LEDGER, SCHEDULER_LEDGER, DELEGATION_LEDGER,
-    SUBAGENT_LEDGER, CHAT_RESULT_LEDGER, SERVICE_LEDGER, SKILL_LEDGER, TODO_LEDGER, CUSTOM_LEDGER,
+  const ledger = new ToolOpLedger(store, [
+    HOST_DATA_LEDGER, WEB_SEARCH_LEDGER, SUBAGENT_LEDGER, SKILL_LEDGER, TODO_LEDGER, CUSTOM_LEDGER,
   ]);
   let n = 0;
   const op = (toolName: string, params: Record<string, unknown> = {}) => {
@@ -184,14 +178,12 @@ function ledgerKit(t: TestContext) {
 test("族声明参与 beginStop/settleTask：真实只读族不进快照，自定义族按核实结果补记", (t) => {
   const k = ledgerKit(t);
   const reads = [
-    "history_search", "history_read", "memory_list", "memory_read", "web_search", "app_data_query",
-    "schedule_query", "notification_query", "coding_result", "subagent_result", "chat_result_list",
-    "service_inspect", "skill", "todo_write",
+    "history_search", "history_read", "memory_list", "memory_read", "web_search",
+    "subagent_result", "skill", "todo_write",
   ].map((name) => k.op(name));
   const customRead = k.op("test_custom", { mode: "read" });
   const save = k.op("memory_save");
   const revoke = k.op("memory_revoke");
-  const manage = k.op("service_manage");
   const customApproval = k.op("test_custom", { mode: "approval" });
   const dynamic = k.op("mcp_unregistered");
   const committed = k.op("test_custom", { verdict: "committed" });
@@ -204,7 +196,7 @@ test("族声明参与 beginStop/settleTask：真实只读族不进快照，自�
   }));
 
   const snapshot = k.ledger.beginStop(k.task.id);
-  assert.deepEqual(snapshot, [save, revoke, manage, customApproval, dynamic]);
+  assert.deepEqual(snapshot, [save, revoke, customApproval, dynamic]);
   assert.deepEqual(k.store.withTx(() => k.ledger.settleTask(k.task, snapshot)), [...snapshot, unverifiable]);
   for (const id of [...reads, customRead]) k.expectResult(id, "未完成：只读操作在停止前中止，无写入效果", true);
   k.expectResult(committed, "已提交：自定义族（停止前）", false);
@@ -222,7 +214,7 @@ test("族声明参与 settleAll：终态残留同样补记，自定义族不能�
   const committed = k.op("test_custom", { verdict: "committed" });
   const notCommitted = k.op("test_custom", { verdict: "not_committed" });
   const unverifiable = k.op("test_custom");
-  const approval = k.op("service_manage");
+  const approval = k.op("memory_revoke");
   k.store.transitionTask(k.task.id, ["running"], "completed", { endedAt: new Date().toISOString() });
 
   k.store.withTx(() => k.ledger.settleAll());

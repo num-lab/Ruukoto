@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 Both header tab groups sized themselves by title and ordered themselves by opening time. The owner requested uniform width and dragging.
@@ -14,7 +16,7 @@ Native HTML drag/drop sorts within the originating group only. Verify source aga
 
 Sorting never changes session/inspector object identity. Pin the default active inspector explicitly instead of deriving it from the last array item. Sorting triggers existing selected-tab reveal. Alt+Shift+Left/Right performs the same reorder, restores focus and announces position; ordinary Radix arrow selection stays intact.
 
-[Header layout](2026-10-16-demo-header-model-menu.md) retains close/separator/model-menu rules; [PA main session](2026-10-17-demo-personal-main-tab.md) stays fixed with independent inspector state. [Inspector tools](2026-10-16-demo-inspector-tools.md) are not recreated by reordering. Only mutable-demo source changes, not frozen/production code.
+[Header layout](2026-10-16-demo-header-model-menu.md) retains close/separator/model-menu rules; [PA main session](../../archived/feature/2026-10-17-demo-personal-main-tab.md) stays fixed with independent inspector state. [Inspector tools](2026-10-16-demo-inspector-tools.md) are not recreated by reordering. Only mutable-demo source changes, not frozen/production code.
 
 ## Alternatives considered
 

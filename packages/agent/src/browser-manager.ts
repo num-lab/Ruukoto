@@ -320,7 +320,7 @@ export class BrowserManager {
     this.root = path.join(this.dataDir, "browser");
     this.locks = `/tmp/ruukoto-browser-locks-${process.getuid?.() ?? "unknown"}`;
     this.env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("AGENT_BROWSER_") && !key.startsWith("AI_GATEWAY_") && !["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"].includes(key.toUpperCase())));
-    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_CONTROL_DIR", "RUUKOTO_CODE_CONTROL_DIR"]) delete this.env[key];
+    for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_CONTROL_DIR"]) delete this.env[key];
     this.env.AGENT_BROWSER_IDLE_TIMEOUT_MS = "3600000";
     const stored = options.initialState ?? options.store?.getMetaValue(BROWSER_META_KEY) ?? null;
     if (stored !== null) {

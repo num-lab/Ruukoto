@@ -90,7 +90,7 @@ test("Web 搜索操作仅向 Code 目标放行", async () => {
     let called = false;
     const result = await handleRequest("personal", op, {}, async () => {}, async () => { called = true; return {}; });
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
+    if (!result.ok) assert.equal(result.error.code, "target_unavailable");
     assert.equal(called, false);
   }
 });

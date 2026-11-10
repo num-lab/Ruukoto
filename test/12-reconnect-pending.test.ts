@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成：连接恢复与输入提交去重（issue 04 §3）。
  *
@@ -7,7 +7,7 @@ import { product as personalProduct } from "./helpers/legacy-product.ts";
  * 重试/冲突/实例不匹配；应答丢失后同一输入只对应一个任务。
  */
 
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -26,9 +26,16 @@ import {
   taskStatus,
   connectAuthedClient,
   lastUserText,
+  makeTestDirs,
+  cleanupDirs,
 } from "./helpers/testkit.ts";
-import { FakeTransport, fakeControl, fakeSnapshot } from "./helpers/fake-control.ts";
+import { FakeTransport, fakeControl, fakeSnapshot as unboundSnapshot } from "./helpers/fake-control.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
+
+const { dirs: connectionDirs } = await makeTestDirs("connection-profile", 0);
+after(() => cleanupDirs(connectionDirs));
+const fakeSnapshot = (overrides: Parameters<typeof unboundSnapshot>[0] = {}) =>
+  unboundSnapshot({ instanceId: connectionDirs.profile.instanceId, ...overrides });
 
 // ---------- 假客户端（脚本化握手与事件推送，test/helpers/fake-control.ts） ----------
 
@@ -53,7 +60,7 @@ function makeConn(
   log: ConnLog,
 ): { conn: ControlConnection } {
   const conn = new ControlConnection(
-    { socketPath: "/tmp/fake.sock", token: "t".repeat(32), reconnectInitialMs: 20, reconnectMaxMs: 80, ...config },
+    { profile: connectionDirs.profile, token: "t".repeat(32), reconnectInitialMs: 20, reconnectMaxMs: 80, ...config },
     {
       onState: (s, d) => log.states.push([s, d]),
       onSnapshot: (r, ctx) => log.snapshots.push({ seq: r.seq, resync: ctx.resync, instanceChanged: ctx.instanceChanged }),
@@ -65,7 +72,7 @@ function makeConn(
 
 test("握手期间到达的实时事件被缓冲，快照安装后按序应用", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
-  const fake = new FakeTransport({
+  const fake = new FakeTransport({ profile: connectionDirs.profile,
     handshake: async (_since, client) => {
       client.emit(event(6)); // 握手进行中到达的实时事件
       client.emit(event(7));
@@ -94,7 +101,7 @@ test("握手期间到达的实时事件被缓冲，快照安装后按序应用",
 test("重复事件丢弃；序号缺口触发重同步", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   let handshakeCount = 0;
-  const fake = new FakeTransport({
+  const fake = new FakeTransport({ profile: connectionDirs.profile,
     handshake: async () => {
       handshakeCount++;
       return { seq: handshakeCount === 1 ? 5 : 7, replay: [], snapshot: fakeSnapshot() };
@@ -121,7 +128,7 @@ test("断线退避重连：补发只用于补齐显示，实时事件无缝继�
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   const clients: FakeTransport[] = [];
   const factory = async (): Promise<ControlTransport> => {
-    const client = new FakeTransport({
+    const client = new FakeTransport({ profile: connectionDirs.profile,
       handshake: async (since) => {
         if (since === undefined) return { seq: 5, replay: [], snapshot: fakeSnapshot() };
         // 重连：补发 (5, 8]，快照序号 8
@@ -157,7 +164,7 @@ test("认证失败与协议不兼容：进入 failed，不自动重试", async (
   let connects = 0;
   const factory = async (): Promise<ControlTransport> => {
     connects++;
-    return new FakeTransport({
+    return new FakeTransport({ profile: connectionDirs.profile,
       authenticate: async () => {
         throw new ControlClientError("unauthorized", "拥有者令牌无效", "rejected");
       },
@@ -174,7 +181,7 @@ test("认证失败与协议不兼容：进入 failed，不自动重试", async (
 test("认证超时与认证中途断线：退避重连，不进入 failed", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   let attempt = 0;
-  const ctl = fakeControl({
+  const ctl = fakeControl({ profile: connectionDirs.profile,
     authenticate: async (transport) => {
       attempt++;
       if (attempt === 1) throw new ControlClientError("request_timeout", "请求超时：auth", "unknown");
@@ -194,7 +201,7 @@ test("认证超时与认证中途断线：退避重连，不进入 failed", asyn
 
 test("首次建连失败（后台未起）：退避后连上", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
-  const ctl = fakeControl();
+  const ctl = fakeControl({ profile: connectionDirs.profile });
   let refused = 0;
   const factory = async (): Promise<ControlTransport> => {
     if (refused++ < 2) throw new ControlClientError("connection_error", "Error: connect ENOENT", "not_sent");
@@ -213,7 +220,7 @@ test("协议版本不兼容（握手阶段）：进入 failed，不自动重试"
   let connects = 0;
   const factory = async (): Promise<ControlTransport> => {
     connects++;
-    return new FakeTransport({
+    return new FakeTransport({ profile: connectionDirs.profile,
       handshake: async () => {
         throw new ControlClientError("protocol_version", "协议版本不兼容：服务端 v3，请求 v2；请升级客户端", "rejected");
       },
@@ -226,15 +233,15 @@ test("协议版本不兼容（握手阶段）：进入 failed，不自动重试"
   assert.equal(connects, 1, "协议不兼容不得自动重试");
 });
 
-test("数据实例变更：重连后 onSnapshot 明确通知", async () => {
+test("reconnection rejects an unexpected instance before publishing a replacement snapshot", async () => {
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   const clients: FakeTransport[] = [];
   const factory = async (): Promise<ControlTransport> => {
-    const client = new FakeTransport({
+    const client = new FakeTransport({ profile: connectionDirs.profile,
       handshake: async (since) =>
         since === undefined
-          ? { seq: 5, replay: [], snapshot: fakeSnapshot({ instanceId: clients.length === 1 ? "inst-1" : "inst-2" }) }
-          : { seq: 5, replay: [], snapshot: fakeSnapshot({ instanceId: "inst-2" }) },
+          ? { seq: 5, replay: [], snapshot: fakeSnapshot() }
+          : { seq: 5, replay: [], snapshot: fakeSnapshot({ instanceId: "different-instance" }) },
     });
     clients.push(client);
     return client;
@@ -242,8 +249,8 @@ test("数据实例变更：重连后 onSnapshot 明确通知", async () => {
   const { conn } = makeConn({ clientFactory: factory }, log);
   await conn.start();
   clients[0]!.drop();
-  await waitFor("重连上线", () => conn.state === "online" && log.snapshots.length === 2);
-  assert.equal(log.snapshots[1]!.instanceChanged, true, "新数据实例必须明确通知");
+  await waitFor("foreign instance rejected", () => conn.state === "failed");
+  assert.equal(log.snapshots.length, 1, "a replacement instance must not be installed");
   conn.close();
 });
 
@@ -255,7 +262,7 @@ test("待确认记录：原子保存、读取、清除；损坏文件保留并�
   const rec: PendingRequest = {
     requestId: "req_abc123",
     op: "submit",
-    params: { session_id: "sess_1", request_id: "req_abc123", input: "原文" },
+    params: { session_id: "sess_1", request_id: "req_abc123", input: "原文", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } },
     instanceId: "inst-1",
     createdAt: new Date().toISOString(),
   };
@@ -298,7 +305,7 @@ test("工作流未决记录保留原参数、版本与实例；损坏参数留�
     assert.deepEqual(list.records, records);
     assert.deepEqual(list.corrupt.sort(), malformed.map(record => `${record.requestId}.json`).sort());
     for (const file of list.corrupt) assert.ok(fs.existsSync(path.join(dir, file)));
-    const ctl = fakeControl();
+    const ctl = fakeControl({ profile: connectionDirs.profile });
     const log: ConnLog = { states: [], snapshots: [], events: [] };
     const { conn } = makeConn({ clientFactory: ctl.factory }, log);
     await conn.start();
@@ -320,7 +327,7 @@ async function startGuardRuntime() {
   const pendingDir = path.join(t.dirs.root, "pending");
   const store = new PendingRequestStore(pendingDir);
   const conn = new ControlConnection(
-    { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
+    { profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())! },
     { onState: () => {}, onSnapshot: () => {}, onEvent: () => {} },
   );
   await conn.start();
@@ -332,7 +339,7 @@ test("提交结果分类：未发送与明确拒绝清除记录；应答丢失�
   const log: ConnLog = { states: [], snapshots: [], events: [] };
   const store = new PendingRequestStore(fs.mkdtempSync(path.join(os.tmpdir(), "pending-outcome-")));
   let reply: "reject" | "timeout" | "connection_closed" | "bad_frame" = "reject";
-  const ctl = fakeControl({
+  const ctl = fakeControl({ profile: connectionDirs.profile,
     handlers: {
       submit: (_params, transport) => {
         if (reply === "reject") return Promise.reject(new ControlClientError("invalid_params", "输入为空", "rejected"));
@@ -415,7 +422,7 @@ test("应答丢失：重连核实关联原任务，不重复启动", async () =>
     store.save({
       requestId: "lost-ack-1",
       op: "submit",
-      params: { session_id: sessionId, request_id: "lost-ack-1", input: "丢失应答的输入" },
+      params: { session_id: sessionId, request_id: "lost-ack-1", input: "丢失应答的输入", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } },
       instanceId: conn.instanceId!,
       createdAt: new Date().toISOString(),
     });
@@ -465,7 +472,7 @@ test("数据实例不匹配：保留待核实，不向空后台重发", async ()
     store.save({
       requestId: "foreign-1",
       op: "submit",
-      params: { session_id: sessionId, request_id: "foreign-1", input: "属于旧数据实例" },
+      params: { session_id: sessionId, request_id: "foreign-1", input: "属于旧数据实例", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } },
       instanceId: "some-other-instance",
       createdAt: new Date().toISOString(),
     });
@@ -498,7 +505,7 @@ test("补发超过 5000 条：cursor_too_old 后重新同步快照，不丢状�
     // ControlConnection 以旧游标重连：自动退化为全量快照同步
     const log: ConnLog = { states: [], snapshots: [], events: [] };
     const conn = new ControlConnection(
-      { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
+      { profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())! },
       {
         onState: (s, d) => log.states.push([s, d]),
         onSnapshot: (r, ctx) => log.snapshots.push({ seq: r.seq, resync: ctx.resync, instanceChanged: ctx.instanceChanged }),
@@ -510,7 +517,7 @@ test("补发超过 5000 条：cursor_too_old 后重新同步快照，不丢状�
     conn.close();
     // 模拟"带着旧游标重连"：新建连接但 since 远落后于当前
     const conn2 = new ControlConnection(
-      { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
+      { profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())! },
       {
         onState: (s, d) => log.states.push([s, d]),
         onSnapshot: (r, ctx) => log.snapshots.push({ seq: r.seq, resync: ctx.resync, instanceChanged: ctx.instanceChanged }),
@@ -547,10 +554,7 @@ test("后台重启：重连后看到中断任务与真实状态，不自动恢�
     const { Runtime } = await import("@ruukoto/runtime/runtime.ts");
     const { ControlServer } = await import("@ruukoto/control/server.ts");
     const runtime2 = await Runtime.start({
-    product: personalProduct.runtime,
-      dataDir: t.dirs.dataDir,
-      agentDir: t.dirs.agentDir,
-      socketPath: t.runtime.socketPath(),
+      profile: t.dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",
@@ -562,7 +566,7 @@ test("后台重启：重连后看到中断任务与真实状态，不自动恢�
     // TUI 连接层重连：看到中断任务，不自动恢复队列
     const log: ConnLog = { states: [], snapshots: [], events: [] };
     const conn = new ControlConnection(
-      { socketPath: runtime2.socketPath(), token: readOwnerToken(runtime2.controlDir())! },
+      { profile: runtime2.config.profile, token: readOwnerToken(runtime2.controlDir())! },
       {
         onState: (s, d) => log.states.push([s, d]),
         onSnapshot: (r, ctx) => log.snapshots.push({ seq: r.seq, resync: ctx.resync, instanceChanged: ctx.instanceChanged }),
@@ -592,7 +596,7 @@ for (const stage of ["token", "factory", "authenticate", "handshake"] as const) 
     const gate = new Promise<void>(resolve => { release = resolve; });
     let entered = false, factories = 0;
     const block = async () => { entered = true; await gate; };
-    const transport = new FakeTransport({
+    const transport = new FakeTransport({ profile: connectionDirs.profile,
       authenticate: async () => { if (stage === "authenticate") await block(); },
       handshake: async (_since, client) => {
         client.emit(event(2));
@@ -618,7 +622,7 @@ test("令牌提供函数的明确拒绝停止重试，网络失败重新取令�
   for (const outcome of ["rejected", "not_sent"] as const) {
     let reads = 0;
     const log: ConnLog = { states: [], snapshots: [], events: [] };
-    const { conn } = makeConn({ token: async () => { if (++reads === 1) throw new ControlClientError("ssh_problem", "SSH 失败", outcome); return "new-token"; }, clientFactory: async () => new FakeTransport({}) }, log);
+    const { conn } = makeConn({ token: async () => { if (++reads === 1) throw new ControlClientError("ssh_problem", "SSH 失败", outcome); return "new-token"; }, clientFactory: async () => new FakeTransport({ profile: connectionDirs.profile,}) }, log);
     try {
       await assert.rejects(conn.start(), { code: "ssh_problem" });
       if (outcome === "rejected") { await new Promise(resolve => setTimeout(resolve, 100)); assert.equal(conn.state, "failed"); assert.equal(reads, 1); }
@@ -627,19 +631,6 @@ test("令牌提供函数的明确拒绝停止重试，网络失败重新取令�
   }
 });
 
-for (const expectedProduct of ["ruukoto", "ruukoto-code"] as const) {
-  test(`目标 ${expectedProduct} 在安装快照前拒绝另一产品`, async () => {
-    const log: ConnLog = { states: [], snapshots: [], events: [] };
-    let attempts = 0;
-    const { conn } = makeConn({ expectedProduct, clientFactory: async () => { attempts++; return new FakeTransport({ handshake: () => ({ seq: 1, replay: [event(1)], snapshot: fakeSnapshot({ product: expectedProduct === "ruukoto" ? "ruukoto-code" : "ruukoto" }) }) }); } }, log);
-    try {
-      await assert.rejects(conn.start(), { code: "product_mismatch" });
-      await new Promise(resolve => setTimeout(resolve, 100));
-      assert.equal(conn.state, "failed"); assert.equal(attempts, 1);
-      assert.deepEqual(log.snapshots, []); assert.deepEqual(log.events, []);
-    } finally { conn.close(); }
-  });
-}
 
 
 for (const stage of ["authenticate", "handshake"] as const) {
@@ -649,7 +640,7 @@ for (const stage of ["authenticate", "handshake"] as const) {
     const disconnect = async (client: FakeTransport): Promise<never> => { client.drop(); throw new ControlClientError("closed", "断线", "disconnected"); };
     const { conn } = makeConn({ reconnectInitialMs: 20, reconnectMaxMs: 80, clientFactory: async () => {
       attempts.push(performance.now());
-      return new FakeTransport({ ...(stage === "authenticate" ? { authenticate: disconnect } : { handshake: (_since, client) => disconnect(client) }) });
+      return new FakeTransport({ profile: connectionDirs.profile, ...(stage === "authenticate" ? { authenticate: disconnect } : { handshake: (_since, client) => disconnect(client) }) });
     } }, log);
     try {
       await conn.start();

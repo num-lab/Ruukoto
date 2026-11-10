@@ -1,3 +1,4 @@
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
 /**
  * MCP 集成测试（issue 16）：通用 MCP 服务配置、工具发现/调用与任务生命周期。
  *
@@ -9,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { Db, SCHEMA_VERSION } from "@ruukoto/core/db.ts";
@@ -20,11 +21,12 @@ import {
   taskStatus,
   writeModelsJson,
   connectAuthedClient,
+  cleanupDirs,
   type TestRuntime,
 } from "./helpers/testkit.ts";
 import { MockModelServer, type Responder } from "./helpers/mock-provider.ts";
 import { withMcpDiscovery, startMockMcp, MOCK_MCP_SECRET, type MockMcp } from "./helpers/mock-mcp.ts";
-import { killProcessTree, spawnBackend } from "./helpers/backend.ts";
+import { killBackend, spawnBackend } from "./helpers/backend.ts";
 import { validateRemoteTool } from "@ruukoto/agent/mcp/tools.ts";
 import * as fs from "node:fs";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
@@ -863,15 +865,13 @@ test("mcp：后台崩溃重启 —— 只读调用记失败且不重放", async 
   })));
   const baseUrl = await modelServer.start();
   const root = await mkdtemp(path.join(tmpdir(), "ruukoto-it-mcp-crash-"));
-  const dataDir = path.join(root, "data");
-  const agentDir = path.join(root, "agent");
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const { dataDir, agentDir } = profile;
   const workDir = path.join(root, "work");
-  await mkdir(dataDir, { recursive: true });
-  await mkdir(agentDir, { recursive: true });
   await mkdir(workDir, { recursive: true });
-  await writeModelsJson({ root, dataDir, agentDir }, baseUrl);
+  await writeModelsJson({ agentDir }, baseUrl);
 
-  let backend = await spawnBackend(dataDir, agentDir);
+  let backend = await spawnBackend(profile);
   try {
     const { sessionId } = await createProjectSession(backend.client, workDir);
     await backend.client.request("add_credential", {
@@ -895,15 +895,10 @@ test("mcp：后台崩溃重启 —— 只读调用记失败且不重放", async 
     })) as any;
     await waitFor("tools/call 已发出", () => mcp.hits.some((h) => h.rpcMethod === "tools/call"));
 
-    // SIGKILL 后台：在途 MCP 调用结果未落盘
-    backend.client.close();
-    killProcessTree(backend.child);
-    await new Promise<void>((resolve) => {
-      backend.child.once("exit", () => resolve());
-      setTimeout(resolve, 5000);
-    });
+    // Kill during the remote call, before its result is persisted.
+    await killBackend(backend);
 
-    backend = await spawnBackend(dataDir, agentDir);
+    backend = await spawnBackend(profile);
     const s = await taskStatus(backend.client, task.id);
     assert.equal(s.task.status, "interrupted");
     assert.equal(s.task.interruptReason, "backend_restart");
@@ -912,11 +907,10 @@ test("mcp：后台崩溃重启 —— 只读调用记失败且不重放", async 
     assert.equal(op.effectUnknown, false, "只读中止不产生未知写入效果");
     assert.equal(mcp.hits.filter((h) => h.rpcMethod === "tools/call").length, 1, "重启不重放已发出的调用");
   } finally {
-    backend.client.close();
-    killProcessTree(backend.child);
+    await killBackend(backend);
     await modelServer.close();
     await mcp.close();
-    await rm(root, { recursive: true, force: true });
+    await cleanupDirs({ root, profile });
   }
 });
 

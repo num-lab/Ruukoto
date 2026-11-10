@@ -6,9 +6,10 @@ import * as path from "node:path";
 import { test } from "node:test";
 import type { ModelOption } from "@ruukoto/agent/model-selection.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
 import { listAgentReports } from "@ruukoto/core/agent-wait.ts";
 import { requireWorkflowRun } from "@ruukoto/core/workflow.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { waitFor } from "./helpers/testkit.ts";
 
 interface AcceptanceModels {
@@ -31,8 +32,10 @@ test("Coding real model: one Task waits, answers two batches and receives guidan
     .filter(model => model.id.toLowerCase().includes("deepseek")).map(model => ({ provider, model, value })))[0];
   assert.ok(selected, "显式配置须含可独立调用的 DeepSeek 模型");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-owner-question-model-"));
-  const agentDir = path.join(root, "agent"), workspace = path.join(root, "work");
-  fs.mkdirSync(agentDir); fs.mkdirSync(workspace);
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const { agentDir } = profile;
+  const workspace = path.join(root, "work");
+  fs.mkdirSync(workspace);
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: { [selected.provider]: { ...selected.value, models: [selected.model] } } }), { mode: 0o600 });
   const options = ["集中目录", "按模块分目录"];
   const questions = [
@@ -44,8 +47,8 @@ test("Coding real model: one Task waits, answers two batches and receives guidan
   const reportMarker = `REPORT_${randomBytes(8).toString("hex")}`;
   let rt: Runtime | null = null, passed = false;
   try {
-    rt = await Runtime.start({ product: product.runtime, agentDir, dataDir: path.join(root, "data"), socketPath: path.join(root, "c.sock"),
-      modelProvider: selected.provider, modelId: selected.model.id, thinkingLevel: "off", qqDisabled: true });
+    rt = await Runtime.start({ profile,
+      modelProvider: selected.provider, modelId: selected.model.id, thinkingLevel: "off" });
     let option: ModelOption | undefined;
     for (let offset = 0; ;) {
       const page = await rt.models.current.modelCatalog.list({ provider: selected.provider, offset });

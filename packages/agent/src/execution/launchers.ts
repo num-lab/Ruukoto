@@ -12,7 +12,6 @@
  * Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
  * Note: 见 .agents/notes/implemented/feature/2026-09-22-auto-review-mode.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
- * Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -85,7 +84,7 @@ export function workerEnv(spec: LaunchSpec): NodeJS.ProcessEnv {
     }
   }
   Object.assign(env, spec.env);
-  for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_CONTROL_DIR", "RUUKOTO_CODE_CONTROL_DIR"]) {
+  for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_CONTROL_DIR"]) {
     delete env[key];
   }
   return env;

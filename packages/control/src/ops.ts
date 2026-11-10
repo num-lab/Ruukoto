@@ -145,7 +145,7 @@ export interface TuiOps {
   submit: { params: Submit; result: R<"submit"> };
   interrupt: { params: { task_id: string }; result: { accepted: true } };
   cancel: { params: { task_id: string }; result: { accepted: true } };
-  resume_queue: { params: { session_id: string; model_selection?: ModelSelection; stop_confirmed?: boolean }; result: R<"resumeQueue"> };
+  resume_queue: { params: { session_id: string; stop_confirmed?: boolean }; result: R<"resumeQueue"> };
   task_queue: { params: { session_id: string }; result: R<"getTaskQueueDetail"> };
   queue_reorder: { params: { session_id: string; task_ids: string[]; expected_revision: number }; result: R<"reorderQueue"> };
   steer_task: { params: { task_id: string; expected_queue_revision?: number }; result: R<"steerTask"> };
@@ -184,10 +184,6 @@ export interface TuiOps {
   get_memory: { params: { memory_id: string }; result: R<"getMemoryDetail"> };
   revoke_memory: { params: { memory_id: string; expected_version: number; reason?: string }; result: R<"ownerRevokeMemory"> };
   restore_memory: { params: { memory_id: string; from_version: number; reason?: string }; result: R<"ownerRestoreMemory"> };
-  qq_status: { params: None; result: R<"qqStatus"> };
-  qq_set_enabled: { params: { enabled: boolean; expected_version?: number }; result: R<"qqSetEnabled"> };
-  qq_inbox_list: { params: { group_id?: string; limit?: number }; result: { entries: R<"qqListInbox"> } };
-  qq_outbox_list: { params: { group_id?: string; limit?: number }; result: { entries: R<"qqListOutbox"> } };
   // ---------- mygo-agent-browser：桌面浏览器通路（v47） ----------
   /** 登记浏览器能力：同连接重复登记幂等返回原身份；shell 首版仅 mygo。 */
   desktop_browser_register: { params: { shell: "mygo" }; result: { connection_id: string } };

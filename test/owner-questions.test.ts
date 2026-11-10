@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
@@ -21,7 +21,7 @@ async function startQuestions(items: OwnerQuestionItem[] = defaultQuestions, res
   const t = await startTestRuntime("owner-questions", responder ?? (req => lastUserText(req) === "ASK" && !afterTool(req)
     ? { kind: "tool_calls", calls: [{ id: "ask", name: "ask_user", arguments: { questions: items } },
       { id: "after-ask", name: "write", arguments: { path: "forbidden.txt", content: "Must read the answer before deciding" } }] }
-    : { kind: "text", text: "已记录" }), { config: { ...realTools(), product: product.runtime } });
+    : { kind: "text", text: "已记录" }), { config: { ...realTools() } });
   const session = await t.runtime.createSession({ projectName: "questions", cwd: t.work[0], mode: "full_access" });
   const task = await t.client.request<OpResult<"submit">>("submit", { session_id: session.id, request_id: "ask", input: "ASK", model_selection: t.runtime.defaultSelection });
   await waitFor("original Task waiting for its question", () => t.runtime.listOwnerQuestions(session.id).questions.some(question => question.status === "pending"));
@@ -222,7 +222,7 @@ test("backend restart invalidates waiting questions and never resumes the old Ta
   const { t, session, task, question, params } = await startQuestions();
   let restarted: Runtime | null = null;
   try {
-    const config = { product: product.runtime, dataDir: t.dirs.dataDir, agentDir: t.dirs.agentDir, socketPath: t.runtime.socketPath(),
+    const config = { profile: t.dirs.profile,
       modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off" as const, ...realTools() };
     await t.runtime.stop("restart_questions");
     restarted = await Runtime.start(config); await ControlServer.start(restarted);

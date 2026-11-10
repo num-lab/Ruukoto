@@ -1,15 +1,4 @@
-/**
- * 工作区入口与创建幂等（issue 21）。
- *
- * 覆盖：
- * 1. create_project / create_session 的 request_id 幂等：同键同参返回已存在记录、
- *    同键异参 request_conflict、无键保持旧行为、格式校验、快照携带 createRequestId；
- * 2. workspace.ts 单元：目录解析（相对路径/不存在/文件/符号链接）、候选项目匹配
- *    （cwdReal 与 dev+ino、忽略 qq_group 等非 dev 类别、多目录旧项目不作候选（issue 07）、去重保序）、自动项目名去重；
- * 3. TUI 工作区入口（FakeTerminal + 真实后台）：0 项目自动创建、1 项目复用新建会话、
- *    多项目选择与取消、符号链接按相同目录身份归属、保护根可登记、不存在路径退出、
- *    应答丢失后的重连核实（按启动请求标识找到会话，不重复创建）。
- */
+/** Idempotent workspace and conversation creation through the control protocol and terminal entry. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -21,10 +10,8 @@ import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
 import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import {
-  findWorkspaceProjects,
   resolveWorkspaceDir,
 } from "@ruukoto/control/workspace.ts";
-import type { Project, Session } from "@ruukoto/core/types.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import {
@@ -63,7 +50,7 @@ async function startApp(
   let appRef: TuiApp | null = null;
   const connection = new ControlConnection(
     {
-      socketPath: t.runtime.socketPath(),
+      profile: t.dirs.profile,
       token: readOwnerToken(t.runtime.controlDir())!,
       reconnectInitialMs: 50,
       reconnectMaxMs: 200,
@@ -115,45 +102,6 @@ async function renderFlush(): Promise<void> {
   await new Promise((r) => setTimeout(r, 80));
 }
 
-// ---------- 类型夹具 ----------
-
-function fakeProject(over: Partial<Project> & { id: string }): Project {
-  return {
-    name: over.id,
-    createRequestId: null,
-    rootDir: null,
-    instructionFiles: [],
-
-    settingsVersion: 1,
-    createdAt: "2026-01-01T00:00:00Z",
-    ...over,
-  };
-}
-
-function fakeSession(over: Partial<Session> & { id: string; projectId: string }): Session {
-  return {
-    kind: "dev",
-    workspaceProjectId: null,
-    name: null,
-    branchSource: null,
-    cwd: "/w",
-    cwdReal: "/w",
-    cwdDev: 1,
-    cwdIno: 1,
-    piSessionId: "pi",
-    sessionFile: null,
-    confirmTools: [],
-    createRequestId: null,
-    modelSelection: null,
-    modelSelectionVersion: 0,
-    defaultAccessMode: "confirm",
-    defaultAccessModeVersion: 0,
-    queueState: "active",
-    queuePauseReason: null, queueRevision: 0, archivedAt: null,
-    createdAt: "2026-01-01T00:00:00Z",
-    ...over,
-  };
-}
 
 // ---------- 创建幂等（存储/运行时/控制面） ----------
 
@@ -257,12 +205,6 @@ test("快照与事件携带 createRequestId；无键创建为 null", async () =>
     const plain = await t.client.request<any>("create_project", { name: "snap-plain" });
 
     const handshake = await t.client.handshake();
-    assert.deepEqual(
-      handshake.snapshot.roleSessionIds,
-      t.runtime.store.listAgentRoles().map((r) => r.sessionId),
-      "快照列出逻辑角色会话",
-    );
-    assert.ok(handshake.snapshot.roleSessionIds!.length > 0, "编排器已引导角色");
     assert.equal(
       handshake.snapshot.sessions.find((s) => s.id === session.id)?.createRequestId,
       "snap-key",
@@ -316,37 +258,6 @@ test("resolveWorkspaceDir：相对路径按客户端 cwd 解析；不存在/文�
   }
 });
 
-test("findWorkspaceProjects：按 cwdReal 与 dev+ino 匹配，忽略非 dev 与角色会话，去重保序", () => {
-  const projA = fakeProject({ id: "proj_a", name: "A" });
-  const projB = fakeProject({ id: "proj_b", name: "B" });
-  const projQq = fakeProject({ id: "proj_qq", name: "QQ" });
-  const projRole = fakeProject({ id: "proj_role", name: "main" });
-  const identity = { cwd: "/work/x", cwdReal: "/work/x", dev: 10, ino: 20 };
-  const snapshot = {
-    projects: [projA, projB, projQq, projRole],
-    sessions: [
-      // cwdReal 相同（符号链接别名）
-      fakeSession({ id: "s1", projectId: "proj_a", cwd: "/alias/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
-      // cwdReal 不同（目录被移动过）但 dev+ino 相同（挂载别名）
-      fakeSession({ id: "s2", projectId: "proj_b", cwd: "/old/x", cwdReal: "/old/x", cwdDev: 10, cwdIno: 20 }),
-      // 同项目第二条会话：项目只出现一次
-      fakeSession({ id: "s3", projectId: "proj_a", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
-      // qq_group 会话不作为工作区归属依据
-      fakeSession({ id: "s4", projectId: "proj_qq", kind: "qq_group", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
-      // 逻辑角色会话（kind 仍为 dev）同样不作为归属依据
-      fakeSession({ id: "s_role", projectId: "proj_role", cwd: "/work/x", cwdReal: "/work/x", cwdDev: 10, cwdIno: 20 }),
-      // 无关目录；proj_b 因此分布在多个真实目录，issue 07 起不作目录候选（经迁移流程处理）
-      fakeSession({ id: "s5", projectId: "proj_b", cwd: "/elsewhere", cwdReal: "/elsewhere", cwdDev: 11, cwdIno: 21 }),
-    ],
-    roleSessionIds: ["s_role"],
-  };
-  const found = findWorkspaceProjects(snapshot, identity);
-  assert.deepEqual(
-    found.map((p) => p.id),
-    ["proj_a"],
-    "按快照顺序去重返回候选项目；多目录旧项目不作候选（issue 07 收紧）",
-  );
-});
 
 // ---------- TUI 工作区入口 ----------
 

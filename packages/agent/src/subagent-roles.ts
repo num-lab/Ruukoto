@@ -4,7 +4,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { canonicalJson } from "@ruukoto/core/import-files.ts";
+import { canonicalJson } from "@ruukoto/core/json.ts";
 import { validateSubAgentDefinition, type SubAgentDefinitionSnapshot, type SubAgentRoleCatalogSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import type { ReferenceBlock } from "./context-selector.ts";
 
@@ -21,7 +21,7 @@ function fields(value: Record<string, unknown>, allowed: string[]): void {
   if (Object.keys(value).some(key => !allowed.includes(key))) throw new SubAgentRoleError("role_unknown_field", "角色含未知字段；仅使用 description、tools、permissions 与正文。");
 }
 
-export function parseSubAgentRole(name: string, raw: string, kind: SubAgentDefinitionSnapshot["kind"] = "role"): SubAgentDefinitionSnapshot {
+export function parseSubAgentRole(name: string, raw: string): SubAgentDefinitionSnapshot {
   if (!SUBAGENT_ROLE_NAME.test(name)) throw new SubAgentRoleError("role_invalid_name", "角色文件名须为小写 kebab-case；修正文件名后重新创建子代理。");
   const normalized = raw.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
   const closing = normalized.indexOf("\n---", 3);
@@ -50,13 +50,13 @@ export function parseSubAgentRole(name: string, raw: string, kind: SubAgentDefin
   if (mode !== "inherit" && mode !== "confirm" && mode !== "auto-review" && mode !== "full_access") throw new SubAgentRoleError("role_invalid_permissions", "角色 permissions.mode 须为 inherit、confirm、auto-review 或 full_access。");
   const protectSource = policy.protect_source === undefined ? false : policy.protect_source;
   if (typeof protectSource !== "boolean" || (protectSource && mode === "full_access")) throw new SubAgentRoleError("role_invalid_permissions", "来源保护须为布尔值，且不能与 full_access 同时使用。");
-  const content: Omit<SubAgentDefinitionSnapshot, "digest"> = { kind, name, raw, description: data.description.trim(), tools, permissions: { mode, protectSource }, body: parsed.body.trim() };
+  const content: Omit<SubAgentDefinitionSnapshot, "digest"> = { kind: "role", name, raw, description: data.description.trim(), tools, permissions: { mode, protectSource }, body: parsed.body.trim() };
   return { ...content, digest: createHash("sha256").update(canonicalJson(content)).digest("hex") };
 }
 
 export function validateSubAgentRole(value: unknown): SubAgentDefinitionSnapshot {
   const snapshot = validateSubAgentDefinition(value);
-  if (!isDeepStrictEqual(snapshot, parseSubAgentRole(snapshot.name, snapshot.raw, snapshot.kind))) throw new SubAgentRoleError("definition_corrupt", "角色原文与持久字段不一致；核实记录后再继续。");
+  if (!isDeepStrictEqual(snapshot, parseSubAgentRole(snapshot.name, snapshot.raw))) throw new SubAgentRoleError("definition_corrupt", "角色原文与持久字段不一致；核实记录后再继续。");
   return snapshot;
 }
 
@@ -82,7 +82,6 @@ export const BUILTIN_SUBAGENT_ROLES = [
   parseSubAgentRole("reviewer", "---\ndescription: 审查给定代码并运行必要检查，报告发现与验证依据。\ntools: [read, list_files, search_files, bash, read_artifact]\npermissions:\n  mode: confirm\n  protect_source: true\n---\n在宿主提供的审查副本中检查代码并运行必要测试。报告发现、证据与未验证项；保留检查产物，由主 Agent 处理后续修改与交付。"),
 ];
 
-export const HOST_REVIEW_DEFINITION = parseSubAgentRole("github-review", "---\ndescription: 宿主固定的 GitHub PR 只读评审。\ntools: [read, list_files, search_files, read_artifact]\n---\n只使用 read、list_files、search_files、read_artifact 与宿主开放的只读 MCP 读取本目录和 PR 资料。读不到资料时说明能力范围；最终回答作为评审草稿交回主 Agent。不能修改文件、执行命令、写外部服务、委派下级或发送工作内消息。", "host_review");
 
 export function roleCatalogBlock(library: SubAgentRoleLibrary): ReferenceBlock {
   return { category: "subagentRoles", placement: "prefix", text: ["[子代理角色目录]", "首次委派用 role 选择职责，省略为 general；继续或复用沿已固定角色，需要其他角色时新建子代理。能力以宿主实际工具和授权为准。", ...library.roles.map(role => `- ${role.name}：${role.description}`), ...library.diagnostics.map(d => `- ${d.name} 不可用（${d.code}）：${d.message}`), "[/子代理角色目录]"].join("\n") };

@@ -27,8 +27,8 @@ function fixture() {
     return store.getTask(task.id)!;
   });
   const parent = task();
-  const source: WorkflowSource = { product: "ruukoto-code", projectId: project.id, sessionId: parentSession.id, taskId: parent.id,
-    permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
+  const source: WorkflowSource = { product: "ruukoto", projectId: project.id, sessionId: parentSession.id, taskId: parent.id,
+    permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [] };
   const child = (status: TaskStatus = "completed", originTaskId = parent.id) => {
     const sub = store.withTx(session), agentId = `sub${++n}`, workId = `work${++n}`;
     store.withTx(() => {
@@ -218,9 +218,9 @@ test("同父轮多个结果一份报告证明，未消费认领释放；已开�
     const reports = [f.report(f.child().id), f.report(f.child().id), f.report(f.child().id)];
     f.store.withTx(() => claimAgentReports(f.store, { taskId: f.parent.id, keys: reports.map(report => report.key) }));
     for (const report of reports.slice(0, 2)) f.store.withTx(() => consumeAgentReport(f.store, report.key, { taskId: f.parent.id, entryId: "batch-result" }));
-    const completed = f.store.withTx(() => completeAgentReports(f.store, f.parent.id, { status: "reported", entryId: "parent-final", outboxOpId: "one-send" }));
+    const completed = f.store.withTx(() => completeAgentReports(f.store, f.parent.id, { status: "reported", entryId: "parent-final" }));
     assert.equal(completed.length, 2);
-    assert.deepEqual(completed.map(report => report.proof), [{ taskId: f.parent.id, entryId: "parent-final", outboxOpId: "one-send" }, { taskId: f.parent.id, entryId: "parent-final", outboxOpId: "one-send" }]);
+    assert.deepEqual(completed.map(report => report.proof), [{ taskId: f.parent.id, entryId: "parent-final" }, { taskId: f.parent.id, entryId: "parent-final" }]);
     const remaining = getAgentReport(f.store, reports[2].key)!;
     assert.equal(remaining.claimTaskId, null);
     assert.equal(remaining.status, "pending");

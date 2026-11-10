@@ -4,7 +4,7 @@ import * as path from "node:path";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { ConnectResult } from "@ruukoto/control/protocol.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { handleRequest, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
 import { CodeState } from "../apps/desktop/src/renderer/code-state.ts";
 import type { DesktopResult } from "../apps/desktop/src/shared/bridge.ts";
@@ -26,7 +26,7 @@ async function install(model: CodeState, runtime: TestRuntime) {
 for (const op of ["open_workspace", "create_session"] as const) {
   for (const outcome of ["unknown", "disconnected", "rejected", "not_sent"] as const) {
     test(`桌面 ${op}：${outcome} 保留原键核实，重复点击不新建`, async () => {
-      const t = await startTestRuntime(`d-${op[0]}-${outcome[0]}`, async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+      const t = await startTestRuntime(`d-${op[0]}-${outcome[0]}`, async () => ({ kind: "text", text: "ok" }), {});
       try {
         const workspace = await t.client.request<OpResult<"open_workspace">>("open_workspace", { cwd: t.work[0], request_id: "fixture" });
         const params = { cwd: outcome === "rejected" ? path.join(t.dirs.root, "missing") : t.work[0], ...(op === "create_session" ? { project_id: workspace.session.projectId } : {}) };
@@ -91,8 +91,8 @@ for (const op of ["open_workspace", "create_session"] as const) {
 }
 
 for (const lateSuccess of [false, true]) test(`桌面跨实例：A ${lateSuccess ? "迟到成功" : "应答丢失"} 不安装到 B 或重发`, async () => {
-  const a = await startTestRuntime("desktop-a", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
-  const b = await startTestRuntime("desktop-b", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const a = await startTestRuntime("desktop-a", async () => ({ kind: "text", text: "ok" }), {});
+  const b = await startTestRuntime("desktop-b", async () => ({ kind: "text", text: "ok" }), {});
   try {
     let current = a;
     let bWrites = 0;
@@ -131,7 +131,7 @@ for (const lateSuccess of [false, true]) test(`桌面跨实例：A ${lateSuccess
 });
 
 test("桌面二次未知保留原操作，迟到创建事件能确认原会话", async () => {
-  const t = await startTestRuntime("desktop-event", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("desktop-event", async () => ({ kind: "text", text: "ok" }), {});
   try {
     const calls: Array<OpParams<DesktopOp>> = [];
     const model = new CodeState({ request: async (target, op, params) => {
@@ -159,7 +159,7 @@ test("桌面二次未知保留原操作，迟到创建事件能确认原会话",
 });
 
 test("Desktop selected-workspace new chat binds its first message after creation", async () => {
-  const t = await startTestRuntime("desktop-new-chat", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("desktop-new-chat", async () => ({ kind: "text", text: "ok" }), {});
   try {
     const sent: Array<{ sessionId: string; text: string; attachments?: Array<{ id: string; name: string; size: number }> }> = [];
     const uploads: Array<{ sessionId: string; tokens: string[] }> = [];

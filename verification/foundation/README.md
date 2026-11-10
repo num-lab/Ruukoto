@@ -17,7 +17,7 @@ The foundation suite is offline; `test:model` explicitly uses local Pi credentia
 
 ## Verification Index
 
-These are historical stage-zero conclusions, not proof that the current checkout passes. Later product/platform evidence is in [release acceptance](../../docs/release-acceptance.md#historical-verification).
+These are historical stage-zero conclusions, not proof that the current checkout passes. Later product/platform evidence is in [release acceptance](../../docs/release-acceptance.md#operations-and-historical-limits).
 
 | Test, relative to this package | Historical coverage/result |
 | --- | --- |
@@ -32,7 +32,7 @@ These are historical stage-zero conclusions, not proof that the current checkout
 
 ## Current Wiring and Historical SDK Behavior
 
-Both products pin Pi 1.3.0. Coding loads explicit host modules via public `discoverAndLoadExtensions`, injecting dependencies through each SDK's EventBus. MCP uses official factories/registry. System entries in `TranscriptContext.messages` retain prompt/tools; pre-send validation and snapshots read the same final messages.
+Ruukoto pins Pi 1.3.0 and loads explicit host modules via public `discoverAndLoadExtensions`, injecting dependencies through each SDK's EventBus. MCP uses official factories/registry. System entries in `TranscriptContext.messages` retain prompt/tools; pre-send validation and snapshots read the same final messages.
 
 Stage-zero observations below describe that investigation, not a replacement for current integration. See [MCP host responsibilities](../../.agents/notes/implemented/simplification/2026-10-26-mcp-host-responsibilities.md).
 

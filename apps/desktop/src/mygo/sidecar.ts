@@ -1,5 +1,4 @@
 import * as readline from "node:readline";
-import { PersonalCredentialPipe } from "./personal-credential-pipe.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { DesktopBrowserEvent } from "@ruukoto/control/protocol.ts";
 import { ControlClientError } from "@ruukoto/control/client.ts";
@@ -20,23 +19,18 @@ const send = (message: object): Promise<void> => new Promise((resolve, reject) =
 /**
  * Private Node-to-Go requests bind replies to their original IDs.
  * A timed-out command may have executed; disconnects preserve their failure classification.
- * Native destination selection waits for the owner after delivery without automatic replay.
  */
 const goPending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>();
 let goSeq = 0;
 function goRequest(method: string, ...args: unknown[]): Promise<unknown> {
-  if (closing && method !== "output_close_preview" || !transportAvailable) return Promise.reject(new DesktopError("bridge_closed", "MyGo 正在退出；请重新打开应用后核实原操作。"));
+  if (closing || !transportAvailable) return Promise.reject(new DesktopError("bridge_closed", "MyGo 正在退出；请重新打开应用后核实原操作。"));
   const id = ++goSeq;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       if (goPending.delete(id)) reject(new ControlClientError("bridge_timeout", "MyGo 请求未能取得应答，效果未知；请核实页面状态。", "unknown"));
-    }, method === "output_close_preview" ? 5000 : 60_000);
+    }, 60_000);
     goPending.set(id, { resolve, reject, timer });
-    void send({ kind: "request", id, method, args }).then(() => {
-      // Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
-      // Human destination selection has no response deadline after the pipe write completes.
-      if (method === "output_choose") clearTimeout(timer);
-    }).catch(error => {
+    void send({ kind: "request", id, method, args }).catch(() => {
       clearTimeout(timer);
       if (goPending.delete(id)) reject(new ControlClientError("bridge_disconnected", "MyGo 连接不可用，请重新打开应用后核实原操作。", "not_sent"));
     });
@@ -52,28 +46,7 @@ function goResponse(message: { id?: unknown; result?: unknown }): void {
 const browserTransport: MyGoBrowserTransport = {
   command: (op, input) => goRequest("browser_command", { op, ...input }),
 };
-const credentials = new PersonalCredentialPipe(send);
-async function outputNative(method: string, ...args: unknown[]): Promise<unknown> {
-  const result = await goRequest(method, ...args);
-  if (!result || typeof result !== "object" || !("ok" in result) || typeof result.ok !== "boolean") throw new DesktopError("personal_output_bridge", "文件窗口应答无法核实，请重新打开应用。");
-  if (!result.ok) {
-    const error = "error" in result && result.error && typeof result.error === "object" ? result.error : null;
-    throw new DesktopError(error && "code" in error && typeof error.code === "string" ? error.code : "personal_output_bridge", error && "message" in error && typeof error.message === "string" ? error.message : "文件窗口未能完成操作，请重新打开应用。");
-  }
-  return "value" in result ? result.value : undefined;
-}
 const platform = {
-  pickOutput: async (name: string) => {
-    const destination = await outputNative("output_choose", name);
-    if (destination !== null && (typeof destination !== "string" || !destination)) throw new DesktopError("personal_output_bridge", "保存位置应答无法核实，请重新选择。");
-    return destination;
-  },
-  previewOutput: async (filename: string, name: string) => {
-    const preview = await outputNative("output_preview", filename, name);
-    if (typeof preview !== "number" || !Number.isSafeInteger(preview) || preview < 1) throw new DesktopError("personal_output_bridge", "文件预览身份无法核实，请重新打开应用。");
-    return async () => { if (transportAvailable) await outputNative("output_close_preview", preview); /* Go closes the original preview when its private pipe ends. */ };
-  },
-  credentials,
   publish: (target: DesktopTarget, update: DesktopUpdate) => send({ kind: "update", target, update }),
   focused: () => focused,
   notice: (notice: DesktopNotice) => { void send({ kind: "notice", notice }).catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 通知未送达，请重新打开应用。\n"); }); },
@@ -82,22 +55,19 @@ const platform = {
 const host = new DesktopHost(__RUUKOTO_REPOSITORY__, userData, platform, undefined, undefined, browserTransport);
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 function close(): Promise<void> {
-  credentials.close();
   for (const [id, pending] of goPending) {
     goPending.delete(id);
     clearTimeout(pending.timer);
     pending.reject(new ControlClientError("bridge_disconnected", "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。", "disconnected"));
   }
-  // EOF must settle preview cleanup admitted after graceful shutdown began.
   if (closing) return closing;
-  closing = host.close().catch(() => { process.stderr.write("[ruukoto:desktop] MyGo 子进程清理失败；请检查 Personal 连接和应用数据目录权限。\n"); process.exitCode = 1; });
+  closing = host.close().catch(() => { process.stderr.write("[ruukoto:desktop] MyGo subprocess cleanup failed; check app data directory permissions.\n"); process.exitCode = 1; });
   return closing;
 }
 async function receive(line: string): Promise<void> {
   let message: unknown;
   try { message = JSON.parse(line); }
   catch { throw new DesktopError("bridge_invalid", "MyGo 子进程消息损坏；请重新打开应用并核实原操作。"); }
-  if (credentials.receive(message)) return;
   if (message && typeof message === "object" && (message as { kind?: unknown }).kind === "response") {
     goResponse(message as { id?: unknown; result?: unknown });
     return;
@@ -110,7 +80,7 @@ async function receive(line: string): Promise<void> {
       case "subscribe": return host.subscribe(args[0]);
       case "terminal_reset": return host.resetTerminals();
       case "request": return host.request(args[0], args[1], args[2]);
-      case "attachment_instance": return host.attachmentInstance(args[0] ?? "code", args[1] as string | undefined);
+      case "attachment_instance": return host.attachmentInstance(args[0] ?? "code");
       case "attachments": {
         const files: unknown = args[1];
         if (!Array.isArray(files) || files.some(file => typeof file !== "string") || typeof args[2] !== "string") throw new DesktopError("invalid_params", "所选附件无效；请重新选择。");

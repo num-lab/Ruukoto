@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [CI shards and fixture preparation](2026-11-07-ci-shards-and-fixtures.md) supersedes the single full-suite job per OS with four isolated application shards. Node, deadlines, per-runner concurrency, native boundaries and complete coverage remain.
 
 [Node 24 and CI budget](2026-10-24-node24-ci-budget.md) supersedes the historical Node matrix/job deadline below. Platform protection, real coverage and historical results remain.
@@ -32,7 +34,7 @@ Model-settings drafts, request order and late responses use existing in-memory D
 
 The retired Personal `CodeState` history and Inspector examples leave desktop acceptance. Current `PersonalState` history/profile isolation and rejection of old Personal IPC remain in the native/interface and desktop-main tests; Code Inspector coverage remains. Service tool catalogs belong to the enable/disable tests in `personal-services`, Git row geometry to `desktop-git-windowing`, and MyGo request forwarding to one actual preload case retaining the Personal target and nested settings parameters. Independent service-operation permission cases keep their execution and single-consumption checks without repeating the unrelated full catalog.
 
-Personal settings SSR shares one Vite server and loaded editor across the file; each scenario still creates its own mutable state. Output corruption cases prepare one actual published file, close SQLite, then restore the database at its original path before each independent source, permission, work or Telegram-origin mutation. The profile directory and artifact identities remain intact. Every real reopen must reject without another model request; sharing preparation does not replace the [final-output](../architecture/2026-11-05-personal-final-outputs.md) provenance checks.
+Personal settings SSR shares one Vite server and loaded editor across the file; each scenario still creates its own mutable state. Output corruption cases prepare one actual published file, close SQLite, then restore the database at its original path before each independent source, permission, work or Telegram-origin mutation. The profile directory and artifact identities remain intact. Every real reopen must reject without another model request; sharing preparation does not replace the [final-output](../../archived/architecture/2026-11-05-personal-final-outputs.md) provenance checks.
 
 Work-fact pagination keeps one completed combination of actual app-data, generic tool and MCP records, plus an independent MCP unknown-effect case. Real loopback HTTP reads provide the generic tool records; file-worker identity and stopping stay in dedicated file-I/O tests. The unknown case does not repeat unrelated app-data/tool execution. Both retain off-page blocker counts, complete MCP paging and reopen; the combined case retains independent text/fact offsets and each family's ordering. Restore broader combinations if projection starts depending on operation kind or another family's unresolved state.
 
@@ -54,7 +56,7 @@ Workflow PTY sends each action after observing the preceding action's actual scr
 
 Mock-model SSE replies explicitly use Connection: close. Same-process synchronous setup can cross the default idle deadline: server destroys the connection before the client pool consumes close, and the next request gets ECONNRESET from the zero-retry SDK. These mocks do not test connection reuse. Closing after replies preserves complete streams, tool calls and later requests without longer timeouts/retries or changed production clients.
 
-Tool availability assertions inspect actual function names rather than searching descriptions that may mention another tool. [Telegram effect choices](../architecture/2026-11-06-personal-telegram-delivery.md) save an immutable owner claim directly; old tests must not require a second evidence message. Original actor, receipt linkage and unresolved stopping remain checked. Tool-stop controls independently prove that stopping does not resolve an unknown effect; real recovery tests retain the combined release condition. Pending legacy file fixtures are rejected by the earlier output-capability cutover guard, while completed legacy files retain compatibility and pending targets/claims remain unchanged.
+Tool availability assertions inspect actual function names rather than searching descriptions that may mention another tool. [Telegram effect choices](../../archived/architecture/2026-11-06-personal-telegram-delivery.md) save an immutable owner claim directly; old tests must not require a second evidence message. Original actor, receipt linkage and unresolved stopping remain checked. Tool-stop controls independently prove that stopping does not resolve an unknown effect; real recovery tests retain the combined release condition. Pending legacy file fixtures are rejected by the earlier output-capability cutover guard, while completed legacy files retain compatibility and pending targets/claims remain unchanged.
 
 Fixture timing follows the boundary under test. Workflow cancellation waits for the client's accepted response before Escape; mid-call MCP revocation waits for the next model request to offer the tool before disabling it. Native cleanup gives only the held revalidation its short deadline, leaving initial identity preparation on the production budget. Command corruption is applied after clean close so shutdown reconciliation cannot repair the intended invalid stopping record. Git fixtures disable automatic maintenance so strict object-tree scans do not race Git's own temporary lock deletion.
 
@@ -73,11 +75,11 @@ Cua product integration uses normal call deadlines. A fixture exits after record
 ## Related decisions
 
 - [Joint workflow acceptance](2026-10-13-workflow-joint-acceptance.md): replaces six-input scale/old Personal examples; retains explicit real-model opt-in, platform stopping and evidence levels without rewriting results.
-- [Sole Personal durable entry](../simplification/2026-10-18-personal-product-entry.md): retains retired entries/shared libraries/old data; only tests losing product value are narrowed, with no new product retirement.
+- [Sole Personal durable entry](../../archived/simplification/2026-10-18-personal-product-entry.md): retains retired entries/shared libraries/old data; only tests losing product value are narrowed, with no new product retirement.
 - [CI prerequisites/concurrency](2026-10-22-ci-prerequisites.md): retains prerequisites, failure propagation and exclusivity/concurrency; per-test necessity replaces blanket retention.
 - [Impact-selected checks](../process/2026-10-10-pre-push-evidence-ladder.md): retains targeted evidence/final CI responsibility; this determines the retained suite.
 
-[Generic scheduling](../feature/2026-10-12-generic-scheduled-tasks.md) and [backend/terminal separation](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) only update retired runtime/RPC-exploration test locations. The original audit found no same-topic proposal or wholly absorbed note. Existing async-phase mechanisms remain.
+[Generic scheduling](../../archived/feature/2026-10-12-generic-scheduled-tasks.md) and [backend/terminal separation](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) only update retired runtime/RPC-exploration test locations. The original audit found no same-topic proposal or wholly absorbed note. Existing async-phase mechanisms remain.
 
 ## Alternatives considered
 

@@ -22,7 +22,7 @@ before(async () => {
 });
 after(async () => { await server?.close(); });
 
-const session: Session = { id: "offline-session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: "Offline conversation", branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-11-08T00:00:00.000Z" };
+const session: Session = { id: "offline-session", projectId: "workspace", kind: "dev", name: "Offline conversation", branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-11-08T00:00:00.000Z" };
 function nodes(tree: React.ReactNode): React.ReactElement<{ children?: React.ReactNode; className?: string; role?: string; model?: CodeState; session?: Session; sessionId?: string }>[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes);
   if (!React.isValidElement<{ children?: React.ReactNode; className?: string; role?: string; model?: CodeState; session?: Session; sessionId?: string }>(tree)) return [];

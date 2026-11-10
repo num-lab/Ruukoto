@@ -112,7 +112,7 @@ export async function checkInspector(server) {
   assert.equal(isDemoEntry("https://example.com/", "http://127.0.0.1:5173"), false);
   const { workspaceGitRepository, layoutGitGraph } = await server.ssrLoadModule("/src/git-graph-data.ts");
   const { GitGraphPanel, GitCommitDetails } = await server.ssrLoadModule("/src/git-graph.tsx");
-  for (const id of [undefined, "personal:main", "ws-eval", "new-workspace", "constructor", "__proto__"]) assert.equal(workspaceGitRepository(id), undefined, "普通目录、PA与未知工作区不提供Git图");
+  for (const id of [undefined, "ws-eval", "new-workspace", "constructor", "__proto__"]) assert.equal(workspaceGitRepository(id), undefined, "普通目录与未知工作区不提供Git图");
   assert.deepEqual(workspaceGitRepository("ws-menubar"), { head: null, commits: [] }, "空仓库与非仓库不同");
   const commit = (id, parents = []) => ({ id, parents, subject: id, author: "Demo", date: "2026-10-17", refs: [] });
   for (const [commits, expectedLanes] of [

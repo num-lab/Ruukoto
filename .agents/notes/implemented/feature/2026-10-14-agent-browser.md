@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[MyGo's right-pane browser](2026-10-29-mygo-agent-browser.md) owns its separate desktop tools and takeover rules. This note owns shared Chrome lifecycle/pause behavior. Durable Personal assembly follows [browser/media ownership](../architecture/2026-10-18-personal-browser-media.md), not the old shared Runtime assembly.
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[MyGo's right-pane browser](2026-10-29-mygo-agent-browser.md) owns its separate desktop tools and takeover rules. This note owns shared Chrome lifecycle/pause behavior. Durable Personal assembly follows [browser/media ownership](../../archived/architecture/2026-10-18-personal-browser-media.md), not the old shared Runtime assembly.
 
 ## Problem
 
@@ -52,4 +54,4 @@ Pinned native behavior/hash/fingerprint requires rerunning probes on upgrades. U
 
 `test/browser-lifecycle.test.ts` covers single-send batch, structural codes, cancellation, loopback, attached cold recovery, PID/lock mismatch, launch windows, and fingerprints. `test/browser-tools.test.ts` exercises real Runtime/SDK/ledger with model fixtures for image history, permission changes, in-flight cancel, stale references, and screenshot failure. Historical macOS Node 22/24 and Linux browser probes and environment gaps live in the retired evidence cited above; export had separate bin/control pagination checks.
 
-[Session backgrounds](2026-10-21-coding-background-processes.md) owns local-preview-service lifetime and browser observation while directories are occupied. [Personal backgrounds](2026-10-21-personal-background-processes.md) is now implemented separately; the broader [background proposal](../../proposed/feature/2026-10-14-bash-background-lifecycle.md) retains overall scope. [Two products](../architecture/2026-10-02-two-agent-products.md), [MCP](../architecture/2026-09-23-mcp-client.md), [full access](2026-10-12-full-access-current-account.md), [native sandbox](../architecture/2026-10-12-personal-native-sandbox.md), and [image reads](../bug-fix/2026-10-12-read-images.md) retain their other decisions. This feature neither broadens restricted permissions nor generic MCP authority.
+[Session backgrounds](2026-10-21-coding-background-processes.md) owns local-preview-service lifetime and browser observation while directories are occupied. [Personal backgrounds](../../archived/feature/2026-10-21-personal-background-processes.md) is now implemented separately; the broader [background proposal](../../proposed/feature/2026-10-14-bash-background-lifecycle.md) retains overall scope. [Two products](../../archived/architecture/2026-10-02-two-agent-products.md), [MCP](../architecture/2026-09-23-mcp-client.md), [full access](2026-10-12-full-access-current-account.md), [native sandbox](../../archived/architecture/2026-10-12-personal-native-sandbox.md), and [image reads](../bug-fix/2026-10-12-read-images.md) retain their other decisions. This feature neither broadens restricted permissions nor generic MCP authority.

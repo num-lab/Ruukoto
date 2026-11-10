@@ -1,5 +1,4 @@
 /** Linux 执行的持久认领；效果回执与工作占用仍由调用方持有。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-17-personal-full-access-commands.md
  * Note: 见 .agents/notes/implemented/architecture/2026-10-17-native-linux-execution-identity.md
  */
 import * as fs from "node:fs";

@@ -13,6 +13,7 @@ import { createApprovalReviewer, type ApprovalReviewer } from "@ruukoto/agent/re
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import type { ModelSelection } from "@ruukoto/core/types.ts";
+import type { ProfilePaths } from "@ruukoto/core/profile.ts";
 import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
 
 interface RuntimeModelStack {
@@ -28,7 +29,7 @@ type CatalogProvider = Record<string, unknown> & { name?: string; models?: Array
 interface RuntimeModelsDeps {
   store: Store;
   config: {
-    agentDir: string;
+    profile: ProfilePaths;
     modelProvider?: string;
     modelId?: string;
     thinkingLevel?: ModelSelection["thinkingLevel"];
@@ -39,8 +40,8 @@ interface RuntimeModelsDeps {
   flushPendingMessages(): Promise<void>;
 }
 
-/** 模型配置与模型栈的唯一持有者；任务、Driver 和配置锁由 Runtime 持有。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-23-runtime-models.md
+/** Owns model configuration and the model stack; Runtime owns tasks, drivers and configuration exclusion.
+ * Note: See .agents/notes/implemented/architecture/2026-10-23-runtime-models.md
  */
 export class RuntimeModels {
   private readonly deps: RuntimeModelsDeps;
@@ -85,11 +86,11 @@ export class RuntimeModels {
   private async buildStack(validateCatalog: boolean): Promise<RuntimeModelStack> {
     const { config } = this.deps;
     const modelRuntime = await ModelRuntime.create({
-      authPath: path.join(config.agentDir, "auth.json"), modelsPath: path.join(config.agentDir, "models.json"),
+      authPath: path.join(config.profile.agentDir, "auth.json"), modelsPath: path.join(config.profile.agentDir, "models.json"),
       modelsStore: new InMemoryModelsStore(), refreshOnCreate: false,
     });
     if (validateCatalog) {
-      for (const [providerId, def] of Object.entries(loadModelCatalogFile(config.agentDir).providers)) {
+      for (const [providerId, def] of Object.entries(loadModelCatalogFile(config.profile.agentDir).providers)) {
         for (const definition of ((def?.models as Array<{ id?: unknown }> | undefined) ?? [])) {
           if (typeof definition?.id === "string" && !modelRuntime.getModel(providerId, definition.id)) {
             throw new RuntimeApiError("model_config_invalid", `provider ${providerId} 的模型 ${definition.id} 未通过 SDK 校验（检查 api/baseUrl 等协议字段）`);
@@ -97,11 +98,11 @@ export class RuntimeModels {
         }
       }
     }
-    const configured = resolveConfiguredModel(modelRuntime, config);
+    const configured = resolveConfiguredModel(modelRuntime, { ...config, agentDir: config.profile.agentDir });
     if (!configured) throw new RuntimeApiError("no_model", validateCatalog
       ? "应用该配置后将没有可用模型，已回滚"
       : "未找到可用模型：models.json 中没有 provider，或指定的 provider/model 不存在");
-    const modelCatalog = await createModelCatalog(modelRuntime, config.agentDir, configured.model);
+    const modelCatalog = await createModelCatalog(modelRuntime, config.profile.agentDir, configured.model);
     const defaultSelection = { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel };
     await modelCatalog.resolve(defaultSelection);
     const reviewer = createApprovalReviewer({ modelRuntime, modelCatalog, timeoutMs: config.autoReview?.timeoutMs, maxTokens: config.autoReview?.maxTokens });
@@ -138,7 +139,7 @@ export class RuntimeModels {
     if (typeof expected !== "string" || expected.length === 0) {
       throw new RuntimeApiError("invalid_params", "expected_revision 必须是非空字符串");
     }
-    if (expected !== configRevision(this.deps.config.agentDir)) {
+    if (expected !== configRevision(this.deps.config.profile.agentDir)) {
       throw new RuntimeApiError("config_conflict", "模型配置已被其他修改更新，请重新加载后重试");
     }
   }
@@ -158,13 +159,13 @@ export class RuntimeModels {
     }
     let settle!: () => void;
     this.gateSettled = new Promise<void>((resolve) => (settle = resolve));
-    const snapshot = snapshotConfigFiles(this.deps.config.agentDir);
+    const snapshot = snapshotConfigFiles(this.deps.config.profile.agentDir);
     try {
       fn();
       await this.rebuild();
     } catch (err) {
       // 回滚：恢复旧字节并重建旧模型栈，重启后也不会静默选用部分新配置
-      restoreConfigFiles(this.deps.config.agentDir, snapshot);
+      restoreConfigFiles(this.deps.config.profile.agentDir, snapshot);
       await this.rebuild().catch(() => {
         // 文件已恢复；旧栈重建失败时保留原内存模型栈与本次配置失败。
       });
@@ -192,7 +193,7 @@ export class RuntimeModels {
     runtimeOverrides: { model: boolean; thinking: boolean };
     busyProviders: string[];
   } {
-    const agentDir = this.deps.config.agentDir;
+    const agentDir = this.deps.config.profile.agentDir;
     let defaultModel: ModelSelection | null = null;
     try {
       defaultModel = loadDefaultModel(agentDir);
@@ -214,7 +215,7 @@ export class RuntimeModels {
   /** 摘要模型配置（损坏按未设置展示；修订指纹仍覆盖它，保存可修复）。 */
   private readSummaryModel(): SummaryModel | null {
     try {
-      return loadSummaryModel(this.deps.config.agentDir);
+      return loadSummaryModel(this.deps.config.profile.agentDir);
     } catch {
       return null;
     }
@@ -224,7 +225,7 @@ export class RuntimeModels {
   private assertSelectionNotReferenced(provider: string, modelId?: string): void {
     let defaultModel: ModelSelection | null = null;
     try {
-      defaultModel = loadDefaultModel(this.deps.config.agentDir);
+      defaultModel = loadDefaultModel(this.deps.config.profile.agentDir);
     } catch {
       // 损坏的默认配置文件不可能构成有效引用，按未配置处理
     }
@@ -232,13 +233,12 @@ export class RuntimeModels {
     const refs = this.deps.store.countProviderReferences(provider, modelId);
     const usedByDefault = defaultModel?.provider === provider && (modelId === undefined || defaultModel.modelId === modelId);
     const usedBySummary = summaryModel?.provider === provider && (modelId === undefined || summaryModel.modelId === modelId);
-    if (usedByDefault || usedBySummary || refs.sessions > 0 || refs.roles > 0) {
+    if (usedByDefault || usedBySummary || refs.sessions > 0) {
       const target = modelId === undefined ? `提供方 ${provider}` : `模型 ${provider}/${modelId}`;
       const parts: string[] = [];
       if (usedByDefault) parts.push("后台默认模型");
       if (usedBySummary) parts.push("摘要模型");
       if (refs.sessions > 0) parts.push(`${refs.sessions} 个会话`);
-      if (refs.roles > 0) parts.push(`${refs.roles} 个逻辑角色`);
       throw new RuntimeApiError("provider_in_use", `${target} 仍被引用（${parts.join("、")}），请先切换这些引用到其他可用项`);
     }
   }
@@ -247,7 +247,7 @@ export class RuntimeModels {
   async saveCatalog(input: { providers: unknown; expectedRevision: unknown }): Promise<{ revision: string }> {
     return this.manage(async () => {
       this.assertConfigRevision(input.expectedRevision);
-      const before: Record<string, CatalogProvider> = loadModelCatalogFile(this.deps.config.agentDir).providers;
+      const before: Record<string, CatalogProvider> = loadModelCatalogFile(this.deps.config.profile.agentDir).providers;
       // 脱敏视图原样回写：占位符还原为原值，未改动的秘密不必重新输入
       const providers = restoreCatalogSecrets(input.providers, before);
       const errors = validateModelCatalog({ providers });
@@ -281,10 +281,10 @@ export class RuntimeModels {
         }
       }
       await this.applyModelConfigChange(affected, () => {
-        saveModelCatalogFile(this.deps.config.agentDir, next);
+        saveModelCatalogFile(this.deps.config.profile.agentDir, next);
       });
       this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "model.config_changed", kind: "catalog" }));
-      return { revision: configRevision(this.deps.config.agentDir) };
+      return { revision: configRevision(this.deps.config.profile.agentDir) };
     });
   }
 
@@ -296,10 +296,10 @@ export class RuntimeModels {
       if (invalid) throw new RuntimeApiError("invalid_params", invalid);
       this.assertConfigRevision(input.expectedRevision);
       await this.applyModelConfigChange([provider], () => {
-        setProviderApiKey(this.deps.config.agentDir, provider, input.apiKey as string);
+        setProviderApiKey(this.deps.config.profile.agentDir, provider, input.apiKey as string);
       });
       this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider }));
-      return { revision: configRevision(this.deps.config.agentDir), configured: true };
+      return { revision: configRevision(this.deps.config.profile.agentDir), configured: true };
     });
   }
 
@@ -309,10 +309,10 @@ export class RuntimeModels {
       if (!provider) throw new RuntimeApiError("invalid_params", "provider 必须是非空字符串");
       this.assertConfigRevision(input.expectedRevision);
       await this.applyModelConfigChange([provider], () => {
-        removeProviderCredential(this.deps.config.agentDir, provider);
+        removeProviderCredential(this.deps.config.profile.agentDir, provider);
       });
       this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "model.config_changed", kind: "api_key", provider }));
-      return { revision: configRevision(this.deps.config.agentDir), configured: false };
+      return { revision: configRevision(this.deps.config.profile.agentDir), configured: false };
     });
   }
 
@@ -327,15 +327,15 @@ export class RuntimeModels {
       this.assertConfigRevision(input.expectedRevision);
       this.assertSelectionNotReferenced(provider);
       await this.applyModelConfigChange([provider], () => {
-        const catalog = loadModelCatalogFile(this.deps.config.agentDir);
+        const catalog = loadModelCatalogFile(this.deps.config.profile.agentDir);
         if (provider in catalog.providers) {
           delete catalog.providers[provider];
-          saveModelCatalogFile(this.deps.config.agentDir, catalog);
+          saveModelCatalogFile(this.deps.config.profile.agentDir, catalog);
         }
-        removeProviderCredential(this.deps.config.agentDir, provider);
+        removeProviderCredential(this.deps.config.profile.agentDir, provider);
       });
       this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "model.config_changed", kind: "catalog", provider }));
-      return { revision: configRevision(this.deps.config.agentDir) };
+      return { revision: configRevision(this.deps.config.profile.agentDir) };
     });
   }
 
@@ -356,14 +356,14 @@ export class RuntimeModels {
       this.assertOpen();
       if (this.gate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
       this.assertConfigRevision(input.expectedRevision);
-      saveDefaultModel(this.deps.config.agentDir, selection);
+      saveDefaultModel(this.deps.config.profile.agentDir, selection);
       // 与启动/重建同一解析口径：显式 --model/--thinking 运行期间持久默认只落盘，不改运行时默认
-      const configured = resolveConfiguredModel(this.current.modelRuntime, this.deps.config);
+      const configured = resolveConfiguredModel(this.current.modelRuntime, { ...this.deps.config, agentDir: this.deps.config.profile.agentDir });
       if (configured) {
         this.stack = { ...this.current, model: configured.model, defaultSelection: { provider: configured.model.provider, modelId: configured.model.id, thinkingLevel: configured.thinkingLevel } };
       }
       this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "model.config_changed", kind: "default_model", provider: selection.provider }));
-      return { revision: configRevision(this.deps.config.agentDir), defaultModel: selection };
+      return { revision: configRevision(this.deps.config.profile.agentDir), defaultModel: selection };
     });
   }
 
@@ -397,9 +397,9 @@ export class RuntimeModels {
       this.assertOpen();
       if (this.gate) throw new RuntimeApiError("model_config_busy", "模型配置正在应用，请稍后重试");
       this.assertConfigRevision(input.expectedRevision);
-      saveSummaryModel(this.deps.config.agentDir, model);
+      saveSummaryModel(this.deps.config.profile.agentDir, model);
       this.deps.store.withTx(() => this.deps.store.appendEvent({ type: "model.config_changed", kind: "summary_model", provider: model?.provider }));
-      return { revision: configRevision(this.deps.config.agentDir), summaryModel: model };
+      return { revision: configRevision(this.deps.config.profile.agentDir), summaryModel: model };
     });
   }
 

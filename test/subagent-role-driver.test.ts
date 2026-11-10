@@ -2,20 +2,20 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
 import { inputText, lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
-for (const product of [codeProduct]) test(`${product.runtime.type} 的实际模型目录、角色正文、消息及冷恢复可重建`, async () => {
+test(`ruukoto 的实际模型目录、角色正文、消息及冷恢复可重建`, async () => {
   const calls: { system: string | null; input: string; signature?: string | null }[] = [];
   let active: Runtime | null = null;
   const kit = await startTestRuntime("role-driver", req => {
     const driver = active && [...active["drivers"].values()].find(driver => driver["sdk"]?.systemPrompt.includes("ROLE_"));
     calls.push({ system: req.system, input: inputText(req), signature: driver?.["toolSignature"] });
     return { kind: "text", text: lastUserText(req).includes("[SubAgent") ? "子任务完成" : "父任务完成" };
-  }, { config: { product: product.runtime } });
+  });
   let recovered: Runtime | null = null;
   try {
     const rt = kit.runtime;
@@ -57,7 +57,7 @@ for (const product of [codeProduct]) test(`${product.runtime.type} 的实际模�
     fs.unlinkSync(path.join(root, "scout.md"));
     kit.client.close();
     await rt.stop("test_restart");
-    recovered = await Runtime.start({ ...rt.config, socketPath: path.join(kit.dirs.root, "recovered.sock") });
+    recovered = await Runtime.start(rt.config);
     active = recovered;
     const resumed = await delegateFromActiveTask(recovered, { parentTaskId: parent.id, workId: first.work.id, request: "冷恢复继续", key: "cold", paramsDigest: "cold" });
     await waitFor("冷恢复结束", () => recovered!.store.getTask(resumed.task.id)?.status === "completed");

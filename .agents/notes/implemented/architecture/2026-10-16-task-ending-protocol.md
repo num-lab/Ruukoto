@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 [Unverified stopping](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md) requires stopping and verifying execution units before the terminal transaction decides directory occupancy. Mark unknown effects only after the conditional terminal update succeeds and before its terminal event. `Store.endTask` centralized that transaction, but Driver `requestStop`/`finalize`, `HostExecutionManager.stop` and `WorkflowCoordinator.stopJob` separately implemented cancellation intent, ledger snapshots, stopping, settlement, stop records and post-commit wakeup.
@@ -86,9 +88,9 @@ Unaborted workflow natural completion no longer settles the ledger. Missing writ
 
 ## Related decisions
 
-[Unverified stopping](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md) owns the safety rule; this note centralizes its protocol. [Workflow runtime/store](2026-10-13-workflow-runtime-and-store.md) retains execution registration and stopping. [Application data](2026-09-23-main-app-data-space.md) retains host-verifiable settlement after result-write failure; other operations wait for restart, and workflow missing-result checks only pause.
+[Unverified stopping](../bug-fix/2026-10-11-preserve-unverified-worker-stop.md) owns the safety rule; this note centralizes its protocol. [Workflow runtime/store](2026-10-13-workflow-runtime-and-store.md) retains execution registration and stopping. [Application data](../../archived/architecture/2026-09-23-main-app-data-space.md) retains host-verifiable settlement after result-write failure; other operations wait for restart, and workflow missing-result checks only pause.
 
-[Background lifecycle](../../proposed/feature/2026-10-14-bash-background-lifecycle.md) originally proposed a Driver-registry fix. Current [Coding backgrounds](../feature/2026-10-21-coding-background-processes.md) and [Personal backgrounds](../feature/2026-10-21-personal-background-processes.md) own the later cross-message, session-owned units; they are not another execution owner for this task-ending helper. Revisit scope when a new owner introduces task-external stopping facts. Cancellation and [wait/report ownership](2026-10-14-agent-wait-and-report-ownership.md) remain unchanged. [Native execution](2026-10-10-native-execution-sandbox.md) keeps per-call checks in `ToolWorkerHost.call`; the original scheduling/import/IM/product audit found no overlap requiring absorption.
+[Background lifecycle](../../proposed/feature/2026-10-14-bash-background-lifecycle.md) originally proposed a Driver-registry fix. Current [Coding backgrounds](../feature/2026-10-21-coding-background-processes.md) and [Personal backgrounds](../../archived/feature/2026-10-21-personal-background-processes.md) own the later cross-message, session-owned units; they are not another execution owner for this task-ending helper. Revisit scope when a new owner introduces task-external stopping facts. Cancellation and [wait/report ownership](2026-10-14-agent-wait-and-report-ownership.md) remain unchanged. [Native execution](2026-10-10-native-execution-sandbox.md) keeps per-call checks in `ToolWorkerHost.call`; the original scheduling/import/IM/product audit found no overlap requiring absorption.
 
 ## Alternatives considered
 

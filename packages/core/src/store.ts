@@ -17,24 +17,14 @@ import {
   ACTIVE_TASK_STATUSES,
   isTerminalTaskStatus,
   type AccessMode,
-  type AcceptedChatResult,
-  type AgentRole,
-  type AgentRoleId,
   type ApprovalScope,
   type Artifact,
   type ConfirmationRequest,
   type ConfirmationStatus,
   type ContextCheckpoint,
   type GrantedPath,
-  type InboundEvent,
-  type InboundEventKind,
-  type InboundEventStatus,
-  type InboundMedia,
-  type InboundMediaMessage,
-  type InboundMediaMessageStatus,
   type ImageMimeType,
   type ModelSelection,
-  type NotifyTarget,
   type PersistentEvent,
   type PersistentEventBody,
   type Project,
@@ -42,7 +32,6 @@ import {
   type Session,
   type SessionDefaultMode,
   type SessionKind,
-  type StandingPermission,
   type SubAgent,
   type SubAgentMessage,
   type SubAgentReadScope,
@@ -51,7 +40,6 @@ import {
   type TaskGuidance,
   type TaskQueue,
   type TaskStatus,
-  type ToolCategory,
   type ToolOp,
   type ToolAuthorization,
   type WorkCanceledBy,
@@ -61,7 +49,7 @@ import {
 
 import { tailTextByBytes } from "./history.ts";
 import { FRAGMENT_TEXT_CAP } from "./views.ts";
-import { sameDirIdentity, type DirIdentity } from "./dir-identity.ts";
+import type { DirIdentity } from "./dir-identity.ts";
 import { parseWorkWriteTarget, writeTargetToJson } from "./types.ts";
 import * as path from "node:path";
 import { getManagedWorkspaceRequest, managedWorkspaceKey } from "./managed-workspaces.ts";
@@ -214,37 +202,6 @@ export class Store {
       .prepare("SELECT * FROM projects WHERE root_real = ? OR (root_dev = ? AND root_ino = ?) ORDER BY created_at, rowid LIMIT 1")
       .get(identity.cwdReal, identity.dev, identity.ino) as any;
     return row ? this.rowToProject(row) : null;
-  }
-
-  /**
-   * 旧项目认领工作区根目录（issue 05）：仅当项目尚无归属时落库并发
-   * project.root_attached 事件；已有相同归属幂等返回，已有不同归属报冲突。
-   * 目录身份去重先于唯一索引兜底：bind mount 别名（realpath 不同、dev+ino 相同）
-   * 不受部分唯一索引约束，只能由 findProjectByRoot 的身份判断拦住。
-   */
-  attachProjectRoot(projectId: string, identity: DirIdentity): void {
-    const holder = this.findProjectByRoot(identity);
-    if (holder && holder.id !== projectId) {
-      throw new StoreConflictError(`工作区已存在：${identity.cwdReal}`, "duplicate");
-    }
-    try {
-      const info = this.db
-        .prepare("UPDATE projects SET root_cwd = ?, root_real = ?, root_dev = ?, root_ino = ? WHERE id = ? AND root_real IS NULL")
-        .run(identity.cwd, identity.cwdReal, identity.dev, identity.ino, projectId);
-      if (Number(info.changes) > 0) {
-        this.appendEvent({ type: "project.root_attached", projectId, rootDir: identity });
-        return;
-      }
-    } catch (err) {
-      if (isRootDirClash(err)) {
-        throw new StoreConflictError(`工作区已存在：${identity.cwdReal}`, "duplicate");
-      }
-      throw err;
-    }
-    const existing = this.getProject(projectId);
-    if (!existing) throw new StoreConflictError(`项目不存在：${projectId}`, "not_found");
-    if (existing.rootDir && sameDirIdentity(existing.rootDir, identity)) return;
-    throw new StoreConflictError(`项目已归属其他工作区目录：${existing.rootDir?.cwdReal ?? projectId}`, "duplicate");
   }
 
   /** 按创建幂等键查询项目（issue 21 去重与重连核实共用）。 */
@@ -411,8 +368,6 @@ export class Store {
       name: input.name ?? null,
       branchSource: null,
       projectId: input.projectId,
-      // A new conversation has no owner-assigned organizational membership.
-      workspaceProjectId: null,
       kind: input.kind ?? "dev",
       cwd: input.cwd,
       cwdReal: input.cwdReal,
@@ -437,8 +392,8 @@ export class Store {
         .prepare(
           `INSERT INTO sessions (id, project_id, kind, cwd, cwd_real, cwd_dev, cwd_ino, pi_session_id,
            session_file, confirm_tools, create_request_id, queue_state, queue_pause_reason, created_at, model_selection, model_selection_version,
-           default_access_mode, default_access_mode_version, workspace_project_id, name, branch_source, archived_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           default_access_mode, default_access_mode_version, name, branch_source, archived_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           session.id,
@@ -457,7 +412,6 @@ export class Store {
           session.modelSelectionVersion,
           session.defaultAccessMode,
           session.defaultAccessModeVersion,
-          session.workspaceProjectId,
           session.name,
           session.branchSource ? JSON.stringify(session.branchSource) : null,
           session.archivedAt,
@@ -510,16 +464,6 @@ export class Store {
     return this.sessionSummaries("1 = 1");
   }
 
-  /**
-   * 按组织归属查询会话摘要（agent-direction issue 07 步骤 4）：展示归属 =
-   * workspace_project_id ?? project_id（显式映射优先，未映射会话留在来源项目）。
-   * 摘要与活动时间算法与按原身份查询完全相同；session.workspace_mapped 事件
-   * 不带任务引用，不会让已映射会话显示为刚刚执行任务。
-   */
-  listSessionSummariesForWorkspace(workspaceId: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
-    return this.sessionSummaries("COALESCE(s.workspace_project_id, s.project_id) = ?", workspaceId);
-  }
-
   // ponytail: affiliation 是 SQL 片段插值而非参数——仅在本类内传入固定常量，
   // 同一 SQL 正文供 prepare 复用；若开放为公共接口须改回参数化条件。
   private sessionSummaries(affiliation: string, id?: string): Array<{ sessionId: string; name: string | null; lastActiveAt: string }> {
@@ -552,14 +496,6 @@ export class Store {
       .run(state, reason, id);
   }
 
-  /** 调用方在事务中执行；启动默认值仅初始化没有记录的旧会话。 */
-  initializeSessionModelSelections(selection: ModelSelection): void {
-    for (const session of this.listSessions()) {
-      // 侧聊没有独立模型配置：任务固定父会话受理时的选择，不留默认选择记录
-      if (session.modelSelection === null && this.sideParentId(session.id) === null) this.setSessionModel(session.id, selection, session.modelSelectionVersion);
-    }
-  }
-
   /** 调用方在事务中执行版本检查、整组更新及事件写入。 */
   setSessionModel(sessionId: string, selection: ModelSelection, expectedVersion: number): Session {
     const session = this.getSession(sessionId);
@@ -573,11 +509,6 @@ export class Store {
       .run(JSON.stringify(selection), modelSelectionVersion, sessionId);
     this.appendEvent({ type: "session.model_selection_changed", sessionId, modelSelection: selection, modelSelectionVersion }, { sessionId });
     return this.getSession(sessionId)!;
-  }
-
-  countLegacyQueuedTasks(sessionId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)").get(sessionId) as { n: number };
-    return Number(row.n);
   }
 
   /** 调用方在事务内执行版本检查、更新及事件写入；同值不递增版本、不发事件。 */
@@ -596,31 +527,6 @@ export class Store {
   }
 
   /**
-   * 设置会话的工作区组织归属（agent-direction issue 07）：仅组织查询与界面
-   * 展示的归属，不改会话的资料身份（projectId 仍是配置与资料来源，AccessScope、
-   * 模型工具身份与凭据范围判定不读本字段）。目标非 null 时必须是带根目录归属
-   * 的工作区项目；null 恢复未映射。同值幂等（不产生事件）。
-   * 调用方须以 withTx 包住（校验、更新与事件单一事务）。
-   */
-  mapSessionToWorkspace(sessionId: string, workspaceProjectId: string | null): Session {
-    const session = this.getSession(sessionId);
-    if (!session) throw new StoreConflictError(`会话不存在：${sessionId}`, "not_found");
-    if (session.workspaceProjectId === workspaceProjectId) return session;
-    if (workspaceProjectId !== null) {
-      const target = this.getProject(workspaceProjectId);
-      if (!target?.rootDir) {
-        throw new StoreConflictError(`工作区组织归属目标必须是带根目录归属的项目：${workspaceProjectId}`, "invalid_params");
-      }
-    }
-    this.db.prepare("UPDATE sessions SET workspace_project_id = ? WHERE id = ?").run(workspaceProjectId, sessionId);
-    this.appendEvent(
-      { type: "session.workspace_mapped", sessionId, projectId: session.projectId, workspaceProjectId },
-      { sessionId },
-    );
-    return this.getSession(sessionId)!;
-  }
-
-  /**
    * 拥有者存档或取消存档：只改列表可见性，不动资料身份、历史、任务归属或排队
    * 状态。同值幂等（不产生事件）。调用方须以 withTx 包住。
    */
@@ -634,35 +540,13 @@ export class Store {
     return this.getSession(sessionId)!;
   }
 
-  /** 与占用检查和恢复队列共享调用方事务；旧任务摘要仍为空，不伪造原始权限。 */
-  fillLegacyQueuedModelSelections(sessionId: string, selection: ModelSelection): void {
-    const rows = this.db.prepare("SELECT id FROM tasks WHERE session_id = ? AND status = 'queued' AND model_selection IS NULL AND json_type(read_scope, '$.workCopyHost') IS NULL AND request_id NOT LIKE 'work-copy-host:%' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id) ORDER BY created_at, id").all(sessionId) as Array<{ id: string }>;
-    const encoded = JSON.stringify(selection);
-    let taskIds: string[] = [];
-    let bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
-    const flush = (): void => {
-      if (taskIds.length) this.appendEvent({ type: "tasks.model_selection_recorded", sessionId, taskIds, modelSelection: selection }, { sessionId });
-      taskIds = [];
-      bytes = Buffer.byteLength(encoded) + Buffer.byteLength(sessionId) + 256;
-    };
-    for (const row of rows) {
-      const size = Buffer.byteLength(JSON.stringify(row.id)) + 1;
-      if (bytes + size > 32 * 1024) flush();
-      this.db.prepare("UPDATE tasks SET model_selection = ? WHERE id = ? AND model_selection IS NULL").run(encoded, row.id);
-      taskIds.push(row.id);
-      bytes += size;
-    }
-    flush();
-  }
-
   private rowToSession(row: any): Session {
     return {
       id: row.id,
       name: row.name ?? null,
       branchSource: row.branch_source ? JSON.parse(row.branch_source) as Session["branchSource"] : null,
       projectId: row.project_id,
-      workspaceProjectId: row.workspace_project_id ?? null,
-      kind: row.kind === "qq_group" ? "qq_group" : "dev",
+      kind: row.kind as SessionKind,
       cwd: row.cwd,
       cwdReal: row.cwd_real,
       cwdDev: Number(row.cwd_dev),
@@ -701,11 +585,9 @@ export class Store {
     resumesTaskId?: string | null;
     modelSelection: ModelSelection | null;
     submissionDigest: string;
-    /** 编排字段（issue 01）：仅编排器提交时携带；控制面提交恒为 null。 */
-    agentId?: AgentRoleId | null;
+    /** Host-derived task provenance; owner submissions leave it null. */
     parentTaskId?: string | null;
     sourcePermissionVersion?: number | null;
-    sourceEventId?: string | null;
     deadline?: string | null;
     /** SubAgent 执行关联（agent-direction issue 11）：仅集中委派登记时携带。 */
     workId?: string | null;
@@ -742,10 +624,8 @@ export class Store {
       errorMessage: null,
       historyEntryIds: [],
       resumesTaskId: input.resumesTaskId ?? null,
-      agentId: input.agentId ?? null,
       parentTaskId: input.parentTaskId ?? null,
       sourcePermissionVersion: input.sourcePermissionVersion ?? null,
-      sourceEventId: input.sourceEventId ?? null,
       deadline: input.deadline ?? null,
       resultSummary: null,
       resultRef: null,
@@ -763,9 +643,9 @@ export class Store {
          granted_paths, pending_access_mode, interrupt_reason,
          cancel_requested, effect_unknown, error_message, history_entry_ids, resumes_task_id,
          created_at, started_at, ended_at, model_selection, submission_digest,
-         agent_id, parent_task_id, source_permission_version, source_event_id, deadline, result_summary, result_ref,
+         parent_task_id, source_permission_version, deadline, result_summary, result_ref,
          work_id, sub_agent_id, read_scope, result_delivered_at, queue_order)
-         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?)`,
+         VALUES (?, ?, ?, ?, 'queued', ?, ?, 1, ?, NULL, NULL, 0, 0, NULL, '[]', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?)`,
       )
       .run(
         task.id,
@@ -779,10 +659,8 @@ export class Store {
         task.createdAt,
         JSON.stringify(task.modelSelection),
         task.submissionDigest,
-        task.agentId,
         task.parentTaskId,
         task.sourcePermissionVersion,
-        task.sourceEventId,
         task.deadline,
         task.workId,
         task.subAgentId,
@@ -1200,10 +1078,8 @@ export class Store {
       errorMessage: row.error_message,
       historyEntryIds: JSON.parse(row.history_entry_ids) as string[],
       resumesTaskId: row.resumes_task_id,
-      agentId: (row.agent_id ?? null) as AgentRoleId | null,
       parentTaskId: row.parent_task_id ?? null,
       sourcePermissionVersion: row.source_permission_version === null ? null : Number(row.source_permission_version),
-      sourceEventId: row.source_event_id ?? null,
       deadline: row.deadline ?? null,
       resultSummary: row.result_summary ?? null,
       resultRef: row.result_ref ?? null,
@@ -1228,34 +1104,6 @@ export class Store {
     return Number(info.changes) === 1;
   }
 
-  /** 调度运行的全部派生任务；委派、消息与汇总均沿实际发起任务关联。 */
-  listScheduledRunTasks(runId: string): Task[] {
-    const rows = this.db.prepare(`WITH RECURSIVE run_tasks(id) AS (
-      SELECT root_task_id FROM schedule_runs WHERE id = ? AND root_task_id IS NOT NULL
-      UNION SELECT t.id FROM tasks t JOIN run_tasks p ON t.parent_task_id = p.id
-    ) SELECT t.* FROM tasks t JOIN run_tasks r ON r.id = t.id ORDER BY t.created_at, t.id`).all(runId) as any[];
-    return rows.map((row) => this.rowToTask(row));
-  }
-
-  /** 尚未执行的定时队列只在整项运行没有未知效果或未核实占用时自动恢复。 */
-  scheduledRunCanResume(runId: string): boolean {
-    const run = this.db.prepare("SELECT r.closed_at, s.status FROM schedule_runs r JOIN schedules s ON s.id = r.schedule_id WHERE r.id = ?").get(runId) as any;
-    if (!run || run.closed_at || run.status === "canceled") return false;
-    const tasks = this.listScheduledRunTasks(runId);
-    const ids = new Set(tasks.map((task) => task.id));
-    return !tasks.some((task) => task.effectUnknown) && !this.listAllOccupancy().some((held) => held.taskId !== null && ids.has(held.taskId));
-  }
-
-  /** 只读授权核实：按来源任务亲缘查其调度运行，不取接收会话后来状态。 */
-  getScheduledRunForTask(taskId: string): { id: string; closedAt: string | null; scheduleStatus: string } | null {
-    const row = this.db.prepare(`WITH RECURSIVE ancestors(id, parent_task_id) AS (
-      SELECT id, parent_task_id FROM tasks WHERE id = ?
-      UNION SELECT t.id, t.parent_task_id FROM tasks t JOIN ancestors a ON t.id = a.parent_task_id
-    ) SELECT r.id, r.closed_at, s.status FROM ancestors a JOIN schedule_runs r ON r.root_task_id = a.id
-      JOIN schedules s ON s.id = r.schedule_id LIMIT 1`).get(taskId) as any;
-    return row ? { id: row.id, closedAt: row.closed_at, scheduleStatus: row.status } : null;
-  }
-
   /** 截止时间在 now 之前的活动任务（编排器超时巡检）。 */
   listOverdueTasks(nowIso: string): Task[] {
     const rows = this.db
@@ -1266,59 +1114,11 @@ export class Store {
     return rows.map((r) => this.rowToTask(r));
   }
 
-  /** 已到终态但结果尚未记录的角色/SubAgent 任务（启动巡检补记结果与事件）。 */
-  listRoleTasksPendingResult(): Task[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM tasks WHERE (agent_id IS NOT NULL OR sub_agent_id IS NOT NULL OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = tasks.session_id)
-           OR EXISTS (SELECT 1 FROM workflow_runs r WHERE json_extract(r.payload, '$.delivery.taskId') = tasks.id))
-           AND result_summary IS NULL AND status IN ('completed','failed','canceled','interrupted')
-           AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)
-         ORDER BY created_at, id`,
-      )
-      .all() as any[];
-    return rows.map((r) => this.rowToTask(r));
-  }
-
-  /**
-   * 终态、结果已记录、但父会话中尚无对应唤醒任务的角色/SubAgent 子任务（唤醒
-   * 投递的持久核对）：唤醒任务的请求键 wake:<childId> 即投递记录——结果已落
-   * 库而唤醒缺失（提交失败或崩溃窗口）时，启动巡检按原幂等键补发。
-   * 只有父会话绑定角色的子任务需要唤醒；dev 父会话（无角色绑定）的 SubAgent
-   * 结果经下次模型调用的资料注入送达（result_delivered_at），不产生唤醒任务，
-   * 故不再列入本清单重复巡检。已取消的工作（issue 14）同样不列入——巡检
-   * 不为它补发 wake，避免先建 wake 再由队列检查取消。
-   */
-  listRoleTasksPendingWake(): Task[] {
-    const rows = this.db
-      .prepare(
-        `SELECT t.* FROM tasks t JOIN tasks p ON p.id = t.parent_task_id
-         LEFT JOIN work_delegations d ON d.id = t.work_id
-         WHERE (t.agent_id IS NOT NULL OR t.sub_agent_id IS NOT NULL) AND t.parent_task_id IS NOT NULL
-           AND t.result_summary IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = t.id)
-           AND t.status IN ('completed','failed','canceled','interrupted')
-           AND (EXISTS (SELECT 1 FROM agent_roles r WHERE r.session_id = COALESCE(d.parent_session_id, p.session_id))
-             OR EXISTS (SELECT 1 FROM schedule_runs r WHERE r.session_id = COALESCE(d.parent_session_id, p.session_id)))
-           AND NOT EXISTS (SELECT 1 FROM tasks w WHERE w.session_id = COALESCE(d.parent_session_id, p.session_id) AND w.request_id = 'wake:' || t.id)
-           AND NOT EXISTS (SELECT 1 FROM tasks r WHERE r.parent_task_id = t.parent_task_id AND r.request_id = t.request_id || ':retry')
-           AND NOT EXISTS (SELECT 1 FROM work_delegations w2 WHERE w2.id = t.work_id AND w2.canceled_at IS NOT NULL)
-         ORDER BY t.created_at, t.id`,
-      )
-      .all() as any[];
-    return rows.map((r) => this.rowToTask(r));
-  }
-
-  /**
-   * 后台重启恢复（agent-direction issue 15）：仍未启动的 SubAgent 排队执行
-   * 任务，由恢复事务定 interrupted(backend_restart)，不自动继续也不当作新委派。
-   * 宿主固定评审任务带 source_event_id，不列入——其排队保持，由编排器按
-   * 角色会话同口径恢复子会话队列。
-   */
+  /** Unstarted child tasks become interrupted on restart; workflow recovery owns its executions. */
   listQueuedSubAgentTasks(): Task[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM tasks WHERE sub_agent_id IS NOT NULL AND status = 'queued' AND source_event_id IS NULL
+        `SELECT * FROM tasks WHERE sub_agent_id IS NOT NULL AND status = 'queued'
          AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = tasks.id)
          ORDER BY created_at, id`,
       )
@@ -1343,26 +1143,17 @@ export class Store {
     return row ? this.rowToSubAgent(row) : null;
   }
 
-  /** 会话身份（架构工单 08）：一次读出会话、角色行与 SubAgent 行并分类；会话不存在为 null。 */
+  /** Host-bound conversation identity, or null when the conversation does not exist. */
   getSessionIdentity(sessionId: string): SessionIdentity | null {
     const session = this.getSession(sessionId);
     if (!session) return null;
-    const run = this.db.prepare(
-      "SELECT r.id, r.schedule_id, r.root_task_id, s.project_id FROM schedule_runs r JOIN schedules s ON s.id = r.schedule_id WHERE r.session_id = ?",
-    ).get(sessionId) as { id: string; schedule_id: string; root_task_id: string | null; project_id: string } | undefined;
-    if (run && (!run.root_task_id || run.project_id !== session.projectId)) {
-      throw new StoreConflictError("定时执行的资料项目或根任务绑定不一致", "scheduled_binding_invalid");
-    }
     const workflow = this.db.prepare(`SELECT e.run_id, e.step_key, r.source_session_id
       FROM workflow_executions e JOIN workflow_runs r ON r.id = e.run_id JOIN tasks t ON t.id = e.task_id
       WHERE t.session_id = ? AND e.kind = 'agent' ORDER BY e.rowid DESC LIMIT 1`).get(sessionId) as
       { run_id: string; step_key: string; source_session_id: string } | undefined;
     const agent = this.getSubAgentBySession(sessionId);
     if (workflow && (!agent || agent.parentSessionId !== workflow.source_session_id)) throw new StoreConflictError("工作流步骤的来源与 SubAgent 绑定不一致", "workflow_binding_invalid");
-    return classifySession(session, this.getAgentRoleBySession(sessionId), agent, run ? {
-      runId: run.id, scheduleId: run.schedule_id, rootTaskId: run.root_task_id!, projectId: run.project_id,
-      modelSelection: this.getAgentRole("main")?.modelSelection ?? null,
-    } : null, workflow ? { runId: workflow.run_id, stepKey: workflow.step_key, sourceSessionId: workflow.source_session_id } : null, this.sideParentId(sessionId));
+    return classifySession(agent, workflow ? { runId: workflow.run_id, stepKey: workflow.step_key, sourceSessionId: workflow.source_session_id } : null, this.sideParentId(sessionId));
   }
 
   /** 侧聊绑定反查（宿主身份的唯一依据；无绑定时 null，含未发布绑定）。 */
@@ -1543,16 +1334,12 @@ export class Store {
     return rows.map((r) => this.rowToTask(r));
   }
 
-  /**
-   * 指定父用户会话的活动 SubAgent 执行任务数（委派限额；查重先于限额）。
-   * 宿主评审任务（agent-direction issue 19，带来源事件）是固定入站编排、不占
-   * 拥有者模型的委派名额。
-   */
+  /** Active delegated tasks, including unverified occupancy, count toward the parent's limit. */
   countActiveSubAgentTasks(parentSessionId: string): number {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM tasks t JOIN work_delegations w ON w.id = t.work_id
-         WHERE w.parent_session_id = ? AND t.source_event_id IS NULL
+         WHERE w.parent_session_id = ?
            AND (t.status IN ('running','awaiting_confirmation') OR
              (t.status = 'queued' AND NOT EXISTS (SELECT 1 FROM workflow_executions e WHERE e.task_id = t.id)) OR
              EXISTS (SELECT 1 FROM occupancy o WHERE o.task_id = t.id))`,
@@ -1568,14 +1355,6 @@ export class Store {
         "SELECT 1 AS x FROM events WHERE json_extract(body, '$.type') = 'work_delegation.integrated' AND json_extract(body, '$.workId') = ? LIMIT 1",
       )
       .get(workId) as any;
-    return row !== undefined;
-  }
-
-  /** 该 SubAgent 是否有源自入站事件的执行任务（issue 19 宿主评审：不可复用，见 SubAgentManager.assertAvailable）。 */
-  hasInboundSourcedSubAgentTask(subAgentId: string): boolean {
-    const row = this.db
-      .prepare("SELECT 1 AS x FROM tasks WHERE sub_agent_id = ? AND source_event_id IS NOT NULL LIMIT 1")
-      .get(subAgentId) as any;
     return row !== undefined;
   }
 
@@ -1724,64 +1503,8 @@ export class Store {
     };
   }
 
-  // ---------- 逻辑角色（issue 01；宿主管理） ----------
-
-  /** 登记角色配置（编排器引导时调用；同 id 已存在即冲突，不覆盖）。 */
-  insertAgentRole(role: AgentRole): void {
-    this.db
-      .prepare(
-        `INSERT INTO agent_roles (id, project_id, session_id, work_dir, model_selection, tools, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        role.id,
-        role.projectId,
-        role.sessionId,
-        role.workDir,
-        role.modelSelection ? JSON.stringify(role.modelSelection) : null,
-        JSON.stringify(role.tools),
-        role.createdAt,
-      );
-  }
-
-  getAgentRole(id: AgentRoleId): AgentRole | null {
-    const row = this.db.prepare("SELECT * FROM agent_roles WHERE id = ?").get(id) as any;
-    return row ? this.rowToAgentRole(row) : null;
-  }
-
-  /** 按会话反查角色（Driver 工具白名单判定；非角色会话返回 null）。 */
-  getAgentRoleBySession(sessionId: string): AgentRole | null {
-    // chat 的群绑定复用宿主 qq_sessions；角色定义仍只有一份，不共享群历史。
-    const row = this.db.prepare("SELECT * FROM agent_roles WHERE session_id = ?").get(sessionId) ?? this.db.prepare(
-      `SELECT r.id, q.project_id, q.session_id, q.work_dir, s.model_selection, r.tools, q.created_at
-       FROM qq_sessions q JOIN sessions s ON s.id = q.session_id AND s.kind = 'qq_group'
-       JOIN agent_roles r ON r.id = 'chat' WHERE q.session_id = ?`,
-    ).get(sessionId);
-    return row ? this.rowToAgentRole(row) : null;
-  }
-
-  listAgentRoles(): AgentRole[] {
-    const rows = this.db.prepare("SELECT * FROM agent_roles ORDER BY created_at, id").all() as any[];
-    return rows.map((r) => this.rowToAgentRole(r));
-  }
-
-  private rowToAgentRole(row: any): AgentRole {
-    return {
-      id: row.id as AgentRoleId,
-      projectId: row.project_id,
-      sessionId: row.session_id,
-      workDir: row.work_dir,
-      modelSelection: row.model_selection ? (JSON.parse(row.model_selection) as ModelSelection) : null,
-      tools: JSON.parse(row.tools) as ToolCategory[],
-      createdAt: row.created_at,
-    };
-  }
-
-  /**
-   * 提供方引用计数（删除 provider 前的悬空检查，issue 21 §4）：
-   * 统计 model_selection JSON 中引用该 provider 的会话与逻辑角色数。
-   */
-  countProviderReferences(provider: string, modelId?: string): { sessions: number; roles: number } {
+  /** Current conversation model references prevent removal of an in-use provider or model. */
+  countProviderReferences(provider: string, modelId?: string): { sessions: number } {
     const matches = (json: string | null): boolean => {
       if (!json) return false;
       try {
@@ -1792,14 +1515,12 @@ export class Store {
       }
     };
     const sessionRows = this.db.prepare("SELECT model_selection FROM sessions WHERE model_selection IS NOT NULL").all() as Array<{ model_selection: string }>;
-    const roleRows = this.db.prepare("SELECT model_selection FROM agent_roles WHERE model_selection IS NOT NULL").all() as Array<{ model_selection: string }>;
     return {
       sessions: sessionRows.filter((r) => matches(r.model_selection)).length,
-      roles: roleRows.filter((r) => matches(r.model_selection)).length,
     };
   }
 
-  // ---------- 元数据键值（应用数据实例绑定等宿主登记） ----------
+  // ---------- Host metadata ----------
 
   getMetaValue(key: string): string | null {
     const row = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
@@ -1810,281 +1531,6 @@ export class Store {
     this.db
       .prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(key, value);
-  }
-
-  // ---------- 群聊结果接收（issue 09） ----------
-
-  getAcceptedChatResult(mainProjectId: string, taskId: string): AcceptedChatResult | null {
-    const row = this.db.prepare("SELECT * FROM chat_result_acceptances WHERE main_project_id = ? AND task_id = ?").get(mainProjectId, taskId) as any;
-    return row ? {
-      taskId: row.task_id, mainProjectId: row.main_project_id, acceptedByTaskId: row.accepted_by_task_id,
-      acceptedByOpId: row.accepted_by_op_id, reason: row.reason, summary: row.summary, acceptedAt: row.accepted_at,
-    } : null;
-  }
-
-  /** 归档视图兜底（issue 20）：main 角色缺失时按任务反查接收账本，不误报为未接收。 */
-  getAcceptedChatResultForTask(taskId: string): AcceptedChatResult | null {
-    const row = this.db.prepare("SELECT * FROM chat_result_acceptances WHERE task_id = ? ORDER BY accepted_at, main_project_id LIMIT 1").get(taskId) as any;
-    return row ? {
-      taskId: row.task_id, mainProjectId: row.main_project_id, acceptedByTaskId: row.accepted_by_task_id,
-      acceptedByOpId: row.accepted_by_op_id, reason: row.reason, summary: row.summary, acceptedAt: row.accepted_at,
-    } : null;
-  }
-
-  /** 调用方在事务内核实 main 身份与来源后写入；首次快照固定，重复接收不改写。 */
-  acceptChatResult(input: Omit<AcceptedChatResult, "acceptedAt">): AcceptedChatResult {
-    const acceptedAt = new Date().toISOString();
-    const inserted = this.db.prepare(
-      `INSERT INTO chat_result_acceptances (main_project_id, task_id, accepted_by_task_id, accepted_by_op_id, reason, summary, accepted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (main_project_id, task_id) DO NOTHING`,
-    ).run(input.mainProjectId, input.taskId, input.acceptedByTaskId, input.acceptedByOpId, input.reason, input.summary, acceptedAt);
-    if (Number(inserted.changes) === 1) this.appendEvent({
-      type: "chat_result.accepted", taskId: input.taskId, acceptedByTaskId: input.acceptedByTaskId, acceptedByOpId: input.acceptedByOpId,
-    }, { taskId: input.acceptedByTaskId });
-    return this.getAcceptedChatResult(input.mainProjectId, input.taskId)!;
-  }
-
-  chatResultOpCommitted(opId: string): boolean {
-    // 重复接收沿用首次记录；停止/恢复时也能核实“已接收”的只读重复调用。
-    return this.db.prepare(
-      `SELECT 1 FROM chat_result_acceptances WHERE accepted_by_op_id = ?1
-       UNION ALL SELECT 1 FROM tool_ops o JOIN tasks owner_task ON owner_task.id = o.task_id
-       JOIN sessions s ON s.id = owner_task.session_id
-       JOIN chat_result_acceptances a ON a.main_project_id = s.project_id AND a.task_id = json_extract(o.params, '$.task_id')
-       WHERE o.id = ?1 AND o.tool_name = 'chat_result_accept' LIMIT 1`,
-    ).get(opId) !== undefined;
-  }
-
-  // ---------- 入站事件（issue 01；先持久化再建任务） ----------
-
-  /**
-   * 登记入站事件（幂等）：(source, externalId) 唯一；重复登记返回已存在
-   * 事件（created=false），不产生新事件、不新建任务。
-   */
-  registerInboundEvent(input: {
-    source: string;
-    externalId: string;
-    actor: string | null;
-    targetRole: AgentRoleId;
-    body: string;
-    artifactRefs?: string[];
-    replyTarget?: NotifyTarget | null;
-    receivedAt?: string;
-    /** 宿主写定类别（默认 task；IM 审批控制消息用 im_approval，不派发模型任务）。 */
-    eventKind?: InboundEventKind;
-    /** 控制消息在同步事务内直接到终态（agent-direction issue 08）；普通入站不得使用。 */
-    terminal?: "done" | "failed";
-  }): { event: InboundEvent; created: boolean } {
-    const event: InboundEvent = {
-      id: randomId("evt"),
-      source: input.source,
-      externalId: input.externalId,
-      actor: input.actor,
-      targetRole: input.targetRole,
-      body: input.body,
-      artifactRefs: input.artifactRefs ?? [],
-      replyTarget: input.replyTarget ?? null,
-      receivedAt: input.receivedAt ?? new Date().toISOString(),
-      eventKind: input.eventKind ?? "task",
-      status: input.terminal ?? "registered",
-      taskId: null,
-    };
-    const info = this.db
-      .prepare(
-        `INSERT INTO inbound_events (id, source, external_id, actor, target_role, body, artifact_refs, reply_target, received_at, event_kind, status, task_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-         ON CONFLICT (source, external_id) DO NOTHING`,
-      )
-      .run(
-        event.id,
-        event.source,
-        event.externalId,
-        event.actor,
-        event.targetRole,
-        event.body,
-        JSON.stringify(event.artifactRefs),
-        event.replyTarget ? JSON.stringify(event.replyTarget) : null,
-        event.receivedAt,
-        event.eventKind,
-        event.status,
-      );
-    if (Number(info.changes) !== 1) {
-      return { event: this.findInboundEvent(input.source, input.externalId)!, created: false };
-    }
-    this.appendEvent({
-      type: "inbound.registered",
-      eventId: event.id,
-      source: event.source,
-      externalId: event.externalId,
-      targetRole: event.targetRole,
-      actor: event.actor,
-    });
-    return { event, created: true };
-  }
-
-  getInboundEvent(id: string): InboundEvent | null {
-    const row = this.db.prepare("SELECT * FROM inbound_events WHERE id = ?").get(id) as any;
-    return row ? this.rowToInboundEvent(row) : null;
-  }
-
-  findInboundEvent(source: string, externalId: string): InboundEvent | null {
-    const row = this.db
-      .prepare("SELECT * FROM inbound_events WHERE source = ? AND external_id = ?")
-      .get(source, externalId) as any;
-    return row ? this.rowToInboundEvent(row) : null;
-  }
-
-  listInboundByStatus(statuses: InboundEventStatus[]): InboundEvent[] {
-    const placeholders = statuses.map(() => "?").join(",");
-    const rows = this.db
-      .prepare(`SELECT * FROM inbound_events WHERE status IN (${placeholders}) ORDER BY received_at, rowid`)
-      .all(...statuses) as any[];
-    return rows.map((r) => this.rowToInboundEvent(r));
-  }
-
-  /** 事件已建任务（registered → queued 条件转换；重复处理不覆盖原任务）。 */
-  markInboundQueued(eventId: string, taskId: string): boolean {
-    const info = this.db
-      .prepare("UPDATE inbound_events SET status = 'queued', task_id = ? WHERE id = ? AND status = 'registered'")
-      .run(taskId, eventId);
-    if (Number(info.changes) !== 1) return false;
-    const event = this.getInboundEvent(eventId)!;
-    this.appendEvent(
-      { type: "inbound.queued", eventId, taskId, targetRole: event.targetRole },
-      { taskId, sessionId: null },
-    );
-    return true;
-  }
-
-  /** 已登记未建任务的事件作废（registered → failed；issue 03 取消计划：恢复与派发都不再建任务）。 */
-  failRegisteredInbound(eventId: string): boolean {
-    const info = this.db.prepare("UPDATE inbound_events SET status = 'failed' WHERE id = ? AND status = 'registered'").run(eventId);
-    return Number(info.changes) === 1;
-  }
-
-  /** 事件处理终态（queued → done / failed；不覆盖已定的终态）。 */
-  setInboundTerminal(eventId: string, status: "done" | "failed"): boolean {
-    const info = this.db
-      .prepare("UPDATE inbound_events SET status = ? WHERE id = ? AND status = 'queued'")
-      .run(status, eventId);
-    return Number(info.changes) === 1;
-  }
-
-  private rowToInboundEvent(row: any): InboundEvent {
-    return {
-      id: row.id,
-      source: row.source,
-      externalId: row.external_id,
-      actor: row.actor ?? null,
-      targetRole: row.target_role as AgentRoleId,
-      body: row.body,
-      artifactRefs: JSON.parse(row.artifact_refs ?? "[]") as string[],
-      replyTarget: row.reply_target ? JSON.parse(row.reply_target) as NotifyTarget : null,
-      receivedAt: row.received_at,
-      eventKind: (row.event_kind ?? "task") as InboundEventKind,
-      status: row.status as InboundEventStatus,
-      taskId: row.task_id ?? null,
-    };
-  }
-
-  // ---------- 入站图片暂存：不属于普通入站事件或任务产物 ----------
-
-  createInboundMediaMessage(input: {
-    source: string; externalId: string; actor: string | null; body: string;
-    replyTarget: NotifyTarget | null; receivedAt: string; mediaCount: number;
-  }): InboundMediaMessage {
-    const now = new Date().toISOString();
-    this.db.prepare(`INSERT INTO inbound_media_messages
-      (id, source, external_id, actor, body, reply_target, received_at, media_count, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?) ON CONFLICT (source, external_id) DO NOTHING`)
-      .run(randomId("imm"), input.source, input.externalId, input.actor, input.body,
-        input.replyTarget ? JSON.stringify(input.replyTarget) : null, input.receivedAt, input.mediaCount, now, now);
-    return this.findInboundMediaMessage(input.source, input.externalId)!;
-  }
-
-  getInboundMediaMessage(id: string): InboundMediaMessage | null {
-    const row = this.db.prepare("SELECT * FROM inbound_media_messages WHERE id = ?").get(id) as any;
-    return row ? this.rowToInboundMediaMessage(row) : null;
-  }
-
-  findInboundMediaMessage(source: string, externalId: string): InboundMediaMessage | null {
-    const row = this.db.prepare("SELECT * FROM inbound_media_messages WHERE source = ? AND external_id = ?").get(source, externalId) as any;
-    return row ? this.rowToInboundMediaMessage(row) : null;
-  }
-
-  listInboundMediaMessages(statuses?: InboundMediaMessageStatus[]): InboundMediaMessage[] {
-    const rows = statuses
-      ? this.db.prepare(`SELECT * FROM inbound_media_messages WHERE status IN (${statuses.map(() => "?").join(",")}) ORDER BY created_at, rowid`).all(...statuses)
-      : this.db.prepare("SELECT * FROM inbound_media_messages ORDER BY created_at, rowid").all();
-    return (rows as any[]).map((row) => this.rowToInboundMediaMessage(row));
-  }
-
-  setInboundMediaMessageState(id: string, status: InboundMediaMessageStatus, reason: string | null = null): void {
-    this.db.prepare("UPDATE inbound_media_messages SET status = ?, reason = ?, updated_at = ? WHERE id = ? AND status IN ('staging','ready')")
-      .run(status, reason, new Date().toISOString(), id);
-  }
-
-  createInboundMedia(message: InboundMediaMessage, mediaIndex: number, declaredMime: string | null): InboundMedia {
-    const id = randomId("med");
-    const now = new Date().toISOString();
-    this.db.prepare(`INSERT INTO inbound_media (id, message_id, source, external_id, media_index, declared_mime, file_name, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT (source, external_id, media_index) DO NOTHING`)
-      .run(id, message.id, message.source, message.externalId, mediaIndex, declaredMime, `${id}.bin`, now, now);
-    return this.listInboundMedia(message.id).find((row) => row.mediaIndex === mediaIndex)!;
-  }
-
-  listInboundMedia(messageId: string): InboundMedia[] {
-    return (this.db.prepare("SELECT * FROM inbound_media WHERE message_id = ? ORDER BY media_index").all(messageId) as any[])
-      .map((row): InboundMedia => ({ id: row.id, messageId: row.message_id, source: row.source,
-        externalId: row.external_id, mediaIndex: Number(row.media_index), declaredMime: row.declared_mime,
-        mimeType: row.mime_type, byteCount: Number(row.byte_count), contentHash: row.content_hash, fileName: row.file_name,
-        status: row.status, reason: row.reason, eventId: row.event_id, taskId: row.task_id,
-        artifactId: row.artifact_id, createdAt: row.created_at, updatedAt: row.updated_at }));
-  }
-
-  setInboundMediaDownloading(id: string, declaredMime: string): void {
-    this.db.prepare("UPDATE inbound_media SET status = 'downloading', declared_mime = ?, updated_at = ? WHERE id = ? AND status IN ('pending','downloading')")
-      .run(declaredMime, new Date().toISOString(), id);
-  }
-
-  setInboundMediaReady(id: string, input: { mimeType: ImageMimeType; byteCount: number; contentHash: string }): void {
-    this.db.prepare("UPDATE inbound_media SET status = 'ready', mime_type = ?, byte_count = ?, content_hash = ?, updated_at = ? WHERE id = ? AND status IN ('pending','downloading','ready')")
-      .run(input.mimeType, input.byteCount, input.contentHash, new Date().toISOString(), id);
-  }
-
-  rejectInboundMedia(messageId: string, reason: string, expired = false): void {
-    const status = expired ? "expired" : "rejected";
-    this.setInboundMediaMessageState(messageId, status, reason);
-    this.db.prepare("UPDATE inbound_media SET status = ?, reason = ?, updated_at = ? WHERE message_id = ? AND task_id IS NULL")
-      .run(status, reason, new Date().toISOString(), messageId);
-  }
-
-  attachInboundMediaEvent(messageId: string, eventId: string): void {
-    this.db.prepare("UPDATE inbound_media_messages SET event_id = ?, updated_at = ? WHERE id = ? AND (event_id IS NULL OR event_id = ?)")
-      .run(eventId, new Date().toISOString(), messageId, eventId);
-    this.db.prepare("UPDATE inbound_media SET event_id = ?, updated_at = ? WHERE message_id = ? AND (event_id IS NULL OR event_id = ?)")
-      .run(eventId, new Date().toISOString(), messageId, eventId);
-  }
-
-  /** 与宿主建任务的事务共同提交；文件已准备好，任何引用都不会指向未定稿产物。 */
-  bindInboundMedia(messageId: string, eventId: string, taskId: string, artifactRefs: string[]): void {
-    const rows = this.listInboundMedia(messageId);
-    if (rows.length !== artifactRefs.length) throw new Error("入站图片归属数量不一致");
-    this.db.prepare("UPDATE inbound_events SET artifact_refs = ? WHERE id = ? AND task_id = ?").run(JSON.stringify(artifactRefs), eventId, taskId);
-    this.db.prepare("UPDATE inbound_media_messages SET status = 'bound', event_id = ?, task_id = ?, updated_at = ? WHERE id = ? AND status IN ('ready','bound')")
-      .run(eventId, taskId, new Date().toISOString(), messageId);
-    for (const [index, row] of rows.entries()) {
-      this.db.prepare("UPDATE inbound_media SET status = 'promoted', event_id = ?, task_id = ?, artifact_id = ?, updated_at = ? WHERE id = ? AND status IN ('ready','promoted')")
-        .run(eventId, taskId, artifactRefs[index]!, new Date().toISOString(), row.id);
-    }
-  }
-
-  private rowToInboundMediaMessage(row: any): InboundMediaMessage {
-    return { id: row.id, source: row.source, externalId: row.external_id, actor: row.actor,
-      body: row.body, replyTarget: row.reply_target ? JSON.parse(row.reply_target) : null,
-      receivedAt: row.received_at, mediaCount: Number(row.media_count),
-      mediaRefs: this.listInboundMedia(row.id).map((media) => media.id), status: row.status, reason: row.reason,
-      eventId: row.event_id, taskId: row.task_id, createdAt: row.created_at, updatedAt: row.updated_at };
   }
 
   // ---------- 访问模式与权限版本 ----------
@@ -2172,8 +1618,6 @@ export class Store {
       reviewModel: input.review?.model ?? null,
       reviewPolicyVersion: input.review?.policyVersion ?? null,
       decisionSource: null,
-      standingPermissionId: null,
-      standingPermissionVersion: null,
     };
     this.db
       .prepare(
@@ -2353,346 +1797,6 @@ export class Store {
       .run(new Date().toISOString(), id);
   }
 
-  /**
-   * 初始已批准记录（agent-direction issue 10 长期授权窄路径）：命中有效授权时宿主
-   * 为本次执行创建的独立批准——不发布 task.awaiting_confirmation、任务保持 running、
-   * 不启动自动审查；与单次消费在同一事务提交（调用方已核实完整范围再调用本方法；
-   * 后续任何一步失败由调用方事务整体回滚）。
-   */
-  insertApprovedConfirmation(input: {
-    taskId: string;
-    sessionId: string;
-    toolOpId: string;
-    toolName: string;
-    params: Record<string, unknown>;
-    scope: ApprovalScope;
-    permissionVersion: number;
-    standingPermissionId: string;
-    standingPermissionVersion: number;
-  }): ConfirmationRequest {
-    const session = this.getSession(input.sessionId);
-    const now = new Date().toISOString();
-    const confirmation: ConfirmationRequest = {
-      id: randomId("conf"),
-      taskId: input.taskId,
-      sessionId: input.sessionId,
-      toolOpId: input.toolOpId,
-      toolName: input.toolName,
-      params: input.params,
-      scope: input.scope,
-      cwdDev: session?.cwdDev ?? 0,
-      cwdIno: session?.cwdIno ?? 0,
-      permissionVersion: input.permissionVersion,
-      status: "approved",
-      createdAt: now,
-      respondedAt: now,
-      consumedAt: null,
-      reviewStatus: null,
-      reviewDecision: null,
-      reviewReason: null,
-      reviewModel: null,
-      reviewPolicyVersion: null,
-      decisionSource: "standing_permission",
-      standingPermissionId: input.standingPermissionId,
-      standingPermissionVersion: input.standingPermissionVersion,
-    };
-    this.db
-      .prepare(
-        `INSERT INTO confirmations (id, task_id, session_id, tool_op_id, tool_name, params, scope, cwd_dev, cwd_ino, permission_version, status, created_at, responded_at, consumed_at,
-         decision_source, standing_permission_id, standing_permission_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL, 'standing_permission', ?, ?)`,
-      )
-      .run(
-        confirmation.id,
-        confirmation.taskId,
-        confirmation.sessionId,
-        confirmation.toolOpId,
-        confirmation.toolName,
-        JSON.stringify(confirmation.params),
-        JSON.stringify(confirmation.scope),
-        confirmation.cwdDev,
-        confirmation.cwdIno,
-        confirmation.permissionVersion,
-        confirmation.createdAt,
-        confirmation.respondedAt,
-        confirmation.standingPermissionId,
-        confirmation.standingPermissionVersion,
-      );
-    return confirmation;
-  }
-
-  /**
-   * 决定同事务内关联长期授权（agent-direction issue 10）：批准来源记为
-   * standing_permission 并钉版授权 ID/版本；消费时在公共消费处重读授权。
-   */
-  linkConfirmationStanding(confirmationId: string, standingPermissionId: string, standingPermissionVersion: number): void {
-    this.db
-      .prepare(
-        "UPDATE confirmations SET decision_source = 'standing_permission', standing_permission_id = ?, standing_permission_version = ? WHERE id = ? AND status = 'approved'",
-      )
-      .run(standingPermissionId, standingPermissionVersion, confirmationId);
-  }
-
-  /** 某长期授权的独立批准/使用记录（详情展示；新 → 旧，有界）。 */
-  listConfirmationsByStanding(standingPermissionId: string, limit = 20): ConfirmationRequest[] {
-    const cap = Math.min(Math.max(1, limit), 100);
-    const rows = this.db
-      .prepare("SELECT * FROM confirmations WHERE standing_permission_id = ? ORDER BY created_at DESC, id DESC LIMIT ?")
-      .all(standingPermissionId, cap) as any[];
-    return rows.map((r) => this.rowToConfirmation(r));
-  }
-
-  // ---------- 长期操作授权（agent-direction issue 10） ----------
-
-  /**
-   * 保存长期授权（调用方事务内，与决定/审计事件/控制事件终态/回执同事务提交）。
-   * 范围不可变：同目标未撤销授权已由数据库部分唯一索引拦截，来源审批只能建一次
-   * 授权（approval_id UNIQUE；旧命令重投不能重新建授权），冲突抛 StoreConflictError。
-   */
-  createStandingPermission(input: {
-    sessionId: string;
-    projectId: string;
-    machineId: string;
-    unit: string;
-    action: "restart";
-    policyRevision: string;
-    unitRevision: string;
-    channel: string;
-    account: string;
-    chatId: string;
-    actor: string;
-    pinnedTarget: NotifyTarget;
-    approvalId: string;
-    createdByEventId: string;
-  }): StandingPermission {
-    const permission: StandingPermission = {
-      id: randomId("sp"),
-      version: 1,
-      sessionId: input.sessionId,
-      projectId: input.projectId,
-      machineId: input.machineId,
-      unit: input.unit,
-      action: input.action,
-      policyRevision: input.policyRevision,
-      unitRevision: input.unitRevision,
-      channel: input.channel,
-      account: input.account,
-      chatId: input.chatId,
-      actor: input.actor,
-      pinnedTarget: input.pinnedTarget,
-      approvalId: input.approvalId,
-      createdByEventId: input.createdByEventId,
-      createdAt: new Date().toISOString(),
-      revokedAt: null,
-      revokedReason: null,
-    };
-    try {
-      this.db
-        .prepare(
-          `INSERT INTO standing_permissions (id, version, session_id, project_id, machine_id, unit, action,
-           policy_revision, unit_revision, channel, account, chat_id, actor, pinned_target,
-           approval_id, created_by_event_id, created_at)
-           VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          permission.id,
-          permission.sessionId,
-          permission.projectId,
-          permission.machineId,
-          permission.unit,
-          permission.action,
-          permission.policyRevision,
-          permission.unitRevision,
-          permission.channel,
-          permission.account,
-          permission.chatId,
-          permission.actor,
-          JSON.stringify(permission.pinnedTarget),
-          permission.approvalId,
-          permission.createdByEventId,
-          permission.createdAt,
-        );
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
-        throw new StoreConflictError("本目标已有有效长期授权，或来源审批已建过授权；不得重复保存", "duplicate");
-      }
-      throw err;
-    }
-    this.appendEvent(
-      {
-        type: "standing_permission.created",
-        permissionId: permission.id,
-        approvalId: permission.approvalId,
-        eventId: permission.createdByEventId,
-        sessionId: permission.sessionId,
-        channel: permission.channel,
-        account: permission.account,
-        chatId: permission.chatId,
-        actor: permission.actor,
-        machineId: permission.machineId,
-        unit: permission.unit,
-        action: permission.action,
-      },
-      { sessionId: permission.sessionId },
-    );
-    return permission;
-  }
-
-  getStandingPermission(id: string): StandingPermission | null {
-    const row = this.db.prepare("SELECT * FROM standing_permissions WHERE id = ?").get(id) as any;
-    return row ? this.rowToStandingPermission(row) : null;
-  }
-
-  /** 全部未撤销授权（宿主内部核实；展示分页请用 listStandingPermissionsPaged）。 */
-  listActiveStandingPermissions(): StandingPermission[] {
-    const rows = this.db.prepare("SELECT * FROM standing_permissions WHERE revoked_at IS NULL ORDER BY created_at, id").all() as any[];
-    return rows.map((r) => this.rowToStandingPermission(r));
-  }
-
-  /**
-   * 使用资格候选（issue 10）：按 main、入口稳定身份、本机、单元与固定动作查找
-   * 未撤销授权（至多一条，部分唯一索引保证）。候选不是执行依据：目标代次与
-   * 策略/单元修订由调用方在消费事务内逐项核实。
-   */
-  findStandingCandidate(input: {
-    sessionId: string;
-    channel: string;
-    account: string;
-    chatId: string;
-    actor: string;
-    machineId: string;
-    unit: string;
-    action: "restart";
-  }): StandingPermission | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM standing_permissions
-         WHERE session_id = ? AND channel = ? AND account = ? AND chat_id = ? AND actor = ?
-           AND machine_id = ? AND unit = ? AND action = ? AND revoked_at IS NULL`,
-      )
-      .get(input.sessionId, input.channel, input.account, input.chatId, input.actor, input.machineId, input.unit, input.action) as any;
-    return row ? this.rowToStandingPermission(row) : null;
-  }
-
-  /**
-   * 长期授权分页列表（新 → 旧，键集分页；before 为上一页最后一条的 id）。
-   * 可选按入口稳定身份过滤（IM 目录只看本入口自己的授权）。
-   */
-  listStandingPermissionsPaged(
-    opts: { before?: string; limit?: number; channel?: string; account?: string; chatId?: string; actor?: string } = {},
-  ): { items: StandingPermission[]; hasMore: boolean } {
-    const limit = Math.min(Math.max(1, opts.limit ?? 50), 200);
-    const filters: string[] = [];
-    const values: unknown[] = [];
-    if (opts.channel !== undefined) {
-      filters.push("channel = ?", "account = ?", "chat_id = ?", "actor = ?");
-      values.push(opts.channel, opts.account, opts.chatId, opts.actor);
-    }
-    if (opts.before !== undefined) {
-      const cursor = this.getStandingPermission(opts.before);
-      if (!cursor) throw new StoreConflictError(`分页游标授权不存在：${opts.before}`, "invalid_cursor");
-      filters.push("(created_at < ? OR (created_at = ? AND id < ?))");
-      values.push(cursor.createdAt, cursor.createdAt, cursor.id);
-    }
-    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-    const rows = this.db
-      .prepare(`SELECT * FROM standing_permissions ${where} ORDER BY created_at DESC, id DESC LIMIT ?`)
-      .all(...(values as any[]), limit + 1) as any[];
-    const hasMore = rows.length > limit;
-    return { items: rows.slice(0, limit).map((r) => this.rowToStandingPermission(r)), hasMore };
-  }
-
-  /**
-   * 撤销长期授权（条件更新：ID + 期望版本 + 未撤销；递增版本并保留记录）。
-   * 已撤销的是幂等返回（重复撤销不再次变更、不产生事件）；版本不符抛 version_conflict。
-   * 调用方事务内与审计事件、控制事件终态与回执同事务提交。
-   */
-  revokeStandingPermission(id: string, expectedVersion: number): { permission: StandingPermission; changed: boolean } {
-    const current = this.getStandingPermission(id);
-    if (!current) throw new StoreConflictError(`长期授权不存在：${id}`, "not_found");
-    if (current.revokedAt !== null) return { permission: current, changed: false };
-    if (current.version !== expectedVersion) {
-      throw new StoreConflictError(
-        `长期授权版本已变化（当前 v${current.version}，请求 v${expectedVersion}）：请刷新详情后重新决定`,
-        "version_conflict",
-      );
-    }
-    const changed = this.invalidateStandingRow(current, "owner_revoked", {});
-    return { permission: this.getStandingPermission(id)!, changed };
-  }
-
-  /**
-   * 目标效果未知（issue 10 §3）：同一 main、本机、单元与动作的所有有效长期授权
-   * 失效（覆盖所有入口；另一平台的授权同样失效）。调用方事务内与效果未知登记
-   * 同事务提交；返回失效的授权 id。
-   */
-  invalidateStandingForTarget(input: { sessionId: string; machineId: string; unit: string; action: "restart"; opId: string }): string[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM standing_permissions
-         WHERE session_id = ? AND machine_id = ? AND unit = ? AND action = ? AND revoked_at IS NULL`,
-      )
-      .all(input.sessionId, input.machineId, input.unit, input.action) as any[];
-    const invalidated: string[] = [];
-    for (const row of rows) {
-      if (this.invalidateStandingRow(this.rowToStandingPermission(row), "effect_unknown", { opId: input.opId })) invalidated.push(row.id);
-    }
-    return invalidated;
-  }
-
-  /**
-   * 经核实后的明确失效（非撤销）：入口代次/身份变化（entry_changed）或策略/单元
-   * 修订不符（revision_changed）；与撤销共用版本递增与保留记录的边界。
-   */
-  invalidateStandingPermission(id: string, reason: "entry_changed" | "revision_changed"): boolean {
-    const current = this.getStandingPermission(id);
-    if (!current || current.revokedAt !== null) return false;
-    return this.invalidateStandingRow(current, reason, {});
-  }
-
-  /** 单行条件失效：版本递增 + 审计事件；已撤销不误报（返回 false）。 */
-  private invalidateStandingRow(
-    current: StandingPermission,
-    reason: "owner_revoked" | "effect_unknown" | "entry_changed" | "revision_changed",
-    extra: { opId?: string },
-  ): boolean {
-    const info = this.db
-      .prepare(
-        "UPDATE standing_permissions SET version = ?, revoked_at = ?, revoked_reason = ? WHERE id = ? AND version = ? AND revoked_at IS NULL",
-      )
-      .run(current.version + 1, new Date().toISOString(), reason, current.id, current.version);
-    if (Number(info.changes) !== 1) return false;
-    this.appendEvent(
-      { type: "standing_permission.revoked", permissionId: current.id, version: current.version + 1, reason, ...(extra.opId ? { opId: extra.opId } : {}) },
-      { sessionId: current.sessionId },
-    );
-    return true;
-  }
-
-  private rowToStandingPermission(row: any): StandingPermission {
-    return {
-      id: row.id,
-      version: Number(row.version),
-      sessionId: row.session_id,
-      projectId: row.project_id,
-      machineId: row.machine_id,
-      unit: row.unit,
-      action: row.action,
-      policyRevision: row.policy_revision,
-      unitRevision: row.unit_revision,
-      channel: row.channel,
-      account: row.account,
-      chatId: row.chat_id,
-      actor: row.actor,
-      pinnedTarget: JSON.parse(row.pinned_target) as NotifyTarget,
-      approvalId: row.approval_id,
-      createdByEventId: row.created_by_event_id,
-      createdAt: row.created_at,
-      revokedAt: row.revoked_at ?? null,
-      revokedReason: row.revoked_reason ?? null,
-    };
-  }
-
   private rowToConfirmation(row: any): ConfirmationRequest {
     return {
       id: row.id,
@@ -2715,8 +1819,6 @@ export class Store {
       reviewModel: row.review_model ?? null,
       reviewPolicyVersion: row.review_policy_version ?? null,
       decisionSource: (row.decision_source ?? null) as ConfirmationRequest["decisionSource"],
-      standingPermissionId: row.standing_permission_id ?? null,
-      standingPermissionVersion: row.standing_permission_version === null || row.standing_permission_version === undefined ? null : Number(row.standing_permission_version),
     };
   }
 
@@ -3005,11 +2107,9 @@ export class Store {
     return Number(row.max);
   }
 
-  /** 拥有者输入的接受顺序；IM 沿原消息登记，异步准备后排队不成为新消息。 */
-  getTaskInputSeq(task: Pick<Task, "id" | "sourceEventId">): number | null {
-    const row = task.sourceEventId
-      ? this.db.prepare("SELECT MIN(seq) AS seq FROM events WHERE json_extract(body, '$.type') = 'inbound.registered' AND json_extract(body, '$.eventId') = ?").get(task.sourceEventId)
-      : this.db.prepare("SELECT MIN(seq) AS seq FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.queued'").get(task.id);
+  /** The original owner-input admission sequence, retained across derived execution. */
+  getTaskInputSeq(task: Pick<Task, "id">): number | null {
+    const row = this.db.prepare("SELECT MIN(seq) AS seq FROM events WHERE task_id = ? AND json_extract(body, '$.type') = 'task.queued'").get(task.id);
     const seq = (row as { seq: number | null }).seq;
     return seq === null ? null : Number(seq);
   }

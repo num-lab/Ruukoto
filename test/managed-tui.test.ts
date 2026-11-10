@@ -14,14 +14,13 @@ import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
 import { ManagedChat } from "@ruukoto/tui/tui/managed-chat.ts";
 import { loadReloadState } from "@ruukoto/tui/tui/reload-state.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
 import { startTestRuntime, waitFor, type TestRuntime } from "./helpers/testkit.ts";
 
 const selection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" as const };
 const flush = () => new Promise(resolve => setTimeout(resolve, 80));
 const workspaces = (t: TestRuntime) => t.runtime.store.listProjects().filter(project => project.rootDir);
-const chats = (t: TestRuntime) => t.runtime.store.listSessions().filter(session => !t.runtime.store.listAgentRoles().some(role => role.sessionId === session.id));
+const chats = (t: TestRuntime) => t.runtime.store.listSessions();
 const editor = (app: TuiApp) => Reflect.get(app, "editor") as { getExpandedText(): string; setText(text: string): void };
 const managedChat = (app: TuiApp) => Reflect.get(app, "managedChat") as ManagedChat;
 const tui = (app: TuiApp) => Reflect.get(app, "tui") as { getFocusedComponent(): unknown };
@@ -29,7 +28,7 @@ const tui = (app: TuiApp) => Reflect.get(app, "tui") as { getFocusedComponent():
 async function startApp(t: TestRuntime, pendingDir = path.join(t.dirs.root, "managed-tui-pending"), intercept?: (client: ControlClient) => void, sessionId?: string, reloadStateFile?: string) {
   const state = new ViewState(), terminal = new FakeTerminal();
   let app: TuiApp, exited = false;
-  const connection = new ControlConnection({ socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())!,
+  const connection = new ControlConnection({ profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())!,
     reconnectInitialMs: 20, reconnectMaxMs: 50,
     clientFactory: async (socket, timeout) => { const client = await ControlClient.connect(socket, timeout); intercept?.(client); return client; },
   }, { onState: (s, d) => app?.onConnectionState(s, d), onSnapshot: (r, c) => app?.onSnapshot(r, c), onEvent: (e, k) => app?.onEvent(e, k) });
@@ -48,9 +47,7 @@ async function selectManaged(h: Awaited<ReturnType<typeof startApp>>) {
 }
 
 test("fresh Coding TUI opens a local No workspace draft with model/mode controls, then creates on first send", async () => {
-  const previous = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime("managed-tui-fresh", () => ({ kind: "text", text: "managed response" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-fresh", () => ({ kind: "text", text: "managed response" }), { workDirs: 0 });
   const apps: TuiApp[] = [];
   try {
     const writes: string[] = [];
@@ -104,15 +101,12 @@ test("fresh Coding TUI opens a local No workspace draft with model/mode controls
     assert.equal(workspaces(t).length, 2);
   } finally {
     for (const app of apps) app.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });
 
 test("ordinary workspace /new still creates a session in the selected workspace and retains its draft", async () => {
-  const previous = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime("managed-tui-ordinary", () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-ordinary", () => ({ kind: "text", text: "ok" }));
   let app: TuiApp | undefined;
   try {
     const original = (await t.runtime.openWorkspace({ cwd: t.work[0] })).session;
@@ -126,13 +120,12 @@ test("ordinary workspace /new still creates a session in the selected workspace 
     assert.equal(fs.existsSync(path.join(t.dirs.root, "workspace")), false);
   } finally {
     app?.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });
 
 test("managed first-send creation loss and rejected submission restore the original keys without sending on restart", async () => {
-  const t = await startTestRuntime("managed-tui-retry", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-retry", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   try {
     const keys: string[] = [];
     let loseCreation = true, rejectSubmit = true;
@@ -173,7 +166,7 @@ test("managed first-send creation loss and rejected submission restore the origi
 });
 
 for (const outcome of ["rejected", "not_sent"] as const) test(`managed ${outcome} first submission accepts durable corrected text and settings under its original keys`, async () => {
-  const t = await startTestRuntime(`managed-tui-correct-${outcome}`, () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime(`managed-tui-correct-${outcome}`, () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   try {
     const requests: Array<{ op: string; params: unknown }> = [];
     let refuse = true;
@@ -248,7 +241,7 @@ test("managed recovery fails closed on unreadable creation journals and corrupt 
 });
 
 test("managed unknown submission keeps its original payload and refuses a foreign saved session before replay", async () => {
-  const t = await startTestRuntime("managed-tui-unknown", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-unknown", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   try {
     const sent: Array<OpParams<"submit">> = [];
     let unknown = true;
@@ -291,9 +284,7 @@ test("managed unknown submission keeps its original payload and refuses a foreig
 });
 
 test("lost creation response keeps the TUI draft, and reopening resumes the original first message", async () => {
-  const previous = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime("managed-tui-loss", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-loss", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   const apps: TuiApp[] = [];
   try {
     let lose = true;
@@ -325,13 +316,12 @@ test("lost creation response keeps the TUI draft, and reopening resumes the orig
     assert.equal(new Set(keys).size, 1);
   } finally {
     for (const app of apps) app.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });
 
 test("leaving a managed draft during creation preserves its binding and sends no hidden input", async () => {
-  const t = await startTestRuntime("managed-tui-away", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-away", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   try {
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
@@ -358,8 +348,7 @@ test("leaving a managed draft during creation preserves its binding and sends no
 });
 
 for (const outcome of ["accepted", "rejected", "unknown"] as const) test(`managed TUI ${outcome} first-send completion preserves text typed while its request is pending`, async () => {
-  const previous = process.env.RUUKOTO_PRODUCT; process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime(`managed-tui-flight-${outcome}`, () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime(`managed-tui-flight-${outcome}`, () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   let app: TuiApp | undefined, release!: () => void, held = false;
   const gate = new Promise<void>(resolve => { release = resolve; });
   try {
@@ -412,14 +401,12 @@ for (const outcome of ["accepted", "rejected", "unknown"] as const) test(`manage
     }
   } finally {
     release(); app?.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });
 
 test("linking an accepted original first message preserves a correction that was never submitted", async () => {
-  const previous = process.env.RUUKOTO_PRODUCT; process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime("managed-tui-old-acceptance", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-old-acceptance", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   let app: TuiApp | undefined, release!: () => void, held = false;
   const gate = new Promise<void>(resolve => { release = resolve; });
   try {
@@ -447,14 +434,12 @@ test("linking an accepted original first message preserves a correction that was
     assert.equal(t.runtime.store.listTasksBySession(original.sessionId!)[0].input, "original input");
   } finally {
     release(); app?.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });
 
 test("fresh managed TUI drafts read the current runtime default while opened local choices remain pinned", async () => {
-  const previous = process.env.RUUKOTO_PRODUCT; process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime("managed-tui-default", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime, modelProvider: undefined, modelId: undefined } });
+  const t = await startTestRuntime("managed-tui-default", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { modelProvider: undefined, modelId: undefined } });
   let app: TuiApp | undefined;
   try {
     const h = await startApp(t); app = h.app;
@@ -476,13 +461,12 @@ test("fresh managed TUI drafts read the current runtime default while opened loc
     assert.equal(chats(t).length, 0);
   } finally {
     app?.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });
 
 test("managed creation preflight failure allows corrected settings only after proving no creation receipt", async () => {
-  const t = await startTestRuntime("managed-tui-model", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-model", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   try {
     const connection = { instanceId: t.runtime.instanceId(), request: <K extends TuiOp>(op: K, params: OpParams<K>) => t.client.request<OpResult<K>>(op, params) };
     const chat = new ManagedChat(new PendingRequestStore(path.join(t.dirs.root, "model-pending")), connection);
@@ -497,9 +481,7 @@ test("managed creation preflight failure allows corrected settings only after pr
 });
 
 test("development reload restores an unsubmitted managed draft and its local settings without allocating a workspace", async () => {
-  const previous = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
-  const t = await startTestRuntime("managed-tui-reload", () => ({ kind: "text", text: "ok" }), { workDirs: 0, config: { product: product.runtime } });
+  const t = await startTestRuntime("managed-tui-reload", () => ({ kind: "text", text: "ok" }), { workDirs: 0 });
   const apps: TuiApp[] = [];
   try {
     const reloadFile = path.join(t.dirs.root, "reload.json");
@@ -522,7 +504,6 @@ test("development reload restores an unsubmitted managed draft and its local set
     assert.equal(fs.existsSync(path.join(t.dirs.root, "workspace")), false);
   } finally {
     for (const app of apps) app.quit();
-    if (previous === undefined) delete process.env.RUUKOTO_PRODUCT; else process.env.RUUKOTO_PRODUCT = previous;
     await t.shutdown();
   }
 });

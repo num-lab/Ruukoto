@@ -1,4 +1,4 @@
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -73,7 +73,7 @@ test("系统选取仅上传选中文件快照，丢答重放原块；空文件�
 
 test("附件分块校验、实例与会话隔离、原始元数据绑定和普通文件真实读取", async () => {
   let artifactId = "";
-  const t = await startTestRuntime("owner-file", (req, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "read-file", name: "read_artifact", arguments: { artifact_id: artifactId } }] } : { kind: "text", text: "已读取" }, { config: { ...realTools(), product: codeProduct.runtime } });
+  const t = await startTestRuntime("owner-file", (req, index) => index === 0 ? { kind: "tool_calls", calls: [{ id: "read-file", name: "read_artifact", arguments: { artifact_id: artifactId } }] } : { kind: "text", text: "已读取" }, { config: realTools() });
   try {
     const own = { sessionId: (await t.runtime.openWorkspace({ cwd: t.work[0], createRequestId: "own" })).session.id };
     const other = { sessionId: (await t.runtime.openWorkspace({ cwd: t.work[1], createRequestId: "other" })).session.id };
@@ -118,7 +118,7 @@ test("附件分块校验、实例与会话隔离、原始元数据绑定和普�
 });
 
 test("new submissions retain image history and immutable original attachment provenance", async () => {
-  const t = await startTestRuntime("owner-image", () => ({ kind: "text", text: "图片已读" }), { config: { product: codeProduct.runtime } });
+  const t = await startTestRuntime("owner-image", () => ({ kind: "text", text: "图片已读" }), {});
   try {
     const sessionId = (await t.runtime.openWorkspace({ cwd: t.work[0], createRequestId: "image-workspace" })).session.id;
     const originalResolve = t.runtime.models.current.modelCatalog.resolve.bind(t.runtime.models.current.modelCatalog);
@@ -220,12 +220,9 @@ test("附件引用错误用具名code跨上下文发送边界，消息不承载�
 });
 
 test("Draft attachment retries retain the original session and uploaded attachment IDs", async () => {
-  const t = await startTestRuntime("desktop-draft-file", () => ({ kind: "text", text: "完成" }), { config: { product: codeProduct.runtime } });
+  const t = await startTestRuntime("desktop-draft-file", () => ({ kind: "text", text: "完成" }));
   const previous = { ...process.env };
-  const control = fs.mkdtempSync(path.join(path.dirname(t.dirs.root), "rdc-"));
-  fs.symlinkSync(path.join(t.runtime.controlDir(), "owner.token"), path.join(control, "owner.token"));
-  fs.symlinkSync(t.runtime.socketPath(), path.join(control, "control.sock"));
-  Object.assign(process.env, { RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_CODE_CONTROL_DIR: control, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir });
+  Object.assign(process.env, profileChildEnv(t.runtime.config.profile.selection, { RUUKOTO_DESKTOP_MANAGED: "1" }));
   const updates: DesktopUpdate[] = [];
   const host = new DesktopHost(path.resolve(import.meta.dirname, ".."), path.join(t.dirs.root, "draft-user-data"), { publish: (target, update) => { if (target === "code") updates.push(update); }, focused: () => true, notice() {}, badge() {} });
   try {
@@ -246,5 +243,5 @@ test("Draft attachment retries retain the original session and uploaded attachme
     const secondUpload = await host.uploadDraftAttachments(second, staged.map(item => item.id));
     assert.notEqual(secondUpload[0].id, uploaded[0].id);
     assert.deepEqual(t.runtime.attachments.prepare(second, secondUpload)[0].bytes, Buffer.from("草稿正文"));
-  } finally { await host.close(); adoptEnvironment(previous); fs.rmSync(control, { recursive: true, force: true }); await t.shutdown(); }
+  } finally { await host.close(); adoptEnvironment(previous); await t.shutdown(); }
 });

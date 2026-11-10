@@ -53,12 +53,8 @@ import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
 import {
   ensureWorkspaceSession,
   findWorkspaceByRoot,
-  findWorkspaceProjects,
   resolveWorkspaceDir,
-  sessionDisplayAttribution,
-  workspacePickerProjects,
 } from "@ruukoto/control/workspace.ts";
-import { productFromEnv } from "@ruukoto/core/product.ts";
 import type { AttachmentMetadata } from "@ruukoto/core/attachments.ts";
 import type { PublicMessageRecall } from "@ruukoto/core/types.ts";
 import type { DirIdentity } from "@ruukoto/core/dir-identity.ts";
@@ -76,7 +72,6 @@ import {
   formatAccessMode,
   formatTaskStatus,
   isActiveStatus,
-  sessionTitleAttribution,
   type SessionView,
 } from "./state.ts";
 
@@ -96,7 +91,6 @@ import {
   commandHelpLines,
   dispatchInput,
   writeFailure,
-  LEGACY_PROJECT_WRITE_HINT,
   SlashCommandAutocomplete,
   VISIBLE_COMMANDS,
   type CommandEnv,
@@ -953,11 +947,8 @@ export class TuiApp {
   private reloadPersistTimer: NodeJS.Timeout | null = null;
   // ---------- 工作区入口（issue 21） ----------
   private readonly workspacePath: string | null = null;
-  /**
-   * 工作区入口阶段：pending（待首次握手处理）→ picking（多项目选择中）/
-   * awaiting-reconnect（应答丢失，待重连核实）→ done（完成或已回落正常启动）。
-   */
-  private workspacePhase: "pending" | "picking" | "awaiting-reconnect" | "done" = "done";
+  /** Workspace startup waits for identity verification and reuses its request key after reconnect. */
+  private workspacePhase: "pending" | "awaiting-reconnect" | "done" = "done";
   private workspaceIdentity: DirIdentity | null = null;
   /** 启动请求标识：每次进程启动只生成一次，重试沿用同一标识（不生成第二个）。 */
   private startupRequestId: string | null = null;
@@ -1357,7 +1348,7 @@ export class TuiApp {
     const sessionId =
       saved.sessionId && result.snapshot.sessions.some((s) => s.id === saved.sessionId) ? saved.sessionId : null;
     if (sessionId === null) {
-      if (saved.managedDraft && this.devProductPicker()) {
+      if (saved.managedDraft) {
         try { this.managedChat.open(saved.managedDraft); }
         catch (error) { this.notify(error instanceof Error ? error.message : "首条消息恢复失败。"); this.normalStartupFlow({ resync: false }); return; }
         this.managedChat.draft!.text = this.managedChat.pending?.input ?? saved.draft;
@@ -1389,7 +1380,7 @@ export class TuiApp {
       }
       this.switchSession(target.id);
     }
-    if (!this.state.currentSessionId && !this.managedChat.draft && !ctx.resync && (this.devProductPicker() || this.state.sessions.length > 0)) {
+    if (!this.state.currentSessionId && !this.managedChat.draft && !ctx.resync) {
       // Keep the startup selector; an empty Coding profile can choose a local draft.
       void this.openProjectPicker();
     }
@@ -1405,10 +1396,9 @@ export class TuiApp {
 
   // ---------- 工作区入口（issue 21） ----------
 
-  /** 工作区入口：解析目录身份 → 按目录找候选项目 → 复用/选择/自动创建后进入新会话。 */
+  /** Resolve the workspace root, then open its bound project or create a fresh one. */
   private async runWorkspaceEntry(): Promise<void> {
-    // 选择面板打开中（等用户决定）或上一次 ensure 仍在途（重同步可能叠加快照）时不重入
-    if (this.workspacePhase === "picking" || this.workspaceBusy) return;
+    if (this.workspaceBusy) return;
     this.workspaceBusy = true;
     try {
       await this.runWorkspaceEntryInner();
@@ -1430,24 +1420,8 @@ export class TuiApp {
       }
       this.startupRequestId = `boot-${randomUUID()}`;
     }
-    // 已确认归属（根目录身份）优先：命中即唯一工作区，直接进入；否则只在
-    // 尚无归属的旧项目里找候选（issue 05，保留旧项目兼容关系）
     const rootMatch = findWorkspaceByRoot({ projects: this.state.projects }, this.workspaceIdentity);
-    if (rootMatch) {
-      await this.ensureWorkspaceEntry(rootMatch.id);
-      return;
-    }
-    const candidates = findWorkspaceProjects(
-      { projects: this.state.projects, sessions: this.state.sessions, roleSessionIds: this.state.roleSessionIds },
-      this.workspaceIdentity,
-    );
-    if (candidates.length === 0) {
-      await this.ensureWorkspaceEntry(null);
-    } else if (candidates.length === 1) {
-      await this.ensureWorkspaceEntry(candidates[0]!.id);
-    } else {
-      this.openWorkspaceProjectPicker(candidates);
-    }
+    await this.ensureWorkspaceEntry(rootMatch?.id ?? null);
   }
 
   /**
@@ -1504,33 +1478,6 @@ export class TuiApp {
     }
   }
 
-  /** 多候选项目选择：取消不创建任何项目/会话，回落正常启动流程。 */
-  private openWorkspaceProjectPicker(candidates: Project[]): void {
-    this.workspacePhase = "picking";
-    const items: SelectItem[] = candidates.map((p) => ({ value: p.id, label: p.name, description: p.id }));
-    const list = new SelectList(items, Math.min(items.length, 10), selectTheme);
-    const body = new VStack([
-      { component: new Text(bold(`工作区 ${this.workspaceIdentity!.cwdReal} 对应多个项目，选择要进入的项目（Esc/q 取消，不创建会话）`), 0, 0), grow: 0 },
-      { component: list, grow: 1 },
-    ]);
-    let picked = false;
-    const handle = this.openWindow({
-      widthRatio: 0.85,
-      content: body,
-      forwardTo: list,
-      maxHeightRatio: 0.7,
-      onClose: () => {
-        if (picked) return;
-        this.workspacePhase = "done";
-        this.normalStartupFlow({ resync: false });
-      },
-    });
-    list.onSelect = (item) => {
-      picked = true;
-      handle.hide();
-      void this.ensureWorkspaceEntry(item.value);
-    };
-  }
 
   /** 连接层回调：事件应用后刷新界面；落盘条目增量补齐正文。 */
   onEvent(event: PersistentEvent, kind: "live" | "replay"): void {
@@ -1576,20 +1523,6 @@ export class TuiApp {
           case "kept":
             this.notify(`输入 ${outcome.requestId} 仍待核实：${outcome.reason}`);
             break;
-          case "needs_resubmit": {
-            const sessionId = String(outcome.params["session_id"] ?? "");
-            this.showSelection("旧请求明确未接收且缺少模型：恢复原文后通过 /model 选择并提交（Esc/q 保留记录）", [{ value: "restore", label: "恢复原文到所属会话并清除旧待确认记录" }], () => {
-              const view = this.state.openSession(sessionId);
-              const text = String(outcome.params["input"] ?? "");
-              view.draft = view.draft ? `${view.draft}\n${text}` : text;
-              this.pendingStore.clear(outcome.requestId);
-              this.state.pendingInputs = this.pendingStore.list().records;
-              this.switchSession(sessionId);
-              this.editor.setText(view.draft);
-              this.notify("原文已恢复，请通过 /model 选择后提交");
-            });
-            break;
-          }
           case "rejected": {
             const sessionId = String(outcome.params["session_id"] ?? "");
             const view = this.state.openSession(sessionId);
@@ -1826,7 +1759,6 @@ export class TuiApp {
 
   // Note: See .agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md
   private async openManagedChat(): Promise<void> {
-    if (!this.devProductPicker()) return;
     if (this.managedChat.busy) { this.notify("首条消息正在处理，请稍后重试。"); return; }
     const currentSessionId = this.state.currentSessionId, instanceId = this.state.instanceId, currentDraft = this.managedChat.draft;
     try { await this.sessionSettingsSync; }
@@ -1934,7 +1866,7 @@ export class TuiApp {
     }
     const view = this.currentView();
     if (!view) {
-      this.notify("尚未选择会话：/project 选择，或 /new-project、/new-session 创建");
+      this.notify("尚未选择会话：/project 选择，或 /new 开始对话");
       return;
     }
     if (this.connection.state !== "online") {
@@ -2060,7 +1992,6 @@ export class TuiApp {
     openPrompts: () => this.cmdPrompt(),
     toggleTodo: () => this.toggleTodo(),
     openProcesses: () => {
-      if (productFromEnv() !== "ruukoto-code") { this.notify("本会话后台入口仅向 Coding 开放。"); return; }
       void this.backgroundProcesses.refresh();
       const frame = new WindowFrame(this.backgroundProcesses, true, () => this.terminal.rows || 24);
       frame.onKey = data => {
@@ -2110,25 +2041,25 @@ export class TuiApp {
     // issue 07 步骤 4：从已映射旧会话新建会话到当前目标工作区（ruukoto 沿用原身份）
     const projectId = this.currentDisplayProjectId() ?? this.selectedProjectId ?? this.state.projects[0]?.id;
     if (!projectId) {
-      this.notify(this.devProductPicker() ? LEGACY_PROJECT_WRITE_HINT : "尚无项目：先 /new-project <名称>");
+      this.notify("先用 /project 选择工作区，或 ruukoto <目录> 打开工作区");
       return;
     }
     await this.createAndSwitch(projectId, cwd);
   }
 
   private async cmdNew(): Promise<void> {
-    if (this.devProductPicker() && (!this.currentView() || this.state.projects.find(project => project.id === this.currentDisplayProjectId())?.managed)) {
+    if (!this.currentView() || this.state.projects.find(project => project.id === this.currentDisplayProjectId())?.managed) {
       await this.openManagedChat();
       return;
     }
     const view = this.currentView();
     if (!view) {
-      this.notify("尚未选择会话：/new-project <名称> 创建项目，或 /new-session <工作目录> 创建会话");
+      this.notify("尚未选择会话：/project 选择，或 /new 开始对话");
       return;
     }
     const projectId = this.currentDisplayProjectId();
     if (!projectId) {
-      this.notify(this.devProductPicker() ? LEGACY_PROJECT_WRITE_HINT : "尚无项目：先 /new-project <名称>");
+      this.notify("先用 /project 选择工作区，或 ruukoto <目录> 打开工作区");
       return;
     }
     await this.createAndSwitch(projectId, view.cwd);
@@ -2233,7 +2164,6 @@ export class TuiApp {
 
   /** /side：打开则收起；未开则按绑定打开（无绑定先经后台创建/重开）。 */
   private async cmdSide(): Promise<void> {
-    if (productFromEnv() !== "ruukoto-code") { this.notify("侧聊仅 Coding 提供"); return; }
     const parentId = this.state.currentSessionId;
     if (!parentId) { this.notify("尚未选择会话"); return; }
     if (this.sideChatHandle) { this.hideSideChat(); return; }
@@ -2574,9 +2504,8 @@ export class TuiApp {
   }
 
   private async createAndSwitch(projectId: string, cwd: string): Promise<void> {
-    // ruukoto-code（agent-direction issue 23）：旧项目（无根目录）不再新建会话，新会话走工作区
-    if (this.devProductPicker() && !this.state.projects.find((p) => p.id === projectId)?.rootDir) {
-      this.notify(LEGACY_PROJECT_WRITE_HINT);
+    if (!this.state.projects.find((p) => p.id === projectId)?.rootDir) {
+      this.notify("先用 ruukoto <目录> 打开工作区");
       return;
     }
     try {
@@ -2639,33 +2568,18 @@ export class TuiApp {
     }
     const instanceId = this.state.instanceId;
     try {
-      const legacy = this.state.queuedTasksFor(view.sessionId).filter((t) => !t.modelSelection);
-      const selection = this.state.sessions.find((s) => s.id === view.sessionId)?.modelSelection;
-      if (legacy.length) {
-        if (!selection) {
-          this.notify("请先通过 /model 选择模型");
-          return;
-        }
-        this.showSelection(`为 ${legacy.length} 个旧排队任务补配置：${this.selectionText(selection)}`, [{ value: "yes", label: "确认补齐并恢复队列" }], () => {
-          if (this.state.instanceId !== instanceId) return;
-          void this.connection.request("resume_queue", { session_id: view.sessionId, model_selection: selection })
-            .then(() => this.refreshAll())
-            .catch(error => this.resumeQueueFailure(view.sessionId, error, instanceId, selection));
-        });
-        return;
-      }
       await this.connection.request("resume_queue", { session_id: view.sessionId });
     } catch (err) {
       this.resumeQueueFailure(view.sessionId, err, instanceId);
     }
   }
 
-  private resumeQueueFailure(sessionId: string, error: unknown, instanceId: string | null, selection?: ModelSelection): void {
+  private resumeQueueFailure(sessionId: string, error: unknown, instanceId: string | null): void {
     if (this.state.instanceId !== instanceId) return;
     if (error instanceof ControlClientError && error.code === "stop_unverified") {
       this.showSelection("请先在运行环境核实旧任务及受管理进程均已退出", [{ value: "confirmed", label: "已核实停止，释放保留占用并恢复队列" }], () => {
         if (this.state.instanceId !== instanceId) return;
-        void this.connection.request("resume_queue", { session_id: sessionId, stop_confirmed: true, ...(selection ? { model_selection: selection } : {}) })
+        void this.connection.request("resume_queue", { session_id: sessionId, stop_confirmed: true })
           .then(() => this.refreshAll()).catch(failure => this.notify(red(writeFailure("确认停止并恢复", failure, "/status"))));
       });
     } else this.notify(red(writeFailure("恢复队列", error, "/status")));
@@ -3394,23 +3308,6 @@ export class TuiApp {
         return `MCP ${c.scope.operationCategory === "write" ? "写" : "副作用不明"}工具：${c.scope.serviceName}/${c.scope.remoteName}（配置 v${c.scope.configVersion}）`;
       case "browser_operation":
         return `浏览器：${c.scope.action}（会话 ${c.scope.sessionId} · 代次 ${c.scope.generation ?? "未启动"}）`;
-      case "app_data_change": {
-        const label: Record<string, string> = {
-          drop_table: "删除表",
-          drop_field: "删除字段",
-          drop_unique_index: "删除唯一索引",
-          multi_row_write: "多行写入",
-          rewrite_rows: "批量重写",
-        };
-        return `应用数据${label[c.scope.change] ?? c.scope.change}：表 ${c.scope.table ?? "（多表）"} · schema v${c.scope.schemaVersion}/rev ${c.scope.revision} · 影响 ${c.scope.affected}`;
-      }
-      case "notification":
-        return `通知外发（单次）：${c.scope.target.channel}/${c.scope.target.chatId}（配置 v${c.scope.target.configVersion}） · 正文 ${c.scope.textChars} 字符`;
-      case "service_operation":
-        return `服务器服务管理（root 提权）：${c.scope.action} ${c.scope.unit}（策略 ${c.scope.policyRevision.slice(0, 12)}… · 单元定义 ${c.scope.unitRevision.slice(0, 12)}…）`;
-      // issue 17：github_publish 范围已退役，仅为历史审批记录的只读展示保留
-      case "github_publish":
-        return `GitHub 发布（已退役模块的历史记录）：${c.scope.owner}/${c.scope.repo} ${c.scope.publishKind === "pr_review_comment" ? `PR #${c.scope.target["prNumber"]} 评审评论` : `issue #${c.scope.target["issueNumber"]} 评论`}（草稿 ${c.scope.draftId} v${c.scope.draftVersion}，${c.scope.bodyBytes} 字节）`;
     }
   }
 
@@ -3437,27 +3334,6 @@ export class TuiApp {
       if (c.scope.kind === "file_operation" && c.scope.contentBytes !== null) {
         lines.push(`待写内容：${c.scope.contentBytes} 字节（sha256 ${c.scope.contentSha256?.slice(0, 16)}…）`);
       }
-      if (c.scope.kind === "app_data_change") {
-        // issue 02：范围、数量、版本与理由；完整参数经分页详情读取
-        lines.push(`应用库：${c.scope.appDbInstanceId.slice(0, 18)}… · 操作 ${c.scope.operation} · 参数 sha256 ${c.scope.paramsSha256.slice(0, 16)}…`);
-        if (c.scope.rowIds.length > 0) {
-          lines.push(`固定行：${c.scope.rowIds.slice(0, 20).join(", ")}${c.scope.rowIds.length > 20 ? ` … 共 ${c.scope.rowIds.length} 行` : ""}（行版本见参数）`);
-        }
-        if (c.scope.definitionBefore || c.scope.definitionAfter) {
-          lines.push(`定义变更：${c.scope.definitionBefore ? "含旧定义" : "无旧定义"} → ${c.scope.definitionAfter ? "含新定义" : "删除"}`);
-        }
-      }
-      if (c.scope.kind === "service_operation") {
-        // issue 09：准确目标、提权身份、动作影响与修订指纹；请求时状态见下方参数
-        lines.push("提权身份：root（经后台固定 helper 与 sudoers；OS 权限仍须配置）");
-        lines.push("影响：restart 会启动原本不活动的服务，并中断该服务正在处理的工作；执行中断或超时后效果可能无法确认，效果未知不自动重发。");
-        lines.push(`本机：${c.scope.machineId.slice(0, 12)}… · 操作 ${c.scope.toolOpId}`);
-      }
-      if (c.scope.kind === "notification") {
-        // 一次通知的固定目标与正文来源；正文见下方参数 text
-        lines.push(`目标：${sanitizeForDisplay(`${c.scope.target.channel} 账号 ${c.scope.target.account} 会话 ${c.scope.target.chatId}`)} · 正文 sha256 ${c.scope.textSha256.slice(0, 16)}…`);
-        if (c.scope.sourceRefs.length > 0) lines.push(`来源：${sanitizeForDisplay(c.scope.sourceRefs.join(", "))}`);
-      }
       // 自动审查信息（issue 15）：无审查字段的旧记录按历史人工审批展示，不加审查行
       if (c.reviewStatus !== null) {
         const policy = `策略 ${c.reviewPolicyVersion ?? "未知"}`;
@@ -3483,9 +3359,7 @@ export class TuiApp {
           `决定来源：${
             c.decisionSource === "auto_review"
               ? "自动审查"
-              : c.decisionSource === "standing_permission"
-                ? `长期授权 ${c.standingPermissionId ?? "（未知）"} v${c.standingPermissionVersion ?? "?"}（本次使用该授权）`
-                : "拥有者"
+              : "拥有者"
           }`,
         );
       }
@@ -3875,19 +3749,8 @@ export class TuiApp {
 
   // ---------- 会话选择 ----------
 
-  /** ruukoto-code（issue 05）：普通列表只含 dev 且非逻辑角色的会话；ruukoto 不过滤。 */
-  private devProductPicker(): boolean {
-    return productFromEnv() === "ruukoto-code";
-  }
-
-  /**
-   * 当前归属项目（issue 07 步骤 4）：ruukoto-code 按组织展示归属（已映射的旧
-   * 会话归入目标工作区，选择状态不随会话的 projectId 回到源项目）；ruukoto
-   * 产品与其他场景恒为会话的实际身份（原项目界面与旧 API 语义不变）。
-   */
   private displayProjectIdOf(session: Session | null | undefined): string | null {
     if (!session) return null;
-    if (this.devProductPicker()) return sessionDisplayAttribution(session, this.state.projects).projectId;
     return session.projectId;
   }
 
@@ -3896,7 +3759,6 @@ export class TuiApp {
   }
 
   private isVisiblePickerSession(sessionId: string): boolean {
-    if (!this.devProductPicker()) return true;
     const session = this.state.sessions.find((s) => s.id === sessionId);
     // issue 11：SubAgent 内部工作会话与逻辑角色会话一样不进入普通入口；未知会话如旧放行
     return !this.state.sideChats.has(sessionId) && (!session || (session.kind === "dev" && !this.state.excludedPickerSessionIds().has(session.id)));
@@ -3904,16 +3766,14 @@ export class TuiApp {
 
   private async openProjectPicker(): Promise<void> {
     // Managed chats share a display group while keeping their actual workspace identities.
-    const devProduct = this.devProductPicker();
     const generation = this.generation;
     let managedSummaries: OpResult<"list_session_summaries"> = [];
-    if (devProduct && this.state.projects.some(project => project.managed)) {
+    if (this.state.projects.some(project => project.managed)) {
       try { managedSummaries = await this.connection.request("list_session_summaries", { scope: "workspace_chats" }); }
       catch (error) { this.notify(`会话名称读取失败：${error instanceof Error ? error.message : String(error)}`); }
       if (generation !== this.generation || this.exiting) return;
     }
     const itemOf = (project: Project, tag: string | null) => {
-      // issue 07 步骤 4：工作区计数按组织归属（已映射旧会话归入目标工作区）；ruukoto 用原身份
       const sessions = this.state.sessions.filter(
         (session) => this.displayProjectIdOf(session) === project.id && this.isVisiblePickerSession(session.id),
       );
@@ -3925,31 +3785,23 @@ export class TuiApp {
         description: sanitizeForDisplay(cwdText || "尚无工作区").replace(/\n/g, "\\n").replace(/\t/g, "\\t"),
       };
     };
-    const items = devProduct
-      ? (() => {
-          const { workspaces, legacy } = workspacePickerProjects({
-            projects: this.state.projects,
-            sessions: this.state.sessions,
-            // SubAgent 内部工作会话并入排除集（issue 11）：只含内部会话的项目不进普通列表
-            roleSessionIds: [...this.state.excludedPickerSessionIds()],
-          });
+    const items = (() => {
+          const workspaces = this.state.projects.filter(project => project.rootDir !== null);
           const managed = workspaces.filter(project => project.managed);
           return [
             { value: "$new-managed", label: "No workspace", description: this.managedChat.pending ? "恢复待发送的首条消息" : "开始新对话" },
             ...managed.flatMap(project => this.state.sessions.filter(session => this.displayProjectIdOf(session) === project.id && this.isVisiblePickerSession(session.id) && session.archivedAt === null)
               .map(session => ({ value: `$managed:${session.id}`, label: `No workspace · ${sanitizeForDisplay(managedSummaries.find(summary => summary.sessionId === session.id)?.name ?? session.name ?? "未命名会话").replace(/\s+/g, " ")}`, description: sanitizeForDisplay(project.rootDir!.cwdReal) }))),
             ...workspaces.filter(project => !project.managed).map(project => itemOf(project, "工作区")),
-            ...legacy.map(project => itemOf(project, "旧项目")),
           ];
-        })()
-      : this.state.projects.map((p) => itemOf(p, null));
+        })();
     if (!items.length) {
-      this.notify(devProduct ? "尚无工作区：ruukoto-code <目录> 打开目录创建工作区" : "尚无项目：/new-project <名称> 创建项目");
+      this.notify("尚无工作区：ruukoto <目录> 打开目录创建工作区");
       return;
     }
     const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
     const body = new VStack([
-      { component: new Text(bold(devProduct ? "选择工作区" : "选择项目"), 0, 0), grow: 0 },
+      { component: new Text(bold("选择工作区"), 0, 0), grow: 0 },
       { component: list, grow: 1 },
     ]);
     const handle = this.openWindow({ widthRatio: 0.85, content: body, forwardTo: list, maxHeightRatio: 0.7 });
@@ -3980,26 +3832,21 @@ export class TuiApp {
 
   private async openSessionPicker(projectId = this.currentDisplayProjectId() ?? this.selectedProjectId): Promise<void> {
     if (!projectId) {
-      if (this.devProductPicker()) { await this.openProjectPicker(); return; }
-      this.notify("尚未选择项目：/project 选择项目");
+      await this.openProjectPicker();
       return;
     }
     const generation = this.generation;
     let summaries: OpResult<"list_session_summaries">;
     try {
-      // issue 07 步骤 4：工作区会话列表按组织归属查询（workspace_id 与 project_id 互斥）；
-      // 旧项目与 ruukoto 产品沿用 project_id 原身份查询
-      const project = this.state.projects.find((p) => p.id === projectId);
       summaries = await this.connection.request(
         "list_session_summaries",
-        this.devProductPicker() && project?.rootDir ? { workspace_id: projectId } : { project_id: projectId },
+        { workspace_id: projectId },
       );
     } catch (err) {
       this.notify(`会话列表读取失败：${(err as Error).message}`);
       return;
     }
     if (generation !== this.generation) return;
-    // ruukoto-code（issue 05）：会话列表同样不混入角色与群聊会话
     const items = summaries.filter((session) => this.isVisiblePickerSession(session.sessionId)).map((session) => ({
       value: session.sessionId,
       label: sanitizeForDisplay(session.name ?? `未命名会话 · ${session.sessionId.slice(0, 14)}…`).replace(/\s+/g, " ").trim(),
@@ -4009,7 +3856,7 @@ export class TuiApp {
       this.notify("当前项目尚无会话：/new-session <工作目录> 创建会话");
       return;
     }
-    if (this.devProductPicker() && this.state.currentSessionId && items.some(item => item.value === this.state.currentSessionId)) items.push({ value: "$background", label: "本会话后台与日志", description: () => "查看当前会话后台，或选择结束本会话后台" });
+    if (this.state.currentSessionId && items.some(item => item.value === this.state.currentSessionId)) items.push({ value: "$background", label: "本会话后台与日志", description: () => "查看当前会话后台，或选择结束本会话后台" });
     const list = new TwoLineSelectList(items, Math.min(items.length, Math.max(1, Math.floor(((this.terminal.rows || 24) * 0.7 - 3) / 3))), selectTheme);
     const body = new VStack([
       { component: new Text(bold(`选择会话 · ${this.state.projects.find(project => project.id === projectId)?.managed ? "No workspace" : this.state.projectName(projectId)}`), 0, 0), grow: 0 },
@@ -4088,7 +3935,7 @@ export class TuiApp {
     if (!view) {
       this.footer.set(draft ? accessModeStyle(draft.mode)(accessModeLabel(draft.mode)) : dim(""), dim(this.modelInfoText()));
       this.header.setText(
-        `${bold(this.devProductPicker() ? "ruukoto-code" : "ruukoto")} · ${draft ? "No workspace" : "未选择会话"} · 连接：${connText}\n` +
+        `${bold("ruukoto")} · ${draft ? "No workspace" : "未选择会话"} · 连接：${connText}\n` +
           dim(`执行后端：${this.state.execution.backend || "未知"}（${this.state.execution.note || "握手后显示"}）`),
       );
       this.tui.requestRender();
@@ -4110,16 +3957,12 @@ export class TuiApp {
     const usage = this.sessionUsage.get(view.sessionId);
     const usageText = usage ? `↑ ${formatTokenCount(usage.input)} ↓ ${formatTokenCount(usage.output)}` : "";
     this.footer.set(modeStyled, dim(this.modelInfoText()), usageText);
-    // Organizational attribution does not change the original data/configuration identity.
-    const title = session ? sessionTitleAttribution(session, this.state.projects, this.devProductPicker()) : null;
-    const titleTag = title?.workspace && !workspace?.managed ? "工作区 " : "";
-    const titleName = workspace?.managed ? "No workspace" : this.state.projectName(title?.projectId ?? view.projectId);
-    // Keep the source beside its group name before a long cwd can truncate it.
-    const sourceNote = title?.sourceProjectId ? dim(`（配置与资料来源：${this.state.projectName(title.sourceProjectId)}）`) : "";
+    const titleTag = workspace && !workspace.managed ? "工作区 " : "";
+    const titleName = workspace?.managed ? "No workspace" : this.state.projectName(view.projectId);
     // issue 11：本会话的工作委托多出一行展示；没有委托不加行
     const worksText = this.state.worksSummaryForSession(view.sessionId);
     this.header.setText(
-      `${titleTag}${bold(titleName)}${sourceNote} · ${workspace?.managed ? sanitizeForDisplay(session?.name ?? "对话") : `会话 ${view.sessionId.slice(0, 14)}…`} · ${sanitizeForDisplay(view.cwd)}\n` +
+      `${titleTag}${bold(titleName)} · ${workspace?.managed ? sanitizeForDisplay(session?.name ?? "对话") : `会话 ${view.sessionId.slice(0, 14)}…`} · ${sanitizeForDisplay(view.cwd)}\n` +
         `连接：${connText} · 模式：${modeDisplay} · 执行：${this.state.execution.backend}${this.state.execution.backend === "local" ? yellow("（无隔离，仅开发用）") : ""}` +
         (worksText ? `\n${dim(worksText)}` : "") +
         (this.state.ownerQuestions.some(question => question.sessionId === view.sessionId && question.status === "pending") ? "\n拥有者问题待回答：/questions 逐题回答或取消" : ""),
@@ -4132,7 +3975,7 @@ export class TuiApp {
     const view = this.currentView();
     const entries: FlowEntry[] = view ? view.flow.items : this.state.globalNotes.map((note) => ({ ...note, kind: "note", seq: 0 }));
     if (entries.length === 0) {
-      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : this.managedChat.draft ? "发送消息开始对话。" : this.devProductPicker() ? "使用 /project 选择会话，或 /new 开始 No workspace 对话。\n/help 查看命令与终端操作。" : "ruukoto TUI\n使用 /project 选择会话，或 /new-project、/new-session 创建。\n/help 查看命令与终端操作。", at: "", seq: 0 });
+      entries.push({ key: "$empty", kind: "note", text: view ? (view.historyLoaded ? "（暂无历史消息）" : "历史加载中…") : this.managedChat.draft ? "发送消息开始对话。" : "使用 /project 选择会话，或 /new 开始 No workspace 对话。\n/help 查看命令与终端操作。", at: "", seq: 0 });
     }
     this.eventFlowView.setEntries(entries, view?.cwd);
     this.refreshSideChat();

@@ -1,11 +1,11 @@
-import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 /**
  * 同项工作内 SubAgent 相互通信（agent-direction issue 13）的本机冒烟。
  *
  * 模拟：模型（MockModelServer 确定性脚本）与消息平台（不启用）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （native 原生后端）+ 真实文件读取与
- * 只读范围 + 真实 CLI（apps/ruukoto-code/bin/ruukoto-code.mjs work show，经 socket 与拥有者令牌）。
+ * Native tools and the authenticated `ruukoto work show` CLI use the same activated profile.
  *
  * 覆盖（与工单验收对应）：
  *  S1. 协作加入：B 经 work_id + sub_agent_id 拉入既有工作 W，执行记录独立；
@@ -32,10 +32,8 @@ const execFileAsync = promisify(execFile);
 import * as fs from "node:fs";
 import * as path from "node:path";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { waitFor, lastUserText, realTools, connectAuthedClient, writeModelsJson } from "../../test/helpers/testkit.ts";
+import { waitFor, lastUserText, realTools, makeTestDirs, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { MockModelServer, type Responder } from "../../test/helpers/mock-provider.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
@@ -62,7 +60,9 @@ await requireNative();
 process.stderr.write("[ruukoto:smoke13] " + `环境：${process.platform} ${process.arch}；执行 native` + "\n");
 
 const repoRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
-const root = fs.realpathSync(mkdtempSync(path.join(tmpdir(), "ruukoto-smoke13-")));
+const { dirs } = await makeTestDirs("smoke13", 0);
+const root = fs.realpathSync(dirs.root);
+const profile = dirs.profile;
 const workDir = path.join(root, "workspace");
 fs.mkdirSync(workDir, { recursive: true });
 const fileA = path.join(workDir, "a.txt");
@@ -115,21 +115,14 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-code：真实原生 worker worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
-const dataDir = path.join(root, "data");
-const agentDir = path.join(root, "agent");
-fs.mkdirSync(dataDir, { recursive: true });
-fs.mkdirSync(agentDir, { recursive: true });
-await writeModelsJson({ root, dataDir, agentDir }, baseUrl);
+await writeModelsJson(dirs, baseUrl);
 const config: RuntimeConfig = {
-  dataDir,
-  agentDir,
+  profile,
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  product: codingProduct.runtime,
   ...realTools(),
   execution: { backend: "native" },
 };
@@ -311,10 +304,9 @@ try {
         await assertUnitsStopped(units, task.id);
       }
     }
-    const env = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-    DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_CODE_DATA_DIR: dataDir,
-      RUUKOTO_CODE_AGENT_DIR: agentDir, RUUKOTO_CODE_CONTROL_DIR: rt.controlDir() };
-    const { stdout } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "work", "show", wId], { encoding: "utf8", env, timeout: 60_000 });
+    const env = profileChildEnv(profile.selection, { PATH: process.env.PATH, HOME: process.env.HOME,
+      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS });
+    const { stdout } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "work", "show", wId], { encoding: "utf8", env, timeout: 60_000 });
     const parsed = JSON.parse(stdout);
     assert.ok(Array.isArray(parsed.messages) && parsed.messages.length === 4, `work show 消息数：${parsed.messages?.length}`);
     assert.ok(parsed.messages.some((m: any) => m.fromSubAgentId === aId && m.toSubAgentId === bId && m.deliveredTaskId));
@@ -334,6 +326,7 @@ try {
   releaseParent();
   const failure = await cleanupRuntime(rt, server, root, units);
   if (failure) results.push({ name: "清理本次资源", ok: false, detail: `${failure.message}；保留现场 ${root}；${String(failure.cause)}` });
+  else fs.rmSync(path.dirname(profile.socketPath), { recursive: true, force: true });
 }
 
 // ---------- 汇总 ----------

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 Owners need local interactive terminals in multiple workspaces. They are not backend Agent tasks. Closing a terminal must end it; changing inspector tabs, sessions or Personal must not. Electron and MyGo share renderer and Node host.

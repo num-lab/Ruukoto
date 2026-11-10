@@ -6,16 +6,14 @@ import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { parseSessionFile, parseSessionFileStrict, snapshotSessionHistory } from "@ruukoto/core/history.ts";
 import { getBranchRequest } from "@ruukoto/core/branch.ts";
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { checkpointFingerprint, COMPACTION_PROMPT_VERSION } from "@ruukoto/agent/compaction.ts";
 import { TASK_START_MARKER, TASK_END_MARKER, randomId, type Session } from "@ruukoto/core/types.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { Db } from "@ruukoto/core/db.ts";
-import { Store } from "@ruukoto/core/store.ts";
-import { applyLegacyImport, previewLegacyImport, revertLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
 import { ControlClient, ControlClientError } from "@ruukoto/control/client.ts";
 import { ControlConnection } from "@ruukoto/control/connection.ts";
@@ -44,9 +42,9 @@ function history(t: TestRuntime, session: Session) {
     parentId = id;
     return id;
   };
-  const task = (status: "completed" | "interrupted" | "running" | "awaiting_confirmation" = "completed", sourceEventId?: string) => {
+  const task = (status: "completed" | "interrupted" | "running" | "awaiting_confirmation" = "completed") => {
     const task = store.withTx(() => {
-      const task = store.insertQueuedTask({ sessionId: session.id, requestId: randomId("req"), input: "来源对话", modelSelection: t.runtime.defaultSelection, submissionDigest: randomId("digest"), sourceEventId }).task;
+      const task = store.insertQueuedTask({ sessionId: session.id, requestId: randomId("req"), input: "来源对话", modelSelection: t.runtime.defaultSelection, submissionDigest: randomId("digest") }).task;
       if (status === "completed" || status === "interrupted") store.endTask(task.id, ["queued"], status);
       else store.transitionTask(task.id, ["queued"], status);
       return store.getTask(task.id)!;
@@ -111,7 +109,7 @@ test("按指定已完成任务分支：截到该任务结束标记，拒绝未�
 });
 
 async function fixture(prefix: string) {
-  const t = await startTestRuntime(prefix, async () => ({ kind: "text", text: "分支回复" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime(prefix, async () => ({ kind: "text", text: "分支回复" }));
   const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
   return { t, session, h: history(t, session) };
 }
@@ -145,31 +143,21 @@ test("严格安全点：完整用户尾、活动批次回退、旧孤儿及重�
   } finally { await t.shutdown(); }
 });
 
-test("空历史、未映射旧会话、main/归档和目录替换零创建；映射旧会话保持资料身份与各默认模式", async () => {
+test("empty history and replaced directories reject branches; each default mode is retained", async () => {
   const { t, session, h } = await fixture("branch-reject");
   try {
     const rt = t.runtime;
     await assert.rejects(() => rt.branchSession({ sessionId: session.id, requestId: "empty" }), (e: any) => e.code === "entry_not_found");
     h.task(); h.user("可复制历史");
-    const legacy = await rt.createSession({ projectName: "旧资料项目", cwd: t.work[0]! });
-    const old = history(t, legacy); old.task(); old.user("旧会话历史");
-    await assert.rejects(() => rt.branchSession({ sessionId: legacy.id, requestId: "unmapped" }), /尚未映射/);
-    rt.store.db.prepare("UPDATE sessions SET workspace_project_id = ? WHERE id = ?").run(session.projectId, legacy.id);
     for (const mode of ["confirm", "auto-review", "full_access", "plan"] as const) {
-      const current = rt.store.getSession(legacy.id)!;
-      rt.store.withTx(() => rt.store.setSessionDefaultMode(legacy.id, mode, current.defaultAccessModeVersion));
-      const child = await rt.branchSession({ sessionId: legacy.id, name: "同名", requestId: `mapped-${mode}` });
-      assert.equal(child.projectId, legacy.projectId);
-      assert.equal(child.workspaceProjectId, session.projectId);
+      const current = rt.store.getSession(session.id)!;
+      rt.store.withTx(() => rt.store.setSessionDefaultMode(session.id, mode, current.defaultAccessModeVersion));
+      const child = await rt.branchSession({ sessionId: session.id, name: "同名", requestId: `mode-${mode}` });
+      assert.equal(child.projectId, session.projectId);
       assert.equal(child.defaultAccessMode, mode);
       assert.equal(child.defaultAccessModeVersion, 0);
     }
     const count = rt.store.listSessions().length;
-    const main = rt.store.getAgentRole("main")!;
-    await assert.rejects(() => rt.branchSession({ sessionId: main.sessionId, requestId: "main" }), /普通开发/);
-    rt.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(session.id);
-    await assert.rejects(() => rt.branchSession({ sessionId: session.id, requestId: "retired" }), /普通开发/);
-    rt.store.db.prepare("UPDATE sessions SET kind = 'dev' WHERE id = ?").run(session.id);
     fs.renameSync(t.work[0]!, `${t.work[0]}-original`); fs.mkdirSync(t.work[0]!);
     await assert.rejects(() => rt.branchSession({ sessionId: session.id, requestId: "replaced" }), (e: any) => e.code === "cwd_changed");
     assert.equal(rt.store.listSessions().length, count);
@@ -178,7 +166,7 @@ test("空历史、未映射旧会话、main/归档和目录替换零创建；映
 });
 
 test("真实等待审批与排队期间分支只取用户安全尾，新任务等待同目录占用，原审批不转移", async () => {
-  const t = await startTestRuntime("branch-active", async req => afterTool(req) ? ({ kind: "text", text: "完成" }) : ({ kind: "tool_calls", calls: [{ id: "gate", name: "mock_gate", arguments: { note: "确认" } }] }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("branch-active", async req => afterTool(req) ? ({ kind: "text", text: "完成" }) : ({ kind: "tool_calls", calls: [{ id: "gate", name: "mock_gate", arguments: { note: "确认" } }] }));
   try {
     const rt = t.runtime;
     const source = (await rt.openWorkspace({ cwd: t.work[0]! })).session;
@@ -284,14 +272,10 @@ test("连续分支恢复原图片的实际模型 payload，伪造、缺失和损
     const rt = t.runtime;
     const resolve = rt.models.current.modelCatalog.resolve.bind(rt.models.current.modelCatalog);
     rt.models.current.modelCatalog.resolve = async selection => ({ ...await resolve(selection), input: ["text", "image"] });
-    const event = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "telegram", externalId: randomId("in"), actor: "telegram:owner", targetRole: "main", body: "图片" }).event);
-    const task = h.task("completed", event.id);
-    const image = rt.artifacts.importImage({ id: randomId("art"), taskId: task.id, sessionId: session.id, name: "inbound-image:0",
+    const task = h.task("completed");
+    const image = rt.artifacts.importImage({ id: randomId("art"), taskId: task.id, sessionId: session.id, name: "owner-image:0",
       mimeType: "image/png", byteCount: PNG.length, contentHash: createHash("sha256").update(PNG).digest("hex") }, PNG);
-    rt.store.withTx(() => {
-      rt.store.markInboundQueued(event.id, task.id);
-      rt.store.db.prepare("UPDATE inbound_events SET artifact_refs = ? WHERE id = ?").run(JSON.stringify([image.id]), event.id);
-    });
+    rt.store.withTx(() => rt.store.appendEvent({ type: "task.attachments", taskId: task.id, sessionId: session.id, attachments: [{ id: image.id, taskId: task.id, sessionId: session.id, name: image.name, size: image.byteCount!, mimeType: image.mimeType!, contentHash: image.contentHash! }] }, { taskId: task.id, sessionId: session.id }));
     const ref = { artifactId: image.id, taskId: task.id, sessionId: session.id, mimeType: image.mimeType, byteCount: image.byteCount, contentHash: image.contentHash };
     h.user("原图", [ref]); h.assistant([{ type: "text", text: "这是原图" }]);
     const b = await rt.branchSession({ sessionId: session.id, requestId: "image-b" });
@@ -445,39 +429,6 @@ test("跨项目来源每次读取核实授权；撤销不借连续分支恢复",
   } finally { await t.shutdown(); }
 });
 
-test("Coding 导入保留分支、可回退且缺来源拒绝", async () => {
-  const { t, session, h } = await fixture("branch-import");
-  try {
-    h.task(); h.user("旧实例原文");
-    const branch = await t.runtime.branchSession({ sessionId: session.id, name: "保留名称", requestId: "imported-branch" });
-    await t.runtime.stop("offline_import");
-    const db = new Db(t.dirs.dataDir);
-    // Coding 仍从旧个人实例读取开发资料，源格式与原文保持。
-    new Store(db).setMetaValue("product.type", "ruukoto"); db.close();
-    const root = path.join(t.dirs.root, "target-code");
-    const deps = { targetDataDir: path.join(root, "data"), targetAgentDir: path.join(root, "agent") };
-    const preview = previewLegacyImport(deps, { from: t.dirs.dataDir });
-    const input = { plan: { from: t.dirs.dataDir }, source_instance_id: preview.source.instance_id, revision: preview.revision!, request_id: "import-code" };
-    const receipt = applyLegacyImport(deps, input);
-    const target = new Db(deps.targetDataDir);
-    const imported = new Store(target).getSession(branch.id);
-    assert.ok(imported);
-    assert.equal(imported.name, branch.name);
-    assert.deepEqual(imported.branchSource, branch.branchSource);
-    assert.deepEqual(fs.readFileSync(imported.sessionFile!), fs.readFileSync(branch.sessionFile!));
-    assert.equal(target.prepare("SELECT COUNT(*) AS n FROM branch_requests").get()!.n, 0);
-    target.close();
-    const reverted = revertLegacyImport(deps, receipt.import_id);
-    assert.equal(reverted.ok, true);
-    const source = new Db(t.dirs.dataDir);
-    const broken = { ...branch.branchSource!, taskIds: ["不存在的来源任务"] };
-    source.prepare("UPDATE sessions SET branch_source = ? WHERE id = ?").run(JSON.stringify(broken), branch.id);
-    source.close();
-    const brokenDeps = { targetDataDir: path.join(t.dirs.root, "broken-data"), targetAgentDir: path.join(t.dirs.root, "broken-agent") };
-    assert.throws(() => previewLegacyImport(brokenDeps, { from: t.dirs.dataDir }), (e: any) => e.code === "source_scope_unavailable");
-
-  } finally { await t.shutdown(); }
-});
 
 test("文件写入失败及来源前缀改变：按原回执拒绝恢复，无可选半成品与源删除", async () => {
   const { t, session, h } = await fixture("branch-file-failure");
@@ -512,13 +463,15 @@ test("真实 SIGKILL 窗口：文件已安装而会话未发布，重启仅按�
     await t.runtime.stop("before_child");
     const script = `
       import { Runtime } from './packages/runtime/src/runtime.ts';
-      import { product } from './apps/ruukoto-code/src/product.ts';
-      const runtime = await Runtime.start({ product: product.runtime, dataDir: process.argv[1], agentDir: process.argv[2], modelProvider: 'mock', modelId: 'mock-model' });
+      import { readProfile, selectProfile } from '@ruukoto/core/profile.ts';
+      const profile = readProfile(selectProfile({}));
+      if (!profile) throw new Error('Crash fixture profile is not active');
+      const runtime = await Runtime.start({ profile, modelProvider: 'mock', modelId: 'mock-model' });
       const create = runtime.store.createSession.bind(runtime.store);
       runtime.store.createSession = input => { if (input.branchSession) process.kill(process.pid, 'SIGKILL'); return create(input); };
-      await runtime.branchSession({ sessionId: process.argv[3], requestId: 'killed-request' });
+      await runtime.branchSession({ sessionId: process.argv[1], requestId: 'killed-request' });
     `;
-    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, t.dirs.dataDir, t.dirs.agentDir, session.id], { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, session.id], { stdio: ["ignore", "ignore", "pipe"], env: profileChildEnv(t.dirs.profile.selection) });
     let stderr = "";
     child.stderr.on("data", chunk => { stderr += String(chunk); });
     const signal = await new Promise<NodeJS.Signals | null>((resolve, reject) => {
@@ -544,12 +497,12 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     if (text.includes("[SubAgent 委派")) return { kind: "text", text: text.includes("后续执行") ? "后续新增结果" : "原快照结果" };
     if (afterTool(req)) return { kind: "text", text: "读完结果" };
     return { kind: "tool_calls", calls: [{ id: "result", name: "subagent_result", arguments: { work_id: workId } }] };
-  }, { config: { product: product.runtime, ...realTools() } });
+  }, { config: { ...realTools() } });
   try {
     const rt = t.runtime;
     const source = (await rt.openWorkspace({ cwd: t.work[0]! })).session;
     const h = history(t, source); const parent = h.task(); h.user("原工作"); h.assistant([{ type: "text", text: "准备委派" }]);
-    const first = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "original", request: "原执行", readPaths: ["."], materials: null, paramsDigest: "first" });
+    const first = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "original", request: "原执行", readPaths: ["."], paramsDigest: "first" });
     workId = first.work.id;
     await waitFor("原子任务完成且空闲", () => rt.store.getTask(first.task.id)!.status === "completed" && rt.store.getSubAgent(first.agent.id)!.state === "idle");
     await assert.rejects(() => rt.branchSession({ sessionId: first.agent.sessionId, requestId: "subagent-source" }), /普通开发/);
@@ -560,7 +513,7 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     const c = await rt.branchSession({ sessionId: b.id, requestId: "result-c" });
     assert.deepEqual(c.branchSource!.results, [{ workId, taskIds: [first.task.id] }]);
     assert.ok(c.branchSource!.artifacts.some(a => a.id === artifact.id));
-    const later = await delegateFromActiveTask(rt, { parentTaskId: parent.id, workId, key: "later", request: "后续执行", readPaths: ["."], materials: null, paramsDigest: "later" });
+    const later = await delegateFromActiveTask(rt, { parentTaskId: parent.id, workId, key: "later", request: "后续执行", readPaths: ["."], paramsDigest: "later" });
     await waitFor("后续源任务完成", () => rt.store.getTask(later.task.id)!.status === "completed" && rt.store.getSubAgent(first.agent.id)!.state === "idle");
     const laterArtifact = rt.artifacts.begin({ taskId: later.task.id, sessionId: first.agent.sessionId, name: "later.txt" }); rt.artifacts.append(laterArtifact.id, Buffer.from("后续产物")); rt.artifacts.complete(laterArtifact.id);
     h.user("后续已取得");
@@ -574,7 +527,7 @@ test("来源 SubAgent 结果固定到原任务；连续分支只读，后续复�
     await waitFor("分支结果查询完成", () => rt.store.getTask(own.id)!.status === "completed");
     const payload = inputText(t.server.calls[before + 1]!);
     assert.ok(payload.includes("原快照结果") && !payload.includes("后续新增结果") && !payload.includes(later.task.id));
-    const params = { parentTaskId: own.id, key: "forbidden", request: "不能管理原工作", readPaths: ["."], materials: null, paramsDigest: "forbidden" };
+    const params = { parentTaskId: own.id, key: "forbidden", request: "不能管理原工作", readPaths: ["."], paramsDigest: "forbidden" }
     await assert.rejects(() => delegateFromActiveTask(rt, { ...params, workId }));
     await assert.rejects(() => delegateFromActiveTask(rt, { ...params, subAgentId: first.agent.id }));
     assert.throws(() => rt.subagents!.close({ subAgentId: first.agent.id, parentSessionId: c.id, by: `agent:${own.id}` }));
@@ -592,7 +545,7 @@ async function appHarness(t: TestRuntime, sessionId: string, suffix: string, los
   const terminal = new FakeTerminal();
   let app: TuiApp;
   let lost = false;
-  const connection = new ControlConnection({ socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())!, reconnectInitialMs: 20, reconnectMaxMs: 50,
+  const connection = new ControlConnection({ profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())!, reconnectInitialMs: 20, reconnectMaxMs: 50,
     clientFactory: async (socketPath, timeout) => {
       const client = await ControlClient.connect(socketPath, timeout);
       const request = client.request.bind(client);
@@ -650,7 +603,7 @@ test("两个真实控制客户端与 TUI：中文名称、完整设置、应答�
 test("保护目录会话分支及 prepared 恢复保留完全访问的真实读取", async () => {
   const t = await startTestRuntime("owner-branch-root", req => afterTool(req) ? { kind: "text", text: "读取完成" } : {
     kind: "tool_calls", calls: [{ id: randomId("read"), name: "read", arguments: { path: "owner-sentinel.txt" } }],
-  }, { config: { product: product.runtime, ...realTools() } });
+  }, { config: { ...realTools() } });
   let restarted: Runtime | null = null;
   try {
     fs.writeFileSync(path.join(t.dirs.dataDir, "owner-sentinel.txt"), "branch-owner-sentinel");

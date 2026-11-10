@@ -20,7 +20,7 @@ import type { DiffTool } from "../apps/desktop/src/renderer/diff.ts";
 
 const at = "2026-10-16T00:00:00.000Z";
 const workspace = (id: string): Project => ({ id, name: `真实工作区 ${id}`, createRequestId: null, rootDir: { cwd: `/work/${id}`, cwdReal: `/work/${id}`, dev: 1, ino: id === "w1" ? 1 : 2 }, instructionFiles: [], settingsVersion: 1, createdAt: at });
-const session = (id: string, projectId = "w1"): Session => ({ id, projectId, kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: `/work/${projectId}`, cwdReal: `/work/${projectId}`, cwdDev: 1, cwdIno: projectId === "w1" ? 1 : 2, piSessionId: id, sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at });
+const session = (id: string, projectId = "w1"): Session => ({ id, projectId, kind: "dev", name: null, branchSource: null, cwd: `/work/${projectId}`, cwdReal: `/work/${projectId}`, cwdDev: 1, cwdIno: projectId === "w1" ? 1 : 2, piSessionId: id, sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at });
 const directory = (workspaceId = "w1", path = "", name = "actual.txt"): OpResult<"list_workspace_files"> => ({ workspaceId, path, entries: [{ kind: "file", path: path ? `${path}/${name}` : name, name }], nextCursor: null });
 const file = (workspaceId = "w1", path = "actual.txt", content = `真实文件内容 ${workspaceId}`, offset = 0, version = "version"): OpResult<"read_workspace_file"> => { const bytes = Buffer.from(content); return { workspaceId, path, size: bytes.length, version, offset, encoding: "base64", data: bytes.subarray(offset, offset + FILE_PAGE_BYTES).toString("base64") }; };
 function gate() {
@@ -217,17 +217,6 @@ test("只读缓存和文件夹按工作区隔离，browser及预览模式按父�
   for (const request of h.transport.requests.filter(request => request.op !== "work_list")) assert.ok(!Object.hasOwn(request.params as object, "cwd"));
 });
 
-test("文件树使用会话的工作区组织归属，不拿来源 cwd 冒充展示根", async () => {
-  const h = harness();
-  h.view.sessions.find(item => item.id === "a")!.workspaceProjectId = "w2";
-  h.inspector.openParent("a");
-  h.inspector.openFiles();
-  const tab = h.inspector.activeTab();
-  assert.equal(tab?.kind === "files" && tab.workspaceId, "w2");
-  await waitFor("映射工作区目录已读取", () => !!h.inspector.directories.get("w2:")?.value);
-  const request = h.transport.requests.find(request => request.op === "list_workspace_files");
-  assert.deepEqual(request?.params, { workspace_id: "w2", path: "" });
-});
 
 let server: ViteDevServer;
 let FilePreview: ComponentType<{ file: PreviewFile | undefined; path: string; mode: "preview" | "source"; onMode: (mode: "preview" | "source") => void; onFiles: () => void; onUrl: (url: string) => void }>;

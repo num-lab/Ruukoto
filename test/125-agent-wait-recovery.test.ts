@@ -8,15 +8,13 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Db } from "@ruukoto/core/db.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { agentReportKey, bindAgentReportFallback, claimAgentReports, completeAgentReports, consumeAgentReport, endAgentWait, getAgentReport,
-  listAgentReports, registerAgentReport, registerAgentWait, releaseAgentReports, startAgentReportFallback } from "@ruukoto/core/agent-wait.ts";
+import { agentReportKey, bindAgentReportFallback, claimAgentReports, consumeAgentReport, endAgentWait, getAgentReport,
+  registerAgentReport, registerAgentWait, releaseAgentReports, startAgentReportFallback } from "@ruukoto/core/agent-wait.ts";
 import { TASK_END_MARKER, TASK_START_MARKER, type ModelSelection, type Task } from "@ruukoto/core/types.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { parseRule } from "@ruukoto/channels/scheduler/time.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { FakeBotApi } from "./helpers/fake-bot-api.ts";
-import { afterTool, lastToolText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+
+import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 function assistant(text: string, stopReason: "stop" | "aborted" = "stop"): AssistantMessage {
   return { role: "assistant", content: [{ type: "text", text }], api: "openai-completions", provider: "mock", model: "mock-model",
@@ -49,7 +47,7 @@ function requestProof(store: Store, dataDir: string, history: SessionManager, ta
 
 for (const window of ["parent", "parent-repeated", "parent-process", "fallback", "fallback-no-end"] as const) test(`冷恢复 ${window}：最终 JSONL 已落盘而 SQLite 未终态，保留原报告且不再生成`, async () => {
   const owner = window.startsWith("parent") ? "parent" : "fallback", completed = window !== "fallback-no-end";
-  const t = await startTestRuntime(`wait-recover-${owner}`, () => ({ kind: "text", text: "不应再次生成报告" }), { config: { product: codeProduct.runtime } });
+  const t = await startTestRuntime(`wait-recover-${owner}`, () => ({ kind: "text", text: "不应再次生成报告" }));
   let restarted: Runtime | null = null;
   try {
     const session = await t.runtime.createSession({ projectName: "recover", cwd: t.work[0] }), selection = t.runtime.defaultSelection;
@@ -60,9 +58,9 @@ for (const window of ["parent", "parent-repeated", "parent-process", "fallback",
     let reportTaskId = "", reportKey = "", resultEntryId = "";
     try {
       const origin = store.withTx(() => running(store, session.id, selection, "原父轮"));
-      const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: origin.id,
+      const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: origin.id,
         permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: [], capabilities: [], references: [],
-        replyTarget: null, scheduledRunId: null, authority };
+        authority };
       const childSession = store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
         cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: "recover-child", confirmTools: [] });
       store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "recover-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
@@ -148,165 +146,13 @@ for (const window of ["parent", "parent-repeated", "parent-process", "fallback",
   } finally { await restarted?.stop("test_end"); await t.shutdown(); }
 });
 
-for (const mode of ["success", "send-revoked", "request-revoked"] as const) test(`可信 Telegram main 父轮消费两份结果：${mode}`, async () => {
-  const revoke = mode === "send-revoked";
-  const token = "123:main-wait", api = new FakeBotApi({ token, ownerId: 42 }), apiBase = await api.start();
-  if (revoke) api.behavior = () => ({ status: 429, body: { ok: false, parameters: { retry_after: 3600 } } });
-  let rt!: Runtime, memoryId = "", memoryVersion = 0, revokedForRequest = false, consumedBeforeRevoke = false;
-  const t = await startTestRuntime(`wait-main-${revoke}`, req => {
-    if (afterTool(req)) {
-      const result = JSON.parse(lastToolText(req)) as { reason: string; targets: { resultSummary: string | null }[] };
-      assert.equal(result.reason, "result"); assert.equal(result.targets.length, 2);
-      assert.ok(result.targets.every(target => target.resultSummary !== null));
-      if (mode === "request-revoked") return { kind: "tool_calls", calls: [{ id: "query-after-consume", name: "history_search", arguments: { query: "MAIN WAIT TWO" } }] };
-      return { kind: "text", text: "MAIN-ONLY-FINAL 两份结果已经合并" };
-    }
-    const main = rt.store.getAgentRole("main")!, origin = rt.store.listTasksBySession(main.sessionId).find(task => task.status === "running")!;
-    const session = rt.store.getSession(main.sessionId)!;
-    const memory = rt.ownerSaveMemory({ projectId: session.projectId, category: "experience", content: "PRIVATE-MAIN-CHILD-MEMORY",
-      sourceRefs: [{ kind: "owner_note", note: "拥有者提供" }] });
-    memoryId = memory.id; memoryVersion = memory.currentVersion;
-    const ids = rt.store.withTx(() => ["one", "two"].map(key => {
-      const now = new Date().toISOString(), childSession = rt.store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
-        cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: `main-child-${key}`, confirmTools: [] });
-      const agentId = `main-agent-${key}`, workId = `main-work-${key}`;
-      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: agentId, parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
-        activeWorkId: workId, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
-      rt.store.insertWorkDelegation({ id: workId, parentSessionId: session.id, originTaskId: origin.id, subAgentId: agentId,
-        requestKey: workId, paramsDigest: workId, canceledAt: null, canceledBy: null, cancelReason: null, writeTarget: null, createdAt: now });
-      const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(rt["workflowSource"](origin.id, false, true)), sessionId: childSession.id, requestId: key, input: "读取资料", accessMode: origin.accessMode,
-        modelSelection: rt.defaultSelection, submissionDigest: key, parentTaskId: origin.id, workId, subAgentId: agentId }).task;
-      rt.store.recordToolIntent({ id: `main-memory-${key}`, taskId: child.id, sessionId: childSession.id, toolName: "memory_read", params: { memory_id: memory.id } });
-      rt.store.recordToolResult(`main-memory-${key}`, "PRIVATE-MAIN-CHILD-MEMORY", false);
-      rt.store.endTask(child.id, ["queued"], "completed"); rt.store.setTaskResult(child.id, "PRIVATE-MAIN-CHILD-MEMORY", "{}");
-      return child.id;
-    }));
-    return { kind: "tool_calls", calls: [{ id: "main-wait", name: "wait", arguments: { targets: ids.map(task_id => ({ kind: "task", task_id })) } }] };
-  }, { config: { qqDisabled: true, scheduler: { tickMs: 20 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } } });
-  rt = t.runtime;
-  if (mode === "request-revoked") rt.addEventListener(events => {
-    if (revokedForRequest || !events.some(event => event.body.type === "task.tool_result" && rt.store.getToolOp(event.body.toolOpId)?.toolName === "history_search")) return;
-    consumedBeforeRevoke = listAgentReports(rt.store).length === 2 && listAgentReports(rt.store).every(report => report.consumption !== null);
-    rt.ownerRevokeMemory({ memoryId, expectedVersion: memoryVersion });
-    revokedForRequest = true;
-  });
-  try {
-    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: token });
-    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" }); await rt.telegramSetEnabled(true);
-    await waitFor("Telegram 在线", () => rt.telegramStatus().online === true);
-    api.push({ text: "MAIN WAIT TWO" });
-    if (mode === "request-revoked") {
-      await waitFor("模型下一请求拒绝已撤销来源", () => listAgentReports(rt.store).length === 2 && listAgentReports(rt.store).every(report => report.status === "undelivered"));
-      assert.ok(revokedForRequest); assert.ok(consumedBeforeRevoke);
-      const reports = listAgentReports(rt.store), task = rt.store.getTask(reports[0].consumption!.taskId)!;
-      assert.equal(rt.store.getSessionIdentity(task.sessionId)!.kind, "main"); assert.equal(task.status, "interrupted");
-      assert.equal(t.server.calls.length, 2, "消费后的资料撤销必须阻断下一模型请求");
-      assert.equal(api.sends.length, 0);
-      assert.equal(rt.sched.listOps({ limit: 50 }).items.filter(op => op.sourceKind === "owner_reply").length, 0);
-      return;
-    }
-    await waitFor("main 最终 owner_reply 已收尾", () => rt.sched.listOps({ limit: 50 }).items.some(op => op.sourceKind === "owner_reply" &&
-      (revoke ? op.notBefore !== null : op.status === "sent")));
-    const ops = rt.sched.listOps({ limit: 50 }).items.filter(op => op.sourceKind === "owner_reply");
-    assert.equal(ops.length, 1, "普通回复和认领总结共用一份 outbox");
-    const op = ops[0], task = rt.store.getTask(op.taskId!)!, reports = listAgentReports(rt.store, { taskId: task.id });
-    assert.equal(rt.store.getSessionIdentity(task.sessionId)!.kind, "main"); assert.equal(task.status, "completed");
-    assert.equal(op.sourceKey, task.sourceEventId);
-    assert.equal(reports.length, 2); assert.ok(reports.every(report => report.status === "reported" && report.consumption?.taskId === task.id && report.proof?.outboxOpId === op.id));
-    assert.equal(new Set(reports.map(report => report.consumption!.entryId)).size, 1);
-    assert.match(op.text, /MAIN-ONLY-FINAL/);
-    assert.equal(api.sends.length, 1); assert.equal(t.server.calls.length, 2);
-    if (revoke) {
-      rt.ownerRevokeMemory({ memoryId, expectedVersion: memoryVersion });
-      rt.store.withTx(() => rt.store.db.prepare("UPDATE notification_ops SET not_before = NULL WHERE id = ?").run(op.id));
-      await rt.scheduler!.tick(); await rt.scheduler!.idle();
-      assert.equal(rt.sched.getOp(op.id)!.status, "canceled");
-      assert.equal(api.sends.length, 1, "撤销后不能调用真实适配器重发旧正文");
-    }
-    await rt.scheduler!.tick(); await rt.scheduler!.idle();
-    assert.equal(rt.sched.listOps({ limit: 50 }).items.filter(item => item.sourceKind === "owner_reply").length, 1);
-    assert.equal(api.sends.length, 1);
-  } finally { await t.shutdown(); await api.close(); }
-});
 
-test("定时父轮已消费普通子结果：实际发送前撤销子任务记忆，原汇报取消且不外发", async () => {
-  const token = "123:wait-source", api = new FakeBotApi({ token, ownerId: 42 }), apiBase = await api.start();
-  const t = await startTestRuntime("wait-schedule-source", () => ({ kind: "text", text: "不应调用模型" }), {
-    config: { qqDisabled: true, scheduler: { tickMs: 0 }, telegram: { pollTimeoutSec: 1, backoffMs: 30 } },
-  });
-  const rt = t.runtime;
-  try {
-    await rt.addCredentialBinding({ name: "tg", host: new URL(apiBase).host, header: "none", purpose: "telegram_bot", secret: token });
-    await rt.telegramConfigure({ apiBase, credential: "tg", ownerUserId: "42" });
-    const config = await rt.telegramSetEnabled(true);
-    await waitFor("Telegram 在线", () => rt.telegramStatus().online === true);
-    const session = await rt.createSession({ projectName: "scheduled-source", cwd: t.work[0] });
-    const memory = rt.ownerSaveMemory({ projectId: session.projectId, category: "experience", content: "PRIVATE-CHILD-MEMORY",
-      sourceRefs: [{ kind: "owner_note", note: "拥有者提供" }] });
-    const target = { channel: "telegram", account: "123", chatId: config.ownerChatId, configVersion: config.configVersion };
-    const runId = "scheduled-report-source", now = new Date().toISOString();
-    const fixture = rt.store.withTx(() => {
-      const origin = running(rt.store, session.id, rt.defaultSelection, "定时父轮");
-      const schedule = rt.sched.insertSchedule({ createKey: "wait-source", paramsDigest: "wait-source", createTaskId: null, createOpId: null,
-        projectId: session.projectId, createPermissionVersion: 1, accessMode: "full_access", rule: parseRule({ kind: "once", at: "2099-01-01T00:00:00Z", time_zone: "UTC" }),
-        instruction: "读取子任务记忆并汇报", sourceRefs: [], target, nextDueAt: null, tzData: "test", reason: "test" }, "test");
-      rt.sched.insertRun({ id: runId, scheduleId: schedule.id, scheduleVersion: schedule.version, scheduledFor: now, localTime: now,
-        registeredAt: now, delayMs: 0, coalescedFrom: null, coalescedTo: null, inboundEventId: null, notificationOpId: null,
-        sessionId: session.id, rootTaskId: origin.id, resultStatus: null, resultText: null });
-      const childSession = rt.store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal,
-        cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: "scheduled-child", confirmTools: [] });
-      rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "scheduled-agent", parentSessionId: session.id, sessionId: childSession.id, workDir: session.cwdReal,
-        activeWorkId: "scheduled-work", currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: now });
-      rt.store.insertWorkDelegation({ id: "scheduled-work", parentSessionId: session.id, originTaskId: origin.id, subAgentId: "scheduled-agent",
-        requestKey: "scheduled-work", paramsDigest: "scheduled-work", canceledAt: null, canceledBy: null, cancelReason: null,
-        writeTarget: null, createdAt: now });
-      const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: origin.id,
-        permissionVersion: origin.permissionVersion, accessMode: origin.accessMode, grantedPaths: [], capabilities: [], references: [],
-        replyTarget: target, scheduledRunId: runId, authority: fixtureSubAgentAuthority(rt, session) };
-      const child = rt.store.insertQueuedTask({ readScope: fixtureSubAgentScope(source), sessionId: childSession.id, requestId: "memory-child", input: "读取记忆", accessMode: "full_access",
-        modelSelection: rt.defaultSelection, submissionDigest: "memory-child", parentTaskId: origin.id, workId: "scheduled-work", subAgentId: "scheduled-agent" }).task;
-      rt.store.recordToolIntent({ id: "scheduled-memory-read", taskId: child.id, sessionId: childSession.id, toolName: "memory_read", params: { memory_id: memory.id } });
-      rt.store.recordToolResult("scheduled-memory-read", "PRIVATE-CHILD-MEMORY", false);
-      rt.store.endTask(child.id, ["queued"], "completed"); rt.store.setTaskResult(child.id, "PRIVATE-CHILD-MEMORY", "{}");
-      const waitTarget = { kind: "task" as const, taskId: child.id };
-      registerAgentWait(rt.store, { id: "scheduled-wait", sdkCallId: "scheduled-wait", deadline: null, taskId: origin.id, sessionId: session.id,
-        targets: [waitTarget], source, snapshot: { taskId: origin.id, permissionVersion: origin.permissionVersion,
-          selectionRecordId: null, promptArtifactId: null, instructions: null, skills: null } });
-      endAgentWait(rt.store, "scheduled-wait", "result");
-      const report = registerAgentReport(rt.store, { target: waitTarget, source, parentSessionId: session.id });
-      claimAgentReports(rt.store, { taskId: origin.id, keys: [report.key] });
-      const history = SessionManager.create(session.cwdReal, path.join(t.dirs.dataDir, "sessions"), { id: session.piSessionId });
-      history.appendCustomEntry(TASK_START_MARKER, { taskId: origin.id, requestId: origin.requestId });
-      history.appendMessage({ role: "user", content: "定时任务", timestamp: Date.now() });
-      const resultId = history.appendMessage({ role: "toolResult", toolName: "agent_wait", toolCallId: "scheduled-wait", isError: false,
-        content: [{ type: "text", text: "PRIVATE-CHILD-MEMORY" }], timestamp: Date.now() });
-      consumeAgentReport(rt.store, report.key, { taskId: origin.id, entryId: resultId });
-      const finalId = history.appendMessage(assistant("PRIVATE-CHILD-MEMORY"));
-      history.appendCustomEntry(TASK_END_MARKER, { taskId: origin.id, status: "completed" });
-      rt.store.setSessionFile(session.id, history.getSessionFile()!);
-      rt.store.endTask(origin.id, ["running"], "completed"); rt.store.setTaskResult(origin.id, "PRIVATE-CHILD-MEMORY", "{}");
-      completeAgentReports(rt.store, origin.id, { status: "reported", entryId: finalId });
-      const { op } = rt.sched.insertOp({ sourceKind: "schedule_run", sourceKey: runId, taskId: origin.id, hostOpId: null,
-        target, text: "PRIVATE-CHILD-MEMORY", sourceRefs: [] });
-      rt.store.db.prepare("UPDATE notification_ops SET not_before = ? WHERE id = ?").run("2099-01-01T00:00:00Z", op.id);
-      rt.sched.finishRun(runId, "completed", "PRIVATE-CHILD-MEMORY", op.id);
-      return { opId: op.id, reportKey: report.key };
-    });
-    assert.equal(getAgentReport(rt.store, fixture.reportKey)!.status, "reported");
-    rt.ownerRevokeMemory({ memoryId: memory.id, expectedVersion: memory.currentVersion });
-    rt.store.withTx(() => rt.store.db.prepare("UPDATE notification_ops SET not_before = NULL WHERE id = ?").run(fixture.opId));
-    await rt.scheduler!.tick(); await rt.scheduler!.idle();
-    const op = rt.sched.getOp(fixture.opId)!;
-    assert.equal(op.status, "canceled");
-    assert.equal(op.sourceKey, runId); assert.deepEqual(op.target, target);
-    assert.equal(api.sends.length, 0, "取消必须发生在真实适配器发请求之前");
-    assert.equal(t.server.calls.length, 0);
-  } finally { await t.shutdown(); await api.close(); }
-});
+
+
 
 for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-json", "null-root", "null-target", "missing-start", "missing-tool-entry", "missing-group", "empty-group", "subset-group", "falsy-group", "own-missing-tool-entry", "own-subset-group"] as const) test(`续接整组冷恢复 ${inputCase}：保留消费归属与实际输入证明，0 模型`, async () => {
   const completed = inputCase !== "no-end", own = inputCase.startsWith("own-");
-  const t = await startTestRuntime("e8-takeover-recovery", () => ({ kind: "text", text: "不应重新总结" }), { config: { product: codeProduct.runtime } });
+  const t = await startTestRuntime("e8-takeover-recovery", () => ({ kind: "text", text: "不应重新总结" }));
   let restarted: Runtime | null = null;
   try {
     const session = await t.runtime.createSession({ projectName: "e8", cwd: t.work[0] });
@@ -317,8 +163,8 @@ for (const inputCase of ["completed", "no-end", "missing-reference", "invalid-js
     const keys: string[] = [];
     try {
       const p = store.withTx(() => running(store, session.id, selection, "P介入")); parentId = p.id;
-      const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: p.id, permissionVersion: p.permissionVersion,
-        accessMode: p.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null, authority };
+      const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: p.id, permissionVersion: p.permissionVersion,
+        accessMode: p.accessMode, grantedPaths: [], capabilities: [], references: [], authority };
       const children = [0, 1].map(i => store.withTx(() => {
         const sub = store.createSession({ projectId: session.projectId, cwd: session.cwdReal, cwdReal: session.cwdReal, cwdDev: session.cwdDev, cwdIno: session.cwdIno, piSessionId: `sub-${i}`, confirmTools: [] });
         const agentId = `sub${i}`, workId = `work${i}`;

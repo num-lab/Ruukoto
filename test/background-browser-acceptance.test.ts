@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { parseSessionFile } from "@ruukoto/core/history.ts";
 import { afterTool, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
@@ -29,7 +29,7 @@ test("真实后台服务→后续browser工具访问→下一拥有者轮查询�
     }
     return afterTool(request) ? { kind: "text", text: "下一拥有者轮已查询" }
       : { kind: "tool_calls", calls: [{ id: "status-next", name: "process_status", arguments: { process_id: processId } }] };
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime, browser: { binaryPath: binary, chromePath: chrome, headed: false } } });
+  }, { workDirs: 1, config: { ...realTools(), browser: { binaryPath: binary, chromePath: chrome, headed: false } } });
   try {
     const session = await t.runtime.createSession({ projectName: "browser", cwd: t.work[0], mode: "full_access" });
     urlFile = path.join(t.work[0], "url");

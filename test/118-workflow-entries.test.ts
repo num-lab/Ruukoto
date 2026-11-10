@@ -12,8 +12,8 @@ import { ControlServer } from "@ruukoto/control/server.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import { bindWorkflowExecution, createWorkflowRun, getWorkflowDefinition, getWorkflowQuestion, listWorkflowRuns, registerWorkflowStep, rememberWorkflowDefinition, updateWorkflowExecution, updateWorkflowRun, requireWorkflowRun, saveWorkflowDefinition } from "@ruukoto/core/workflow.ts";
 import type { Session } from "@ruukoto/core/types.ts";
-import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
-import { afterTool, connectAuthedClient, lastToolText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
+
+import { afterTool, connectAuthedClient, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 const WAIT_SCRIPT = 'await progress("state",{text:input.marker}); const a=await ask("pick",{prompt:input.marker,options:["yes","no"]}); return {marker:input.marker,answer:a};';
 
@@ -167,8 +167,8 @@ test("停止未核实摘要覆盖百项之外的执行和冷崩溃空结论，�
   } finally { await t.shutdown(); }
 });
 
-for (const product of [codingProduct.runtime]) test((product?.type ?? "ruukoto") + " 空闲会话显式启动、带参复用与多个运行不占聊天，原键拒绝授权字段", async () => {
-  const t = await startTestRuntime("workflow-entries", async () => ({ kind: "text", text: "CHAT-OK" }), { config: product ? { product } : {} });
+test("ruukoto 空闲会话显式启动、带参复用与多个运行不占聊天，原键拒绝授权字段", async () => {
+  const t = await startTestRuntime("workflow-entries", async () => ({ kind: "text", text: "CHAT-OK" }));
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "entries", cwd: t.work[0] });
     await t.client.request("workflow_save", { name: "batch", script: WAIT_SCRIPT, expected_digest: null, request_id: "save" });
@@ -272,7 +272,8 @@ test("当前定义更新和删除不改变原键或重启恢复固定版本；�
   } finally { await current.stop("test_end"); await t.shutdown(); }
 });
 
-for (const product of [codingProduct.runtime]) test((product?.type ?? "ruukoto") + " 真实 Driver 自主发起工具与说明进入历史；步骤没有嵌套工具", async () => {
+test("ruukoto 真实 Driver 自主发起工具与说明进入历史；步骤没有嵌套工具", async () => {
+  let launched = false;
   const t = await startTestRuntime("workflow-tool-entry", req => {
     if (lastUserText(req).startsWith("[工作流最终回报]")) return { kind: "text", text: "FINAL" };
     if (lastUserText(req).includes("WORKFLOW-STEP")) {
@@ -283,11 +284,14 @@ for (const product of [codingProduct.runtime]) test((product?.type ?? "ruukoto")
       assert.ok(toolNamesOf(req).includes("workflow_start"));
       return { kind: "tool_calls", calls: [{ id: "instructions", name: "workflow_instructions", arguments: {} }] };
     }
-    if (lastToolText(req).startsWith("工作流是固定脚本")) return { kind: "tool_calls", calls: [{ id: "launch", name: "workflow_start", arguments: {
-      title: "自主处理", description: "后台处理并等待选择", script: 'await agent("one",{request:"WORKFLOW-STEP"}); return await ask("owner",{prompt:input.prompt,dependsOn:["one"]});', input: { prompt: "AUTONOMOUS" }, key: "auto", max_attempts: 2,
-    } }] };
+    if (!launched) {
+      launched = true;
+      return { kind: "tool_calls", calls: [{ id: "launch", name: "workflow_start", arguments: {
+        title: "自主处理", description: "后台处理并等待选择", script: 'await agent("one",{request:"WORKFLOW-STEP"}); return await ask("owner",{prompt:input.prompt,dependsOn:["one"]});', input: { prompt: "AUTONOMOUS" }, key: "auto", max_attempts: 2,
+      } }] };
+    }
     return { kind: "text", text: "后台已启动" };
-  }, { config: { ...realTools(), ...(product ? { product } : {}) } });
+  }, { config: realTools() });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "model", cwd: t.work[0] });
     const task = await rt.submit({ sessionId: session.id, requestId: "model", input: "自主安排这个工作", modelSelection: rt.defaultSelection });
@@ -296,7 +300,9 @@ for (const product of [codingProduct.runtime]) test((product?.type ?? "ruukoto")
     assert.equal(run.source.taskId, task.id); assert.equal(run.maxAttempts, 2);
     assert.equal(run.displayName, "自主处理"); assert.equal(run.description, "后台处理并等待选择");
     const history = fs.readFileSync(rt.store.getSession(session.id)!.sessionFile!, "utf8");
-    assert.match(history, /workflow_instructions/); assert.match(history, /没有 Node/); assert.match(history, /AUTONOMOUS/);
+    assert.match(history, /workflow_instructions/); assert.match(history, /AUTONOMOUS/);
+    const operations = rt.store.listToolOpsByTask(task.id);
+    for (const tool of ["workflow_instructions", "workflow_start"]) assert.ok(operations.some(operation => operation.toolName === tool && operation.isError === false));
     assert.equal(t.server.calls.length, 4);
     await rt.controlWorkflow({ runId: run.id, version: run.version, requestKey: "owner-cancel", control: { action: "cancel" } });
   } finally { await t.shutdown(); }
@@ -319,9 +325,9 @@ test("模型保存异步期间取消不落文件；查询/取消只限来源，�
     const ctx = { taskId: task.id, sessionId: session.id, projectId: session.projectId, hostOpId: "call" };
     const host: HostToolRuntime = {
       registry: createManagedProcessRegistry(), toolClass: "dev", call: { taskContext: () => ctx, bindCall: () => ({ context: ctx, release() {} }) },
-      identity: { verifyHost: () => null, verifyMain: () => null }, skills: () => null,
+      identity: { verifyHost: () => null }, skills: () => null,
       effects: { recordArtifact() {}, markEffectUnknown() {} },
-      approval: { request: async () => { throw new Error("unused"); }, requestStanding: () => { throw new Error("unused"); } },
+      approval: { request: async () => { throw new Error("unused"); } },
     };
     const tools = family.build(host);
     const invoke = (name: string, params: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute("call", params, undefined, undefined, {} as ExtensionToolContext);

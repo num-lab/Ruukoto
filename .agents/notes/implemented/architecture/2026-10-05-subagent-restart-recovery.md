@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[Personal entry/legacy retirement](../simplification/2026-10-18-personal-product-entry.md) supersedes Personal recovery with durable safe-work recovery, still pausing unknown effects/unverified stop. Coding and legacy formats retain the original rules below. Personal provenance/verification belongs to [durable migration](../../proposed/architecture/2026-10-17-personal-pi-durable.md) and capability notes; complete migration acceptance remains separate.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[Personal entry/legacy retirement](../../archived/simplification/2026-10-18-personal-product-entry.md) supersedes Personal recovery with durable safe-work recovery, still pausing unknown effects/unverified stop. Coding and legacy formats retain the original rules below. Personal provenance/verification belongs to [durable migration](../../rejected/architecture/2026-10-17-personal-pi-durable.md) and capability notes; complete migration acceptance remains separate.
 
 Original source: ADR 0020, backend-restart recovery supplement.
 
@@ -26,4 +28,4 @@ Queued owner/main delegations finish and report once rather than replay; source-
 
 Historical `.scratch/agent-direction/issues/15-recover-subagents.md` records test/86 3/3 with mocked model, local realTools worker, and in-process Runtime restart; related tests 75/75, typecheck, and four diagrams passed. Full tests were 889/892 with recorded DNS/worktree-name environment failures. macOS Docker smoke-15 passed 8/8 with real container, control socket, CLI, and DB, but simulated model/platform and DB-injected crash state rather than a real kill. Linux remote smoke was not run in that original implementation.
 
-[Generic scheduled tasks](../feature/2026-10-12-generic-scheduled-tasks.md) owns independent runs, ownership, approval provenance, and whole-request cancellation. [Workflow runtime/store](2026-10-13-workflow-runtime-and-store.md) gives the coordinator separate authority, pointers, results, and recovery for bound steps/short host operations. Ordinary recovery retains this note.
+[Generic scheduled tasks](../../archived/feature/2026-10-12-generic-scheduled-tasks.md) owns independent runs, ownership, approval provenance, and whole-request cancellation. [Workflow runtime/store](2026-10-13-workflow-runtime-and-store.md) gives the coordinator separate authority, pointers, results, and recovery for bound steps/short host operations. Ordinary recovery retains this note.

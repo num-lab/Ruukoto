@@ -237,8 +237,4 @@ test("后台进程标签开关驱动状态归属，仅 Code 目标可打开", ()
   inspector.closeParent("session");
   assert.equal(closed, 3, "关闭会话清掉属于它的后台状态");
   assert.deepEqual(inspector.tabs(), []);
-  const personal = new DesktopInspector({ request: async () => { throw new Error("离线"); } }, view, async () => {}, () => {}, "personal", background);
-  personal.openParent("session");
-  personal.openBackground();
-  assert.deepEqual(personal.tabs(), [], "Personal 没有后台进程入口");
 });

@@ -76,8 +76,8 @@ function fixture(t: TestContext, agent: WorkflowAgentExecutor = async () => ({ o
     store.transitionTask(task.id, ["queued"], "running");
     return { session, task };
   });
-  const source: WorkflowSource = { product: "ruukoto-code", projectId: session.projectId, sessionId: session.id, taskId: task.id,
-    permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: ["read"], references: [], replyTarget: null, scheduledRunId: null };
+  const source: WorkflowSource = { product: "ruukoto", projectId: session.projectId, sessionId: session.id, taskId: task.id,
+    permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: ["read"], references: [] };
   let now = 1_000;
   const deps: WorkflowDeps = { roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []), store, workRoot: path.join(root, "steps"), source: () => source, selection: () => selection,
     verifySource: () => true, agent, now: () => now };
@@ -771,7 +771,7 @@ test("工作流沿 Runtime 的宿主族效果分类：中止 history_read 没有
     }
     return { output: "read-restored" };
   });
-  f.deps.ledger = new ToolOpLedger(f.store, {}, [HOST_DATA_LEDGER]);
+  f.deps.ledger = new ToolOpLedger(f.store, [HOST_DATA_LEDGER]);
   await f.restart();
   const run = f.start('return await agent("read",{request:"read history"});');
   await f.terminal(run.id);

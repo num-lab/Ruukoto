@@ -12,7 +12,10 @@ function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-"));
   const lockDir = path.join(root, "runtime.lock");
   const ownerFile = path.join(lockDir, "owner.json");
-  return { root, lockDir, ownerFile, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, lockDir, ownerFile, cleanup: () => {
+    if (fs.existsSync(lockDir)) fs.chmodSync(lockDir, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  } };
 }
 
 test("实例锁以真实启动身份核实当前进程，不依赖检出名；只读探测和重复获取不改写 owner", () => {
@@ -86,13 +89,15 @@ test("相同 PID 的启动标识不同表示遗留锁，损坏的新身份保持
     owner.processIdentity = process.platform === "linux"
       ? original.replace(/:\d+$/, ":0")
       : "darwin:Thu Jan  1 00:00:00 1970";
+    fs.chmodSync(f.ownerFile, 0o600);
     fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
     assert.equal(probeLockHolder(f.lockDir).held, false, "合法但不匹配的启动标识可证明 PID 已复用");
     held = acquireInstanceLock(f.root);
+    fs.chmodSync(f.ownerFile, 0o600);
     for (const pid of [0, -1, 1.5]) {
       fs.writeFileSync(f.ownerFile, JSON.stringify({ ...owner, pid, processIdentity: original }));
-      assert.equal(probeLockHolder(f.lockDir).held, false, "无效 PID 按损坏 owner 处理，不探测进程组");
-      held = acquireInstanceLock(f.root);
+      assert.equal(probeLockHolder(f.lockDir).unverifiable, true, "Invalid PIDs cannot prove exit or authorize takeover");
+      assert.throws(() => acquireInstanceLock(f.root), (error: unknown) => error instanceof InstanceLockError && error.unverifiable);
     }
     for (const invalid of [null, "", "invalid", "darwin:0", "darwin:1", "darwin:Sun Feb 30 00:00:00 2025", "linux:------------------------------------:1", { start: "unknown" }]) {
       fs.writeFileSync(f.ownerFile, JSON.stringify({ ...owner, processIdentity: invalid }));
@@ -113,6 +118,7 @@ test("旧 owner 沿命令兼容核实；ps 不可用保留锁，身份采集失�
   const owner = JSON.parse(fs.readFileSync(f.ownerFile, "utf8"));
   const currentOwner = fs.readFileSync(f.ownerFile, "utf8");
   delete owner.processIdentity;
+  fs.chmodSync(f.ownerFile, 0o600);
   fs.writeFileSync(f.ownerFile, JSON.stringify(owner));
   const realExec = childProcess.execFileSync;
   let unavailable = false;

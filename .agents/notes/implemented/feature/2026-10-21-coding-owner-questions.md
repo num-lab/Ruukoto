@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [In-task questions](2026-10-30-coding-owner-question-wait.md) replaces immediate pending results, answer-created continuation tasks and continuation from old question cards after restart. That decision owns the replacement execution contract; this note preserves the original decision and its retained trusted provenance, unique-answer and answers-not-approvals constraints.
 
 [Coding schedules](2026-10-25-code-scheduled.md) supersedes the original scheduled-source exclusion: trusted schedule roots/continuations preserve coding-schedule provenance and that turn's pinned model/authority; canceled/closed/missing reverse bindings refuse continuation. Ordinary owner input retains coding-owner provenance. [Question types](2026-10-21-owner-question-choice-types.md) supersedes initial single-choice/nonempty-answer/UI-top-action/query-budget/version choices. Other provenance, transaction, recovery, and message-position rules remain here.
@@ -12,7 +14,7 @@ Plain-text questions cannot reliably persist choices, answer provenance, or cros
 
 ## Decision
 
-`ask_user` is available to genuine ordinary Code owner-input tasks, including Plan, with eligibility verified from task/session/host operation. The initial form supported 1-3 questions (up to 2000 characters), each with 2-5 distinct nonempty choices (up to 200 characters), always allowing free text (up to 4096). Later question-type rules govern current forms. SubAgents, workflows, GitHub, and internal summaries gain no eligibility; the schedule exception is explicit above. [Personal questions](2026-10-21-personal-owner-questions.md) uses its own durable integration rather than these tables.
+`ask_user` is available to genuine ordinary Code owner-input tasks, including Plan, with eligibility verified from task/session/host operation. The initial form supported 1-3 questions (up to 2000 characters), each with 2-5 distinct nonempty choices (up to 200 characters), always allowing free text (up to 4096). Later question-type rules govern current forms. SubAgents, workflows, GitHub, and internal summaries gain no eligibility; the schedule exception is explicit above. [Personal questions](../../archived/feature/2026-10-21-personal-owner-questions.md) uses its own durable integration rather than these tables.
 
 `owner_questions` records complete questions, originating task/tool operation, actual input, and authority snapshot. At most one pending batch per session. Same host operation returns its original result; another creation cannot overwrite pending. Creation immediately returns pending. Driver uses that durable fact to narrow this task's assembly/pre-send tool set/execution checks to host-status queries, allowing explanatory output and turn completion. Other owner tasks retain their tools. Add neither a Task state nor waiting occupancy.
 

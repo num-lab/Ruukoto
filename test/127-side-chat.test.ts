@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { parseSessionFileStrict, snapshotSessionHistory } from "@ruukoto/core/history.ts";
 import { getSideChatByParent } from "@ruukoto/core/side-chat.ts";
 import { TASK_START_MARKER, TASK_END_MARKER, randomId, type Session } from "@ruukoto/core/types.ts";
@@ -51,7 +51,7 @@ function messagesOf(file: string): string[] {
 }
 
 async function fixture(prefix: string, responder: Parameters<typeof startTestRuntime>[1] = async () => ({ kind: "text", text: "侧聊回复" })) {
-  const t = await startTestRuntime(prefix, responder, { config: { product: product.runtime } });
+  const t = await startTestRuntime(prefix, responder);
   const session = (await t.runtime.openWorkspace({ cwd: t.work[0]! })).session;
   return { t, session, h: history(t, session) };
 }

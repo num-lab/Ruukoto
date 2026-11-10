@@ -5,7 +5,6 @@ import type { OpResult } from "@ruukoto/control/ops.ts";
 import { handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import type { DesktopBridge, DesktopResult, DesktopTarget } from "../apps/desktop/src/shared/bridge.ts";
 import { CodeSkillsState } from "../apps/desktop/src/renderer/code-skills-state.ts";
-import { SettingsState } from "../apps/desktop/src/renderer/settings-state.ts";
 
 type Skill = OpResult<"skills_list">["skills"][number];
 const revision = "sha256:" + "a".repeat(64);
@@ -35,8 +34,6 @@ test("Code Skills 只读列表与详情、检索和诊断可用，关闭或切�
   const count = h.calls.length; h.state.query = "nothing"; assert.equal(h.state.filtered.length, 0);
   h.state.query = "EXAMPLE"; assert.equal(h.state.filtered.length, 1); assert.equal(h.calls.length, count);
   assert.equal(h.state.dirty, false); assert.equal(await h.state.save(), false); assert.equal(h.calls.length, count);
-  const settings = new SettingsState(() => {}); settings.open = true; settings.form = h.state;
-  settings.chooseCategory("pa-skills"); assert.equal(settings.category, "pa-skills"); assert.equal(settings.leave, null);
   assert.ok(h.calls.every(call => call.target === "code" && ["skills_list", "skill_get"].includes(call.op)));
 });
 
@@ -63,7 +60,7 @@ test("Code Skills 离线与迟到读取不覆盖原实例，恢复后可重新�
 
 test("桌面技能写操作在两目标均拒绝，不转发到后台", async () => {
   let calls = 0;
-  for (const target of ["code", "personal"]) for (const op of ["desktop_skill_import", "skill_import", "skill_import_preview", "skill_set_enabled", "skill_remove"]) {
+  for (const target of ["code"]) for (const op of ["desktop_skill_import", "skill_import", "skill_import_preview", "skill_set_enabled", "skill_remove"]) {
     const result = await handleRequest(target, op, {}, async () => { calls++; }, async () => { calls++; });
     assert.equal(result.ok, false, `${target}:${op}`); if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
   }

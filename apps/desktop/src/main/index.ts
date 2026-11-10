@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme, Notification, dialog, ipcMain, safeStorage, session, shell } from "electron";
+import { app, BrowserWindow, nativeTheme, Notification, dialog, ipcMain, session, shell } from "electron";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DesktopError } from "./environment.ts";
@@ -6,7 +6,6 @@ import { ipcResult } from "./ipc.ts";
 import { browserFrameAllowed, cspFor, denyBrowserPermissions, externalUrl, isRendererReload } from "./security.ts";
 import { DesktopHost } from "./host.ts";
 import { appearanceValue, loadAppearance, saveAppearance } from "./appearance.ts";
-import { electronPersonalCredentialStorage } from "./personal-credential-storage.ts";
 import type { DesktopTarget, DesktopUpdate } from "../shared/bridge.ts";
 import type { DesktopNotice } from "./notifications.ts";
 
@@ -32,18 +31,6 @@ function showNotice(notice: DesktopNotice): void {
   notification.show();
 }
 const platform = {
-  pickOutput: async (name: string) => {
-    if (!window || window.isDestroyed()) throw new DesktopError("personal_output_closed", "The file window closed; reopen the app.");
-    const result = await dialog.showSaveDialog(window, { title: "Save final file", defaultPath: name, properties: ["createDirectory", "showOverwriteConfirmation"] });
-    return result.canceled ? null : result.filePath ?? null;
-  },
-  previewOutput: async (filename: string, name: string) => {
-    const source = window;
-    if (!source || source.isDestroyed()) throw new DesktopError("personal_output_closed", "The file window closed; reopen the app.");
-    source.previewFile(filename, name);
-    return () => { if (!source.isDestroyed()) source.closeFilePreview(); };
-  },
-  credentials: electronPersonalCredentialStorage(app.getPath("userData"), app.isPackaged, safeStorage, () => app.whenReady()),
   publish: (target: DesktopTarget, update: DesktopUpdate) => { if (window && !window.isDestroyed()) window.webContents.send("desktop:update", target, update); },
   focused: () => !!window?.isFocused(),
   notice: showNotice,
@@ -79,7 +66,7 @@ async function createWindow(): Promise<void> {
       callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] } });
     });
   }
-  window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "Ruukoto", titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 17 }, vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false } });
+  window = new BrowserWindow({ width: 1160, height: 780, minWidth: 760, minHeight: 500, title: "ruukoto", titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 17 }, vibrancy: "sidebar", webPreferences: { preload: fileURLToPath(new URL("../preload/index.cjs", import.meta.url)), sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false } });
   const contents = window.webContents;
   contents.on("render-process-gone", () => host.resetTerminals());
   contents.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) host.resetTerminals(); });
@@ -113,7 +100,7 @@ ipcMain.handle("desktop:set-appearance", (event, value: unknown) => ipcResult(()
   nativeTheme.themeSource = appearance;
 }));
 ipcMain.on("desktop:subscribe", (event, target: unknown) => {
-  if (!trusted(event) || (target !== "code" && target !== "personal")) return;
+  if (!trusted(event) || target !== "code") return;
   host.subscribe(target);
 });
 ipcMain.handle("desktop:request", async (event, target, op, params) => {
@@ -155,8 +142,8 @@ app.on("before-quit", event => {
   if (quitting) return;
   quitting = true;
   void host.close().catch(() => {
-    process.stderr.write("[ruukoto:desktop] Personal shutdown cleanup failed; check app data directory permissions.\n");
+    process.stderr.write("[ruukoto:desktop] Shutdown cleanup failed; check app data directory permissions.\n");
   }).finally(() => { quitReady = true; app.quit(); });
 });
 app.on("window-all-closed", () => app.quit());
-app.whenReady().then(async () => { await createWindow(); void host.reconnectPersonal(); }).catch(() => { process.stderr.write("[ruukoto:desktop] Desktop window launch failed; check the dev nonce or rebuild the app.\n"); app.quit(); });
+app.whenReady().then(createWindow).catch(() => { process.stderr.write("[ruukoto:desktop] Desktop window launch failed; check the dev nonce or rebuild the app.\n"); app.quit(); });

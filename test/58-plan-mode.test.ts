@@ -14,8 +14,6 @@ import type { AddressInfo } from "node:net";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 import type { RecordedRequest, Responder } from "./helpers/mock-provider.ts";
 import { createProjectSession, lastUserText, realTools, startTestRuntime, taskStatus, waitFor, type TestRuntime } from "./helpers/testkit.ts";
-import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
-import { seedCodingRole } from "./helpers/legacy-coding.ts";
 
 const MODEL = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 const TERMINAL = ["completed", "failed", "interrupted", "canceled"];
@@ -183,19 +181,14 @@ test("集成：Plan 固定 Auto review，越界文件与 HTTP 读取经独立审
 });
 
 
-test("集成：Plan 只允许普通开发会话，main 与 IM 的 /plan 是普通文本", async () => {
+test("Plan is limited to ordinary development conversations; literal /plan text does not select a mode", async () => {
   const t = await startTestRuntime("plan-sessions", async () => ({ kind: "text", text: "好的" }));
   try {
     const rt = t.runtime;
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    const archive = legacyGroupArchive({ store: rt.store, qq: rt.qqStore, workRoot: t.dirs.root });
-    archive.seedChatRole();
-    const group = archive.seedGroup({ groupId: "100001" });
-    const coding = seedCodingRole(rt.store, t.dirs.root);
-    const mainId = rt.store.getAgentRole("main")!.sessionId;
     const child = await rt.createSession({ projectName: "child", cwd: t.work[1]! });
     rt.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "plan-child", parentSessionId: sessionId, sessionId: child.id, workDir: child.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: child.createdAt });
-    for (const id of [mainId, rt.store.getAgentRole("chat")!.sessionId, coding.sessionId, group.session.id, child.id]) {
+    for (const id of [child.id]) {
       const before = rt.store.listTasksBySession(id).length;
       const session = rt.store.getSession(id)!;
       await assert.rejects(t.client.request("set_session_mode", { session_id: id, mode: "plan", expected_version: session.defaultAccessModeVersion }));
@@ -206,13 +199,6 @@ test("集成：Plan 只允许普通开发会话，main 与 IM 的 /plan 是普�
     const ordinary = await waitDone(t, (await submit(t, sessionId, "text", "/plan 调研")).id);
     assert.equal(ordinary.task.planMode, false);
     assert.ok(!hasPlanPrefix(callFor(t, "/plan 调研")));
-    const main = await waitDone(t, (await submit(t, mainId, "plain", "/plan main 调研")).id);
-    assert.equal(main.task.planMode, false);
-    await rt.orchestrator!.registerInboundEvent({ source: "test", externalId: "owner-plan", targetRole: "main", body: "/plan 入站调研" });
-    await waitFor("入站任务完成", () => rt.store.listTasksBySession(mainId).some((x) => x.sourceEventId && x.status === "completed"));
-    const call = t.server.calls.find((c) => lastUserText(c).startsWith("[入站事件]"))!;
-    assert.ok(lastUserText(call).includes("/plan 入站调研"));
-    assert.ok(!hasPlanPrefix(call));
   } finally { await t.shutdown(); }
 });
 

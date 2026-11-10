@@ -5,10 +5,12 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { ensureBackend, probeControlPlane } from "@ruukoto/control/ensure-backend.ts";
 import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
+import { cleanupDirs, makeTestDirs } from "./helpers/testkit.ts";
 
 async function fixture(reply: (op: string) => object | null) {
-  const controlDir = fs.mkdtempSync("/tmp/rcr-");
-  const socketPath = path.join(controlDir, "control.sock");
+  const { dirs } = await makeTestDirs("control-readiness", 0);
+  const { profile } = dirs;
+  const { controlDir, socketPath } = profile;
   fs.writeFileSync(path.join(controlDir, "owner.token"), "a".repeat(64), { mode: 0o600 });
   const operations: string[] = [];
   const sockets = new Set<net.Socket>();
@@ -24,19 +26,19 @@ async function fixture(reply: (op: string) => object | null) {
         const request = JSON.parse(buffer.slice(0, newline)) as { id: string; op: string };
         buffer = buffer.slice(newline + 1);
         operations.push(request.op);
-        const response = request.op === "auth" ? { ok: true, result: { authenticated: true } } : reply(request.op);
+        const response = request.op === "auth" ? { ok: true, result: { authenticated: true, instanceId: profile.instanceId, layout: profile.layout, product: "ruukoto" } } : reply(request.op);
         if (response) socket.write(`${JSON.stringify({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ...response })}\n`);
       }
     });
   });
   await new Promise<void>(resolve => server.listen(socketPath, resolve));
-  return { controlDir, socketPath, operations, close: async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => server.close(() => resolve())); fs.rmSync(controlDir, { recursive: true, force: true }); } };
+  return { profile, controlDir, socketPath, operations, close: async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => server.close(() => resolve())); await cleanupDirs(dirs); } };
 }
 
 test("就绪探测认证后只发 ping，随后关闭且不取快照", async () => {
   const f = await fixture(() => ({ ok: true, result: { pong: true, stopping: false } }));
   try {
-    assert.equal(await probeControlPlane(f.socketPath, "a".repeat(64)), true);
+    assert.equal(await probeControlPlane(f.profile, "a".repeat(64)), true);
     assert.deepEqual(f.operations, ["auth", "ping"]);
   } finally { await f.close(); }
 });
@@ -55,11 +57,11 @@ for (const [name, response, code] of [
     delete process.env.RUUKOTO_OWNER_TOKEN;
     delete process.env.RUUKOTO_OWNER_TOKEN_FILE;
     try {
-      assert.equal(await probeControlPlane(f.socketPath, "a".repeat(64), 200), false);
-      const result = await ensureBackend({ controlDir: f.controlDir, dataDir: f.controlDir, agentDir: f.controlDir, spawnExecPath: "/must-not-spawn" });
+      assert.equal(await probeControlPlane(f.profile, "a".repeat(64), 200), false);
+      const result = await ensureBackend({ profile: f.profile, spawnExecPath: "/must-not-spawn" });
       assert.equal(result.ok, false);
       assert.ok(!result.ok && result.code === code);
-      assert.equal(fs.existsSync(path.join(f.controlDir, "spawn.log")), false);
+      assert.equal(fs.existsSync(f.profile.spawnLogPath), false);
       assert.deepEqual(f.operations, ["auth", "ping", "auth", "ping"]);
       if (!result.ok && (code === "backend_stopping" || code === "invalid_response")) assert.doesNotMatch(result.error, /RUUKOTO_OWNER_TOKEN/);
       if (!result.ok && code === "protocol_version") assert.deepEqual(result.versions, { client: CONTROL_PROTOCOL_VERSION, server: CONTROL_PROTOCOL_VERSION + 1 });
@@ -75,7 +77,7 @@ test("ping 使用探测期限，超时不会沿默认请求期限挂起", async 
   const f = await fixture(() => null);
   try {
     const started = Date.now();
-    assert.equal(await probeControlPlane(f.socketPath, "a".repeat(64), 40), false);
+    assert.equal(await probeControlPlane(f.profile, "a".repeat(64), 40), false);
     assert.ok(Date.now() - started < 1500);
     assert.deepEqual(f.operations, ["auth", "ping"]);
   } finally { await f.close(); }

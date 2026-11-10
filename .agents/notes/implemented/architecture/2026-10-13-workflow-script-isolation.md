@@ -32,4 +32,4 @@ node:vm is not a security boundary; Worker resource limits do not bound all exte
 
 ## Consequences
 
-Synchronous WASM needs no platform-native interpreter extension, and both products can share the entry. Every execution pays process/WASM startup for complete exit-based reclamation and no cross-run residue. No OS RSS quota exists. Adding that guarantee or child-process capability requires a new platform/cleanup design, not extrapolation from these experiments. Historical four-case fake-Agent, bundle, intentional-failure, and raw-result evidence is in the offline `.scratch/agent-workflow/isolation-evidence/README.md`; it proves this entry, not durable workflows, real steps, models, or IM acceptance.
+Synchronous WASM needs no platform-native interpreter extension. Every execution pays process/WASM startup for complete exit-based reclamation and no cross-run residue. No OS RSS quota exists; adding it or child-process capability requires a new platform/cleanup design. Historical fake-Agent, bundle, intentional-failure and raw-result evidence proves only this entry, not workflows, real steps or models.

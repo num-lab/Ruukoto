@@ -48,7 +48,7 @@ test("Host 本地文档操作在离线 Code 与未配置 Personal 可用且不�
   let environments = 0;
   const host = new DesktopHost(f.root, path.join(f.root, "userdata"), { publish() {}, focused: () => false, notice() {}, badge() {} }, async () => { environments++; throw new DesktopError("fixture_offline", "离线测试"); });
   try {
-    for (const target of ["code", "personal"]) {
+    for (const target of ["code"]) {
       const result = await host.request(target, "desktop_browser_open", { url: f.url });
       assert.equal(result.ok, true, JSON.stringify(result));
       if (!result.ok) continue;
@@ -166,7 +166,7 @@ test("renderer 本地加载只安装当前请求，取消后的迟到能力立�
   const stop = startBrowserDocument((_target, op, params) => {
     if (op === "desktop_browser_open") return pending;
     released.push(String(params.id)); return Promise.resolve({ ok: true, value: undefined });
-  }, "personal", "file:///tmp/document.html", state => updates.push(state));
+  }, "code", "file:///tmp/document.html", state => updates.push(state));
   stop(); finish({ ok: true, value: { id: "late", url: "http://127.0.0.1:12345/token/index.html" } });
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(released, ["late"]); assert.deepEqual(updates, []);
@@ -176,7 +176,7 @@ test("Host.close 拦截在途本地打开，关闭后的请求不能创建监听
   const f = await fixture();
   const host = new DesktopHost(f.root, path.join(f.root, "userdata"), { publish() {}, focused: () => false, notice() {}, badge() {} }, async () => { throw new DesktopError("fixture_offline", "离线测试"); });
   try {
-    const pending = host.request("personal", "desktop_browser_open", { url: f.url });
+    const pending = host.request("code", "desktop_browser_open", { url: f.url });
     await host.close();
     const result = await pending;
     assert.equal(result.ok, false);

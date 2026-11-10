@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 After comparing built-in Pi MCP, the owner requested the purpose of each additional mechanism and removal of overengineering, then explicitly requested a Pi integration/simplification plan and implementation on 2026-10-26. Original implementation order/acceptance, contracts, pinned upstream research and P0 experiments are offline at `.scratch/pi-mcp-comparison/issues/01-pi-mcp-migration.md`, `.scratch/pi-mcp-comparison/spec.md`, `.scratch/pi-mcp-comparison/research.md` and `.scratch/pi-mcp-comparison/evidence/2026-10-26-p0.md`. P0 exposed missing public error-provenance information; the owner approved a read-only SSE parsing adjustment. Authorization covered repository/isolated-test profiles, not real-profile cutover/deployment.
@@ -10,16 +12,15 @@ Ordinary HTTP MCP unresolved calls occupied origin+pathname and blocked general 
 
 ## Decision
 
-For the current personal-use, two-product scope, retain no escalation, no credential leakage, no repeated execution of one approval, no automatic unknown-write replay and reconstructable model input. Pi owns general MCP protocol/discovery; the host owns product authorization, evidence and real resource management.
+For the sole software-work product, retain no escalation, no credential leakage, no repeated execution of one approval, no automatic unknown-write replay and reconstructible model input. Pi owns general MCP protocol/discovery; the host owns authorization, evidence and real resource management.
 
-Code uses official Pi 1.3.0 MCP/tool_search extensions. Personal keeps durable and reuses the same-version standalone pi-mcp package, not a new runtime. Retain HTTP/Bearer/Cua scope and remove the old general client, duplicate discovery catalog/search implementation. Do not add OAuth, arbitrary stdio or Resources. Thin execution wrapping around official factories owns only call identity, actual-pre-send authorization and result artifacts, not another MCP runtime.
+Use official MCP/tool_search extensions, retaining HTTP/Bearer and fixed managed Cua scope. Remove duplicate clients/catalogs, not source eligibility or original-result artifacts. Add no OAuth, arbitrary stdio or Resources. Thin wrapping owns actual-pre-send authorization and operation identity, not another MCP runtime.
 
 Credential simplification retains the minimum useful fingerprints. New/rebound credentials hash the normalized token actually sent. Real token changes use explicit existing settings rotation and invalidate old approvals. v4 migration may retain old references/full-byte digest semantics; explicit rebinding adopts normalized-token digests. Cua combines recovery actions but keeps old begin facts, avoiding historical rewrites just to delete fields. Old durable SSE recheck Tasks retain only non-network retirement definitions. Ordinary unknown operations append human completion facts without changing original evidence. Format/eligibility/stop limits remain explicit.
 
 | Mechanism | Purpose | Decision |
 | --- | --- | --- |
 | Service allowlists, operation snapshots and single-use approvals | Prevent target/argument substitution or repeated approval execution | Retain through Pi hooks/existing approvals, not a separate MCP approval system. |
-| Personal approval for every MCP call and unknown-write classification of read failures | Avoid trusting remote read hints without local classification | Reuse owner-confirmed Code read/write/unknown classification. Authorized reads skip per-call approval; writes/unknown retain rules. |
 | Credential target/purpose isolation, revocation and no anonymous fallback | Prevent secret leakage and post-revocation use | Retain in existing credential/authentication interfaces, without duplicate OAuth or synonymous validation layers. |
 | Full credential-file byte fingerprint | Prevent same-path token replacement retaining old approval | Protect account/permission binding and pending approvals without treating newlines/managed refresh as permanent outages; silent external account replacement still cannot bypass checks. |
 | Configuration revision, service identity and lost-response readback | Prevent stale forms, same-name recreation errors and duplicate submission | Retain shared product configuration protections. |
@@ -42,11 +43,11 @@ Original Cua evidence covered formal desktops, models, lost-response cold recove
 The audit searched MCP, endpoint occupancy, SSE, credential fingerprints, tool signatures and Cua. Partial supersessions preserve original decisions/other constraints; no note is wholly absorbed and sealed archives remain frozen.
 
 - [MCP client](../architecture/2026-09-23-mcp-client.md): replaces protocol, naming, SDK reconstruction and independent catalogs; retains allowlists, argument checks, secret isolation and history.
-- [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md), [transport reuse](../architecture/2026-10-17-mcp-transport-reuse.md): replaces URL occupancy, cross-restart stream rechecks and old client, retaining unknown facts, no replay and one runtime authority.
+- [Personal MCP](../../archived/architecture/2026-10-17-personal-durable-mcp.md), [transport reuse](../architecture/2026-10-17-mcp-transport-reuse.md): replaces URL occupancy, cross-restart stream rechecks and old client, retaining unknown facts, no replay and one runtime authority.
 - [Write approvals](../feature/2026-09-23-mcp-write-tools-approval.md), [instance configuration](2026-10-24-code-instance-mcp.md): retain authorization, isolation and concurrent-save protection with local effect classification.
 - [MCP images](../architecture/2026-10-23-mcp-image-results.md), [official Cua](../architecture/2026-10-23-cua-official-mcp.md): retain historical media/real desktop protection, replacing separate public begin-recovery interaction.
 - [Code on-demand discovery](../feature/2026-10-25-code-tool-discovery.md): Pi owns search/naming/branch discovery state; each selection/call still narrows to current source eligibility.
-- [Configuration proposal](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md), [save/publication](../architecture/2026-10-25-personal-settings-versions.md): retain per-object publication, save/effect receipts and original selections, narrowing excessive format-migration/ordinary-unknown blocking.
+- [Configuration proposal](../../rejected/architecture/2026-10-25-operation-scoped-configuration.md), [save/publication](../../archived/architecture/2026-10-25-personal-settings-versions.md): retain per-object publication, save/effect receipts and original selections, narrowing excessive format-migration/ordinary-unknown blocking.
 
 Other command/background/source/configuration/history notes keep independent rules. Non-MCP desktop settings are unaffected. The [rejected Cua proposal](../../rejected/architecture/2026-10-22-cua-integration.md) still rejects global exclusivity/custom gateways.
 
@@ -78,7 +79,7 @@ P0 also showed official 404 reconnection leaves old detached clients outside def
 
 Ending work with an unknown result does not stop remote execution. Owners must know this and use actual business state to resolve later conflicts; simplification is not timeout unlocking. A service needing automatic cross-restart recovery/resource exclusivity must be evaluated from real receipts/resource identities, not restored URL assumptions.
 
-Both products pin Pi 1.3.0. Code uses public factories/explicit host extensions; Personal uses the same client version. Configuration/operation versions preserve historical entries. The original change raised Code protocol 41 to 42 without SQLite layout change, retaining then-schema 53; later constants supersede these historical numbers. Engineering checks/independent implementation review depend on final combined evidence. Isolated HTTP, Faux models and stdio processes do not establish real HTTPS write services, models, IM or Cua; missing product prerequisites retain resumption conditions. Cua idle disconnect remains frozen under original stopping criteria.
+The runtime uses public factories and explicit host extensions. Historical protocol/schema transitions identify their original change, not current profile constants. Current integrated checks and independent implementation review require their own evidence. Isolated HTTP/mock-model/stdio fixtures do not establish real HTTPS writes, models or Cua; missing prerequisites remain gaps, and stop failures retain their original criteria.
 
 SDK system prompts/tool registration remain in JSONL. Host compaction indices count conversation messages only, matching context assembly; request snapshot v1 still separately records system prompt, tools and conversation. SDK shutdown belongs to one Driver execution, and a new execution waits for close. Stop failure retains original SDK/rebuild requirement. Closing a session stops only its owned Cua; instance shutdown performs global stopping so unrelated child cleanup cannot interrupt main's computer connection.
 

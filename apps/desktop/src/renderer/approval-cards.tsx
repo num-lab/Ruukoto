@@ -14,10 +14,6 @@ function scopeSummary(c: ConfirmationRequestView): string {
     case "http_request": return `HTTP ${scope.method}`;
     case "mcp_tool": return `MCP ${scope.serviceName}/${scope.remoteName}`;
     case "browser_operation": return `Browser: ${scope.action}`;
-    case "app_data_change": return `App data ${scope.change}`;
-    case "notification": return `Send notification: ${scope.target.channel}/${scope.target.chatId}`;
-    case "service_operation": return `Server service: ${scope.action} ${scope.unit}`;
-    case "github_publish": return `GitHub：${scope.owner}/${scope.repo}`;
   }
 }
 function ApprovalCard({ model, approval }: { model: CodeState; approval: ConfirmationRequestView }) {

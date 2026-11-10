@@ -1,0 +1,16 @@
+{
+  "revision": "e7838ea5d1b150096a37132466398cb9237b92c7",
+  "source": "packages/core/src/db.ts:17-905",
+  "schemaVersion": 58,
+  "fingerprint": "a618d9633648f5f4bcd5c74774e064cca8d1d257ce2dcc9fc654ab781ccad73c",
+  "canonicalization": "JSON.stringify of [type,name,tbl_name,sql] rows from SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name; UTF-8 SHA-256; includes internal indexes and sqlite_sequence",
+  "resourceSources": [
+    "packages/core/src/background-processes.ts:16-84",
+    "packages/core/src/work-copy-host.ts:5-34",
+    "packages/core/src/workflow.ts:57-118",
+    "packages/core/src/types.ts:932-976",
+    "packages/agent/src/browser-manager.ts:26-55,334-358,700-727",
+    "packages/agent/src/mcp/code.ts:390-476"
+  ],
+  "fixtures": "Synthetic identifiers, paths and content; no runtime profiles, credentials or session transcripts."
+}

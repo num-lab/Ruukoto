@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
-import { BUILTIN_SUBAGENT_ROLES, HOST_REVIEW_DEFINITION, parseSubAgentRole, roleCatalogBlock, validateSubAgentRole, validateSubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { BUILTIN_SUBAGENT_ROLES, parseSubAgentRole, roleCatalogBlock, validateSubAgentRole, validateSubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { subAgentDefinitionDigest } from "@ruukoto/core/subagent-definition.ts";
 import { loadSubAgentRoleLibrary, selectSubAgentRole } from "@ruukoto/runtime/subagent-role-library.ts";
 
@@ -17,10 +17,9 @@ function kit() {
 }
 
 test("内置与自定义使用同一解析契约，非法字段和 YAML 不进入角色目录", () => {
-  for (const role of [...BUILTIN_SUBAGENT_ROLES, HOST_REVIEW_DEFINITION]) assert.deepEqual(validateSubAgentRole(role), role);
+  for (const role of BUILTIN_SUBAGENT_ROLES) assert.deepEqual(validateSubAgentRole(role), role);
   assert.equal(BUILTIN_SUBAGENT_ROLES[0].permissions.mode, "inherit");
   assert.deepEqual(BUILTIN_SUBAGENT_ROLES[1].permissions, { mode: "confirm", protectSource: true });
-  assert.equal(HOST_REVIEW_DEFINITION.kind, "host_review");
   for (const invalid of [
     "description: 未封闭", "---\ndescription: a\n", "---oops\ndescription: a\n---\n正文",
     "---\ndescription: a\n---oops\n---\n正文",

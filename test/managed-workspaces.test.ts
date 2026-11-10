@@ -1,10 +1,11 @@
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import childProcess, { spawn, execFileSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { RuntimeApiError } from "@ruukoto/core/api-error.ts";
 import { getManagedWorkspaceRequest, managedWorkspaceRequestKey } from "@ruukoto/core/managed-workspaces.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
@@ -14,18 +15,16 @@ import { ControlClientError } from "@ruukoto/control/client.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
 
 const selection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" as const };
-const config = { product: product.runtime };
+const config = {  };
 const fails = (code: string) => (error: unknown): boolean => (error instanceof RuntimeApiError || error instanceof ControlClientError) && error.code === code;
 
 test("managed creation binds independent roots, defaults and events only when requested; selected workspaces stay compatible", async () => {
   const t = await startTestRuntime("managed-creation", () => ({ kind: "text", text: "ok" }), { config });
   try {
-    const parent = path.join(fs.realpathSync(t.dirs.root), "workspace");
-    assert.equal(fs.existsSync(parent), false);
+    const parent = t.dirs.profile.workspaceDir;
     const before = t.runtime.store.listSessions().length;
     await assert.rejects(t.client.request("create_managed_session", { request_id: "bad", cwd: t.work[0] }), fails("invalid_params"));
     assert.equal(t.runtime.store.listSessions().length, before);
-    assert.equal(fs.existsSync(parent), false);
     const a = await t.client.request<OpResult<"create_managed_session">>("create_managed_session", { request_id: "managed-a", mode: "full_access", model_selection: selection });
     const b = await t.client.request<OpResult<"create_managed_session">>("create_managed_session", { request_id: "managed-b" });
     assert.notEqual(a.project.id, b.project.id);
@@ -193,14 +192,14 @@ test("production and development profiles allocate separate managed roots withou
     const source = await a.runtime.openWorkspace({ cwd: a.work[0] });
     fs.writeFileSync(path.join(source.session.cwd, "AGENTS.md"), "Source-only project instructions\n");
     a.runtime.store.withTx(() => a.runtime.store.updateProjectSettings({ projectId: source.session.projectId, instructionFiles: ["AGENTS.md"] }));
-    const personal = a.runtime.store.getAgentRole("main")!;
-    a.runtime.store.withTx(() => a.runtime.access.createGrant({ fromProjectId: personal.projectId, toProjectId: source.session.projectId, category: "history" }));
+    const grantSource = await a.runtime.openWorkspace({ cwd: a.work[1] });
+    a.runtime.store.withTx(() => a.runtime.access.createGrant({ fromProjectId: grantSource.session.projectId, toProjectId: source.session.projectId, category: "history" }));
     a.runtime.credentials.upsert({ name: "source-credential", host: "example.invalid", header: "authorization", purpose: "other", secret: "offline-test-value", scope: { projectId: source.session.projectId, operations: ["other"] } });
     const first = await a.runtime.createManagedSession({ createRequestId: "same-key" });
     const second = await b.runtime.createManagedSession({ createRequestId: "same-key" });
     assert.notEqual(first.project.id, second.project.id);
-    assert.equal(first.session.cwdReal, path.join(fs.realpathSync(a.dirs.root), "workspace", first.project.id));
-    assert.equal(second.session.cwdReal, path.join(fs.realpathSync(b.dirs.root), "workspace", second.project.id));
+    assert.equal(first.session.cwdReal, path.join(a.dirs.profile.workspaceDir, first.project.id));
+    assert.equal(second.session.cwdReal, path.join(b.dirs.profile.workspaceDir, second.project.id));
     assert.deepEqual(first.project.instructionFiles, []);
     assert.equal(fs.existsSync(path.join(first.session.cwd, "AGENTS.md")), false);
     assert.equal(a.runtime.access.listGrants().some(grant => grant.toProjectId === first.project.id || grant.fromProjectId === first.project.id), false);
@@ -247,9 +246,11 @@ for (const phase of ["reserved", "stage-unrecorded", "staged", "installed"] as c
     const script = `
       import * as fs from 'node:fs';
       import { Runtime } from './packages/runtime/src/runtime.ts';
-      import { product } from './apps/ruukoto-code/src/product.ts';
-      const runtime = await Runtime.start({product:product.runtime,dataDir:process.argv[1],agentDir:process.argv[2],modelProvider:'mock',modelId:'mock-model'});
-      const phase=process.argv[3];
+      import { readProfile, selectProfile } from '@ruukoto/core/profile.ts';
+      const profile = readProfile(selectProfile());
+      if (!profile) throw new Error('Crash fixture profile is not active');
+      const runtime = await Runtime.start({ profile, modelProvider: 'mock', modelId: 'mock-model' });
+      const phase=process.argv[1];
       const save=runtime.store.setMetaValue.bind(runtime.store);
       runtime.store.setMetaValue=(key,value)=>{
         if(key.startsWith('managed_workspace_request:')){
@@ -269,7 +270,7 @@ for (const phase of ["reserved", "stage-unrecorded", "staged", "installed"] as c
       runtime.store.createSession=input=>{ if(phase==='installed' && input.managedWorkspace) process.kill(process.pid,'SIGKILL'); return create(input); };
       await runtime.createManagedSession({createRequestId:'killed'});
     `;
-    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, t.dirs.dataDir, t.dirs.agentDir, phase], { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, phase], { stdio: ["ignore", "ignore", "pipe"], env: profileChildEnv(t.dirs.profile.selection) });
     let stderr = "";
     child.stderr.on("data", chunk => { stderr += String(chunk); });
     const signal = await new Promise<NodeJS.Signals | null>((resolve, reject) => {

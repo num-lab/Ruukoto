@@ -77,15 +77,15 @@ export function SearchDialog({ model, onOpenSession }: { model: CodeState; onOpe
     search.setOpen(false);
     onOpenSession(option.sessionId);
   }
-  const error = !search.online ? "Code is offline; search again once the connection recovers." : search.error ?? search.summariesError;
+  const error = !search.online ? "ruukoto is offline; search again once the connection recovers." : search.error ?? search.summariesError;
   return <Dialog open={search.open} onOpenChange={open => search.setOpen(open)}><DialogContent className="search-dialog" showCloseButton={false} onOpenAutoFocus={event => {
     event.preventDefault();
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     navigating.current = false;
     input.current?.focus();
   }} onCloseAutoFocus={event => { event.preventDefault(); if (navigating.current) document.querySelector<HTMLTextAreaElement>(".main-canvas textarea")?.focus(); else previousFocus.current?.focus(); }} onEscapeKeyDown={event => { if (search.composing || event.isComposing) event.preventDefault(); }}>
-    <DialogTitle className="sr-only">Search Code workspaces</DialogTitle><DialogDescription className="sr-only">Search chats and message contents across all workspaces. Use the arrow keys to choose, Enter to open, Esc or ⌘K to close.</DialogDescription>
-    <div className="search-input-row"><Search aria-hidden="true" /><Input ref={input} aria-label="Search Code chats and messages" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={listId} aria-activedescendant={activeKey ? optionId(activeKey) : undefined} placeholder="Search chats and messages…" value={search.query} onCompositionStart={() => search.setComposing(true)} onCompositionEnd={event => { search.setQuery(event.currentTarget.value); search.setComposing(false); }} onChange={event => search.setQuery(event.target.value)} onKeyDown={event => {
+    <DialogTitle className="sr-only">Search ruukoto workspaces</DialogTitle><DialogDescription className="sr-only">Search chats and message contents across all workspaces. Use the arrow keys to choose, Enter to open, Esc or ⌘K to close.</DialogDescription>
+    <div className="search-input-row"><Search aria-hidden="true" /><Input ref={input} aria-label="Search ruukoto chats and messages" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={listId} aria-activedescendant={activeKey ? optionId(activeKey) : undefined} placeholder="Search chats and messages…" value={search.query} onCompositionStart={() => search.setComposing(true)} onCompositionEnd={event => { search.setQuery(event.currentTarget.value); search.setComposing(false); }} onChange={event => search.setQuery(event.target.value)} onKeyDown={event => {
       if (search.composing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (options.length) setSelected(options[(active + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length].key); }
       if (event.key === "Enter") { event.preventDefault(); choose(active); }

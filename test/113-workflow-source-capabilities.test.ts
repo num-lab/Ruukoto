@@ -5,13 +5,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 import { AccessScope } from "@ruukoto/core/access.ts";
+import { registerCodeScheduleRun, saveCodeSchedule } from "@ruukoto/core/code-scheduler.ts";
 import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { listWorkflowExecutions, requireWorkflowRun, type WorkflowRun } from "@ruukoto/core/workflow.ts";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import type { Runtime } from "@ruukoto/runtime/runtime.ts";
 import { startMockMcp } from "./helpers/mock-mcp.ts";
 import { afterTool, inputText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
-import { initGitRepo } from "./helpers/git-fixture.ts";
 import { getWorkflowStep } from "@ruukoto/core/workflow.ts";
 
 function ownerSource(rt: Runtime, session: Session, accessMode: "full_access" | "confirm" = "full_access"): Task {
@@ -25,28 +25,21 @@ function ownerSource(rt: Runtime, session: Session, accessMode: "full_access" | 
   });
 }
 
-/** 定时来源复用 main 的业务授权，无平台连接或伪造 IM 身份。 */
-function personalSource(rt: Runtime): Task {
-  const main = rt.store.getAgentRole("main")!, parent = rt.store.getSession(main.sessionId)!;
+async function scheduledSource(rt: Runtime, cwd: string): Promise<Task> {
+  const { session } = await rt.openWorkspace({ cwd });
   return rt.store.withTx(() => {
-    const id = randomId("source");
-    const creator = rt.store.insertQueuedTask({ sessionId: main.sessionId, requestId: `${id}:creator`, input: "建立计划",
-      modelSelection: rt.defaultSelection, submissionDigest: id, accessMode: "full_access" }).task;
-    rt.store.endTask(creator.id, ["queued"], "completed");
-    const schedule = rt.sched.insertSchedule({ createKey: id, paramsDigest: id, createTaskId: creator.id, createOpId: null,
-      createPermissionVersion: creator.permissionVersion, projectId: main.projectId, accessMode: "full_access", instruction: "独立个人事务",
-      sourceRefs: [], target: null, rule: { kind: "once", at: "2030-01-01T00:00:00Z", timeZone: "UTC", disambiguation: "compatible" },
-      nextDueAt: "2030-01-01T00:00:00Z", tzData: "test", reason: "离线验收" }, "test");
-    const event = rt.store.registerInboundEvent({ source: "scheduler", externalId: id, actor: null, targetRole: "main", body: "计划到期" }).event;
-    const session = rt.store.createSession({ projectId: main.projectId, cwd: parent.cwdReal, cwdReal: parent.cwdReal,
-      cwdDev: parent.cwdDev, cwdIno: parent.cwdIno, piSessionId: id, confirmTools: [] });
+    const id = randomId("source"), at = "2030-01-02T00:00:00.000Z";
+    const config = { title: "Workflow source", instructions: "Execute the authorized workflow", workspaceId: session.projectId,
+      permission: "full_access" as const, modelSelection: rt.defaultSelection,
+      rule: { kind: "once" as const, at, timeZone: "UTC", disambiguation: "compatible" as const } };
+    const plan = saveCodeSchedule(rt.store, { requestId: id, config, workspace: rt.store.getProject(session.projectId)!.rootDir!,
+      nextDueAt: at, now: "2030-01-01T00:00:00.000Z" }).plan;
     rt.store.setSessionQueueState(session.id, "paused", "test_source");
-    const task = rt.store.insertQueuedTask({ sessionId: session.id, requestId: id, input: "独立个人事务", modelSelection: rt.defaultSelection,
-      submissionDigest: id, accessMode: "full_access", sourceEventId: event.id }).task;
+    const task = rt.store.insertQueuedTask({ sessionId: session.id, requestId: id, input: config.instructions,
+      modelSelection: config.modelSelection, submissionDigest: id, accessMode: config.permission }).task;
+    registerCodeScheduleRun(rt.store, { scheduleId: plan.id, expectedVersion: plan.version, sessionId: session.id, rootTaskId: task.id,
+      scheduledAt: at, coalescedFrom: at, coalescedThrough: at, nextDueAt: null, now: at });
     rt.store.transitionTask(task.id, ["queued"], "running");
-    rt.sched.insertRun({ id, scheduleId: schedule.id, scheduleVersion: schedule.version, scheduledFor: "2030-01-01T00:00:00Z",
-      localTime: "2030-01-01T00:00:00", registeredAt: new Date().toISOString(), delayMs: 0, coalescedFrom: null, coalescedTo: null,
-      inboundEventId: event.id, notificationOpId: null, sessionId: session.id, rootTaskId: task.id, resultStatus: null, resultText: null });
     return rt.store.getTask(task.id)!;
   });
 }
@@ -74,43 +67,9 @@ test("工作流步骤从持久来源装配技能目录与真实 skill 调用", a
   } finally { await t.shutdown(); }
 });
 
-test("真实个人步骤修改应用 schema 后仍可继续，main 来源具有受控编码委派工具", async () => {
-  const t = await startTestRuntime("workflow-personal-schema", req => afterTool(req) ? { kind: "text", text: "建表完成" } :
-    { kind: "tool_calls", calls: [{ id: "define", name: "app_data_define_table", arguments: { table: "workflow_rows",
-      fields: [{ name: "value", type: "text" }], expected_schema_version: 0, reason: "拥有者授权步骤建表" } }] }, { config: realTools() });
-  try {
-    const rt = t.runtime, source = personalSource(rt);
-    const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "schema", script: 'return await agent("business",{request:"建一张表"});', input: null });
-    assert.equal((await finished(rt, run)).status, "succeeded");
-    assert.equal(t.server.calls.length, 2);
-    const names = toolNamesOf(t.server.calls[0]);
-    for (const name of ["app_data_define_table", "app_data_query", "read", "list_files", "search_files", "edit", "write", "bash", "read_artifact"]) assert.ok(names.includes(name), name);
-    for (const name of ["http_request", "request_file_access", "todo_write", "subagent_delegate", "workflow_start", "browser"]) assert.ok(!names.includes(name), name);
-    const taskId = listWorkflowExecutions(rt.store, run.id).find(execution => execution.kind === "agent")!.taskId;
-    const ops = rt.store.listToolOpsByTask(taskId);
-    assert.equal(ops.length, 1);
-    assert.match(ops[0].resultSummary!, /已创建表 workflow_rows.*schema v1/);
-    assert.match(inputText(t.server.calls[1]), /已创建表 workflow_rows/);
-  } finally { await t.shutdown(); }
-});
 
-test("个人来源的修改步骤只增加已有委派的受控编码工具", async () => {
-  const t = await startTestRuntime("workflow-personal-modify", req => {
-    if (afterTool(req)) return { kind: "text", text: "修改完成" };
-    const names = toolNamesOf(req);
-    for (const name of ["read", "list_files", "search_files", "edit", "write", "bash", "read_artifact", "app_data_query"]) assert.ok(names.includes(name), name);
-    for (const name of ["http_request", "request_file_access", "todo_write"]) assert.ok(!names.includes(name), name);
-    return { kind: "tool_calls", calls: [{ id: "write", name: "write", arguments: { path: "value.txt", content: "changed\n" } }] };
-  }, { config: realTools() });
-  try {
-    const rt = t.runtime, source = personalSource(rt), session = rt.store.getSession(source.sessionId)!;
-    fs.writeFileSync(path.join(session.cwdReal, "value.txt"), "base\n"); initGitRepo(session.cwdReal);
-    const run = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "modify", script: 'return await agent("modify",{request:"修改",target:"."});', input: null });
-    assert.equal((await finished(rt, run)).status, "succeeded");
-    assert.ok(getWorkflowStep(rt.store, run.id, "modify")!.frozen);
-    assert.equal(fs.readFileSync(path.join(session.cwdReal, "value.txt"), "utf8"), "base\n");
-  } finally { await t.shutdown(); }
-});
+
+
 
 test("memory_list 的预览来源落盘，祖先记忆撤销阻止间接缓存进入后续模型", async () => {
   const t = await startTestRuntime("workflow-memory-closure", req => {
@@ -141,7 +100,7 @@ test("运行后新增资料授权不扩大步骤范围，真实产物读取使�
     return { kind: "tool_calls", calls: [{ id: "direct", name: "read_artifact", arguments: { artifact_id: artifactId } }] };
   }, { config: realTools() });
   try {
-    const rt = t.runtime, source = personalSource(rt), sourceSession = rt.store.getSession(source.sessionId)!;
+    const rt = t.runtime, source = await scheduledSource(rt, t.work[1]), sourceSession = rt.store.getSession(source.sessionId)!;
     to = sourceSession.projectId;
     access = new AccessScope(rt.store.db);
     const foreign = await rt.createSession({ projectName: "foreign", cwd: t.work[0] });
@@ -149,7 +108,7 @@ test("运行后新增资料授权不扩大步骤范围，真实产物读取使�
     rt.store.setSessionQueueState(foreign.id, "paused", "test_source");
     const task = rt.store.insertQueuedTask({ sessionId: foreign.id, requestId: "foreign", input: "拥有者保存的资料",
       modelSelection: rt.defaultSelection, submissionDigest: "foreign" }).task;
-    const artifacts = new ArtifactStore(rt.config.dataDir, rt.store), text = "UNAUTHORIZED_FOREIGN_SCOPE_DATA";
+    const artifacts = new ArtifactStore(rt.config.profile.dataDir, rt.store), text = "UNAUTHORIZED_FOREIGN_SCOPE_DATA";
     const artifact = artifacts.begin({ taskId: task.id, sessionId: foreign.id, name: "foreign-source" });
     artifacts.append(artifact.id, Buffer.from(text));
     artifacts.complete(artifact.id);
@@ -180,7 +139,7 @@ test("同一来源的不同运行隔离真实产物与子历史", async () => {
       { id: "history", name: "history_read", arguments: { session_id: previousSession, entry_id: "private" } }] };
   }, { config: realTools() });
   try {
-    const rt = t.runtime, source = personalSource(rt), text = "PRIOR_RUN_RESULT_BODY";
+    const rt = t.runtime, source = await scheduledSource(rt, t.work[0]), text = "PRIOR_RUN_RESULT_BODY";
     active = rt;
     const first = rt.workflows!.start({ sourceTaskId: source.id, requestKey: "first",
       script: 'return await agent("read",{request:"读取来源文件",tools:["read"]});', input: null });

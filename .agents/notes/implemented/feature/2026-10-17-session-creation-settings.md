@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 Desktop session creation passed only the directory. The backend then used default mode and model, losing the current mode, model, and effort.

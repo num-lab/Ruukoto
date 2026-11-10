@@ -2,7 +2,9 @@
 
 Status: implemented
 
-[Current-workspace snapshots and child deltas](2026-10-15-current-workspace-snapshots.md) partly supersedes this note for actual-content baselines, zero-write capture/host preparation, whole-file conflicts and corrupt-baseline isolation. Other decisions here remain. These shared-runtime mechanisms do not imply that the [current durable Personal assembly](../simplification/2026-10-18-personal-product-entry.md) still uses the old Personal runtime.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+[Current-workspace snapshots and child deltas](2026-10-15-current-workspace-snapshots.md) partly supersedes this note for actual-content baselines, zero-write capture/host preparation, whole-file conflicts and corrupt-baseline isolation. Other decisions here remain. These shared-runtime mechanisms do not imply that the [current durable Personal assembly](../../archived/simplification/2026-10-18-personal-product-entry.md) still uses the old Personal runtime.
 
 ## Problem
 
@@ -28,7 +30,7 @@ GitHub hostReview still permits the trusted entry's completed confirm reception 
 
 ## Related decisions
 
-The [overall role choice](2026-10-14-configurable-subagent-roles.md) and [definition snapshots](2026-10-14-subagent-role-snapshots.md) retain overall boundaries, loading/versioning and related target interfaces. This partly supersedes separate allowlists and omitted project-instruction/skill injection in [work delegation](2026-10-03-work-delegation-subagent-task.md) and [workflow steps](2026-10-13-workflow-step-capabilities.md), while preserving lifecycle, idempotency, frozen results and stopping. [Native sandbox](2026-10-12-personal-native-sandbox.md), [explicit modes](../feature/2026-09-19-explicit-access-modes.md), material grants, MCP, service and scheduling decisions remain. No sealed archives were touched; no note was wholly absorbed or deleted.
+The [overall role choice](2026-10-14-configurable-subagent-roles.md) and [definition snapshots](2026-10-14-subagent-role-snapshots.md) retain overall boundaries, loading/versioning and related target interfaces. This partly supersedes separate allowlists and omitted project-instruction/skill injection in [work delegation](2026-10-03-work-delegation-subagent-task.md) and [workflow steps](2026-10-13-workflow-step-capabilities.md), while preserving lifecycle, idempotency, frozen results and stopping. [Native sandbox](../../archived/architecture/2026-10-12-personal-native-sandbox.md), [explicit modes](../feature/2026-09-19-explicit-access-modes.md), material grants, MCP, service and scheduling decisions remain. No sealed archives were touched; no note was wholly absorbed or deleted.
 
 ## Alternatives considered
 

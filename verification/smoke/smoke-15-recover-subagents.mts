@@ -1,4 +1,4 @@
-import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）的本机冒烟。
  *
@@ -8,7 +8,7 @@ import { product as codingProduct } from "../../apps/ruukoto-code/src/product.ts
  * running 并种下遗留占用——恢复的判定输入与真实崩溃后的库内容一致）。
  * 真实：Runtime + 控制面 + SQLite 库 + 独立 JSONL + 真实受限工具工作进程
  * （native 原生后端）+ 真实 CLI
- * （apps/ruukoto-code/bin/ruukoto-code.mjs resume-queue，经 socket 与拥有者令牌）。
+ * The authenticated `ruukoto resume-queue` CLI uses the same activated profile.
  *
  * 覆盖（与工单验收对应）：
  *  B1. 重启时排队的委派任务定 interrupted（backend_restart）：不自动继续
@@ -33,10 +33,8 @@ const execFileAsync = promisify(execFile);
 import * as fs from "node:fs";
 import * as path from "node:path";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { waitFor, lastUserText, realTools, writeModelsJson } from "../../test/helpers/testkit.ts";
+import { waitFor, lastUserText, realTools, makeTestDirs, writeModelsJson } from "../../test/helpers/testkit.ts";
 import { MockModelServer, type Responder, type RecordedRequest } from "../../test/helpers/mock-provider.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
@@ -66,7 +64,9 @@ await requireNative();
 process.stderr.write("[ruukoto:smoke15] " + `环境：${process.platform} ${process.arch}；执行 native` + "\n");
 
 const repoRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..");
-const root = fs.realpathSync(mkdtempSync(path.join(tmpdir(), "ruukoto-smoke15-")));
+const { dirs } = await makeTestDirs("smoke15", 0);
+const root = fs.realpathSync(dirs.root);
+const profile = dirs.profile;
 const workDir = path.join(root, "workspace");
 fs.mkdirSync(workDir, { recursive: true });
 const fileA = path.join(workDir, "a.txt");
@@ -116,22 +116,14 @@ const responder: Responder = async (req) => {
   return { kind: "text", text: "收到" };
 };
 
-// ============ ruukoto-code：真实原生 worker worker + 真实 CLI ============
 const server = new MockModelServer(responder);
 const baseUrl = await server.start();
-const dataDir = path.join(root, "data");
-const agentDir = path.join(root, "agent");
-fs.mkdirSync(dataDir, { recursive: true });
-fs.mkdirSync(agentDir, { recursive: true });
-await writeModelsJson({ root, dataDir, agentDir }, baseUrl);
+await writeModelsJson(dirs, baseUrl);
 const config: RuntimeConfig = {
-  dataDir,
-  agentDir,
-  // 不配 socketPath：默认 <root>/control/control.sock，与真实 CLI 的发现路径一致
+  profile,
   thinkingLevel: "off",
   modelProvider: "mock",
   modelId: "mock-model",
-  product: codingProduct.runtime,
   ...realTools(),
   execution: { backend: "native" },
 };
@@ -139,12 +131,11 @@ const config: RuntimeConfig = {
 let rt = await Runtime.start(config);
 const units = recordRuntimeUnits(rt);
 await ControlServer.start(rt);
-const env = { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-    DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, RUUKOTO_CODE_DATA_DIR: dataDir,
-  RUUKOTO_CODE_AGENT_DIR: agentDir, RUUKOTO_CODE_CONTROL_DIR: rt.controlDir() };
+const env = profileChildEnv(profile.selection, { PATH: process.env.PATH, HOME: process.env.HOME,
+  XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS });
 
 /** 播种子会话的排队任务；先按 backend_restart 暂停会话（崩溃遗留形态），避免循环提前取走。 */
-function seedQueued(sessionId: string, workId: string, subAgentId: string, parentTaskId: string, key: string, input: string, sourceEventId: string | null = null) {
+function seedQueued(sessionId: string, workId: string, subAgentId: string, parentTaskId: string, key: string, input: string) {
   rt.store.setSessionQueueState(sessionId, "paused", "backend_restart");
   return rt.store.withTx(() =>
     rt.store.insertQueuedTask({
@@ -157,7 +148,6 @@ function seedQueued(sessionId: string, workId: string, subAgentId: string, paren
       parentTaskId,
       workId,
       subAgentId,
-      sourceEventId,
     }).task,
   );
 }
@@ -233,7 +223,7 @@ try {
   // running 定 backend_stop 并回收占用，故在两个实例之间用新连接一次性播种：
   // 排队任务落库后立刻置 running、种下占用与 Agent 状态）
   const q2id: string = (() => {
-    const db = new Db(dataDir);
+    const db = new Db(profile.dataDir);
     const store = new Store(db);
     try {
       const { task } = store.withTx(() =>
@@ -275,14 +265,14 @@ try {
     assert.equal(childSession.queuePauseReason, "occupancy_unverified", "启动恢复不解除未核实的暂停");
     assert.equal(rt.store.getSubAgent(agent.id)!.state, "unverified");
     await assert.rejects(
-      () => rt.subagents!.delegate({ parentTaskId: b2Parent.id, key: "b2-x", request: "拒绝", workId: workA, readPaths: [fileA], materials: null, paramsDigest: "smoke15-b2-x" }),
+      () => rt.subagents!.delegate({ parentTaskId: b2Parent.id, key: "b2-x", request: "拒绝", workId: workA, readPaths: [fileA], paramsDigest: "smoke15-b2-x" }),
       /待核实|正忙/,
       "未核实前拒绝新委派",
     );
     assert.equal(server.calls.filter((c) => inputText(c).includes("SMOKE15-R1")).length, 0, "旧执行不并发重跑");
   });
   await check("B2 真实 CLI resume-queue：释放占用、解除暂停、Agent 回 idle", async () => {
-    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto-code", "bin", "ruukoto-code.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
+    const { stdout: out } = await execFileAsync(process.execPath, [path.join(repoRoot, "apps", "ruukoto", "bin", "ruukoto.mjs"), "resume-queue", agent.sessionId], { encoding: "utf8", env, timeout: 60_000 });
     assert.match(out, /"queueState": "active"/, out);
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.sessionId === agent.sessionId).length, 0, "占用释放");
     assert.equal(rt.store.getSession(agent.sessionId)!.queueState, "active");
@@ -290,7 +280,7 @@ try {
     evidence.push(`B2：Q2 ${q2.id} 遗留占用经 CLI resume-queue 释放，Agent unverified → idle`);
   });
   await check("B2 回 idle 后可继续委派（真实原生 worker完成）", async () => {
-    const d3 = await rt.subagents!.delegate({ parentTaskId: b2Parent.id, key: "b2-cont", request: "继续分析 A", workId: workA, readPaths: [fileA], materials: null, paramsDigest: "smoke15-b2-cont" });
+    const d3 = await rt.subagents!.delegate({ parentTaskId: b2Parent.id, key: "b2-cont", request: "继续分析 A", workId: workA, readPaths: [fileA], paramsDigest: "smoke15-b2-cont" });
     assert.equal(d3.created, true);
     await waitFor("B2 继续任务完成", () => rt.store.getTask(d3.task.id)!.status === "completed", 60_000);
     const recoveredRead = rt.store.listToolOpsByTask(d3.task.id).find(op => op.sdkCallId === "r1");
@@ -301,16 +291,6 @@ try {
   releaseB2();
   await waitFor("B2父轮收尾", () => rt.store.getTask(b2Parent.id)?.status === "completed");
 
-  // ---------- B3：宿主固定评审排队任务自动恢复 ----------
-  const review = seedQueued(agent.sessionId, workA, agent.id, parent.id, "b3-review", "评审任务SMOKE15-R", "evt_smoke15_review");
-  await restart();
-  await check("B3 带来源事件的评审排队任务不中断，自动恢复并继续执行", async () => {
-    await waitFor("评审任务完成", () => rt.store.getTask(review.id)!.status === "completed", 60_000);
-    assert.equal(rt.store.getSession(agent.sessionId)!.queueState, "active", "启动恢复自动解除 backend_restart 暂停");
-    assert.equal(server.calls.filter((c) => inputText(c).includes("SMOKE15-R")).length, 1, "评审任务继续执行且只执行一次");
-    await waitFor("Agent 空闲", () => rt.store.getSubAgent(agent.id)!.state === "idle");
-    evidence.push(`B3：评审任务 ${review.id}（source_event_id 钉版）自动恢复并真实完成`);
-  });
 
   // ---------- B4：重复重启幂等 ----------
   const unknownBefore = eventsOf(rt, "subagent_task.result_unknown").length;
@@ -325,7 +305,7 @@ try {
     const callsBefore = server.calls.length;
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(server.calls.length, callsBefore, "重启后旧任务不产生新模型调用");
-    for (const taskId of [q1.id, q2.id, review.id]) {
+    for (const taskId of [q1.id, q2.id]) {
       await assertUnitsStopped(units, taskId, false);
     }
   });
@@ -336,7 +316,7 @@ try {
     const detail = `${failure.message}；保留现场 ${root}；${String(failure.cause)}`;
     results.push({ name: "清理本次资源", ok: false, detail });
     process.stderr.write("[ruukoto:smoke15] " + `FAIL 清理本次资源：${detail}` + "\n");
-  }
+  } else fs.rmSync(path.dirname(profile.socketPath), { recursive: true, force: true });
 }
 
 // ---------- 汇总 ----------

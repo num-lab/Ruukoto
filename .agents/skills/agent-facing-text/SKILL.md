@@ -31,6 +31,6 @@ Review the actual model input. Source definitions pass through assembly, filteri
 
 When changing descriptions, schemas or system prompts, record before/after `toolSchemas` and `systemPrompt` token estimates in the Issue evidence. There is no token ceiling; saving text does not justify an extra wrong call.
 
-TUI `/prompt` exposes complete request snapshots. `ruukoto-code selection-records --session <id>` exposes estimates under `systemPrompt` and `toolSchemas` for the applicable shared runtime.
+TUI `/prompt` exposes complete request snapshots. `ruukoto selection-records --session <id>` exposes estimates under `systemPrompt` and `toolSchemas` for the runtime.
 
 This skill decides the content of product model-visible text; [prose-standard](../prose-standard/SKILL.md) governs expression. Developer instructions and skills use prose-standard and global `writing-for-agents`, not this product-interface audit. Historical calibration cases are in [references/cases.md](references/cases.md); keep them out of blind-review input.

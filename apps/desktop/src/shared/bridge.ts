@@ -7,8 +7,6 @@ import type { ModelSelection, PersistentEvent, Project, Session, SessionDefaultM
 import type { PendingRequest } from "@ruukoto/control/pending-requests.ts";
 import type { OwnerQuestionCancelOutcome, OwnerQuestionCancelReconcileOutcome } from "@ruukoto/control/owner-question-cancel.ts";
 import type { ReconcileOutcome, SubmitOutcome, OwnerQuestionAnswerOutcome } from "@ruukoto/control/submission.ts";
-import type { PersonalDesktopFrame, PersonalRemoteIdentity, PersonalPendingInput, PersonalInputDraft, PersonalInputReceipt, PersonalPendingDecision, PersonalDesktopAction } from "./personal-desktop.ts";
-import type { PersonalDesktopAttachment } from "@ruukoto/view/personal-protocol.ts";
 
 export type DesktopAttachment = AttachmentMetadata;
 export type DesktopCompactionOutcome =
@@ -21,7 +19,6 @@ export interface DesktopCompactionResult { record: PendingRequest; outcome: Desk
 export type DesktopCancelQuestionResult = OwnerQuestionCancelOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type DesktopSubmitResult = SubmitOutcome | OwnerQuestionAnswerOutcome | { kind: "pending_existing"; record: PendingRequest };
 export type PendingInput = { record: PendingRequest; result?: ReconcileOutcome | OwnerQuestionCancelReconcileOutcome | CodeScheduleReconcileOutcome };
-export type PendingOp = "desktop_pending_read" | "desktop_pending_clear";
 export type DesktopChatOp = "desktop_chat_start" | "desktop_chat_drafts" | "desktop_chat_finish" | "desktop_chat_prepare_submission" | "desktop_workspace_path";
 export interface DesktopChatDraft {
   requestId: string;
@@ -39,7 +36,7 @@ export interface DesktopChatCreation { session: Session; project: Project; draft
 
 export type BrowserDocumentId = string;
 export interface BrowserDocumentHandle { id: BrowserDocumentId; url: string }
-export type DesktopTarget = "code" | "personal";
+export type DesktopTarget = "code";
 export type DesktopTerminalId = string;
 export type DesktopTerminalUpdate = { type: "terminal"; id: DesktopTerminalId } & ({ kind: "output"; data: string } | { kind: "exit"; exitCode: number; signal?: number });
 export interface DesktopFailure {
@@ -51,14 +48,10 @@ export interface DesktopFailure {
 export type DesktopResult<T> = { ok: true; value: T } | { ok: false; error: DesktopFailure };
 export interface DesktopNavigation { sessionId: string; taskId: string }
 export type DesktopAppearance = "system" | "light" | "dark";
+export interface DesktopProfile { instanceId: string; draftKey: string }
 export type DesktopUpdate =
   | DesktopTerminalUpdate
-  | { type: "personal_frame"; frame: PersonalDesktopFrame }
-  | { type: "personal_identity"; identity: PersonalRemoteIdentity }
-  | { type: "personal_draft"; draft: PersonalInputDraft }
-  | { type: "personal_pending"; record: PersonalPendingInput | null; result?: PersonalInputReceipt }
-  | { type: "personal_decisions"; items: PersonalPendingDecision[] }
-  | { type: "personal_actions"; items: PersonalDesktopAction[] }
+  | { type: "profile"; profile: DesktopProfile }
   | { type: "navigate"; instanceId: string; navigation: DesktopNavigation }
   | { type: "state"; state: ConnectionState; detail?: string; error?: DesktopFailure; recovery?: string[] }
   | { type: "snapshot"; result: ConnectResult; instanceChanged: boolean }
@@ -74,8 +67,8 @@ export type DesktopUpdate =
 export interface DesktopBridge {
   subscribe(target: DesktopTarget, listener: (update: DesktopUpdate) => void): () => void;
   request(target: DesktopTarget, op: string, params: Record<string, unknown>): Promise<DesktopResult<unknown>>;
-  pickAttachments<T extends DesktopTarget = "code">(sessionId: string, target?: T): Promise<DesktopResult<T extends "personal" ? PersonalDesktopAttachment[] : DesktopAttachment[]>>;
-  /** Register local selections until the new Coding conversation exists. */
+  pickAttachments(sessionId: string, target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
+  /** Register local selections until the new conversation exists. */
   pickDraftAttachments(): Promise<DesktopResult<DesktopAttachment[]>>;
   uploadDraftAttachments(sessionId: string, tokens: string[], target?: DesktopTarget): Promise<DesktopResult<DesktopAttachment[]>>;
   appearance(): Promise<DesktopResult<DesktopAppearance>>;

@@ -23,7 +23,7 @@ function task(extra: Partial<Task> = {}): Task {
     submissionDigest: null, status: "running", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1,
     sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
-    historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
+    historyEntryIds: [], resumesTaskId: null, parentTaskId: null, deadline: null,
     resultSummary: null, resultRef: null,
     workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: new Date(Date.parse(at) - 60_000).toISOString(), startedAt: at,
     endedAt: null, ...extra,

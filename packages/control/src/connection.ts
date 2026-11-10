@@ -17,7 +17,8 @@ import { ControlClient, ControlClientError, type ClientCloseInfo, type ControlTr
 import type { OpParams, OpResult, TuiOp } from "./ops.ts";
 import type { ConnectResult } from "./protocol.ts";
 import type { PersistentEvent } from "@ruukoto/core/types.ts";
-import type { ProductType } from "@ruukoto/core/product.ts";
+import { ProfileError, verifyProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
+import { PRODUCT } from "@ruukoto/core/product.ts";
 
 export type ConnectionState = "connecting" | "online" | "reconnecting" | "failed" | "closed";
 
@@ -33,11 +34,9 @@ export interface ConnectionCallbacks {
   onEvent(event: PersistentEvent, kind: "live" | "replay"): void;
 }
 
-export interface ConnectionConfig {
-  socketPath: string;
+interface ConnectionOptions {
   /** 每次建连重新获取；提供函数的取消与资源回收由调用方持有。 */
   token: string | (() => Promise<string>);
-  expectedProduct?: ProductType;
   /** 退避重连：初始间隔与上限（默认 500ms → 8000ms）。 */
   reconnectInitialMs?: number;
   reconnectMaxMs?: number;
@@ -50,6 +49,11 @@ export interface ConnectionConfig {
    */
   callHandler?: (op: string, params: Record<string, unknown>, callId: string) => Promise<unknown>;
 }
+
+export type ConnectionConfig = ConnectionOptions & (
+  | { profile: ProfilePaths }
+  | { profile?: never; clientFactory: () => Promise<ControlTransport> }
+);
 
 export class ControlConnection {
   private readonly config: ConnectionConfig;
@@ -106,21 +110,25 @@ export class ControlConnection {
     const factory = this.config.clientFactory ?? ((p: string, t: number): Promise<ControlTransport> => ControlClient.connect(p, t));
     let client: ControlTransport | null = null;
     try {
+      if (this.config.profile) verifyProfile(this.config.profile);
       const token = typeof this.config.token === "string" ? this.config.token : await this.config.token();
       if (!this.current(generation)) return;
-      client = await factory(this.config.socketPath, this.config.connectTimeoutMs ?? 5000);
+      client = this.config.profile
+        ? await factory(this.config.profile.socketPath, this.config.connectTimeoutMs ?? 5000)
+        : await this.config.clientFactory();
       if (!this.current(generation)) { client.close(); return; }
       this.client = client;
       client.onClose((info) => { if (this.current(generation)) this.handleClose(info); });
       client.onEvent((event) => { if (this.current(generation)) this.routeEvent(event); });
       if (this.config.callHandler) client.onCall?.(this.config.callHandler);
-      await client.authenticate(token);
+      await client.authenticate(token, this.config.profile);
       if (!this.current(generation)) { client.close(); return; }
       await this.sync(client, since, generation);
       if (!this.current(generation)) { client.close(); return; }
     } catch (err) {
       if (!this.current(generation)) { client?.close(); return; }
       // 明确拒绝先置 failed；其余失败交外层重试，关闭 transport 不重复安排计时器。
+      if (err instanceof ProfileError) this.setState("failed", err.message, new ControlClientError(err.code, err.message, "rejected"));
       if (err instanceof ControlClientError && err.outcome === "rejected") this.setState("failed", err.message, err);
       ++this.generation;
       this.client = null;
@@ -155,8 +163,8 @@ export class ControlConnection {
       if (this.buffer === buffer) this.buffer = null;
     }
     if (!this.current(generation)) return;
-    if (this.config.expectedProduct && result.snapshot.product !== this.config.expectedProduct) {
-      throw new ControlClientError("product_mismatch", `连接目标产品不符：需要 ${this.config.expectedProduct}；请核对控制目录与连接配置后重新连接。`, "rejected");
+    if (result.snapshot.product !== PRODUCT || result.snapshot.layout !== "ruukoto-single-v1" || (this.config.profile && result.snapshot.instanceId !== this.config.profile.instanceId)) {
+      throw new ControlClientError("profile_mismatch", "后台快照身份与已验证实例不符；请核对实例路径后重新连接。", "rejected");
     }
     const instanceChanged = this.instanceId !== null && result.snapshot.instanceId !== this.instanceId;
     this.instanceId = result.snapshot.instanceId;

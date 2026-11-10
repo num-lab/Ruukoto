@@ -59,7 +59,7 @@ export default {
             const to = dep.slice("@ruukoto/".length);
             const allowed = kind === "apps" || (typeOnly && name !== "core") || layers[name]?.includes(to);
             if (!allowed) context.report({ node, messageId: "layer", data: { from: name, to, kind: typeOnly ? "类型" : "运行时值" } });
-          } else if (dep === "ruukoto" || dep === "ruukoto-code") {
+          } else if (dep === "ruukoto") {
             context.report({ node, messageId: "layer", data: { from: name, to: dep, kind: typeOnly ? "类型" : "运行时值" } });
           }
         };

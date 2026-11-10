@@ -1,24 +1,4 @@
-/**
- * 开发启动器：npm run dev 启动 ruukoto 后台，npm run code 启动 ruukoto-code + TUI。
- *
- * - 开发档案固定在仓库外：~/.ruukoto-dev/ 或 ~/.ruukoto-code-dev/ 下的 <仓库名>-<realpath hash8>/，含
- *   data/ agent/ control/ pending/ logs/；不落在受保护根 CODE_ROOT 内
- *   （dirname(dataDir)/qq-work 也因此留在档案里）；
- * - 子进程环境清洗：绝不继承生产拥有者令牌与产品配置
- *   （RUUKOTO_OWNER_TOKEN*、RUUKOTO_EXECUTION_BACKEND 与服务配置），固定注入 RUUKOTO_DISABLE_QQ=1 与 RUUKOTO_DISABLE_TELEGRAM=1
- *   （复用档案数据库也不会连接真实 QQ / Telegram 通道）；
- * - 模型门禁：probeModelConfig 不可用 → 普通启动直接报错并提示 --config；
- *   --config 先开离线配置中心，退出后复探，通过才启动后台并开在线配置中心；
- * - 已在运行检查：控制面 socket 可连且认证通过即报错退出，绝不接管、重启或
- *   停止外来进程；
- * - 监听各 workspace 包 src/ 下的 .ts，重载分类见 classifyWatchPath；
- *   ~300ms 防抖合并突发，开发启动器自身变化提示手动重启。
- * - --desktop 由 electron-vite 接手桌面源码与客户端依赖的重建、Electron 重启和 HMR；
- * - 生命周期：前端退出或 dev 收到 SIGINT/SIGTERM/SIGHUP（关终端 = SIGHUP）→
- *   停后台（SIGTERM，10s 升级 SIGKILL）、关监听、退出并提示日志位置；后台
- *   日志只写 logs/backend.log（有前端时绝不上屏），此时 dev 诊断只进
- *   logs/dev.log（无前端时输出到终端）。
- */
+/** Development owns its backend and frontend processes under one isolated raw profile selection. */
 
 import * as childProcess from "node:child_process";
 import * as crypto from "node:crypto";
@@ -31,42 +11,23 @@ import { probeControlPlane, socketConnectable } from "@ruukoto/control/ensure-ba
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { probeModelConfig } from "@ruukoto/agent/model-config.ts";
 import { RELOAD_STATE_ENV } from "./tui/reload-state.ts";
-import type { ProductType } from "@ruukoto/core/product.ts";
+import { bootstrapProfile, profileChildEnv, selectProfile, type ProfilePaths, type ProfileSelection } from "@ruukoto/core/profile.ts";
 
 // ---------- 纯辅助（导出供单元测试） ----------
 
-export interface DevProfile {
-  product: ProductType;
-  root: string;
-  dataDir: string;
-  agentDir: string;
-  controlDir: string;
-  pendingDir: string;
-  logsDir: string;
-  reloadStateFile: string;
-}
 
-/** 开发档案路径：稳定可复用、按仓库区分（realpath 哈希）、基于 homedir（测试可覆盖 HOME）。 */
-export function devProfileFor(repoRootDir: string, homeDir: string = os.homedir(), product: ProductType = "ruukoto"): DevProfile {
-  let real: string;
-  try {
-    real = fs.realpathSync(repoRootDir);
-  } catch {
-    real = path.resolve(repoRootDir);
-  }
+/** Stable checkout identity; core resolves these raw directories into the current layout. */
+export function devProfileFor(repoRootDir: string, homeDir: string = os.homedir()): ProfileSelection {
+  const real = fs.realpathSync(repoRootDir);
   const hash = crypto.createHash("sha256").update(real).digest("hex").slice(0, 8);
   const slug = path.basename(real).replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "repo";
-  const root = path.join(homeDir, product === "ruukoto" ? ".ruukoto-dev" : ".ruukoto-code-dev", `${slug}-${hash}`);
-  return {
-    product,
-    root,
+  const root = path.join(homeDir, ".ruukoto-dev", `${slug}-${hash}`);
+  return selectProfile({
     dataDir: path.join(root, "data"),
     agentDir: path.join(root, "agent"),
     controlDir: path.join(root, "control"),
     pendingDir: path.join(root, "pending"),
-    logsDir: path.join(root, "logs"),
-    reloadStateFile: path.join(root, "reload-state.json"),
-  };
+  }, {}, homeDir);
 }
 
 /** 绝不继承的生产配置（拥有者令牌与产品身份）。 */
@@ -75,17 +36,16 @@ const SCRUB_EXACT = new Set([
   "RUUKOTO_OWNER_TOKEN_FILE",
   "RUUKOTO_EXECUTION_BACKEND",
   // 产品身份与路径由开发入口固定，不继承日常实例。
-  "RUUKOTO_PRODUCT",
   "RUUKOTO_DATA_DIR",
   "RUUKOTO_AGENT_DIR",
   "RUUKOTO_CONTROL_DIR",
   "RUUKOTO_PENDING_DIR",
   RELOAD_STATE_ENV,
 ]);
-const SCRUB_PREFIXES = ["RUUKOTO_SERVICE_", "RUUKOTO_CODE_", "RUUKOTO_DESKTOP_"];
+const SCRUB_PREFIXES = ["RUUKOTO_SERVICE_", "RUUKOTO_DESKTOP_"];
 
-/** 子进程环境：洗掉生产令牌/服务配置，注入档案目录与 QQ 停用标记。 */
-export function buildChildEnv(base: NodeJS.ProcessEnv, profile: DevProfile): NodeJS.ProcessEnv {
+/** Children receive the complete raw tuple, without daily tokens or host overrides. */
+export function buildChildEnv(base: NodeJS.ProcessEnv, profile: ProfilePaths): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
     if (value === undefined) continue;
@@ -93,15 +53,7 @@ export function buildChildEnv(base: NodeJS.ProcessEnv, profile: DevProfile): Nod
     if (SCRUB_PREFIXES.some((p) => key.startsWith(p))) continue;
     env[key] = value;
   }
-  env.RUUKOTO_PRODUCT = profile.product;
-  const prefix = profile.product === "ruukoto" ? "RUUKOTO" : "RUUKOTO_CODE";
-  env[`${prefix}_DATA_DIR`] = profile.dataDir;
-  env[`${prefix}_AGENT_DIR`] = profile.agentDir;
-  env[`${prefix}_CONTROL_DIR`] = profile.controlDir;
-  env[`${prefix}_PENDING_DIR`] = profile.pendingDir;
-  env.RUUKOTO_DISABLE_QQ = "1";
-  env.RUUKOTO_DISABLE_TELEGRAM = "1";
-  return env;
+  return profileChildEnv(profile.selection, env);
 }
 
 /** 监听分类：决定一次源码变更要重启谁。返回 null 表示不处理。 */
@@ -149,53 +101,32 @@ export interface DevArgs {
   tui: boolean;
   config: boolean;
   desktop: boolean;
-  importModels?: string;
   workspacePath?: string;
 }
 
-/** 严格解析；Coding Agent 默认打开 TUI，也可选择配置中心或桌面客户端。 */
-export function parseDevArgs(argv: string[], product: ProductType = "ruukoto"): DevArgs {
+/** Strict argument parsing occurs before profile activation. */
+export function parseDevArgs(argv: string[]): DevArgs {
   const { values, positionals } = parseArgs({
     args: argv,
     options: {
       config: { type: "boolean" },
       desktop: { type: "boolean" },
-      "import-models": { type: "string" },
     },
-    allowPositionals: product === "ruukoto-code",
+    allowPositionals: true,
     strict: true,
   });
-  if (values.desktop && product !== "ruukoto-code") throw new Error("--desktop 只适用于 ruukoto-code");
   if (values.desktop && values.config) throw new Error("--desktop 不能与 --config 同用");
   if (positionals.length > 1) throw new Error("工作区入口只接受一个路径");
   if (values.config && positionals.length > 0) throw new Error("--config 不能与工作区路径同用");
   if (values.desktop && positionals.length > 0) throw new Error("--desktop 不能与工作区路径同用");
   return {
-    tui: product === "ruukoto-code" && !values.config && !values.desktop,
+    tui: !values.config && !values.desktop,
     config: values.config ?? false,
     desktop: values.desktop ?? false,
-    importModels: values["import-models"],
     workspacePath: positionals[0],
   };
 }
 
-/** 显式导入模型配置：只复制 models.json/auth.json（0600），绝不碰 credentials.json。 */
-export function importModelConfigs(sourceDir: string, agentDir: string): string[] {
-  const copied: string[] = [];
-  for (const name of ["models.json", "auth.json"]) {
-    const from = path.join(sourceDir, name);
-    if (!fs.existsSync(from)) continue;
-    fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-    const to = path.join(agentDir, name);
-    fs.copyFileSync(from, to);
-    fs.chmodSync(to, 0o600);
-    copied.push(name);
-  }
-  return copied;
-}
-
-// 控制面探测归入 packages/control/src/ensure-backend.ts（issue 02 按需拉起复用），此处再导出保持既有测试接缝
-export { probeControlPlane };
 
 // ---------- dev 会话 ----------
 
@@ -223,7 +154,7 @@ class DevSession {
 
   constructor(
     private readonly repoRootDir: string,
-    private readonly profile: DevProfile,
+    private readonly profile: ProfilePaths,
     private readonly args: DevArgs,
   ) {
     this.childEnv = buildChildEnv(process.env, profile);
@@ -233,19 +164,19 @@ class DevSession {
   }
 
   private get backendLogPath(): string {
-    return path.join(this.profile.logsDir, "backend.log");
+    return this.profile.backendLogPath;
   }
 
   private get devLogPath(): string {
-    return path.join(this.profile.logsDir, "dev.log");
+    return this.profile.devLogPath;
   }
 
   private get socketPath(): string {
-    return path.join(this.profile.controlDir, "control.sock");
+    return this.profile.socketPath;
   }
 
   private get command(): string {
-    return `npm run ${this.profile.product === "ruukoto" ? "dev" : "code"}`;
+    return "npm run dev";
   }
 
   /** dev 诊断：有前端在跑时只进 dev.log（绝不上屏打乱绘制），否则到终端。 */
@@ -269,11 +200,11 @@ class DevSession {
     const running = await socketConnectable(this.socketPath);
     if (this.stopping) return await this.exitPromise;
     if (running) {
-      console.error(`开发实例已在运行（${this.profile.root}）；不会启动第二个实例或接管既有进程`);
+      console.error(`开发实例已在运行（${this.profile.rootDir}）；不会启动第二个实例或接管既有进程`);
       return 1;
     }
     // 新一轮 dev 启动：清除上一轮的重载恢复记录（run 内的重载才复用它）
-    fs.rmSync(this.profile.reloadStateFile, { force: true });
+    fs.rmSync(this.profile.reloadStatePath, { force: true });
 
     // 模型门禁
     let probe = await probeModelConfig(this.profile.agentDir);
@@ -321,28 +252,31 @@ class DevSession {
   }
 
   private spawnChildEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-    return { ...this.childEnv, ...extra, [RELOAD_STATE_ENV]: this.profile.reloadStateFile };
+    return { ...this.childEnv, ...extra, [RELOAD_STATE_ENV]: "1" };
   }
 
   private nodeCliArgs(cliArgs: string[]): string[] {
-    return [path.join(this.repoRootDir, "apps", this.profile.product, "bin", `${this.profile.product}.mjs`), ...cliArgs];
+    return [path.join(this.repoRootDir, "apps", "ruukoto", "bin", "ruukoto.mjs"), ...cliArgs];
   }
 
   /** 离线配置中心（一次性子进程：跑完即走，不是受管前端）。 */
   private runOfflineConfigChild(): Promise<void> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const child = childProcess.spawn(process.execPath, this.nodeCliArgs(["config", "--offline"]), {
         cwd: this.repoRootDir,
         env: this.spawnChildEnv(),
         stdio: "inherit",
       });
       this.frontend = child;
-      const done = () => {
+      child.once("exit", (code, signal) => {
         if (this.frontend === child) this.frontend = null;
-        resolve();
-      };
-      child.on("exit", done);
-      child.on("error", done); // spawn 失败交由复探报错
+        if (code === 0) resolve();
+        else reject(new Error(`离线配置未完成（${signal ?? code}）；未启动后台`));
+      });
+      child.once("error", error => {
+        if (this.frontend === child) this.frontend = null;
+        reject(error);
+      });
     });
   }
 
@@ -351,7 +285,7 @@ class DevSession {
   private spawnBackend(): void {
     const child = childProcess.spawn(
       process.execPath,
-      this.nodeCliArgs(["server", "--data-dir", this.profile.dataDir, "--agent-dir", this.profile.agentDir]),
+      this.nodeCliArgs(["server"]),
       { cwd: this.repoRootDir, env: this.spawnChildEnv(), stdio: ["ignore", "pipe", "pipe"] },
     );
     // 后台输出只进日志文件：与前端同屏会打乱界面绘制
@@ -379,7 +313,7 @@ class DevSession {
       if (child.exitCode !== null || child.signalCode !== null) {
         throw new Error(`后台进程提前退出（code=${child.exitCode ?? child.signalCode}）`);
       }
-      if (await probeControlPlane(this.socketPath, readOwnerToken(this.profile.controlDir), 1000)) return;
+      if (await probeControlPlane(this.profile, readOwnerToken(this.profile.controlDir), 1000)) return;
       if (Date.now() > deadline) throw new Error("等待后台就绪超时（60s）");
       await new Promise((r) => setTimeout(r, 200));
     }
@@ -636,29 +570,21 @@ class DevSession {
 
 // ---------- 入口 ----------
 
-export async function runDev(product: ProductType): Promise<number> {
+export async function runDev(): Promise<number> {
   let args: DevArgs;
   try {
-    args = parseDevArgs(process.argv.slice(2), product);
+    args = parseDevArgs(process.argv.slice(2));
   } catch (err) {
-    // 参数错误：在建目录、起进程之前失败退出
-    const usage = product === "ruukoto" ? "dev -- [--config]" : "code -- [<路径> | --config | --desktop]";
-    console.error(`参数错误：${(err as Error).message}\n用法：npm run ${usage} [--import-models <目录>]`);
+    console.error(`参数错误：${(err as Error).message}\n用法：npm run dev -- [<路径> | --config | --desktop]`);
     return 1;
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-  const profile = devProfileFor(root, os.homedir(), product);
-  for (const dir of [profile.dataDir, profile.agentDir, profile.controlDir, profile.pendingDir, profile.logsDir]) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    const profile = await bootstrapProfile(devProfileFor(root));
+    fs.mkdirSync(profile.logsDir, { recursive: true, mode: 0o700 });
+    return await new DevSession(root, profile, args).run();
+  } catch (error) {
+    process.stderr.write(`[ruukoto:dev] ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
   }
-  if (args.importModels) {
-    const copied = importModelConfigs(args.importModels, profile.agentDir);
-    console.error(
-      copied.length > 0
-        ? `已导入模型配置：${copied.join("、")} → ${profile.agentDir}（credentials.json 绝不导入）`
-        : `${args.importModels} 中没有 models.json/auth.json，未导入任何文件`,
-    );
-  }
-  const session = new DevSession(root, profile, args);
-  return await session.run();
 }

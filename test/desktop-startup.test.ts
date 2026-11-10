@@ -8,15 +8,13 @@ import { DesktopHost } from "../apps/desktop/src/main/host.ts";
 import { adoptEnvironment, DesktopError, readLoginEnvironment, selectEnvironment, type DesktopEnvironment } from "../apps/desktop/src/main/environment.ts";
 import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
+
 
 test("宿主在订阅前预热，重复订阅共用环境且只安装一次正式快照", async () => {
-  const t = await startTestRuntime("host-warm", () => ({ kind: "text", text: "unused" }), { config: { product: product.runtime } });
-  const control = fs.mkdtempSync(path.join(os.tmpdir(), "rhw-"));
+  const t = await startTestRuntime("host-warm", () => ({ kind: "text", text: "unused" }), {});
   const previous = { ...process.env };
-  fs.symlinkSync(t.runtime.socketPath(), path.join(control, "control.sock"));
-  fs.symlinkSync(path.join(t.runtime.controlDir(), "owner.token"), path.join(control, "owner.token"));
-  const source: DesktopEnvironment = { node: process.execPath, env: { ...previous, RUUKOTO_DESKTOP_MANAGED: "0", RUUKOTO_CODE_CONTROL_DIR: control, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir } };
+  const source: DesktopEnvironment = { node: process.execPath, env: profileChildEnv(t.runtime.config.profile.selection, { ...previous, RUUKOTO_DESKTOP_MANAGED: "0" }) };
   delete source.env.RUUKOTO_OWNER_TOKEN;
   delete source.env.RUUKOTO_OWNER_TOKEN_FILE;
   let finish!: (source: DesktopEnvironment) => void;
@@ -39,12 +37,11 @@ test("宿主在订阅前预热，重复订阅共用环境且只安装一次正�
     assert.equal(reads, 1);
     assert.equal(snapshots, 1, "就绪探测不生成快照");
     assert.equal(updates.filter(update => update.type === "snapshot").length, 1);
-    assert.equal(process.env.RUUKOTO_CODE_CONTROL_DIR, control, "采用预热结果再解析路径与令牌");
+    assert.equal(process.env.RUUKOTO_CONTROL_DIR, t.runtime.config.profile.selection.controlDir);
   } finally {
     await host.close();
     adoptEnvironment(previous);
     await t.shutdown();
-    fs.rmSync(control, { recursive: true, force: true });
   }
 });
 

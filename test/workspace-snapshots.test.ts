@@ -9,7 +9,6 @@ import { test } from "node:test";
 import type { Session, WorkDelegation } from "@ruukoto/core/types.ts";
 import { parseWorkWriteTarget } from "@ruukoto/core/types.ts";
 import { requireWorkspaceSnapshot, snapshotWorkspace } from "@ruukoto/core/workspace-snapshot.ts";
-import { verifyImportedWorkCopySnapshots } from "@ruukoto/core/import-support.ts";
 import { WorkCopyManager, type WorkCopyExecutor } from "@ruukoto/runtime/work-copy.ts";
 import { WORKSPACE_SNAPSHOT_SCRIPT } from "@ruukoto/runtime/workspace-snapshot-script.ts";
 import { initGitRepo } from "./helpers/git-fixture.ts";
@@ -329,7 +328,7 @@ test("外部捕获竞态、非 UTF-8 名字、路径祖先链接在源写入前�
   } finally { f.cleanup(); }
 });
 
-test("基线缺失、身份或摘要损坏拒绝执行、恢复和导入，不回退 HEAD", async () => {
+test("Missing, mismatched or corrupt baselines reject execution and recovery without falling back to HEAD", async () => {
   const f = fixture();
   try {
     const input = await f.prepare();
@@ -337,7 +336,6 @@ test("基线缺失、身份或摘要损坏拒绝执行、恢复和导入，不�
     assert.deepEqual(requireWorkspaceSnapshot(original), original);
     assert.throws(() => parseWorkWriteTarget(JSON.stringify({ ...input.target, snapshot: undefined })), { code: "snapshot_missing" });
     assert.throws(() => requireWorkspaceSnapshot({ ...original, tree: "0".repeat(40) }), { code: "snapshot_corrupt" });
-    assert.throws(() => verifyImportedWorkCopySnapshots([{ id: "work", write_target: JSON.stringify({ ...input.target, snapshot: undefined }) }]), { code: "snapshot_missing" });
     const altered = snapshotWorkspace({ ...original, source: { ...original.source, ino: original.source.ino + 1 } });
     input.target.snapshot = altered;
     await assert.rejects(f.manager.freeze(input), { code: "snapshot_changed" });

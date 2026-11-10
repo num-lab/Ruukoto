@@ -1,37 +1,25 @@
 /**
- * TUI 启动时按需拉起本机后台（agent-direction issue 02）。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-02-two-agent-products.md
- * Note: 见 .agents/notes/proposed/architecture/2026-10-15-desktop-client.md
- * Note: 见 .agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md
- *
- * - 只属 ruukoto-code：Coding Agent 打开 TUI 即进入任务界面，后台按需拉起；
- *   ruukoto（个人 Agent）沿用显式 server/systemd 启动，TUI 不越权拉起；
- * - 探测优先：控制面认证后 ping 确认未停止才就绪，绝不启动第二个实例；探测令牌
- *   与客户端同一来源（RUUKOTO_OWNER_TOKEN → RUUKOTO_OWNER_TOKEN_FILE →
- *   控制目录 owner.token），都取不到（后台未启动、令牌未生成）视为不在运行；
- * - 并发收敛：多个终端同时拉起时由后台实例锁（<dataDir>/runtime.lock）仲裁
- *   为单个实例——败者进程退出，本函数在窗口内继续探测，连到胜者即成功；
- * - 拉起的后台 detached + unref：关闭 TUI 不停止后台或取消任务；
- * - 失败分类明确：socket 可连但探测被明确拒绝=后台在运行，按原始拒绝原因给指引
- *   （令牌核对 / 协议版本升级），绝不拉起；传输中断或无凭据可试时重判当前 socket，
- *   不可达即按后台不在进入拉起；子进程提前退出=启动失败（附日志尾部；锁竞争与否
- *   按本进程退出码归属判定——spawn.log 是共享追加日志，其他终端的输出不能用来
- *   解释当前子进程为何退出）；等待超时另行标注；失败路径不杀子进程——败者退出
- *   后胜者可能仍在就绪途中，误杀会破坏仲裁。
+ * Starts the local backend only after authenticated probing and current lock inspection.
+ * A verified live owner may be restoring a lost endpoint; wait without spawning or signaling it.
+ * Concurrent starters converge through the runtime lock and retry authenticated readiness.
+ * Detached children outlive clients; startup failure never kills a possible concurrent winner.
+ * Note: See .agents/notes/implemented/bug-fix/2026-10-17-desktop-connection-startup.md
+ * Note: See .agents/notes/implemented/architecture/2026-11-10-single-product-profile.md
  */
 
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 import { ControlClient, ControlClientError, type ProtocolVersions } from "./client.ts";
-import { controlDirFor, defaultAgentDir, defaultDataDir, socketPathFor, tryResolveOwnerToken } from "./connect.ts";
-import { INSTANCE_LOCK_EXIT_CODE } from "@ruukoto/core/instance-lock.ts";
-import { type ProductType } from "@ruukoto/core/product.ts";
+import { tryResolveOwnerToken } from "./connect.ts";
+import { INSTANCE_LOCK_EXIT_CODE, probeLockHolder } from "@ruukoto/core/instance-lock.ts";
+import { profileChildEnv, verifyProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
 
 /** 控制面就绪探测：拥有者认证后 ping 确认未停止，不取快照或订阅事件。 */
-export async function probeControlPlane(socketPath: string, token: string | null, timeoutMs = 1500): Promise<boolean> {
-  return (await probeWithReason(socketPath, token, timeoutMs)).state === "running";
+export async function probeControlPlane(profile: ProfilePaths, token: string | null, timeoutMs = 1500): Promise<boolean> {
+  return (await probeWithReason(profile, token, timeoutMs)).state === "running";
 }
 
 type ProbeResult =
@@ -39,18 +27,14 @@ type ProbeResult =
   | { state: "rejected"; definitive: boolean; error: Error | null }
   | { state: "unreachable" };
 
-/**
- * 带原因的探测：definitive=true 的 rejected 表示收到后台应答（明确拒绝、停止中或无效就绪
- * 响应），足以证明后台存在；definitive=false 表示
- * 无凭据可试或传输中断/超时——曾连上不代表后台仍在，须重判当前 socket。
- * unreachable 表示 socket 不可连（后台确实不在）。
- */
-async function probeWithReason(socketPath: string, token: string | null, timeoutMs = 1500): Promise<ProbeResult> {
+/** A definitive rejection proves a responding backend; transport failure requires lock inspection. */
+async function probeWithReason(profile: ProfilePaths, token: string | null, timeoutMs = 1500): Promise<ProbeResult> {
+  verifyProfile(profile);
   if (!token) return { state: "rejected", definitive: false, error: null };
   let client: ControlClient | null = null;
   try {
-    client = await ControlClient.connect(socketPath, timeoutMs);
-    await client.authenticate(token, timeoutMs);
+    client = await ControlClient.connect(profile.socketPath, timeoutMs);
+    await client.authenticate(token, profile, timeoutMs);
     const result = await client.request<{ pong?: unknown; stopping?: unknown } | null>("ping", {}, timeoutMs);
     if (!result || result.pong !== true || typeof result.stopping !== "boolean") throw new ControlClientError("invalid_response", "后台就绪响应无效；请确认后台版本并重新连接。", "rejected");
     if (result.stopping) throw new ControlClientError("backend_stopping", "后台正在退出；请等待退出完成后重新连接，不重复拉起。", "rejected");
@@ -75,15 +59,9 @@ export async function socketConnectable(socketPath: string): Promise<boolean> {
   }
 }
 
-/** TUI 按需拉起门控：只属 ruukoto-code。 */
-export function tuiSpawnsBackendOnDemand(product: ProductType): boolean {
-  return product === "ruukoto-code";
-}
 
 export interface EnsureBackendOptions {
-  dataDir: string;
-  agentDir: string;
-  controlDir: string;
+  profile: ProfilePaths;
   /** 服务可执行文件（默认 process.execPath）；外部 Node 与 spawnArgv 中的 bin 分别传入。 */
   spawnExecPath?: string;
   /** 服务参数，不含可执行文件（默认：当前入口脚本，TS 入口换固定 bin 服务入口 + server --data-dir … --agent-dir …）。 */
@@ -112,30 +90,19 @@ function logTail(logPath: string, from = 0, maxChars = 1200): string {
   }
 }
 
-/** 固定服务入口：apps/ruukoto-code/bin/ruukoto-code.mjs（纯 JS，内部注册 tsx loader 后加载 packages/tui/src/cli.ts）。 */
-const FIXED_SERVER_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../apps/ruukoto-code/bin/ruukoto-code.mjs");
+/** Fixed source entry shared by terminal and desktop hosts. */
+const FIXED_SERVER_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../apps/ruukoto/bin/ruukoto.mjs");
 
-/**
- * 默认服务进程参数：JS 入口（bin）原样复用；TypeScript 入口（npm start 经 tsx 执行
- * packages/tui/src/cli.ts，argv[1] 指向 .ts 文件）换用固定服务入口——裸 node 派生 .ts 入口会因
- * 参数属性等语法报 ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX。
- */
-function defaultServerArgv(opts: EnsureBackendOptions): string[] | null {
-  const entry = process.argv[1];
-  if (!entry) return null;
-  const serverEntry = /\.tsx?$/.test(entry) ? FIXED_SERVER_ENTRY : entry;
-  return [serverEntry, "server", "--data-dir", opts.dataDir, "--agent-dir", opts.agentDir];
-}
 
 export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureBackendResult> {
-  const socketPath = socketPathFor(opts.controlDir);
-  const firstProbe = await probeWithReason(socketPath, tryResolveOwnerToken(opts.controlDir));
+  verifyProfile(opts.profile);
+  const { socketPath, controlDir } = opts.profile;
+  const firstProbe = await probeWithReason(opts.profile, tryResolveOwnerToken(controlDir));
   if (firstProbe.state === "running") {
     return { ok: true, spawned: false };
   }
-  // socket 可连=后台在运行、问题在令牌或协议版本而非「后台不在」——按原始拒绝原因
-  // 给指引、不再拉起。明确拒绝本身就是后台在运行的证据；传输中断、超时、无凭据或
-  // 首次连不上都不足以证明后台仍在，重判当前 socket，不可达才是后台不在，按需拉起
+  // A definitive rejection or a currently connectable address forbids another starter.
+  // An absent address alone does not prove exit: the runtime lock may name a live owner.
   const connectable =
     firstProbe.state === "rejected" && firstProbe.definitive ? true : await socketConnectable(socketPath);
   if (connectable) {
@@ -152,17 +119,40 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
       ok: false,
       error:
         "后台在运行（socket 可连）但认证或就绪探测失败：核对 RUUKOTO_OWNER_TOKEN / " +
-        `RUUKOTO_OWNER_TOKEN_FILE 与 ${opts.controlDir}/owner.token 是否一致；确认后重开入口`,
+        `RUUKOTO_OWNER_TOKEN_FILE 与 ${controlDir}/owner.token 是否一致；确认后重开入口`,
       code: firstProbe.state === "rejected" && firstProbe.error instanceof ControlClientError ? firstProbe.error.code : undefined,
     };
   }
 
-  const argv = opts.spawnArgv ?? defaultServerArgv(opts);
-  if (!argv) return { ok: false, error: "无法确定本产品的服务启动入口（process.argv[1] 缺失），请改用 ruukoto-code server 显式启动" };
+  const lockPath = path.join(opts.profile.dataDir, "runtime.lock");
+  const repairDeadline = Date.now() + (opts.deadlineMs ?? 60_000);
+  for (;;) {
+    const owner = probeLockHolder(lockPath);
+    if (!owner.held) break;
+    if (owner.unverifiable) return {
+      ok: false, code: "instance_lock_unverifiable",
+      error: `无法核实后台持锁身份；未启动另一个后台。请检查 ${lockPath}`,
+    };
+    const remaining = repairDeadline - Date.now();
+    if (remaining <= 0) return {
+      ok: false, code: "control_endpoint_unavailable",
+      error: `现有后台仍持有实例锁，但控制端点尚未恢复；未重启或停止后台。请检查 ${socketPath} 及后台日志。`,
+    };
+    const probe = await probeWithReason(opts.profile, tryResolveOwnerToken(controlDir), Math.min(1000, remaining));
+    if (probe.state === "running") return { ok: true, spawned: false };
+    if (probe.state === "rejected" && probe.definitive) return {
+      ok: false, error: probe.error?.message ?? "后台拒绝就绪探测",
+      code: probe.error instanceof ControlClientError ? probe.error.code : undefined,
+      versions: probe.error instanceof ControlClientError ? probe.error.versions : undefined,
+    };
+    await delay(Math.min(opts.pollMs ?? 200, Math.max(1, repairDeadline - Date.now())));
+  }
+
+  const argv = opts.spawnArgv ?? [FIXED_SERVER_ENTRY, "server"];
   const spawnExecPath = opts.spawnExecPath ?? process.execPath;
 
-  fs.mkdirSync(opts.controlDir, { recursive: true, mode: 0o770 });
-  const logPath = path.join(opts.controlDir, "spawn.log");
+  fs.mkdirSync(opts.profile.logsDir, { recursive: true, mode: 0o700 });
+  const logPath = opts.profile.spawnLogPath;
   // 失败消息附带的日志尾部只取本次启动写入的段落（字节偏移），历史内容不混入；
   // 拉起窗口内其他终端的并发输出仍在同一段——仅供人读，退出原因分类不依赖日志内容
   const logStart = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
@@ -170,7 +160,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   let child: childProcess.ChildProcess;
   try {
     child = childProcess.spawn(spawnExecPath, argv, {
-      env: opts.env ?? process.env,
+      env: profileChildEnv(opts.profile.selection, opts.env ?? process.env),
       stdio: ["ignore", logFd, logFd],
       detached: true,
     });
@@ -187,7 +177,9 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
   let exitedAt: number | null = null;
   let lostLockRace = false;
   for (;;) {
-    if (await probeControlPlane(socketPath, tryResolveOwnerToken(opts.controlDir), 1000)) {
+    const probe = await probeWithReason(opts.profile, tryResolveOwnerToken(controlDir), 1000);
+    if (probe.state === "rejected" && probe.definitive) return { ok: false, error: probe.error?.message ?? "后台拒绝就绪探测", code: probe.error instanceof ControlClientError ? probe.error.code : undefined };
+    if (probe.state === "running") {
       // 锁竞争败者或 spawn 失败时，连到的是其他调用方拉起的后台。
       return { ok: true, spawned: !lostLockRace && spawnErrorCode === null };
     }
@@ -207,7 +199,7 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     const now = Date.now();
     if (!lostLockRace && exitedAt !== null && now - exitedAt >= exitGraceMs) {
       const tail = logTail(logPath, logStart);
-      const hint = /no_model|未找到可用模型/.test(tail) ? "\n提示：未配置可用模型，先运行「ruukoto-code config」；修复后重开 TUI 会重新拉起。" : "";
+      const hint = /no_model|未找到可用模型/.test(tail) ? "\n提示：未配置可用模型，先运行「ruukoto config」；修复后重开 TUI 会重新拉起。" : "";
       return {
         ok: false,
         error:
@@ -219,16 +211,9 @@ export async function ensureBackend(opts: EnsureBackendOptions): Promise<EnsureB
     if (now >= deadline) {
       return {
         ok: false,
-        error: `等待后台就绪超时（${Math.round((opts.deadlineMs ?? 60_000) / 1000)}s；日志 ${logPath}）。进程未被杀，可能就绪较慢或有并发启动在途；也可 ruukoto-code status 查看`,
+        error: `等待后台就绪超时（${Math.round((opts.deadlineMs ?? 60_000) / 1000)}s；日志 ${logPath}）。进程未被杀，可能就绪较慢或有并发启动在途；也可 ruukoto status 查看`,
       };
     }
     await new Promise((r) => setTimeout(r, pollMs));
   }
-}
-
-/** ruukoto-code 产品默认目录的按需拉起（TUI 入口调用）。 */
-export async function ensureRuukotoCodeBackend(opts: Partial<EnsureBackendOptions> = {}): Promise<EnsureBackendResult> {
-  const dataDir = opts.dataDir ?? defaultDataDir();
-  const agentDir = opts.agentDir ?? defaultAgentDir();
-  return ensureBackend({ ...opts, dataDir, agentDir, controlDir: opts.controlDir ?? controlDirFor(dataDir) });
 }

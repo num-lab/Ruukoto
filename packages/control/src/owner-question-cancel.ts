@@ -8,7 +8,7 @@ import type { ReconcileOutcome, SubmitOutcome } from "./submission.ts";
 
 export type OwnerQuestionCancelOutcome = Exclude<SubmitOutcome, { kind: "accepted" }> |
   { kind: "accepted"; requestId: string; question: OwnerQuestionView };
-export type OwnerQuestionCancelReconcileOutcome = Exclude<ReconcileOutcome, { kind: "linked" | "resent" | "needs_resubmit" }> |
+export type OwnerQuestionCancelReconcileOutcome = Exclude<ReconcileOutcome, { kind: "linked" | "resent" }> |
   { kind: "linked" | "resent"; requestId: string; question: OwnerQuestionView };
 
 // Note: 见 .agents/notes/implemented/feature/2026-10-21-coding-owner-questions.md

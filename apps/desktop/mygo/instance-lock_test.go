@@ -26,7 +26,7 @@ func TestInstanceLockKeepsInodeAcrossOwners(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	after, err := os.Stat(filepath.Join(root, "personal-credentials", "instance.lock"))
+	after, err := os.Stat(filepath.Join(root, "host", "instance.lock"))
 	if err != nil || !os.SameFile(before, after) {
 		t.Fatal("lock inode changed")
 	}

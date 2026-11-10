@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [CI shards and fixture preparation](2026-11-07-ci-shards-and-fixtures.md) supersedes the single full-suite job per OS with four isolated application shards. Node, deadlines, per-runner concurrency, native boundaries and complete coverage remain.
 
 [Node24/CI budgets](2026-10-24-node24-ci-budget.md) supersedes the historical Node matrix/job limit. [Suite reduction](2026-10-24-test-suite-reduction.md) supersedes six-input scale, the old personal combined sample, and two-product real-model execution: current coverage retains Code's four-input composition and real-model acceptance. Platform safeguards, evidence distinctions, and historical findings below remain relevant.

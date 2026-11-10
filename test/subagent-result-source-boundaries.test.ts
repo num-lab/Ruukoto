@@ -64,29 +64,7 @@ for (const damage of ["execution", "definition", "binding", "source"] as const) 
   } finally { await kit.shutdown(); }
 });
 
-test("main 已排队结果唤醒在坏来源后被截住，保留原任务与唯一唤醒键", async () => {
-  let wakeCalls = 0;
-  const kit = await startTestRuntime("result-main-source", req => {
-    if (lastUserText(req).startsWith("[编排器]")) wakeCalls++;
-    return { kind: "text", text: "MAIN_CHILD_SENTINEL" };
-  });
-  try {
-    const rt = kit.runtime, session = rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!;
-    const source = sourceTask(rt, session);
-    const child = await rt.subagents!.delegate({ parentTaskId: source.id, key: "child", request: "完成", paramsDigest: "child" });
-    const before = await childDone(rt, child.task.id);
-    await waitFor("main 唯一唤醒已排队", () => !!rt.store.findTaskByRequest(session.id, `wake:${child.task.id}`));
-    const wake = rt.store.findTaskByRequest(session.id, `wake:${child.task.id}`)!;
-    rt.store.db.prepare("UPDATE tasks SET read_scope = json_remove(read_scope, '$.execution') WHERE id = ?").run(child.task.id);
-    release(rt, source); await rt.resumeQueue(session.id);
-    await waitFor("坏来源唤醒终态", () => ["completed", "failed", "canceled"].includes(rt.store.getTask(wake.id)!.status));
-    assert.equal(wakeCalls, 0); assert.equal(rt.store.getTask(wake.id)!.status, "canceled");
-    assert.equal(rt.store.getTask(wake.id)!.errorMessage, "execution_missing"); assert.equal(rt.store.getWorkDelegation(child.work.id)!.canceledAt, null);
-    assert.equal(rt.store.findTaskByRequest(session.id, `wake:${child.task.id}`)!.id, wake.id);
-    assert.equal(rt.store.getTask(child.task.id)!.resultSummary, before.resultSummary);
-    assert.equal(rt.store.listTasksBySession(child.agent.sessionId).length, 1);
-  } finally { await kit.shutdown(); }
-});
+
 
 test("报告沿冻结的截止任务依赖复核，后续身份复用的坏执行不扩大旧结果依赖", async () => {
   let firstId = "";
@@ -142,31 +120,5 @@ test("结果装配后来源损坏，真实模型响应不消费原结果且不�
     assert.notEqual(rt.store.getTask(parent.id)!.status, "completed");
     assert.equal(rt.store.getTask(childId)!.resultDeliveredAt, null); assert.equal(rt.store.getTask(childId)!.resultSummary, before.resultSummary);
     assert.equal(rt.store.listTasksBySession(child.agent.sessionId).length, 1); assert.equal(parentCalls, 1);
-  } finally { await kit.shutdown(); }
-});
-
-
-test("main 结果唤醒响应期间来源损坏，不完成消费且保留子结果", async () => {
-  let active: Runtime | null = null, childId = "", wakeCalls = 0;
-  const kit = await startTestRuntime("result-main-consume", req => {
-    if (lastUserText(req).startsWith("[编排器]")) {
-      wakeCalls++;
-      active!.store.db.prepare("UPDATE tasks SET read_scope = json_remove(read_scope, '$.execution') WHERE id = ?").run(childId);
-      return { kind: "text", text: "来源已经损坏的唤醒响应" };
-    }
-    return { kind: "text", text: "MAIN_CONSUME_RESULT" };
-  });
-  try {
-    const rt = kit.runtime; active = rt;
-    const session = rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!, source = sourceTask(rt, session);
-    const child = await rt.subagents!.delegate({ parentTaskId: source.id, key: "child", request: "完成", paramsDigest: "child" }); childId = child.task.id;
-    const before = await childDone(rt, childId);
-    await waitFor("main 唤醒排队", () => !!rt.store.findTaskByRequest(session.id, `wake:${childId}`));
-    const wake = rt.store.findTaskByRequest(session.id, `wake:${childId}`)!;
-    release(rt, source); await rt.resumeQueue(session.id);
-    await waitFor("main 响应消费终止", () => ["completed", "failed", "interrupted"].includes(rt.store.getTask(wake.id)!.status));
-    assert.notEqual(rt.store.getTask(wake.id)!.status, "completed"); assert.equal(wakeCalls, 1);
-    assert.equal(rt.store.getTask(childId)!.resultSummary, before.resultSummary); assert.equal(rt.store.listTasksBySession(child.agent.sessionId).length, 1);
-    assert.equal(rt.store.getWorkDelegation(child.work.id)!.canceledAt, null);
   } finally { await kit.shutdown(); }
 });

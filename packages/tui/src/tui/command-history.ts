@@ -1,12 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { defaultPendingDir } from "@ruukoto/control/pending-requests.ts";
 import type { CommandEntry } from "./event-flow.ts";
 
 /** 客户端命令回显，与后台消息历史、待确认请求分别保存。 */
 export class CommandHistoryStore {
-  constructor(private readonly file = path.join(path.dirname(defaultPendingDir()), "tui", "commands.sqlite")) {}
+  constructor(private readonly file: string) {}
 
   private withDb<T>(run: (db: DatabaseSync) => T): T {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });

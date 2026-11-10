@@ -54,7 +54,7 @@ test("Desktop menu consumes completion keys but preserves composition and multil
 
 test("Desktop named current-history branching uses the existing operation without a model task", async () => {
   const snapshot = fakeSnapshot();
-  const source: Session = { id: "source", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-11-08T00:00:00Z" };
+  const source: Session = { id: "source", projectId: "workspace", kind: "dev", name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: "2026-11-08T00:00:00Z" };
   const calls: { op: string; params: Record<string, unknown> }[] = [];
   const model = new CodeState({ request: async (_target, op, params) => {
     calls.push({ op, params });

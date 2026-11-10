@@ -8,7 +8,7 @@ Desktop Markdown did not parse raw HTML, so ordinary `details` and `summary` con
 
 ## Decision
 
-The shared `MarkdownText` used by Code main and child conversations, Personal, file previews, and both products' skills parses HTML with Streamdown's exported raw plugin before the existing `rehype-sanitize`. `skipHtml` is removed. Allowed tags render normally; scripts, event attributes, and dangerous links remain filtered. HTML inside code fences remains source text. The mutable Demo follows this behavior; frozen drafts retain their history.
+Shared `MarkdownText` for main/child conversations, file previews and skills parses HTML with Streamdown’s raw plugin before `rehype-sanitize`. Allowed tags render normally; scripts, event attributes and dangerous links remain filtered. HTML inside code fences remains source text. The mutable demo follows this behavior; frozen drafts retain their history.
 
 Image schemes and relative addresses, custom links, and code/math/diagram plugins keep their existing handling. No harden plugin, dependency, or configuration option is added. HTML support follows the sanitizer's tag and attribute policy, not arbitrary page-code execution.
 

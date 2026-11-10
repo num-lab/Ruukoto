@@ -12,7 +12,7 @@ Shutdown did not wait for in-flight configuration operations, so it could close 
 
 ## Decision
 
-`packages/runtime/src/models.ts` defines `RuntimeModels`, owned as `Runtime.models`. It owns current stack, configuration revision/reference validation, apply gates, file snapshots/rollback, safe diagnostics, and configuration events, reusing agent/model-config file operations. Scope is Coding and the retained shared Runtime, not durable Personal's independent model configuration.
+`packages/runtime/src/models.ts` defines `RuntimeModels`, owned as `Runtime.models`. It owns current stack, configuration revision/reference validation, apply gates, file snapshots/rollback, safe diagnostics and configuration events, reusing agent/model-config file operations. Core profile activation precedes ordinary configuration writes.
 
 Dependencies are Store, model-related startup configuration, and three injected host capabilities: count active compactions for selected providers, publish a new stack to live Drivers, and flush pending messages. It receives no entire Runtime and owns no queues, Driver collection, compaction operations, or SubAgentManager. Runtime retains the configuration lock and overall startup/shutdown order.
 

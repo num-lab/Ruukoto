@@ -12,7 +12,6 @@ import { WORKFLOW_INTERFACE_VERSION, createWorkflowRun, getWorkflowDeliveryRun, 
 import { type Task, type TaskStatus } from "@ruukoto/core/types.ts";
 import { getAgentTaskReport, ParentDelivery, type ParentDeliveryDeps } from "@ruukoto/runtime/parent-delivery.ts";
 import { Orchestrator } from "@ruukoto/runtime/orchestrator.ts";
-import { QqStore } from "@ruukoto/channels/qq/store.ts";
 
 const SELECTION = { provider: "mock", modelId: "mock", thinkingLevel: "off" as const };
 
@@ -22,9 +21,7 @@ function kit() {
   let counter = 0;
   const session = () => store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: stat.dev, cwdIno: stat.ino,
     piSessionId: `pi-${++counter}`, confirmTools: [] });
-  const parentSession = session(), main = session();
-  store.insertAgentRole({ id: "main", projectId: project.id, sessionId: main.id, workDir: root, modelSelection: SELECTION,
-    tools: [], createdAt: main.createdAt });
+  const parentSession = session();
   const task = (sessionId: string, status: TaskStatus, params: { requestId?: string; parentTaskId?: string; workId?: string; subAgentId?: string } = {}) => {
     const registered = store.insertQueuedTask({ sessionId, requestId: params.requestId ?? `request-${++counter}`, input: "任务",
       modelSelection: SELECTION, submissionDigest: `digest-${counter}`, ...params }).task;
@@ -32,9 +29,9 @@ function kit() {
     return store.getTask(registered.id)!;
   };
   const parent = task(parentSession.id, "running");
-  const source: WorkflowSource = { product: "ruukoto-code", projectId: project.id, sessionId: parentSession.id, taskId: parent.id,
+  const source: WorkflowSource = { product: "ruukoto", projectId: project.id, sessionId: parentSession.id, taskId: parent.id,
     permissionVersion: parent.permissionVersion, accessMode: parent.accessMode, grantedPaths: [], capabilities: [], references: [],
-    replyTarget: null, scheduledRunId: null };
+    };
   const child = (status: TaskStatus = "completed") => {
     const subSession = session(), subAgentId = `agent-${++counter}`, workId = `work-${counter}`;
     store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: subAgentId, parentSessionId: parentSession.id, sessionId: subSession.id, workDir: root,
@@ -54,7 +51,6 @@ function kit() {
     parentSessionId: parentSession.id }));
   const submissions: Parameters<ParentDeliveryDeps["submit"]>[0][] = [], replies = new Map<string, string>(), reports: AgentReport[][] = [];
   const deps: ParentDeliveryDeps = { verifyWork: () => {}, verifyTask: () => null, store, defaultModelSelection: () => SELECTION, readReply: id => replies.get(id) ?? null,
-    isReviewEvent: () => false, resultNotice: () => null, sendWorkReport: () => { throw new Error("dev 不外发"); },
     submit: async input => {
       submissions.push(input);
       return store.withTx(() => {
@@ -65,7 +61,7 @@ function kit() {
     },
     recordClaimedReport: (_task, _outcome, claims) => {
       reports.push(claims);
-      return { status: "reported", entryId: "final-entry", outboxOpId: "single-outbox" };
+      return { status: "reported", entryId: "final-entry" };
     },
   };
   const delivery = new ParentDelivery(deps);
@@ -142,7 +138,7 @@ test("同来源多个结果父轮只报告一次，消费后的普通注入和�
     assert.equal(k.reports.length, 1);
     assert.equal(k.reports[0].length, 2);
     for (const report of reports) assert.deepEqual(getAgentReport(k.store, report.key)!.proof,
-      { taskId: k.parent.id, entryId: "final-entry", outboxOpId: "single-outbox" });
+      { taskId: k.parent.id, entryId: "final-entry" });
     await k.delivery.sweep();
     assert.equal(k.submissions.length, 0);
   } finally { k.cleanup(); }
@@ -179,7 +175,7 @@ test("同来源补报批次共享一个可信任务及最终报告；伪造同�
     assert.equal(k.reports.length, 1);
     assert.equal(k.reports[0].length, 2);
     for (const report of reports) assert.deepEqual(getAgentReport(k.store, report.key)!.proof,
-      { taskId: fallback.id, entryId: "final-entry", outboxOpId: "single-outbox" });
+      { taskId: fallback.id, entryId: "final-entry" });
   } finally { k.cleanup(); }
 });
 
@@ -223,7 +219,7 @@ test("已有工作流专属汇总接管子任务和其他排队汇总，只登�
     const retained = k.store.getTask(original.id)!;
     assert.deepEqual({ id: retained.id, requestId: retained.requestId, input: retained.input }, original);
     assert.equal(k.store.getTask(summaries[1].id)!.status, "queued");
-    for (const report of reports) assert.equal(getAgentReport(k.store, report.key)!.proof!.outboxOpId, "single-outbox");
+    for (const report of reports) assert.deepEqual(getAgentReport(k.store, report.key)!.proof, { taskId: fallback.id, entryId: "final-entry" });
     k.store.withTx(() => k.delivery.wakeTerminal(k.store.getTask(summaries[1].id)!, "failed"));
     assert.equal(k.reports.length, 1);
   } finally { k.cleanup(); }
@@ -285,9 +281,8 @@ test("编排器启动巡检以等待认领覆盖普通 dev 父轮，补记终态
       k.store.endTask(k.parent.id, ["running"], "completed");
     });
     k.replies.set(k.parent.id, "已落盘最终总结");
-    orchestrator = new Orchestrator({ store: k.store, qqStore: new QqStore(k.db), dataDir: k.root, parentDelivery: k.delivery,
-      bridge: { submit: k.deps.submit, defaultModelSelection: () => SELECTION, findProjectByName: name => k.store.findProjectByName(name),
-        createProject: name => k.store.createProject(name), createSession: async () => { throw new Error("main 已存在"); },
+    orchestrator = new Orchestrator({ store: k.store, parentDelivery: k.delivery,
+      bridge: { submit: k.deps.submit, defaultModelSelection: () => SELECTION,
         readTaskReply: id => {
           const text = k.replies.get(id);
           return text ? { entryId: "final-entry", taskId: id, inputPurpose: "user", parentId: null, role: "assistant", timestamp: new Date().toISOString(),

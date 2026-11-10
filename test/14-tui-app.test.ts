@@ -42,7 +42,6 @@ import {
 } from "./helpers/testkit.ts";
 import type { Responder } from "./helpers/mock-provider.ts";
 import { withMcpDiscovery } from "./helpers/mock-mcp.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
 import type { PublicMessageRecall, Session, Task } from "@ruukoto/core/types.ts";
 import type { HistoryPage } from "@ruukoto/core/history.ts";
 import type { FlowEntry } from "@ruukoto/tui/tui/event-flow.ts";
@@ -168,7 +167,7 @@ async function startApp(t: TestRuntime, opts: { sessionId?: string; requests?: A
   const state = new ViewState(new CommandHistoryStore(path.join(t.dirs.root, "tui", "commands.sqlite")));
   let appRef: TuiApp | null = null;
   const connection = new ControlConnection(
-    { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
+    { profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())! },
     {
       onState: (s, d) => appRef?.onConnectionState(s, d),
       onSnapshot: (r, ctx) => appRef?.onSnapshot(r, ctx),
@@ -1009,7 +1008,7 @@ test("/new：未选择会话时不创建，提示下一步操作", async () => {
     assert.equal(h.state.sessions.length, before, "不应创建新会话");
     assert.equal(h.state.currentSessionId, null);
     const notes = h.state.globalNotes.map((n) => n.text).join("\n");
-    assert.ok(notes.includes("尚未选择会话"), `提示应指向 /new-project 或 /new-session，实际：${notes}`);
+    assert.ok(notes.includes("尚未选择会话"), `Expected session selection guidance: ${notes}`);
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -1532,42 +1531,30 @@ test("/mode：列表提供四种模式并可选择 Plan，取消不改状态", a
   }
 });
 
-test("非普通开发身份的 /mode 与 Shift+Tab 仅提供三个访问模式，Plan 不随会话切换进入", async () => {
+test("SubAgent mode controls never inherit Plan or change the child conversation default", async () => {
   const t = await startTestRuntime("tui-plan-identity", async () => ({ kind: "text", text: "done" }));
   const apps: AppHarness[] = [];
   try {
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
     const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
-    const main = t.runtime.store.getSession(t.runtime.store.getAgentRole("main")!.sessionId)!;
     const sub = await create();
     t.runtime.store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
-    const archive = await create();
-    t.runtime.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
     const h = await startApp(t, { sessionId });
     apps.push(h);
     const app = h.app as any;
     const result = (text: string, isError?: boolean) => assert.ok(!isError, text);
     await app.sendSessionMode(sessionId, 0, "plan", result);
-    for (const id of [main.id, sub.id, archive.id]) {
-      app.switchSession(id);
-      await app.sessionSettingsSync;
-      assert.equal(h.state.sessions.find((s) => s.id === id)!.defaultAccessMode, "confirm", "Plan 不同步进无资格身份");
-      await app.cmdMode([], result);
-      await renderFlush();
-      const screen = stripTerminalSequences(app.tui.previousScreen.join("\n"));
-      assert.ok(screen.includes("Auto review") && !screen.includes("Plan"));
-      h.terminal.send("\x1b");
-      if (id === sub.id) {
-        h.terminal.send("\x1b[Z");
-        await renderFlush();
-        assert.equal(h.state.sessions.find((s) => s.id === id)!.defaultAccessMode, "confirm", "SubAgent 原有默认模式修改禁令保留");
-        continue;
-      }
-      for (const mode of ["full_access", "auto-review", "confirm"]) {
-        h.terminal.send("\x1b[Z");
-        await waitFor(`无 Plan 循环至 ${mode}`, () => h.state.sessions.find((s) => s.id === id)!.defaultAccessMode === mode);
-      }
-    }
+    app.switchSession(sub.id);
+    await app.sessionSettingsSync;
+    assert.equal(h.state.sessions.find((session) => session.id === sub.id)!.defaultAccessMode, "confirm");
+    await app.cmdMode([], result);
+    await renderFlush();
+    const screen = stripTerminalSequences(app.tui.previousScreen.join("\n"));
+    assert.ok(screen.includes("Auto review") && !screen.includes("Plan"));
+    h.terminal.send("\x1b");
+    h.terminal.send("\x1b[Z");
+    await renderFlush();
+    assert.equal(h.state.sessions.find((session) => session.id === sub.id)!.defaultAccessMode, "confirm");
   } finally {
     quitAll(apps);
     await new Promise((r) => setTimeout(r, 100));
@@ -1926,8 +1913,6 @@ test("视口键：侧栏日志只在 PgDn 按下时滚动，释放帧保持当�
 });
 
 test("Coding 会话选择菜单与 /processes 都进入后台清单，返回不停止后台", async () => {
-  const saved = process.env.RUUKOTO_PRODUCT;
-  process.env.RUUKOTO_PRODUCT = "ruukoto-code";
   const t = await startTestRuntime("tui-background-menu", async () => ({ kind: "text", text: "未调用模型" }));
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
@@ -1944,8 +1929,6 @@ test("Coding 会话选择菜单与 /processes 都进入后台清单，返回不�
     assert.equal(t.server.calls.length, 0);
   } finally {
     quitAll(apps); await t.shutdown();
-    if (saved === undefined) delete process.env.RUUKOTO_PRODUCT;
-    else process.env.RUUKOTO_PRODUCT = saved;
   }
 });
 
@@ -2040,7 +2023,7 @@ test("TUI CUA批次审批：80×24 下须滚动到内容末尾才可批准", { s
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const t = await startTestRuntime("tui-cua-batch", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const t = await startTestRuntime("tui-cua-batch", withMcpDiscovery(responder), { config: { mcp: { callTimeoutMs: 300 } } });
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
     const TREE = "- [0] AXWindow \"Doc\"\n  - [14] AXButton \"保存\"\n  - [20] AXTextField \"名称\"";
@@ -2094,7 +2077,7 @@ test("TUI CUA批次审批：开窗后终端变矮，批准门禁跟随实际视�
     const call = next; next = null;
     return call ? { kind: "tool_calls", calls: [{ id: `call-${Date.now()}`, ...call }] } : { kind: "text", text: "done" };
   };
-  const t = await startTestRuntime("tui-cua-resize", withMcpDiscovery(responder), { config: { product: product.runtime, mcp: { callTimeoutMs: 300 } } });
+  const t = await startTestRuntime("tui-cua-resize", withMcpDiscovery(responder), { config: { mcp: { callTimeoutMs: 300 } } });
   const apps: AppHarness[] = [], requests: Array<{ op: string; params?: Record<string, unknown> }> = [];
   try {
     const TREE = "- [0] AXWindow \"Doc\"\n  - [14] AXButton \"保存\"\n  - [20] AXTextField \"名称\"";

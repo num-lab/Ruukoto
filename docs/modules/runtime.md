@@ -2,13 +2,13 @@
 
 ## Responsibilities and Boundaries
 
-`packages/runtime/src/` coordinates the Coding backend: task lifecycle, per-conversation queues, model driving, SubAgents, backgrounds and restart recovery. Production Personal uses [its durable runtime](personal-durable.md) instead.
+`packages/runtime/src/` coordinates the backend: task lifecycle, per-conversation queues, model driving, SubAgents, backgrounds and restart recovery. `RuntimeConfig` receives activated `ProfilePaths`, not raw directory overrides or product-routing declarations.
 
 The user queue contains unstarted ordinary owner messages, with persistent `queue_order` and `queue_revision`. The owner may reorder or retrieve any eligible item, or explicitly route it as guidance for the running task. `task_guidance` delivers guidance at the next safe request boundary; a missed target returns the input to the queue head. Answers and internal reports have separate routes. Execution profiles fix identity, write target and access policy at task start.
 
 Runtime owns one-level SubAgent delegation, independent work copies, parent delivery and explicit integration. It also supervises conversation backgrounds and their occupancy. Ordinary Coding side chat has dedicated `open/find/submit_side_chat` entries, no tools or directory occupancy, and at most one unfinished task; it can run alongside its parent.
 
-[Execution](execution.md) owns tool processes; [context](agent-context.md) owns model input; [control](control.md) owns authenticated transport; [channels](channels.md) owns shared IM adapters.
+[Execution](execution.md) owns tool processes; [context](agent-context.md) owns model input; [control](control.md) owns authenticated transport; [channels](channels.md) supplies retained scheduling time calculations.
 
 ## Public Interfaces
 
@@ -18,7 +18,7 @@ Runtime owns one-level SubAgent delegation, independent work copies, parent deli
 | `submit` | Clients | Verify `(sessionId, requestId)` and queue a persisted task |
 | `cancel` / `interrupt` | Owner/system | Cancel the selected task / persist owner pause before interrupting ordinary Coding execution; preserve unresolved stop facts |
 | `switch_mode` | Owner | Change access mode at an eligible safe boundary |
-| `resume_queue` | Owner | Resume dispatch; retained terminal occupancy requires separate `stop_confirmed` authority |
+| `resume_queue` | Owner | Resume dispatch with recorded task models; retained terminal occupancy requires separate `stop_confirmed` authority |
 | `task_queue` / `queue_reorder` / `steer_task` | Owner | Read user order/revision/eligibility, reorder ordinary input, or route it as guidance |
 | `message_recall` | Owner | Retrieve an eligible queued item or recall the latest supported historical input under an explicit purpose |
 | `owner_question_answer` / `owner_question_cancel` | Owner | Commit an original-task answer receipt or cancellation, then release its tool wait |
@@ -28,7 +28,7 @@ Runtime owns one-level SubAgent delegation, independent work copies, parent deli
 | `subagent_integrate` | Main Agent | Explicitly integrate validated child changes |
 | `subagent_cancel` / `subagent_close` | Main Agent | Cancel work / close an idle SubAgent |
 
-Conversation identity determines entry eligibility: ordinary development conversations accept owner input and can delegate; legacy/shared `main` accepts channel input; SubAgent conversations accept assigned work and cannot delegate further; scheduled identities carry fixed sources. Side conversations and retired conversations have their own restricted entry rules, rather than being ordinary development conversations.
+Conversation identity determines entry eligibility: ordinary development conversations accept owner input and can delegate; SubAgent conversations accept assigned work and cannot delegate further; side conversations have tool-free entry rules. Scheduled runs retain fixed host-owned source authority.
 
 ## Data and State
 
@@ -75,7 +75,7 @@ sequenceDiagram
   Runtime-->>Client: Committed terminal event
 ```
 
-Delegation prepares an isolated context/work copy, then registers work, child identity and task facts transactionally. Filesystem work is not part of SQLite atomicity. The child executes independently; completion registers a parent wakeup. The main Agent reviews results and explicitly integrates changes.
+Delegation prepares an isolated context/work copy, then registers work, child identity and task facts transactionally. Filesystem work is not part of SQLite atomicity. Ordinary child results enter the next parent task; waited and scheduled results may create a source-bound wakeup. The main Agent reviews results and explicitly integrates changes.
 
 Required role/workflow/delegation MCP tools are verified after official registration and before the model starts. Task source eligibility remains pinned; revocation can narrow it, while discovery or SDK restoration cannot enlarge it.
 
@@ -108,6 +108,7 @@ Trusted reports arriving during request N wait for its tools to settle, then ent
 ## Invariants and Failure Handling
 
 - Identical `(sessionId, requestId)` replay returns the original task; changed parameters produce `request_conflict`.
+- Request-key prefixes do not identify internal work: owner keys such as `wake:manual` and `smsg:manual` remain ordinary input. Wake admission uses persisted report ownership or scheduled-task provenance and rejects canceled or invalid sources before model execution.
 - One execution entity owns a write target at a time; competitors wait or fail.
 - Branch and side-chat image snapshots require both source-task membership (including verified joined guidance) and an inbound/attachment binding; an image admitted in another conversation is not branch authority.
 - Task state, approval invalidation, occupancy changes and corresponding events finalize in one transaction, subject to verified stopping.

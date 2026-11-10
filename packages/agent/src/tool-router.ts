@@ -234,7 +234,6 @@ export class ToolRouter {
       base.grantedPaths = task.grantedPaths.map(grant => ({ ...grant, access: "read" }));
     }
     // Note: 见 .agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md
-    // Note: 见 .agents/notes/implemented/architecture/2026-10-12-personal-native-sandbox.md
     // Note: 见 .agents/notes/implemented/bug-fix/2026-10-18-directory-device-number.md
     const currentWorkspace = verifyDirIdentitySync({ cwd: ws.path, cwdReal: ws.path, dev: ws.dev, ino: ws.ino });
     base.workspaceIdentity = { dev: currentWorkspace.dev, ino: currentWorkspace.ino };

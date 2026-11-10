@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 Trusted host provenance already classified internal reports as non-owner input, but fallback summaries shared FIFO with user messages. The owner requires reports not to occupy the user queue and active tasks not to wait until termination to receive them. Hiding the panel, prioritizing fallbacks or calling steer alone cannot jointly establish timely delivery, reverified provenance and unique reporting.

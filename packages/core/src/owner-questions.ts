@@ -45,14 +45,14 @@ export function ownerQuestionTaskEligible(store: Store, task: Task): boolean {
   if (scheduled) {
     try {
       const source = getCodeScheduledTaskSource(store, task.id);
-      return source !== null && task.sessionId === source.sessionId && task.agentId === null && task.workId === null && task.subAgentId === null && !getWorkflowExecution(store, task.id) && !getWorkflowDeliveryRun(store, task.id) && !isAgentReportFallback(store, task.id);
+      return source !== null && task.sessionId === source.sessionId && task.workId === null && task.subAgentId === null && !getWorkflowExecution(store, task.id) && !getWorkflowDeliveryRun(store, task.id) && !isAgentReportFallback(store, task.id);
     } catch (error) {
       if (error instanceof CodeScheduleError) return false;
       throw error;
     }
   }
   if (getOpenCodeScheduleRunForSession(store, task.sessionId)) return false;
-  return store.getSessionIdentity(task.sessionId)?.kind === "dev" && task.agentId === null && task.parentTaskId === null && task.sourceEventId === null && task.sourcePermissionVersion === null && task.workId === null && task.subAgentId === null && !getWorkflowExecution(store, task.id) && !getWorkflowDeliveryRun(store, task.id) && !isAgentReportFallback(store, task.id);
+  return store.getSessionIdentity(task.sessionId)?.kind === "dev" && task.parentTaskId === null && task.sourcePermissionVersion === null && task.workId === null && task.subAgentId === null && !getWorkflowExecution(store, task.id) && !getWorkflowDeliveryRun(store, task.id) && !isAgentReportFallback(store, task.id);
 }
 
 function questionFromRow(store: Store, row: { payload: string } | undefined): OwnerQuestion | null {

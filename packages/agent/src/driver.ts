@@ -37,7 +37,6 @@ import type { ApprovalReviewer } from "./review.ts";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import type {
   AccessMode,
-  ApprovalScope,
   ConfirmationRequest,
   PersistentEventBody,
   Session,
@@ -150,30 +149,10 @@ export interface DriverDeps {
   browser?: { allowed(task: Task): boolean; close(sessionId: string): Promise<boolean> };
   /** MyGo 右栏桌面浏览器句柄：资格、闸门状态、接管等待与交还观察（issue mygo-agent-browser）。 */
   desktopBrowser?: DesktopBrowserManager;
-  /**
-   * 宿主按任务另开只读 MCP（agent-direction issue 19 的 GitHub 评审 SubAgent）：
-   * subagent 类会话只有该依赖为真时才规划 MCP，收窄为「静态只读白名单 ∪
-   * effect=read 的 MCP」（装配、发送前与调用门同一结论）。
-   */
-  taskMcp?: (task: Task) => boolean;
   /** 自动审查（issue 15）：auto-review 任务的审批请求先经其裁决；缺省时退化为纯人工。 */
   reviewer?: ApprovalReviewer;
-  /**
-   * IM 审批宿主接线（agent-direction issue 08）：审批创建通知与消费前固定身份
-   * 复核由宿主注入；均在审批创建/消费事务内执行，不得再开核心库事务。
-   */
-  approvalIm?: {
-    notifyCreated?: (confirmation: ConfirmationRequest, task: Task) => void;
-    consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
-    /**
-     * 长期授权候选（agent-direction issue 10）：宿主按当前 main、任务来源入口身份
-     * 与两项修订逐项核实；返回 null 走人工路径。
-     */
-    standingCandidate?: (
-      task: Task,
-      scope: Extract<ApprovalScope, { kind: "service_operation" }>,
-    ) => { id: string; version: number } | null;
-  };
+  /** Recheck source authority in the approval-consumption transaction; never open a nested transaction. */
+  consumeRecheck?: (confirmation: ConfirmationRequest, task: Task) => string | null;
   /**
    * 父级送达的注入入口（架构工单 09 入口 3）：任务开始时取普通开发会话待注入的
    * SubAgent 结果候选与工作内消息；结果在有效模型响应后确认消费，其他身份恒为空。
@@ -196,10 +175,7 @@ export interface DriverDeps {
     acquireResources(task: Task): Promise<boolean>;
     wait: AgentWaitCall;
   };
-  /**
-   * main 委派资料的发送前复核（仅 subagent 类会话；撤销阻止后续注入，
-   * 已保存快照正文不重新解析）。
-   */
+  /** Recheck frozen delegated materials before sending; revocation blocks retained context too. */
   verifyTaskSources?: (projectId: string, refs: unknown[]) => string | null;
   /** 宿主派生任务在每次模型请求与实际调用前重核来源。 */
   verifyTask?: (task: Task) => string | null;
@@ -328,9 +304,7 @@ export class Driver {
       store: deps.store,
       ledger: deps.ledger,
       reviewer: () => this.deps.reviewer,
-      notifyConfirmation: deps.approvalIm?.notifyCreated,
-      consumeRecheck: deps.approvalIm?.consumeRecheck,
-      standingCandidate: deps.approvalIm?.standingCandidate,
+      consumeRecheck: deps.consumeRecheck,
     });
     this.router = new ToolRouter({
       store: deps.store,
@@ -382,7 +356,7 @@ export class Driver {
 
   /** 会话类别的清单含该工具类别（装配各注册来源的唯一条件）。 */
   private allows(category: ToolCategory, profile = this.profile): boolean {
-    if (category === "browser" && (profile.workflow || profile.toolSignature === "scheduled")) return false;
+    if (category === "browser" && profile.workflow) return false;
     return profile.source ? profile.source.categories.includes(category)
       : profile.workflow ? profile.workflow.categories.includes(category) : allowsCategory(profile.toolClass, category);
   }
@@ -417,8 +391,7 @@ export class Driver {
     const agent = this.deps.store.getSubAgent(task.subAgentId);
     if (!agent || agent.sessionId !== this.session.id) throw new SubAgentRoleError("definition_missing", "子代理角色身份缺失；核实记录后再继续。");
     const definition = validateSubAgentRole(requireSubAgentDefinition(agent));
-    if (!this.pinnedDefinition || definition.digest !== this.pinnedDefinition.digest || (definition.kind === "host_review") !== Boolean(task.sourceEventId)) throw new SubAgentRoleError("definition_corrupt", "子代理角色内容或用途与执行绑定不一致；核实记录后再继续。");
-    if (definition.kind === "host_review") return;
+    if (!this.pinnedDefinition || definition.digest !== this.pinnedDefinition.digest) throw new SubAgentRoleError("definition_corrupt", "子代理角色内容与执行绑定不一致；核实记录后再继续。");
     const execution = requireSubAgentExecution(task.readScope?.execution);
     const current = this.deps.store.getTask(task.id);
     const saved = requireSubAgentExecution(current?.readScope?.execution);
@@ -436,33 +409,6 @@ export class Driver {
     return this.taskTools ? this.taskTools.reasonFor(name) : "本任务工具集合未确定";
   }
 
-  /**
-   * 应用数据工具的身份重核（issue 02）：每次调用重新核实宿主任务、会话、
-   * 项目与 main 角色绑定，以及任务归属；模型参数不能提供这些身份。
-   * 绑定在会话级：main 的持久会话中的任务（编排器创建或拥有者直接提交）
-   * 都是 main 的任务；角色配置只由宿主写入 agent_roles 表。
-   */
-  private verifyMainBinding(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
-    if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
-    if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
-    if (this.profile.source || this.profile.workflow) {
-      if (this.currentTask?.id !== ctx.taskId || (this.profile.source ?? this.profile.workflow)!.toolClass !== "main") return "步骤未绑定个人助手来源";
-      const task = this.deps.store.getTask(ctx.taskId);
-      if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
-      return this.verifyWorkflowTask(task);
-    }
-    const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
-    if (identity?.kind !== "main" && identity?.kind !== "scheduled") return "会话未绑定个人助手执行身份";
-    if ((identity.kind === "main" ? identity.role.projectId : identity.projectId) !== this.session.projectId) return "个人助手资料项目绑定不匹配";
-    if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
-    const task = this.deps.store.getTask(ctx.taskId);
-    if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
-    if (identity.kind === "scheduled") {
-      const run = this.deps.store.getScheduledRunForTask(task.id);
-      if (!run || run.closedAt || run.scheduleStatus === "canceled" || task.cancelRequested) return "本次定时运行已取消或关闭";
-    }
-    return null;
-  }
 
   /** 宿主注入的资料访问身份。 */
   private accessor(): Accessor {
@@ -491,18 +437,14 @@ export class Driver {
     return !this.profile.workflow || Boolean(task && this.verifyWorkflowTask(task) === null && this.deps.workflow?.artifactAccess(task, artifact));
   }
 
-  /**
-   * SubAgent 委派工具的宿主重核（agent-direction issue 11）：每次调用核实会话、
-   * 项目与任务归属，以及会话是具备委派资格的身份（普通开发会话或 main；
-   * 绑定 SubAgent/coding/chat 的会话、群会话一律拒绝）。
-   */
+  /** Recheck the current task, project and ordinary conversation before delegation. */
   private verifyDelegationHost(ctx: { taskId: string; sessionId: string; projectId: string }): string | null {
     if (ctx.sessionId !== this.session.id) return "会话与当前执行不匹配";
     if (ctx.projectId !== this.session.projectId) return "项目与当前会话不匹配";
     if (this.currentTask?.id !== ctx.taskId) return "任务与当前执行不匹配";
     const identity = this.deps.store.getSessionIdentity(ctx.sessionId);
     if (identity?.kind === "subagent") return "SubAgent 不能委派下级";
-    if (identity?.kind !== "dev" && identity?.kind !== "main" && identity?.kind !== "scheduled") return "该会话没有宿主委派资格";
+    if (identity?.kind !== "dev") return "该会话没有宿主委派资格";
     const task = this.deps.store.getTask(ctx.taskId);
     if (!task || task.sessionId !== ctx.sessionId) return "宿主任务归属校验失败";
     return null;
@@ -550,7 +492,6 @@ export class Driver {
       toolClass,
       call: { taskContext: () => null, bindCall: this.bindHostCall },
       identity: {
-        verifyMain: (ctx) => this.verifyMainBinding(ctx),
         verifyHost: (ctx) => this.verifyDelegationHost(ctx),
       },
       data: {
@@ -571,7 +512,6 @@ export class Driver {
       },
       approval: {
         request: (input) => this.approvals.request(input),
-        requestStanding: (input) => this.approvals.requestStanding(input),
       },
       effects: {
         recordArtifact: (hostOpId, artifactId) => this.recordHostToolArtifact(hostOpId, artifactId),
@@ -618,8 +558,7 @@ export class Driver {
   private sourceTools(profile: WorkflowExecutionProfile, mcp: ToolDefinition[]): { tools: ToolDefinition[]; names: ReadonlySet<string> } {
     const host = buildHostToolSet(this.deps.hostToolFamilies.filter(family => family.category !== "owner_question" && (profile.categories.includes(family.category) ||
       (family.category === "subagent" && profile.collaboration))), this.hostToolRuntime("subagent"));
-    const coding = profile.categories.includes("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router })
-      .filter(tool => profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : [];
+    const coding = profile.categories.includes("coding") ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : [];
     return { names: host.names, tools: [...coding, ...host.tools, ...mcp].filter(tool => sourceAllows(profile, tool.name)) };
   }
 
@@ -640,7 +579,7 @@ export class Driver {
       if (!identity) throw new SubAgentExecutionError("source_invalid", "来源会话身份缺失；不能核实工具注册表。");
       const sourceProfile = executionProfile({ identity, planMode: sourceTask.planMode,
         writeTarget: Boolean(sourceTask.workId && this.deps.store.getWorkDelegation(sourceTask.workId)?.writeTarget),
-        review: identity.kind === "subagent" && (this.deps.taskMcp?.(sourceTask) ?? false), workflow: this.deps.workflow?.resolve(sourceTask) });
+        workflow: this.deps.workflow?.resolve(sourceTask) });
       this.mcpPreflights++;
       try {
         if (!this.sdk) await this.ensureSdk(await this.deps.modelCatalog.resolve(sourceTask.modelSelection), sourceTask.modelSelection.thinkingLevel, sourceProfile);
@@ -687,10 +626,9 @@ export class Driver {
     );
     const subAgentTools = profile.subAgentTools;
     const allTools = profile.source ? hostToolSet.tools : [
-      ...(this.allows("coding", profile) ? this.deps.toolFactory({ registry: this.registry, router: this.router })
-        .filter(tool => !profile.workflow || profile.toolClass !== "main" || subAgentAllows({ write: true, review: false }, tool.name)) : []),
+      ...(this.allows("coding", profile) ? this.deps.toolFactory({ registry: this.registry, router: this.router }) : []),
       ...(profile.workflow && !this.allows("coding", profile)
-        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter(tool => subAgentAllows({ write: false, review: false }, tool.name)) : []),
+        ? this.deps.toolFactory({ registry: this.registry, router: this.router }).filter(tool => subAgentAllows({ write: false }, tool.name)) : []),
       ...(subAgentTools
         ? this.deps.toolFactory({ registry: this.registry, router: this.router })
             .filter((t) => subAgentAllows(subAgentTools, t.name))
@@ -732,9 +670,7 @@ export class Driver {
       tools: allTools,
       systemPrompt: (profile.workflow
         ? SYSTEM_PROMPTS.workflow
-        : profile.toolSignature === "scheduled"
-        ? `${SYSTEM_PROMPTS.main}\n- 当前是宿主为本次定时计划创建的独立执行上下文，不读取主聊天或前次运行历史。任务按计划保存的模式执行，子任务与汇总属于本次运行。完成全部工作后给出最终结果或失败原因；宿主向创建时固定的目标发送一次最终回报，无目标则保存结果。`
-        : SYSTEM_PROMPTS[profile.toolClass]) + (this.pinnedDefinition ? `\n[${this.pinnedDefinition.kind === "role" ? `子代理角色 ${this.pinnedDefinition.name}` : "宿主固定评审"}]\n${this.pinnedDefinition.body}\n[/子代理定义]` : ""),
+        : SYSTEM_PROMPTS[profile.toolClass]) + (this.pinnedDefinition ? `\n[子代理角色 ${this.pinnedDefinition.name}]\n${this.pinnedDefinition.body}\n[/子代理定义]` : ""),
       mcp: this.mcpSession ?? undefined,
       hooks: {
         onToolCall: (event) => this.handleToolCall(event),
@@ -1023,7 +959,7 @@ export class Driver {
     // 上下文含旧工作资料，旧资料撤销后同样阻止发送（快照正文不重新解析）。
     // issue 16：有写入目标的工作不发资料快照（readScope.paths 恒空），无
     // sourceRefs 可核，复核在此为空集通过。
-    if ((this.profile.restricted || this.profile.toolSignature === "scheduled") && this.deps.verifyTaskSources) {
+    if (this.profile.restricted && this.deps.verifyTaskSources) {
       const refs = this.deps.store
         .listTasksBySession(this.session.id)
         .flatMap((t) => t.readScope?.sourceRefs ?? []);
@@ -1138,14 +1074,13 @@ export class Driver {
     const identity = this.deps.store.getSessionIdentity(this.session.id);
     if (!identity) throw new Error(`会话不存在：${this.session.id}`);
     this.pinnedDefinition = identity.kind === "subagent" ? validateSubAgentRole(requireSubAgentDefinition(identity.agent)) : null;
-    this.pinnedExecution = this.pinnedDefinition?.kind === "role" ? requireSubAgentExecution(task.readScope?.execution) : null;
+    this.pinnedExecution = this.pinnedDefinition ? requireSubAgentExecution(task.readScope?.execution) : null;
     this.verifyRoleDefinition(task);
     const workflow = this.deps.workflow?.resolve(task);
     if (identity.kind === "subagent" && identity.workflow && !workflow) throw new WorkflowError("source_invalid");
     this.pinnedProfile = executionProfile({
       identity,
       writeTarget: Boolean(task.workId && this.deps.store.getWorkDelegation(task.workId)?.writeTarget),
-      review: identity.kind === "subagent" && (this.deps.taskMcp?.(task) ?? false),
       planMode: task.planMode,
       workflow,
       source: this.pinnedExecution ? subAgentSourceProfile(this.pinnedExecution.source, { tools: this.pinnedExecution.tools, workflow: Boolean(workflow), verify: workflow?.hostVerify }) : null,
@@ -1367,7 +1302,7 @@ export class Driver {
 
     let promptText: string;
     try {
-      promptText = this.profile.restricted || this.profile.toolClass === "side" ? task.input : expandSkillCommand(this.pinnedSkills, task.input, this.profile.toolClass === "main" ? undefined : "bash");
+      promptText = this.profile.restricted || this.profile.toolClass === "side" ? task.input : expandSkillCommand(this.pinnedSkills, task.input, "bash");
     } catch (err) {
       await this.finalize(task, "failed", { errorMessage: (err as Error).message });
       return;
@@ -1467,7 +1402,7 @@ export class Driver {
           : this.profile.workflow
           ? (name, effect) => workflowAllows(this.profile.workflow!, name) && (!allowTaskTool || allowTaskTool(task, name, effect))
           : subAgentTools
-          ? (name, effect) => subAgentAllows(subAgentTools, name, effect)
+          ? (name) => subAgentAllows(subAgentTools, name)
           : allowTaskTool
             ? (name, effect) => allowTaskTool(task, name, effect)
             : undefined,
@@ -1890,12 +1825,12 @@ export class Driver {
     return this.runPromise ?? Promise.resolve();
   }
 
-  /** 控制面/IM 应答确认：条件更新 pending → approved/rejected；失效应答返回 false。 */
-  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected", opts?: { txExtra?: () => void | { standingPermission?: { id: string; version: number } } }): boolean {
-    return this.approvals.resolve(confirmationId, decision, opts);
+  /** Resolve a pending owner approval; stale answers return false. */
+  resolveConfirmation(confirmationId: string, decision: "approved" | "rejected"): boolean {
+    return this.approvals.resolve(confirmationId, decision);
   }
 
-  /** 定向解除指定审批的等待（IM 绑定失效后 release waiter，issue 08）。 */
+  /** Release only the specified approval waiters. */
   supersedeApprovals(ids: ReadonlySet<string>): void {
     this.approvals.supersedeConfirmations(ids);
   }

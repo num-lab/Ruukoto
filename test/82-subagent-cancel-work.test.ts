@@ -85,7 +85,7 @@ test("只停被取消的工作（dev，拥有者控制面 work_cancel）：A 的
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
     // 工作 A：running 子任务（模型挂起）+ 直接落库的排队任务
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "工作A慢分析", readPaths: ["."], materials: null, paramsDigest: "da1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "工作A慢分析", readPaths: ["."], paramsDigest: "da1" });
     await waitFor("A 的模型调用在途", () => typeof releaseSlow === "function" && rt.store.getTask(a.task.id)!.status === "running");
     rt.store.withTx(() =>
       rt.store.insertQueuedTask({
@@ -102,7 +102,7 @@ test("只停被取消的工作（dev，拥有者控制面 work_cancel）：A 的
     );
 
     // 工作 B：同一父会话下另一 SubAgent，running 后完成
-    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "工作B分析", readPaths: ["."], materials: null, paramsDigest: "db1" });
+    const b = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b1", request: "工作B分析", readPaths: ["."], paramsDigest: "db1" });
 
     // 拥有者经控制面取消工作 A（CLI 同路）
     const cancelled = (await t.client.request<any>("work_cancel", { work_id: a.work.id, reason: "测试取消" })) as any;
@@ -140,16 +140,16 @@ test("只停被取消的工作（dev，拥有者控制面 work_cancel）：A 的
     await waitIdle(rt, a.agent.id);
 
     // B 之后仍可继续委派
-    const b2 = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b2", request: "工作B继续", workId: b.work.id, readPaths: ["."], materials: null, paramsDigest: "db2" });
+    const b2 = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "b2", request: "工作B继续", workId: b.work.id, readPaths: ["."], paramsDigest: "db2" });
     assert.equal(b2.created, true);
     await waitFor("B 继续完成", () => rt.store.getTask(b2.task.id)!.resultSummary !== null);
 
     // 取消后不能沿 A 继续委派；同键同参重放返回原记录、不新建任务
     await assert.rejects(
-      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a-new", request: "继续", workId: a.work.id, readPaths: ["."], materials: null, paramsDigest: "dax" }),
+      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a-new", request: "继续", workId: a.work.id, readPaths: ["."], paramsDigest: "dax" }),
       /工作已取消/,
     );
-    const replay = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "工作A慢分析", readPaths: ["."], materials: null, paramsDigest: "da1" });
+    const replay = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "a1", request: "工作A慢分析", readPaths: ["."], paramsDigest: "da1" });
     assert.equal(replay.created, false, "同键重放返回原记录");
     assert.equal(replay.task.id, a.task.id);
 
@@ -160,100 +160,7 @@ test("只停被取消的工作（dev，拥有者控制面 work_cancel）：A 的
   }
 });
 
-test("主 Agent 工具取消（main）：subagent_cancel 取消，迟到结果保存为事实但不唤醒", async () => {
-  let releaseSlow!: () => void;
-  const responder: Responder = async (req) => {
-    const text = lastUserText(req);
-    if (text.includes("[SubAgent 委派")) {
-      if (text.includes("main慢分析")) {
-        await new Promise<void>((res) => (releaseSlow = res));
-        return { kind: "text", text: "SUB-MAIN-迟到的回复" };
-      }
-      return { kind: "text", text: "SUB-DONE" };
-    }
-    return { kind: "text", text: "父回复" };
-  };
-  const t = await startTestRuntime("cancel-work-main", responder, { config: realTools() });
-  try {
-    const rt = t.runtime;
-    const main = rt.store.getAgentRole("main")!;
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pm1", input: "分析", modelSelection: rt.defaultSelection });
-    await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
-    const work = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id,
-      key: "m1",
-      request: "main慢分析",
-      materials: [{ kind: "text", text: "材料 M" }],
-      readPaths: null,
-      paramsDigest: "dm1",
-    });
-    await waitFor("子模型调用在途", () => typeof releaseSlow === "function");
-
-    // 主 Agent 经真实装配的工具层取消（回报唤醒轮次也允许：工具不限定拥有者发起）
-    const tools = createSubAgentTools({
-      coreStore: rt.store,
-      sources: (rt as any).sources,
-      delegate: (input) => delegateFromActiveTask(rt, input),
-      close: (input) => rt.subagents!.close(input),
-      cancelWork: (input) => rt.subagents!.cancelWork(input),
-      message: (input) => messageFromActiveTask(rt, input),
-      integrate: (input) => rt.subagents!.integrate(input),
-      readReply: (taskId, offset, length) => rt.readTaskReply(taskId, offset, length),
-      artifacts: rt.artifacts,
-      taskContext: () => ({ taskId: parent.id, sessionId: main.sessionId, projectId: rt.store.getSession(main.sessionId)!.projectId, hostOpId: "opc" }),
-      bindCall: undefined,
-      verifyHost: () => null,
-    });
-    const cancelTool = tools.find((x) => x.name === "subagent_cancel")!;
-    const resultTool = tools.find((x) => x.name === "subagent_result")!;
-    const exec = (tool: any, params: any) => tool.execute("sdk1", params, undefined as any, undefined as any, {} as any);
-    const reply = (await exec(cancelTool, { work_id: work.work.id, reason: "方向变了" })).content[0].text as string;
-    assert.match(reply, /已取消/);
-    const record = rt.store.getWorkDelegation(work.work.id)!;
-    assert.equal(record.canceledBy, `agent:${parent.id}`);
-    assert.equal(record.cancelReason, "方向变了");
-
-    // 迟到结果：停止后结果登记一次（事件与 subagent_result 可查），但 main 不建 wake
-    releaseSlow();
-    await waitFor("结果已登记", () => rt.store.getTask(work.task.id)!.resultSummary !== null);
-    assert.equal(rt.store.getTask(work.task.id)!.status, "canceled");
-    assert.equal(rt.store.listTasksBySession(main.sessionId).filter((x) => x.requestId.startsWith("wake:")).length, 0, "不为已取消工作唤醒 main");
-    assert.equal(eventsOf(rt, "subagent_task.failed", main.sessionId).length, 1, "终态事件保存为事实");
-    const toolCalls = t.server.calls.filter((c) => inputText(c).includes("[SubAgent 委派") && inputText(c).includes("main慢分析"));
-    assert.equal(toolCalls.length, 1, "停止后没有继续调用模型");
-
-    // subagent_result 标明取消时间、发起者与原因，结果仍可读
-    const shown = (await exec(resultTool, { work_id: work.work.id })).content[0].text as string;
-    assert.ok(shown.includes("已取消"), "工作头部标明已取消");
-    assert.ok(shown.includes(`agent:${parent.id}`), "标明取消发起者");
-    assert.ok(shown.includes("方向变了"), "标明取消原因");
-
-    // 工具操作账本：subagent_cancel 按 canceledAt 核实
-    const check = subagentOpCheck(rt.store);
-    assert.equal(check.verify({ taskId: parent.id, toolName: "subagent_cancel", params: { work_id: work.work.id } }), "committed");
-    assert.equal(check.verify({ taskId: parent.id, toolName: "subagent_cancel", params: { work_id: "work_none" } }), "not_committed");
-
-    // 已取消的工作不能再登记执行；同键重放只返回原记录
-    await assert.rejects(
-      () => delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "m2", request: "继续", workId: work.work.id, materials: [{ kind: "text", text: "x" }], readPaths: null, paramsDigest: "dm2" }),
-      /工作已取消/,
-    );
-    const replay = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id,
-      key: "m1",
-      request: "main慢分析",
-      materials: [{ kind: "text", text: "材料 M" }],
-      readPaths: null,
-      paramsDigest: "dm1",
-    });
-    assert.equal(replay.created, false);
-    assert.equal(queuedUnderCanceledCount(rt), 0);
-  } finally {
-    releaseSlow?.();
-    await t.shutdown();
-  }
-});
 
 test("竞争：准备阶段取消报已取消零新任务；先提交的新任务在取消清单内；自然完成竞争唯一终态", async () => {
   const responder: Responder = async (req) => {
@@ -267,7 +174,7 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
     const session = await rt.createSession({ projectName: "crace", cwd: t.work[0]! });
     const parent = await rt.submit({ sessionId: session.id, requestId: "p1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const first = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r0", request: "首轮", readPaths: ["."], materials: null, paramsDigest: "dr0" });
+    const first = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r0", request: "首轮", readPaths: ["."], paramsDigest: "dr0" });
     await waitFor("首轮完成", () => rt.store.getTask(first.task.id)!.resultSummary !== null);
     await waitIdle(rt, first.agent.id);
 
@@ -275,23 +182,21 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
     let release!: () => void;
     const gated = new SubAgentManager({ roles: () => subAgentRoleLibrary(BUILTIN_SUBAGENT_ROLES, []),
       store: rt.store,
-      workRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "sub-agents"),
+      workRoot: path.join(rt.config.profile.workCopyDir, "sub-agents"),
       workCopies: new WorkCopyManager({
-        worktreeRoot: path.join(path.dirname(path.resolve(rt.config.dataDir)), "agent-work", "worktrees"),
+        worktreeRoot: path.join(rt.config.profile.workCopyDir, "worktrees"),
         protectedRoots: () => rt.protectedRoots(),
       }),
       sources: (rt as any).sources,
       resolveSelection: () => new Promise<() => void>((res) => (release = () => res(() => {}))),
       launcherFor: (mode) => rt.launcherFor(mode),
-      defaultModelSelection: () => rt.defaultSelection,
       kickSession: () => {},
       resumeQueue: (sessionId) => rt.resumeQueue(sessionId),
       parentDelivery: (rt as any).parentDelivery,
       cancelTask: (taskId, reason) => rt.cancelTask(taskId, reason ? { reason } : undefined),
       protectedRoots: () => rt.protectedRoots(),
-      dataDir: rt.config.dataDir,
     });
-    const pending = delegateFromActiveTask({ store: rt.store, subagents: gated }, { parentTaskId: parent.id, key: "r1", request: "竞争委派", workId: first.work.id, readPaths: ["."], materials: null, paramsDigest: "dr1" });
+    const pending = delegateFromActiveTask({ store: rt.store, subagents: gated }, { parentTaskId: parent.id, key: "r1", request: "竞争委派", workId: first.work.id, readPaths: ["."], paramsDigest: "dr1" });
     await waitFor("委派进入准备等待", () => release !== undefined);
     await rt.subagents!.cancelWork({ workId: first.work.id, by: "owner" });
     release();
@@ -300,11 +205,11 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
     assert.equal(rt.store.listWorkDelegationsBySession(session.id).length, 1, "零新工作");
 
     // —— 委派先提交：新任务出现在取消的 canceledTaskIds 中 ——
-    const second = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r2", request: "第二首轮", readPaths: ["."], materials: null, paramsDigest: "dr2" });
+    const second = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r2", request: "第二首轮", readPaths: ["."], paramsDigest: "dr2" });
     await waitFor("第二首轮完成", () => rt.store.getTask(second.task.id)!.resultSummary !== null);
     await waitIdle(rt, second.agent.id);
     rt.store.setSessionQueueState(second.agent.sessionId, "paused", "test_fixture"); // 冻结：胜出任务保持 queued
-    const raced = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r3", request: "先提交的任务", workId: second.work.id, readPaths: ["."], materials: null, paramsDigest: "dr3" });
+    const raced = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r3", request: "先提交的任务", workId: second.work.id, readPaths: ["."], paramsDigest: "dr3" });
     assert.equal(raced.created, true);
     const canceled = await rt.subagents!.cancelWork({ workId: second.work.id, by: "owner" });
     assert.deepEqual(
@@ -315,7 +220,7 @@ test("竞争：准备阶段取消报已取消零新任务；先提交的新任�
     assert.equal(rt.store.getTask(raced.task.id)!.status, "canceled");
 
     // —— 自然完成与取消竞争：最终只有一个终态，已完成的结果不被改写 ——
-    const third = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r4", request: "快速完成", readPaths: ["."], materials: null, paramsDigest: "dr4" });
+    const third = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "r4", request: "快速完成", readPaths: ["."], paramsDigest: "dr4" });
     const [cancelledWork] = await Promise.all([
       rt.subagents!.cancelWork({ workId: third.work.id, by: "owner" }),
       waitFor("第三首轮到达终态", () => ["completed", "canceled"].includes(rt.store.getTask(third.task.id)!.status)),
@@ -351,7 +256,7 @@ test("取消窗口：已转 running、currentTask 尚未设置时取消不被吞
     };
     try {
       // —— 工作取消落进窗口 ——
-      const d = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "w1", request: "窗口任务W1", readPaths: ["."], materials: null, paramsDigest: "dw1" });
+      const d = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "w1", request: "窗口任务W1", readPaths: ["."], paramsDigest: "dw1" });
       await waitFor("子任务已转 running", () => rt.store.getTask(d.task.id)!.status === "running");
       await rt.subagents!.cancelWork({ workId: d.work.id, by: "owner" });
       await waitFor("窗口任务到达终态", () => ["canceled", "completed", "failed"].includes(rt.store.getTask(d.task.id)!.status));
@@ -411,7 +316,7 @@ test("工具执行中取消（共享停止路径）：mock_mark 已开始时停�
   }
 });
 
-test("迟到结果：取消前排队的 wake 被队列检查取消且零模型调用；dev 下一轮不注入；同键重放返回原记录", async () => {
+test("Canceled work retains its result without injecting it into the next parent task", async () => {
   const marks: string[] = [];
   const responder: Responder = async (req) => {
     const text = lastUserText(req);
@@ -429,44 +334,17 @@ test("迟到结果：取消前排队的 wake 被队列检查取消且零模型�
   const t = await startTestRuntime("cancel-late", responder, { config: realTools() });
   try {
     const rt = t.runtime;
-    // —— main：取消前已排队的 wake 被队列检查取消 ——
-    const main = rt.store.getAgentRole("main")!;
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "pm1", input: "分析", modelSelection: rt.defaultSelection });
-    await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-    const work = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id,
-      key: "w1",
-      request: "main早完成分析",
-      materials: [{ kind: "text", text: "材料 L" }],
-      readPaths: null,
-      paramsDigest: "dw1",
-    });
-    rt.store.setSessionQueueState(main.sessionId, "paused", "test_fixture"); // 冻结 main 队列：wake 保持排队
-    await waitFor("子任务完成且 wake 已建", () => {
-      return rt.store.getTask(work.task.id)!.resultSummary !== null && rt.store.findTaskByRequest(main.sessionId, `wake:${work.task.id}`) !== null;
-    });
-    const wake = rt.store.findTaskByRequest(main.sessionId, `wake:${work.task.id}`)!;
-    assert.equal(wake.status, "queued");
-    await rt.subagents!.cancelWork({ workId: work.work.id, by: "owner" });
-    const callsBefore = t.server.calls.length;
-    await rt.resumeQueue(main.sessionId);
-    await waitFor("wake 被队列检查取消", () => rt.store.getTask(wake.id)!.status === "canceled");
-    assert.equal(rt.store.getTask(wake.id)!.errorMessage, "work_canceled");
-    assert.equal(t.server.calls.length, callsBefore, "被取消的 wake 不调用模型");
-    assert.equal(marks.length, 0);
-
-    // —— dev：取消后下一轮上下文不含该结果 ——
     const session = await rt.createSession({ projectName: "cdev2", cwd: t.work[1]! });
     const dparent = await rt.submit({ sessionId: session.id, requestId: "pd1", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("dev 父完成", () => rt.store.getTask(dparent.id)!.status === "completed");
-    const dwork = await delegateFromActiveTask(rt, { parentTaskId: dparent.id, key: "d1", request: "dev迟到结果", readPaths: ["."], materials: null, paramsDigest: "dd1" });
+    const dwork = await delegateFromActiveTask(rt, { parentTaskId: dparent.id, key: "d1", request: "dev迟到结果", readPaths: ["."], paramsDigest: "dd1" });
     await waitFor("dev 子任务完成", () => rt.store.getTask(dwork.task.id)!.resultSummary !== null);
     await rt.subagents!.cancelWork({ workId: dwork.work.id, by: "owner" });
     const dnext = await rt.submit({ sessionId: session.id, requestId: "pd2", input: "dev下一轮", modelSelection: rt.defaultSelection });
     await waitFor("dev 下一轮完成", () => rt.store.getTask(dnext.id)!.status === "completed");
     assert.ok(!marks.some((m) => m.includes("[SubAgent 结果]") && m.includes(dwork.work.id)), "已取消工作的结果不再注入父模型");
 
-    // dev 父会话一直没有 wake 任务；这条规则同样覆盖取消前建成的 wake
+    // Ordinary unwaited results never create wake tasks.
     assert.equal(rt.store.listTasksBySession(session.id).filter((x) => x.requestId.startsWith("wake:")).length, 0);
     assert.equal(queuedUnderCanceledCount(rt), 0);
   } finally {
@@ -497,7 +375,7 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
     // —— 运行中取消：正常回收记 idle；不关闭；目录与 resultRef 保留 ——
-    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "i1", request: "hang分析", readPaths: ["."], materials: null, paramsDigest: "di1" });
+    const a = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "i1", request: "hang分析", readPaths: ["."], paramsDigest: "di1" });
     await waitFor("A 模型调用在途", () => latches.has("hang"));
     await rt.cancelWork(a.work.id, { reason: "不再需要A" });
     latches.get("hang")!();
@@ -520,7 +398,7 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     assert.equal(eventsOf(rt, "work_delegation.canceled").filter((e) => e.workId === a.work.id).length, 1, "幂等不产生第二条取消事件");
 
     // —— 终态后取消：已完成的结果与产物保留可读 ——
-    const c = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "i2", request: "保留分析", readPaths: ["."], materials: null, paramsDigest: "di2" });
+    const c = await delegateFromActiveTask(rt, { parentTaskId: parent.id, key: "i2", request: "保留分析", readPaths: ["."], paramsDigest: "di2" });
     await waitFor("C 完成", () => rt.store.getTask(c.task.id)!.resultSummary !== null);
     await waitIdle(rt, c.agent.id);
     const refBefore = rt.store.getTask(c.task.id)!.resultRef;
@@ -534,7 +412,7 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     const session2 = await rt.createSession({ projectName: "ident2", cwd: t.work[1]! });
     const parent2 = await rt.submit({ sessionId: session2.id, requestId: "p2", input: "开始", modelSelection: rt.defaultSelection });
     await waitFor("父2完成", () => rt.store.getTask(parent2.id)!.status === "completed");
-    const other = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "o1", request: "别人的工作", readPaths: ["."], materials: null, paramsDigest: "do1" });
+    const other = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "o1", request: "别人的工作", readPaths: ["."], paramsDigest: "do1" });
     await waitFor("会话2工作完成", () => rt.store.getTask(other.task.id)!.resultSummary !== null);
     await assert.rejects(
       () => rt.subagents!.cancelWork({ workId: other.work.id, by: `agent:${parent.id}`, parentSessionId: session.id }),
@@ -548,7 +426,7 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     );
 
     // —— 占用注入：无法核实时记 unverified，取消同样不关闭 ——
-    const u = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "u1", request: "占用工作", readPaths: ["."], materials: null, paramsDigest: "du1" });
+    const u = await delegateFromActiveTask(rt, { parentTaskId: parent2.id, key: "u1", request: "占用工作", readPaths: ["."], paramsDigest: "du1" });
     rt.store.setSessionQueueState(u.agent.sessionId, "paused", "test_fixture");
     const uSession = rt.store.getSession(u.agent.sessionId)!;
     rt.store.db
@@ -579,16 +457,14 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     assert.equal(check.verify({ taskId: parent2.id, toolName: "subagent_cancel", params: { work_id: other.work.id } }), "not_committed");
     assert.equal(queuedUnderCanceledCount(rt), 0);
 
-    // —— main：子任务挂起时取消 → 迟到结果登记、从未建 wake ——
-    const main = rt.store.getAgentRole("main")!;
-    const mparent = await rt.submit({ sessionId: main.sessionId, requestId: "pm1", input: "分析", modelSelection: rt.defaultSelection });
-    await waitFor("main 父完成", () => rt.store.getTask(mparent.id)!.status === "completed");
+    // Cancel a child before its late result, then verify its state across restart.
+    const mparent = await rt.submit({ sessionId: session.id, requestId: "pm1", input: "分析", modelSelection: rt.defaultSelection });
+    await waitFor("Parent completed", () => rt.store.getTask(mparent.id)!.status === "completed");
     const mw = await delegateFromActiveTask(rt, {
       parentTaskId: mparent.id,
       key: "mr1",
       request: "重启巡检挂起",
-      materials: [{ kind: "text", text: "M" }],
-      readPaths: null,
+      readPaths: ["."],
       paramsDigest: "dmr1",
     });
     await waitFor("重启巡检工作模型调用在途", () => latches.has("restart"));
@@ -596,7 +472,7 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
     latches.get("restart")!();
     await waitFor("迟到结果已登记", () => rt.store.getTask(mw.task.id)!.resultSummary !== null);
     assert.equal(rt.store.getTask(mw.task.id)!.status, "canceled");
-    assert.equal(rt.store.findTaskByRequest(main.sessionId, `wake:${mw.task.id}`), null, "已取消工作不建 wake");
+    assert.equal(rt.store.findTaskByRequest(session.id, `wake:${mw.task.id}`), null);
 
     // —— 重启：取消状态保持，巡检不为已取消工作补发 wake ——
     const callsAtStop = t.server.calls.length;
@@ -607,9 +483,8 @@ test("身份与终态：取消不关闭 SubAgent（idle/unverified）；历史�
       const rWork = rt2.store.getWorkDelegation(a.work.id)!;
       assert.ok(rWork.canceledAt !== null && rWork.canceledBy === "owner", "取消状态跨重启保持");
       assert.equal(rt2.store.getSubAgent(a.agent.id)!.closedAt, null, "关闭状态跨重启保持（未关闭）");
-      assert.equal(rt2.store.listRoleTasksPendingWake().length, 0, "巡检清单不含已取消工作的子任务（本必有 NOT EXISTS 过滤）");
       await new Promise((r) => setTimeout(r, 500)); // 给巡检与队列循环一个周期
-      assert.equal(rt2.store.findTaskByRequest(rt2.store.getAgentRole("main")!.sessionId, `wake:${mw.task.id}`), null, "重启后不补发 wake");
+      assert.equal(rt2.store.findTaskByRequest(session.id, `wake:${mw.task.id}`), null);
       assert.equal(t.server.calls.length, callsAtStop, "重启后没有新模型调用");
       assert.equal(queuedUnderCanceledCount(rt2), 0);
     } finally {

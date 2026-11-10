@@ -45,6 +45,6 @@ export function OwnerQuestionCard({ model, question }: { model: CodeState; quest
     </div></section></Item>;
 }
 export function OwnerQuestionCards({ model, sessionId, positioned = [] }: { model: CodeState; sessionId: string; positioned?: string[] }) {
-  if (model.target !== "code") return null;
+
   return model.view.ownerQuestions.filter(question => question.sessionId === sessionId && !positioned.includes(question.id)).map(question => <MessageScrollerItem key={`${model.view.instanceId}:${question.id}:${question.version}`}><OwnerQuestionCard model={model} question={question} /></MessageScrollerItem>);
 }

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [Idle desktop browser input](../simplification/2026-11-07-idle-desktop-browser.md) supersedes the persistent input lock: actual browser use claims a page for its task, cleanup releases it, and idle pages need no takeover. Explicit takeover and recorded return observations remain.
 
 ## Problem
@@ -31,6 +33,8 @@ Return to Agent is the only return entry. Host eval captures a DOM observation, 
 ### Frontend integration
 
 `renderer/native-browser-panel.tsx` renders only the .native-browser-host geometry placeholder. ResizeObserver/MutationObserver/scroll/resize report rect and state(session, shown, covered). Hidden pages continue running, with gate behavior respecting covering. browser_event projects NativeBrowserState for the code-browser tab; ordinary browser/file-preview tabs keep iframe rendering. Window.ruukoto types live in shared/bridge.ts for both root and desktop typechecks.
+
+The native page rectangle excludes the sidebar resize strip, using one shared CSS width for the handle and placeholder margin. Otherwise the permanent handle covers the placeholder's left-corner probes and suppresses the entire page. Keeping the handle outside the native rectangle preserves resizing without exempting it from overlay checks; dialogs and popovers still hide covered pages.
 
 [MyGo shell](../architecture/2026-10-17-desktop-mygo-experiment.md) retains transport/build/Electron comparison while adding Content/native-page hosting. [Original browser](2026-10-14-agent-browser.md) retains TUI/Personal Chrome lifecycle/pause rules. [Local browser](2026-10-17-desktop-local-browser.md), [present](2026-10-25-code-present.md), and [preview access](2026-10-25-present-preview-access.md) retain capability roots, release, and owner entry rules.
 

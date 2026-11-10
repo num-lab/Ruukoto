@@ -2,7 +2,7 @@
 
 ## Responsibilities and Boundaries
 
-`packages/control/src/` exposes the Coding backend through a protected Unix socket with line-delimited JSON requests and bidirectional events. The socket at `<controlDir>/control.sock` uses mode `0600`; every business operation requires owner-token authentication. Production Personal has [separate durable and remote protocols](personal-durable.md).
+`packages/control/src/` exposes the backend through the protected Unix endpoint `ProfilePaths.socketPath` with line-delimited JSON requests and bidirectional events. Every business operation requires owner-token authentication and the expected activated layout/instance binding; persistent control storage does not determine the socket address.
 
 Control validates protocol versions, authenticates, bounds large payloads and replays committed events by monotonic `seq`. [Runtime](runtime.md) owns execution; [core](core.md) owns storage; [TUI](tui.md) owns rendering and on-demand startup.
 
@@ -38,7 +38,7 @@ Each frame ends in `\n`.
 | `mcp_cua_status`, `mcp_cua_stop`, `mcp_cua_observe`, `mcp_cua_accept` | Verify original execution stop, obtain and accept a fresh observation |
 | `desktop_browser_register`, `desktop_browser_event`, `desktop_browser_chunk` | Bind browser connection, upload page facts and bounded image/snapshot chunks |
 
-After verified Cua stopping, call `mcp_cua_observe` directly. Retired `mcp_cua_begin_recovery` is rejected as unknown. Personal's original-call finalization uses its own [desktop management protocol](desktop.md#mcp-call-finalization-and-computer-recovery).
+After verified Cua stopping, call `mcp_cua_observe` directly. Retired `mcp_cua_begin_recovery` is rejected as unknown.
 
 ## Data and State
 
@@ -54,7 +54,7 @@ stateDiagram-v2
   closed --> [*]
 ```
 
-Owner-token lookup is ordered: `RUUKOTO_OWNER_TOKEN`, then `RUUKOTO_OWNER_TOKEN_FILE`, then `<controlDir>/owner.token`.
+Owner-token lookup is ordered: `RUUKOTO_OWNER_TOKEN`, then `RUUKOTO_OWNER_TOKEN_FILE`, then the activated `controlDir/owner.token`. `resolveClientConfig(profile)` verifies the profile before exposing connection settings; discovery never falls back to an old same-named backend.
 
 ## Main Flows
 
@@ -78,6 +78,10 @@ sequenceDiagram
 
 Version validation precedes authentication and dispatch. Authentication precedes business reads/writes. Snapshot and sequence align the client's starting state; reconnect reauthenticates and uses the last consumed sequence to recover missing events.
 
+The live backend checks for endpoint loss every 500 ms without restarting its runtime. Only the verified holder of the original runtime lock may recreate the endpoint from the current activated profile. It retains the instance ID, database, owner token and accepted connections. On-demand startup waits for that owner to restore authenticated readiness rather than spawning another backend because the socket pathname disappeared. Shutdown cancels endpoint supervision.
+
+Listeners bind an internal private staging socket and exclusively publish its inode at the resolver-owned address; clients still use only `ProfilePaths.socketPath`. The staging basename fits within the public address's byte limit. Node/libuv removes its bound pathname on close, so a listener must not bind the public path where another owner could now be listening. Retirement preserves accepted connections. Publication and cleanup check socket and directory identities; a foreign binding or occupied pathname remains untouched, including during shutdown. Recovery failure appears in the backend log and never resets persistent state.
+
 Managed creation returns both the registered Project and Session. The optional managed flag appears in snapshots and creation events. Local first-send journals retain input and upload state in private client storage; those fields never enter the backend creation request. Original creation keys cannot be reused for ordinary workspace creation, branches or side chat.
 
 Desktop exposes manual compaction through its [Code composer commands](desktop.md#code-slash-commands). The native host journals original parameters and data-instance identity before sending, then queries the same request after reconnect, application reopening or a lost response. Client closure sends no interruption. Backend admission, model fallback, history preservation and restart outcomes remain those of the existing session operation.
@@ -88,15 +92,17 @@ Computer recovery forwards the original recovery identity and fresh observation 
 
 - Unauthenticated connections cannot read data, manage conversations or submit work. Tokens use `crypto.timingSafeEqual`.
 - Large output and parameters use bounded `offset`/`limit` slices rather than unbounded frames.
-- Current protocol is `49`; mismatch returns `protocol_version`. Upgrade an old client, or explicitly stop an old backend before reopening a new client. Schema 58 requires a fresh Coding data directory; no migration is added.
+- Current protocol is `50`, schema is `59`, and layout is `ruukoto-single-v1`. Verify protocol, product, layout and expected instance before reads/writes; an old backend is not a compatible target. Identity errors never trigger offline configuration writes.
 - The server binds MyGo browser provenance from the actual socket on `submit`; client parameters cannot assert it. Answers retain the original task's authority.
-- Executable `continue` is removed. Historical pending continue and old-format answer files remain tied to their original instance/key for verification; they are neither converted to submit nor automatically replayed.
+- Pending input journals accept only current submission and question parameters. Submissions include their original model selection; answers carry only question identity, version and answers. Malformed files remain visible and are never replayed or restored as new input. Lost answers query the original parameter-bound receipt without automatic resend; valid submissions reconcile or retry only the original key on the original instance.
 - Browser events, chunks and narrow responses belong to the exact registered connection. Disconnect revokes it; another connection cannot inherit it.
 - Browser snapshots/screenshots use at most 256 KiB per chunk and 8 MiB total, verified by SHA256, and are not replayed as persistent events.
 
 ## Design Rationale
 
 - [Desktop slash commands](../../.agents/notes/implemented/feature/2026-11-08-desktop-slash-commands.md)
+- [Single product and fresh journals](../../.agents/notes/implemented/architecture/2026-11-10-single-product.md)
+- [Fresh-profile identity](../../.agents/notes/implemented/architecture/2026-11-10-single-product-profile.md): current activation and bounded endpoint ownership.
 - [Managed Coding workspaces](../../.agents/notes/implemented/feature/2026-11-07-managed-coding-workspaces.md)
 - [Detach terminal from task runtime](../../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md)
 - [Split agent and human docs](../../.agents/notes/implemented/process/2026-10-09-split-agent-and-human-docs.md)

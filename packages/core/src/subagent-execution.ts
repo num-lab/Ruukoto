@@ -1,7 +1,7 @@
 /** 子代理每次执行的来源与有效能力；配置文件不作为执行授权。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-15-subagent-source-capabilities.md
  */
-import { canonicalJson, sha256 } from "./import-files.ts";
+import { canonicalJson, sha256 } from "./json.ts";
 import type { AccessMode, SubAgentReadScope } from "./types.ts";
 import type { WorkflowSource } from "./workflow.ts";
 
@@ -52,11 +52,11 @@ export function requireSubAgentExecution(value: unknown): SubAgentExecutionSnaps
   const record = value as SubAgentExecutionSnapshot;
   const { digest, ...content } = record;
   const source = record.source, authority = source.authority;
-  if (digest !== sha256(canonicalJson(content)) || !["ruukoto", "ruukoto-code"].includes(source.product) ||
+  if (digest !== sha256(canonicalJson(content)) || source.product !== "ruukoto" ||
       ![source.projectId, source.sessionId, source.taskId].every(value => typeof value === "string" && value.length > 0) ||
       !Number.isSafeInteger(source.permissionVersion) || !["confirm", "auto-review", "full_access"].includes(source.accessMode) ||
       !Array.isArray(source.grantedPaths) || !Array.isArray(source.references) || !Array.isArray(source.capabilities) ||
-      !authority || !["dev", "main"].includes(authority.toolClass ?? "") || typeof authority.configuration !== "string" ||
+      !authority || authority.toolClass !== "dev" || typeof authority.configuration !== "string" ||
       !Array.isArray(authority.categories) || authority.categories.some(value => typeof value !== "string") ||
       !Array.isArray(authority.grantIds) || authority.grantIds.some(value => typeof value !== "string") ||
       !authority.workspace || typeof authority.workspace.path !== "string" || !Number.isSafeInteger(authority.workspace.dev) || !Number.isSafeInteger(authority.workspace.ino)) throw new SubAgentExecutionError("execution_corrupt");

@@ -2,9 +2,11 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original identifier: ADR 0004.
 
-The container and dedicated-execution-account design below is historical. [Personal native execution](2026-10-12-personal-native-sandbox.md), [Coding native execution](2026-10-10-native-execution-sandbox.md), and [current-account full access](../feature/2026-10-12-full-access-current-account.md) supersede those launchers: both formal restricted product entries accept native only; Docker workers, image configuration, and the container type are retired. The complete-worker, bounded-protocol, approval-consumption, and verified-stop principles remain. Original deployment parameters and validation are preserved as rationale, not current setup instructions.
+The container and dedicated-execution-account design below is historical. [Personal native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md), [Coding native execution](2026-10-10-native-execution-sandbox.md), and [current-account full access](../feature/2026-10-12-full-access-current-account.md) supersede those launchers: both formal restricted product entries accept native only; Docker workers, image configuration, and the container type are retired. The complete-worker, bounded-protocol, approval-consumption, and verified-stop principles remain. Original deployment parameters and validation are preserved as rationale, not current setup instructions.
 
 ## Problem
 

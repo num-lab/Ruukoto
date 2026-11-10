@@ -1,2 +1,0 @@
-# 安装时替换为实际启动账户；只用于可选的固定服务管理 helper。
-@RUN_USER@ ALL=(root) NOPASSWD: /usr/local/libexec/ruukoto/ruukoto-service

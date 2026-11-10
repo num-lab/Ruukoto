@@ -4,8 +4,8 @@ import fs from "node:fs";
 import * as path from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
+
 import type { AgentWaitSnapshot } from "@ruukoto/core/agent-wait.ts";
 import { verifyDirIdentity } from "@ruukoto/core/dir-identity.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
@@ -22,7 +22,7 @@ test("MCP 任务让出后重取目录仍使用首轮授权，新增工具只进�
     if (current === 1) return { kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "reference" }] } }] };
     if (current === 2) return { kind: "tool_calls", calls: [{ id: "forbidden-new", name: "mcp__probe__new", arguments: {} }] };
     return { kind: "text", text: "old-done" };
-  }), { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  }), { config: { ...realTools() }, workDirs: 1 });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "mcp-wait", cwd: t.work[0] });
     await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["old"] });
@@ -60,7 +60,7 @@ test("真实 worker：父轮安全让出同目录，另一任务执行，重取�
     }
     return tools.length === 2 ? { kind: "tool_calls", calls: [{ id: "after", name: "write", arguments: { path: "parent.txt", content: "after\n" } }] }
       : { kind: "text", text: "parent-done" };
-  }, { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  }, { config: { ...realTools() }, workDirs: 1 });
   try {
     const rt = t.runtime;
     const session = await rt.createSession({ projectName: "wait", cwd: t.work[0] });
@@ -111,7 +111,7 @@ test("冷启对话：不读工作区或技能、不启动 MCP，已记录指令�
     assert.match(JSON.stringify(request.messages), /PINNED_INSTRUCTION/);
     return request.messages.some(message => message.role === "tool") ? { kind: "text", text: "已解释目录等待" }
       : { kind: "tool_calls", calls: [{ id: "hidden-write", name: "write", arguments: { path: "attack.txt", content: "blocked" } }] };
-  }, { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  }, { config: { ...realTools() }, workDirs: 1 });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "conversation", cwd: t.work[0] });
     rt.store.withTx(() => rt.store.updateProjectSettings({ projectId: session.projectId, instructionFiles: ["TEAM.md"] }));
@@ -152,7 +152,7 @@ test("冷启对话：不读工作区或技能、不启动 MCP，已记录指令�
 
 test("停止未核实：等待拒绝释放目录，下一模型请求不继续", async () => {
   const t = await startTestRuntime("wait-resource-unverified", () => ({ kind: "tool_calls", calls: [{ id: "wait", name: "wait", arguments: { targets: [{ kind: "task", task_id: "child" }] } }] }),
-    { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+    { config: { ...realTools() }, workDirs: 1 });
   try {
     const rt = t.runtime;
     const session = await rt.createSession({ projectName: "unverified", cwd: t.work[0] });
@@ -180,7 +180,7 @@ test("冷启对话等待期间放宽 MCP 配置，取得目录后的首次选择
     if (index === 1) return { kind: "tool_calls", calls: [{ id: "search", name: "tool_search", arguments: { query: "mcp__probe__new" } }] };
     if (index === 2) return { kind: "tool_calls", calls: [{ id: "blocked", name: "mcp__probe__new", arguments: {} }] };
     return { kind: "text", text: "原任务未执行新增工具" };
-  }, { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  }, { config: { ...realTools() }, workDirs: 1 });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "scope", cwd: t.work[0] });
     await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, tool_allowlist: ["old"] });
@@ -224,7 +224,7 @@ test("冷启对话恢复：取得目录后同一 SDK 发现 MCP 并继续同一�
     }
     assert.match(JSON.stringify(request.messages), /MCP_RESULT/);
     return { kind: "text", text: "恢复后完成" };
-  }, { config: { ...realTools(), product: codeProduct.runtime }, workDirs: 1 });
+  }, { config: { ...realTools() }, workDirs: 1 });
   try {
     const rt = t.runtime;
     const session = await rt.createSession({ projectName: "restore", cwd: t.work[0] });
@@ -255,7 +255,7 @@ for (const failed of [false, true]) test(`父级注入 ${failed ? "请求失败�
     assert.match(JSON.stringify(request.messages), /RECORDED_CHILD_RESULT/);
     if (failed) throw new Error("provider_failed");
     return { kind: "text", text: "已采用子结果" };
-  }, { config: { product: codeProduct.runtime }, workDirs: 1 });
+  }, { workDirs: 1 });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "injection", cwd: t.work[0] });
     const child = rt.store.withTx(() => rt.store.insertQueuedTask({ sessionId: session.id, requestId: "source-result", input: "子结果", modelSelection: rt.defaultSelection, submissionDigest: "child" }).task);
@@ -290,7 +290,7 @@ for (const failed of [false, true]) test(`父级注入 ${failed ? "请求失败�
   } finally { await t.shutdown(); }
 });
 
-for (const product of [codeProduct.runtime, personalProduct.runtime]) test(`汇总参考输入 ${product.type}：JSONL 可重建分组，原输入与请求摘要不改写`, async () => {
+test("report reference input reconstructs the group from JSONL without rewriting the original task", async () => {
   const reportContext = { text: "[汇总依据] GROUP_FACTS：子任务 one 与工作流 two 共用一次最终总结。", reportKeys: ["task:one", "workflow:two:1"] };
   let reportTaskId = "";
   const t = await startTestRuntime("report-context-record", (request, index) => {
@@ -304,11 +304,10 @@ for (const product of [codeProduct.runtime, personalProduct.runtime]) test(`汇�
       assert.deepEqual(toolNamesOf(request), []);
     }
     return { kind: "text", text: index === 0 ? "来源会话" : "唯一汇总" };
-  }, { config: { product }, workDirs: 1 });
+  }, { workDirs: 1 });
   try {
     const rt = t.runtime;
-    const session = product.type === "ruukoto" ? rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!
-      : await rt.createSession({ projectName: "report-context", cwd: t.work[0] });
+    const session = await rt.createSession({ projectName: "report-context", cwd: t.work[0] });
     const seed = await rt.submit({ sessionId: session.id, requestId: "seed", input: "来源会话", modelSelection: rt.defaultSelection });
     await waitFor("原会话已落盘", () => rt.store.getTask(seed.id)?.status === "completed");
     const driver = await rt["getDriver"](session);
@@ -326,7 +325,7 @@ for (const product of [codeProduct.runtime, personalProduct.runtime]) test(`汇�
 });
 
 test("汇总参考输入：JSONL marker 写入失败时不发模型请求", async context => {
-  const t = await startTestRuntime("report-context-failed", () => ({ kind: "text", text: "来源会话" }), { config: { product: codeProduct.runtime }, workDirs: 1 });
+  const t = await startTestRuntime("report-context-failed", () => ({ kind: "text", text: "来源会话" }), { workDirs: 1 });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "report-failed", cwd: t.work[0] });
     const seed = await rt.submit({ sessionId: session.id, requestId: "seed", input: "来源会话", modelSelection: rt.defaultSelection });

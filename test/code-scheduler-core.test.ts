@@ -14,8 +14,6 @@ import {
 } from "@ruukoto/core/code-scheduler.ts";
 import { consumeOwnerQuestion, createOwnerQuestion, getOwnerQuestion, ownerQuestionTaskEligible } from "@ruukoto/core/owner-questions.ts";
 import { getBackgroundProcess, handoffBackgroundProcess, registerBackgroundProcess } from "@ruukoto/core/background-processes.ts";
-import { sha256File } from "@ruukoto/core/import-support.ts";
-import { previewLegacyImport } from "../apps/ruukoto-code/src/legacy-import.ts";
 
 const NOW = "2026-10-26T00:00:00.000Z", DUE = "2026-10-26T00:01:00.000Z", NEXT = "2026-10-27T00:01:00.000Z";
 function fixture(t: TestContext) {
@@ -231,16 +229,8 @@ test("新schema使用新档案，较旧和较新库在写入前拒绝且原字�
   for (const version of [SCHEMA_VERSION - 1, SCHEMA_VERSION + 1]) {
     const data = path.join(f.root, `version-${version}`); fs.mkdirSync(data);
     const db = new Db(data); db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(String(version)); db.close();
-    const file = path.join(data, "ruukoto.db"), before = sha256File(file);
+    const file = path.join(data, "ruukoto.db"), before = fs.readFileSync(file);
     assert.throws(() => new Db(data), { code: "schema_version_unsupported" });
-    assert.equal(sha256File(file), before);
+    assert.deepEqual(fs.readFileSync(file), before);
   }
-});
-
-test("导入拒绝Code计划并保留原档案，不创建目标", t => {
-  const f = fixture(t); f.save(); f.close();
-  const file = path.join(f.data, "ruukoto.db"), before = sha256File(file), target = path.join(f.root, "target");
-  assert.throws(() => previewLegacyImport({ targetDataDir: target, targetAgentDir: path.join(f.root, "agent") }, { from: f.data }), { code: "code_schedules_import_unavailable" });
-  assert.equal(fs.existsSync(target), false);
-  assert.equal(sha256File(file), before);
 });

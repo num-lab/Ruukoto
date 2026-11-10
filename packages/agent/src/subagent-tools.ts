@@ -1,19 +1,8 @@
 /**
  * Note: 见 .agents/notes/implemented/architecture/2026-10-15-workflow-role-interface.md
- * 通用 SubAgent 委派工具（agent-direction issue 11；issue 12 继续/复用/关闭；
- * issue 13 工作内协作消息与协作加入；issue 14 整项取消；issue 17 改动汇总与
- * main 修改委派）：subagent_delegate / subagent_result / subagent_close /
- * subagent_cancel / subagent_message / subagent_integrate。前五个对拥有者的普通
- * 开发会话与 main 角色会话装配（subagent_message 另行对 SubAgent 子会话装配）；
- * 其余身份一律不装配也不放行（subagent_close / subagent_cancel / subagent_integrate
- * 例外：回报唤醒轮次也允许——关闭与取消只收窄能力，汇总只作用于本会话自己
- * 登记的成果）。
- *
- * - 模型只给正文、幂等键、可选既有 workId / subAgentId 与选定资料
- *   （dev: read_paths / main: materials）；目标身份、独立目录、发起任务的访问模式、
- *   只读工具与截止时间由宿主固定（见 packages/runtime/src/subagents.ts）；
- * - 只有拥有者发起的任务可委派（直接提交，或已核实身份的 Telegram/QQ 私聊
- *   入站）、独立调度运行及宿主保存来源授权的工作唤醒；SubAgent 不能委派下级；
+ * SubAgent delegation, results, collaboration, cancellation, closure and work-copy integration.
+ * Ordinary development conversations delegate one level of work; SubAgents only exchange
+ * messages within their assigned work. The host fixes task identity, access and source paths.
  * - 工具在子任务入队后立即返回，不等待子模型结束；结果经持久事件与
  *   subagent_result 查询，dev 会话再经下一次模型调用的宿主资料注入送达；
  * - subagent_result 省略 work_id 时列出本会话的 SubAgent 总览（供挑选复用
@@ -40,9 +29,7 @@
 import { defineTool,type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { subagentOpCheck } from "@ruukoto/agent/subagent-ledger.ts";
 import { messageStateText } from "@ruukoto/agent/subagent-message.ts";
-import type { SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import type { HistoryEntryView } from "@ruukoto/core/history.ts";
-import { QQ_PRIVATE_SOURCE,TELEGRAM_SOURCE } from "@ruukoto/core/notify-target.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
@@ -80,7 +67,6 @@ const READ_LIMITS = { replyBytes: 16 * 1024, artifactBytes: 64 * 1024 };
 
 export interface SubAgentToolsDeps {
   coreStore: Store;
-  sources: SourceResolver;
   delegate(input: SubAgentDelegateInput): Promise<SubAgentDelegation>;
   /** 显式关闭（issue 12）；by 由宿主按调用身份固定（agent:<任务ID>），模型参数不参与。 */
   close(input: { subAgentId: string; by: `agent:${string}`; parentSessionId: string }): { agent: SubAgent; alreadyClosed: boolean };
@@ -92,12 +78,10 @@ export interface SubAgentToolsDeps {
   integrate(input: { workId: string; parentTaskId: string; parentSessionId: string }): Promise<WorkIntegration>;
   /** 指定任务的最终 assistant 文本（按任务历史条目）。 */
   readReply(taskId: string, offset: number, length: number): HistoryEntryView | null;
-  /** 评审任务前置修订说明（agent-direction issue 19，与 coding_result 一致）。 */
-  resultNotice?(task: Task): string | null;
   artifacts: ArtifactStore;
   taskContext(): HostToolContext | null;
   bindCall?: HostCallBinder;
-  /** Driver 注入：会话/任务/绑定重核（普通开发会话或 main；SubAgent 拒绝）。 */
+  /** Driver rechecks the current task and ordinary development conversation; SubAgents cannot delegate. */
   verifyHost(ctx: HostToolContext): string | null;
 }
 
@@ -105,7 +89,7 @@ function okText(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-/** subagent_message 的依赖子集（普通开发会话/main 与 SubAgent 子会话共用同一定义）。 */
+/** Shared collaboration-message interface for parent and SubAgent conversations. */
 export interface SubAgentMessageToolDeps {
   store: Store;
   message(input: SubAgentMessageInput): Promise<SubAgentMessageResult>;
@@ -189,19 +173,11 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       }
     };
 
-  /**
-   * 拥有者发起的任务：直接提交（agentId 为空、无来源事件、无 SubAgent 关联），
-   * 或已核实身份的 owner 私聊入站，以及宿主保存来源授权的工作唤醒。外部评审仍拒绝。
-   */
+  /** Scheduled work and owner tasks retain their host-bound development identity. */
   const ownerOriginated = (task: Task): boolean => {
     if (task.subAgentId) return false;
     if (getCodeScheduledTaskSource(store, task.id)) return true;
-    if (store.getSessionIdentity(task.sessionId)?.kind === "scheduled") return true;
-    if (task.sourceEventId) {
-      const source = store.getInboundEvent(task.sourceEventId)?.source;
-      return source === TELEGRAM_SOURCE || source === QQ_PRIVATE_SOURCE;
-    }
-    return task.agentId === null || (task.agentId === "main" && task.parentTaskId !== null && task.sourcePermissionVersion !== null);
+    return store.getSessionIdentity(task.sessionId)?.kind === "dev";
   };
 
   const subagentDelegate = defineTool({
@@ -211,7 +187,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       "为一项分析/读取或修改工作创建通用 SubAgent 并登记一次执行任务：拥有独立会话与宿主生成的独立工作目录或隔离副本，" +
       "role 从子代理角色目录选择，首次省略为 general，继续或复用沿固定角色；需要其他角色时新建 SubAgent。" +
       "角色省略 tools 时继承来源可委派工具（含 shell），显式工具缺少任一项即拒绝启动；权限继承来源或收紧，不能委派下级。无目标时在独立目录执行，可省略资料。" +
-      "开发会话用 read_paths 指定资料路径（受限模式要求父工作区内或父任务已授予）；main 会话用 materials 指定资料（委派时解析为文本快照）；" +
+      "用 read_paths 指定资料路径（受限模式要求父工作区内或父任务已授予）；" +
       "代码修改和代码审查都明确给 target（父工作区内）：Git 目标从当前内容建立独立副本，包含暂存、未暂存和非忽略新文件；非 Git 目录原地串行，要求来源保护的角色须用 Git 目标；" +
       "副本改动由你用 subagent_integrate 按工作 id 汇回当前工作区（冲突时不覆盖、双方保留）。" +
       "首次省略两参数建立工作；补充原工作用 work_id（修改继续沿用首次钉定的写入目标）；把相关的另一项工作交给同一个空闲 SubAgent 用 sub_agent_id 复用（保留上下文，" +
@@ -227,21 +203,14 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       sub_agent_id: Type.Optional(Type.String({ description: "复用既有空闲 SubAgent（保留上下文）：单独用时承接新工作；与 work_id 同现时加入该既有工作作为协作方" })),
       target: Type.Optional(Type.String({ description: "代码修改或审查的目标（父工作区内，可用于任何角色）；Git 建当前内容副本，非 Git 原地串行，要求来源保护时须用 Git。继续原工作沿已登记目标，不重新指定" })),
       read_paths: Type.Optional(
-        Type.Array(Type.String(), { description: "仅限开发会话：父工作区内或父任务已授予的待读路径（最多 16 个，只读）" }),
-      ),
-      materials: Type.Optional(
-        Type.Array(Type.Record(Type.String(), Type.Unknown()), {
-          description:
-            "仅限 main 会话：随委派传入的资料（≤8 个，委派时解析为文本快照）：{kind:'text',text} | {kind:'task_result',task_id} | " +
-            "{kind:'artifact',artifact_id,offset?,length?} | {kind:'app_data',table,row_id,field}",
-        }),
+        Type.Array(Type.String(), { description: "父工作区内或父任务已授予的待读路径（最多 16 个，只读）" }),
       ),
     }),
     execute: bindExecute(async (ctx, params: any) => {
       if ("mode" in params) throw new RuntimeApiError("interface_upgrade_required", "mode 委派接口已移除：用 role 选择职责、target 指定代码目标；冻结验证用工作流 agent 的 verify。请更新调用后以原 key 核实，勿换键重放旧工作");
       const task = store.getTask(ctx.taskId);
       if (!task || !ownerOriginated(task)) {
-        throw new Error("只有拥有者任务、独立调度运行或宿主保存来源授权的工作唤醒可以委派 SubAgent");
+        throw new Error("只有拥有者任务或定时运行可以委派 SubAgent");
       }
       if (typeof params.key !== "string" || !KEY_RE.test(params.key)) throw new Error("key 必须是 1–64 位字母、数字、_ 或 -");
       if (typeof params.request !== "string" || !params.request.trim()) throw new Error("request 不能为空");
@@ -254,24 +223,13 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       }
       const target = params.target === undefined ? null : params.target;
       if (target !== null && typeof target !== "string") throw new Error("target 必须是路径字符串");
-      const kind = store.getSessionIdentity(ctx.sessionId)?.kind;
-      const isMain = kind === "main" || kind === "scheduled";
       const readPaths = params.read_paths === undefined ? null : params.read_paths;
-      const materials = params.materials === undefined ? null : params.materials;
-      if (target !== null && (readPaths !== null || materials !== null)) {
-        throw new Error("指定 target 时不指定 read_paths 或 materials（目标包含自己的资料路径）");
+      if (target !== null && readPaths !== null) {
+        throw new Error("指定 target 时不指定 read_paths（目标包含自己的资料路径）");
       }
       if (readPaths !== null) {
-        if (isMain) throw new Error("main 会话不能指定 read_paths（请用 materials 引用资料）");
         if (!Array.isArray(readPaths) || readPaths.length === 0 || readPaths.length > 16 || readPaths.some((p) => typeof p !== "string")) {
           throw new Error("read_paths 必须是 1–16 个路径字符串");
-        }
-      }
-      if (materials !== null) {
-        if (!isMain) throw new Error("开发会话不能指定 materials（请用 read_paths 指定只读路径）");
-        if (!Array.isArray(materials) || materials.length === 0 || materials.length > 8) throw new Error("materials 必须是 1–8 个资料对象");
-        if (materials.some((source: any) => source?.kind === "chat_result")) {
-          throw new Error("已接收群摘要仅供 main 与通知使用，不能作为委派资料");
         }
       }
       const paramsDigest = canonicalParamsDigest({
@@ -282,7 +240,6 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         ...(params.sub_agent_id !== undefined ? { sub_agent_id: params.sub_agent_id } : {}),
         ...(target !== null ? { target } : {}),
         read_paths: readPaths ? [...readPaths].sort() : null,
-        materials: materials ?? null,
       });
       const delegation = await deps.delegate({
         parentTaskId: task.id,
@@ -292,7 +249,6 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         workId: params.work_id ?? null,
         subAgentId: params.sub_agent_id ?? null,
         target,
-        materials,
         readPaths,
         paramsDigest,
       });
@@ -373,12 +329,6 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
       const agent = store.getSubAgent(work.subAgentId);
       if (!agent) throw new Error(`工作 ${work.id} 缺少 SubAgent 记录`);
       const tasks = store.listTasksByWork(work.id).filter(task => !inherited || inherited.includes(task.id));
-      // 评审任务前置修订说明（issue 19，与 coding_result 一致）：按所读任务给出
-      const noticed = (t: Task | null | undefined) => (t ? (deps.resultNotice?.(t) ?? null) : null);
-      const withText = (t: Task | null | undefined, text: string) => {
-        const notice = noticed(t);
-        return okText(notice ? `${notice}\n${text}` : text);
-      };
       if (part === "result") {
         const cancelText = work.canceledAt
           ? ` · 已取消（${work.canceledAt}，${work.canceledBy}${work.cancelReason ? `，${work.cancelReason}` : ""}）`
@@ -406,7 +356,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
             }
           }
         }
-        return withText(tasks.at(-1), lines.join("\n"));
+        return okText(lines.join("\n"));
       }
       if (part === "messages") {
         if (inherited) throw new Error("分支来源只提供快照内的已完成结果，不开放原工作消息");
@@ -433,9 +383,9 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         const length = intParam(params.length, READ_LIMITS.replyBytes, READ_LIMITS.replyBytes, "length");
         if (length < 256) throw new Error("reply length 必须至少为 256 字节");
         const page = deps.readReply(target.id, offset, length);
-        if (page === null) return withText(target, `任务 ${target.id}（${target.status}）暂无最终回答`);
+        if (page === null) return okText(`任务 ${target.id}（${target.status}）暂无最终回答`);
         const end = page.offset + Buffer.byteLength(page.text);
-        return withText(target, `[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
+        return okText(`[最终回答 第 ${page.offset}–${end} 字节，共 ${page.totalBytes}${end < page.totalBytes ? `；继续用 offset=${end}` : ""}]\n${page.text}`);
       }
       const artifact = typeof params.artifact_id === "string" ? (inherited ? sourceArtifact(store, new AccessScope(store.db), ctx.sessionId, params.artifact_id) : store.getArtifact(params.artifact_id)) : null;
       if (!artifact || artifact.taskId !== target.id) throw new Error("产物不存在或不属于该任务的执行");
@@ -452,7 +402,7 @@ export function createSubAgentTools(deps: SubAgentToolsDeps): ToolDefinition[] {
         throw new Error("产物片段不是合法 UTF-8 文本，或 offset 未对齐字符边界");
       }
       const end = offset + Buffer.byteLength(text);
-      return withText(target,
+      return okText(
         `[产物 ${artifact.id}（${artifact.name}，${artifact.status}）第 ${offset}–${end} 字节，共 ${artifact.byteCount}` +
           `${end < artifact.byteCount ? `；继续用 offset=${end}` : ""}]\n${text}`,
       );

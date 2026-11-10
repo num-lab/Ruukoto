@@ -1,63 +1,24 @@
 /**
- * 通用 SubAgent 委派（agent-direction issue 11；issue 12 继续/复用/
- * 关闭；issue 14 整项取消；issue 16 修改委派——worktree 隔离与非 Git 串行；
- * issue 17 改动汇总并开放 main 的修改委派；issue 19 宿主固定评审）：
- * 集中登记工作委托、动态 SubAgent 身份与每次执行任务。
- * Note: 见 .agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md
- * Note: 见 .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
- *
- * 边界：
- * - 来源能力与角色要求在登记前预检并保存，模型只给工作、角色和明确资料；
- *   身份、目录、有效模式与截止时间由宿主固定，不继承单次批准或长期授权；
- * - 每项首派同事务建立工作/Agent/独立会话/排队任务并记审计事件；提交后才
- *   kick 子会话。准备（模型门闩、受限执行入口预检、目录与资料快照、路径核实）
- *   在事务外完成；准备或落库失败只清理本次新建的目录或本次写入的快照文件，
- *   竞争请求已用的目录不动；
- * - 幂等：首次委派与复用委派以（父会话, 键）查工作；工作内以（会话,
- *   sdelegate:<workId>:<key>）查任务。参数摘要不包含本次调用的父任务 id 与
- *   模型选择，跨对话轮次重放返回首次记录；同键异参明确冲突，不另建执行；
- * - 继续（workId）与复用（subAgentId）都要求目标 Agent 可用：同一父会话、
- *   未关闭、空闲且无活动任务、工作目录身份与记录一致；忙碌明确拒绝不排队；
- * - 关闭（issue 12）是独立列（closed_at/closed_by），不改 state：有活动任务
- *   拒绝关闭；已关闭幂等返回；关闭后拒绝新委派，历史/产物/目录保留；
- * - 整项取消（issue 14）用独立列（canceled_at/canceled_by/cancel_reason），
- *   一次写入：登记事务内把本工作的排队任务直接转为 canceled、活动任务写
- *   取消意图，提交后按现有停止路径逐个处理；登记事务与委派登记天然串行，
- *   先登记的任务必然在取消清单内，后登记的必然被拒；已取消幂等返回；
- *   取消不关闭 SubAgent、不删除历史/产物/工作目录，迟到结果保存为事实但
- *   不再送达父模型；
- * - 资料与路径：main 的资料在委派时经 SourceResolver 解析为文本快照写入子工作
- *   目录（来源引用保存在任务 read_scope，启动与每次发送上下文前按该 Agent 全部
- *   历史任务的并集重新 verify）；dev 的待读路径限于父工作区及父任务已授予范围
- *   （取交集只读），保存 realpath 与目录身份，路径经宿主钉定传入 worker。
- * - 宿主固定评审（issue 19）：仅编排器经 hostReview 入参调用（工具层不会
- *   产生）：每个入站修订登记一项新工作、一个新 SubAgent，跳过拥有者委派名额，
- *   任务带来源事件以复用出队门与通知回写；评审 SubAgent 空闲后保留但不参与
- *   继续/复用（assertAvailable 按来源事件拒绝）。
- * ponytail: 评审并行运行、无并发名额；模型成本成为问题时给宿主评审加并发上限。
- * - 工作内协作消息（agent-direction issue 13）：同项工作的参与者（主 Agent
- *   与当前承接本工作的各 SubAgent）经 subagent_message 交换有来源的消息。
- *   协作加入：work_id 与 sub_agent_id 同现 = 把一个既有空闲 SubAgent 拉入
- *   既有工作登记一次执行任务（修改工作单一写入者、宿主评审固定流程均拒绝）。
- *   消息按（工作, 发送方, 键）幂等；发给 SubAgent 的投递为本工作的一次执行
- *   任务（请求键 smsg:<消息ID>），接收方正忙/名额满待投递，宿主机在任务终态、
- *   启动、取消与关闭时冲刷；资格已失（转做其他工作、已关闭）或工作已取消记
- *   明确未投递结果。发给主 Agent 的由父级送达（parent-delivery.ts）定方向：
- *   dev 注入或 main 消息唤醒。消息只携带正文与来源，不扩大接收方的工具与资料范围。
+ * Register work, persistent SubAgent identities, and their execution tasks.
+ * Role and source capabilities are checked before preparation and again inside
+ * the registration transaction. Work copies and read paths retain their pinned
+ * identities; messages never expand the recipient's tools or source authority.
+ * Completion, cancellation, and closure preserve work directories and history.
+ * Note: See .agents/notes/implemented/architecture/2026-10-03-work-delegation-subagent-task.md
+ * Note: See .agents/notes/implemented/feature/2026-10-12-full-access-current-account.md
  */
 
 import { assertGrantNotProtected } from "@ruukoto/agent/execution/approved-ops.ts";
 import type { WorkerLauncher } from "@ruukoto/agent/execution/launchers.ts";
 import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
-import { HOST_REVIEW_DEFINITION, SubAgentRoleError, validateSubAgentRole, type SubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { SubAgentRoleError, validateSubAgentRole, type SubAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { requireSubAgentDefinition, SubAgentDefinitionError } from "@ruukoto/core/subagent-definition.ts";
 import type { SubAgentDefinitionSnapshot } from "@ruukoto/core/subagent-definition.ts";
 import { requireSubAgentExecutionScope, snapshotSubAgentExecution, SubAgentExecutionError, type SubAgentExecutionSnapshot } from "@ruukoto/core/subagent-execution.ts";
 import { WorkspaceSnapshotError } from "@ruukoto/core/workspace-snapshot.ts";
 import type { WorkflowSource } from "@ruukoto/core/workflow.ts";
 import { subAgentAccessPolicy } from "@ruukoto/agent/subagent-capabilities.ts";
-import type { SourceRef } from "@ruukoto/channels/scheduler/store.ts";
-import type { SourceResolver } from "@ruukoto/channels/source-resolver.ts";
+import type { SourceRef, SourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import type { Store } from "@ruukoto/core/store.ts";
 import { CodeScheduleError, bindCodeScheduleTask, getCodeScheduleRunForTask, getCodeScheduledTaskSource } from "@ruukoto/core/code-scheduler.ts";
 import { isRecallSealedTask } from "@ruukoto/core/message-recall.ts";
@@ -91,14 +52,6 @@ const MESSAGE_TEXT_CAP = 4096;
 /** 委派上限与任务时限：同一父用户会话的活动 SubAgent 执行任务数。 */
 export const SUBAGENT_LIMITS = { perParentSession: 3, deadlineMs: 60 * 60_000 };
 /**
- * 快照文件名（子工作目录内；按工作 + 执行键命名——复用同一 Agent 承接新工作
- * 时不覆写旧工作的快照；目录与文件名由宿主生成，key 字符集已经过 KEY_RE 校验）。
- */
-function materialsFileFor(workId: string, key: string): string {
-  return `materials-${workId}-${key}.txt`;
-}
-
-/**
  * SubAgent 任务的提交摘要：覆盖逻辑参数与任务身份（工作、Agent、参数摘要），
  * 不含本次调用的父任务 id、模型选择与截止时间——跨轮次重放核实同一逻辑委派。
  */
@@ -115,30 +68,16 @@ export interface SubAgentDelegateInput {
   request: string;
   /** 既有工作（沿原工作追加任务）；null = 新工作。 */
   workId?: string | null;
-  /**
-   * 复用既有空闲 SubAgent 承接新工作（issue 12）；与 workId 同现 = 协作加入
-   * （issue 13）：把该空闲 Agent 拉入既有工作登记一次执行任务（任务关联列指向
-   * 协作方，工作行保持首次承接者；修改工作与宿主评审工作不接受协作加入）。
-   * 两种情况都保留该 Agent 的独立会话上下文；读范围与资料按本次任务重新钉定。
-   */
+  /** Reuse an idle SubAgent; with workId, join an existing read-only work item. */
   subAgentId?: string | null;
   /** 首次缺省 general；继续和复用省略时沿已固定角色。 */
   role?: string;
-  /** 委派代码目标（相对父工作区或可解析到父工作区内的路径）；不配资料或读范围。 */
+  /** Code target within the parent workspace; omit for independent work. */
   target?: string | null;
-  /** main 选定资料（原样引用对象；重复委派不重新解析）。 */
-  materials?: Record<string, unknown>[] | null;
-  /** dev 待读取路径（宿主核实交集后钉定只读范围）。 */
+  /** Read-only paths pinned within the initiating task's authority. */
   readPaths?: string[] | null;
-  /** 工具计算的规范化参数摘要，覆盖正文、角色、工作、SubAgent、目标与资料参数。 */
+  /** Normalized digest of the request, role, work, SubAgent, target, and read paths. */
   paramsDigest: string;
-  /**
-   * 宿主固定评审（agent-direction issue 19）：仅编排器经 OrchestratorDeps 传入，
-   * 不来自任何模型工具参数。宿主为入站事件固定每次委派一个新 SubAgent：跳过
-   * 委派名额（计数按来源事件排除，见 store），任务带来源事件键，输入走评审
-   * 首行；不配资料/读路径/写入目标，读范围为空，工单详见 GitHubEvents。
-   */
-  hostReview?: { sourceEventId: string } | null;
 }
 
 export interface SubAgentDelegation {
@@ -191,12 +130,11 @@ export interface SubAgentManagerDeps {
   workRoot: string;
   /** 工作副本模块：负责副本创建、复核和汇总；本管理器只登记归属与事件。 */
   workCopies: WorkCopyManager;
-  /** main 资料的解析与授权复核（重复委派不重新解析；verify 在发送前复核）。 */
+  /** Revalidate retained source references, including workflow execution sources. */
   sources: SourceResolver;
   /** 模型配置门闩检查闭包（runOuter 预检、事务内重检）。 */
   resolveSelection(selection: ModelSelection): Promise<() => void>;
   launcherFor(mode: AccessMode): WorkerLauncher;
-  defaultModelSelection(): ModelSelection;
   kickSession(sessionId: string): void;
   /** 通用队列与占用仍由 Runtime 管理；这里只恢复安全的重启暂停。 */
   resumeQueue(sessionId: string): Promise<unknown>;
@@ -207,8 +145,6 @@ export interface SubAgentManagerDeps {
   /** Reject registration of derived work from recall-sealed sources. */
   assertSourceOpen?(taskId: string): void;
   protectedRoots(): string[];
-  /** 后台数据目录（拒绝把工作目录放进保护根）。 */
-  dataDir: string;
 }
 
 /**
@@ -265,13 +201,12 @@ export class SubAgentManager {
     });
   }
 
-  /** 恢复事务内调用：普通委派中断；宿主评审及开放调度运行保留原排队任务。 */
+  /** Interrupt ordinary queued delegation on recovery; open Code schedule runs retain their tasks. */
   recoverQueuedTasks(): string[] {
     const ids: string[] = [];
     for (const task of this.store.listQueuedSubAgentTasks()) {
-      const scheduled = this.store.getScheduledRunForTask(task.id);
       const codeScheduled = getCodeScheduleRunForTask(this.store, task.id);
-      if (scheduled && !scheduled.closedAt && scheduled.scheduleStatus !== "canceled" || codeScheduled && !codeScheduled.closedAt && !codeScheduled.cancelRequested) continue;
+      if (codeScheduled && !codeScheduled.closedAt && !codeScheduled.cancelRequested) continue;
       if (!this.store.endTask(task.id, ["queued"], "interrupted", {
         interruptReason: "backend_restart", endedAt: new Date().toISOString(),
         keepOccupancy: true,
@@ -305,8 +240,6 @@ export class SubAgentManager {
       if (this.store.listAllOccupancy().some((o) => o.sessionId === agent.sessionId)) continue;
       const task = this.store.findActiveSubAgentTask(agent.id);
       if (task && getCodeScheduleRunForTask(this.store, task.id)) continue;
-      const scheduled = task ? this.store.getScheduledRunForTask(task.id) : null;
-      if (scheduled && !this.store.scheduledRunCanResume(scheduled.id)) continue;
       try { await this.deps.resumeQueue(agent.sessionId); }
       catch (err) { this.log(`恢复 SubAgent ${agent.id} 队列失败：${(err as Error).message}`); }
     }
@@ -316,23 +249,13 @@ export class SubAgentManager {
     process.stderr.write(`[ruukoto:subagents] ${message}\n`);
   }
 
-  /** 授权登记前后核实发起任务；宿主评审允许已完成的接收轮次，来源仍固定 GitHub。 */
-  private assertSource(task: Task, snapshot: Task = task, hostReview?: SubAgentDelegateInput["hostReview"]): void {
+  /** Verify initiating task authority before preparation and again before registration. */
+  private assertSource(task: Task, snapshot: Task = task): void {
     this.deps.assertSourceOpen?.(task.id);
     getCodeScheduledTaskSource(this.store, task.id);
-    const scheduled = this.store.getScheduledRunForTask(task.id);
-    if (scheduled && (scheduled.closedAt || scheduled.scheduleStatus === "canceled")) {
-      throw new SubAgentDelegationError("task_ending", "调度运行已结束或计划已取消，拒绝登记新的委派或消息");
-    }
-    const reviewEvent = hostReview ? this.store.getInboundEvent(hostReview.sourceEventId) : null;
-    const hostAccepted = hostReview && reviewEvent?.source === "github" && task.sourceEventId === reviewEvent.id &&
-      task.accessMode === "confirm" && task.status === "completed";
-    if ((!hostAccepted && !["queued", "running", "awaiting_confirmation"].includes(task.status)) || task.cancelRequested ||
+    if (!["queued", "running", "awaiting_confirmation"].includes(task.status) || task.cancelRequested ||
         task.permissionVersion !== snapshot.permissionVersion || task.accessMode !== snapshot.accessMode) {
       throw new SubAgentDelegationError("task_ending", "发起任务已结束或权限已变化，拒绝登记新的委派或消息");
-    }
-    if (hostReview && (!reviewEvent || reviewEvent.source !== "github" || !["registered", "queued"].includes(reviewEvent.status) || task.sourceEventId !== reviewEvent.id || task.accessMode !== "confirm")) {
-      throw new SubAgentDelegationError("forbidden", "宿主评审来源或固定模式不符，拒绝登记");
     }
   }
 
@@ -346,10 +269,9 @@ export class SubAgentManager {
     if (!parent) throw new SubAgentDelegationError("not_found", `父任务不存在：${input.parentTaskId}`);
     const parentSession = this.store.getSession(parent.sessionId);
     if (!parentSession) throw new SubAgentDelegationError("not_found", `父任务会话不存在：${parent.sessionId}`);
-    // 父会话按身份判定（架构工单 08）：普通开发、main 与独立调度会话可以委派
     const parentKind = this.store.getSessionIdentity(parent.sessionId)?.kind;
-    if (parentKind === "subagent") throw new SubAgentDelegationError("forbidden", "SubAgent 不能委派下级（只有普通开发、main 或独立调度会话可以登记工作委托）");
-    if (parentKind !== "dev" && parentKind !== "main" && parentKind !== "scheduled") throw new SubAgentDelegationError("forbidden", "只有普通开发、main 或独立调度会话可以登记工作委托（已退役归档会话不能委派）");
+    if (parentKind === "subagent") throw new SubAgentDelegationError("forbidden", "SubAgent 不能委派下级；请把后续工作交回主 Agent");
+    if (parentKind !== "dev") throw new SubAgentDelegationError("forbidden", "只有普通开发会话可以登记工作委托");
     if (!input.request.trim()) throw new SubAgentDelegationError("invalid_params", "委派正文不能为空");
     if (input.role !== undefined && (typeof input.role !== "string" || !input.role.trim())) throw new SubAgentDelegationError("invalid_params", "角色名不能为空");
     if (parent.planMode &&
@@ -359,18 +281,11 @@ export class SubAgentManager {
     if (input.workId && input.target != null) {
       throw new SubAgentDelegationError("invalid_params", "继续委派沿原目标，不能重新指定 target；请新建工作");
     }
-    if (
-      input.hostReview &&
-      (input.role !== undefined || input.workId || input.subAgentId || input.target != null || (input.materials?.length ?? 0) > 0 || (input.readPaths?.length ?? 0) > 0)
-    ) {
-      throw new SubAgentDelegationError("invalid_params", "宿主评审不携带复用/修改/资料参数（每个入站修订一项新工作、一个新 SubAgent）");
-    }
 
-    // —— 查重先：重复委派不重新解析可能已变化的资料（同键同参的重放即使目标
-    // Agent 已关闭或忙碌也返回原记录，不新建任务）——
+    // Idempotent replay returns the original record even if its Agent is now closed or busy.
     const hit = input.workId ? this.dedupWorkTask(input, parentSession) : this.dedupNewKey(input, parentSession);
     if (hit) return hit;
-    this.assertSource(parent, parent, input.hostReview);
+    this.assertSource(parent);
 
     // —— 目标 Agent：继续沿工作的 Agent；复用按 subAgentId；两者都省略即新建 ——
     const reusedWork = input.workId ? this.store.getWorkDelegation(input.workId) : null;
@@ -398,32 +313,22 @@ export class SubAgentManager {
       this.assertRole(target, input.role);
     }
     const definition = target ? validateSubAgentRole(requireSubAgentDefinition(target))
-      : input.hostReview ? HOST_REVIEW_DEFINITION : selectSubAgentRole(this.deps.roles(), input.role ?? "general");
+      : selectSubAgentRole(this.deps.roles(), input.role ?? "general");
     const policy = subAgentAccessPolicy(parent.accessMode, definition);
-    const source = input.hostReview ? undefined : this.deps.source?.(parent.id);
-    const execution = source && !input.hostReview ? await this.deps.preflight?.(source, definition) : undefined;
-    // 协作加入（issue 13，workId 与 subAgentId 同现且不是工作原 Agent）：只读
-    // 工作才接受新协作方（修改工作同一份文件单一写入者）；宿主评审是固定单
-    // Agent 流程，不接受协作加入。
+    const source = this.deps.source?.(parent.id);
+    const execution = source ? await this.deps.preflight?.(source, definition) : undefined;
+    // A writable work copy has one writer; only read-only work accepts collaborators.
     if (reusedWork && target && target.id !== reusedWork.subAgentId) {
       if (reusedWork.writeTarget) {
         throw new SubAgentDelegationError("invalid_state", `工作 ${reusedWork.id} 是修改工作（单一写入者），不接受协作加入`);
       }
-      if (this.store.hasInboundSourcedSubAgentTask(reusedWork.subAgentId)) {
-        throw new SubAgentDelegationError("forbidden", "该工作源自入站事件的宿主固定评审：不接受协作加入");
-      }
     }
-    // 限额（查重后）：同一会话的活动执行任务上限；宿主评审（issue 19）不占
-    // 模型委派名额（计数 SQL 已按来源事件排除，这里直接跳过，避免宿主固定
-    // 评审被拥有者的活动委派挤掉）
-    if (!input.hostReview) {
-      const active = this.store.countActiveSubAgentTasks(parentSession.id);
-      if (active >= SUBAGENT_LIMITS.perParentSession) {
-        throw new SubAgentDelegationError(
-          "limit_exceeded",
-          `本会话的活动 SubAgent 任务已达上限 ${SUBAGENT_LIMITS.perParentSession}，等现有任务结束后再委派`,
-        );
-      }
+    const active = this.store.countActiveSubAgentTasks(parentSession.id);
+    if (active >= SUBAGENT_LIMITS.perParentSession) {
+      throw new SubAgentDelegationError(
+        "limit_exceeded",
+        `本会话的活动 SubAgent 任务已达上限 ${SUBAGENT_LIMITS.perParentSession}，等现有任务结束后再委派`,
+      );
     }
 
     // —— 异步准备（无事务；不做文件系统与内核之外的跨系统原子承诺）——
@@ -461,15 +366,12 @@ export class SubAgentManager {
     if (policy.protectSource && writeTarget?.kind === "direct") throw new SubAgentDelegationError("source_protection_conflict", "角色要求保护来源，不能原地执行；请使用 Git 目标副本");
 
     // 宿主模板 + 请求合计不超过 cap（与旧委派一致；超限拒绝，不截断；在 taskInput 内判定）
-    let sourceRefs: SourceRef[] = [];
     let scopePaths: SubAgentReadScope["paths"] = [];
     let createdNewDir = false;
-    let snapshotFile: string | null = null;
     let inputText: string;
-    // 准备或登记失败只清理本次产物：新建目录整删；沿用目录时只删本次写入的快照
+    // Failed preparation or registration removes only the directory created by this call.
     const cleanup = (): void => {
       if (createdNewDir) fs.rmSync(workDir, { recursive: true, force: true });
-      else if (snapshotFile) fs.rmSync(snapshotFile, { force: true });
     };
     try {
       if (newAgent) {
@@ -478,24 +380,16 @@ export class SubAgentManager {
         fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
         createdNewDir = true;
       }
-      if (input.materials && input.materials.length > 0) {
-        // main：在父项目的有效资料权限内解析为文本快照；快照正文落子目录后不
-        // 重新解析或改写（按工作+执行键命名，复用不覆写旧工作的快照）；来源引用
-        // 随任务保存，发送前复核撤销。
-        const resolved = this.deps.sources.resolve(parentSession.projectId, input.materials, parent.id, source?.authority?.grantIds);
-        sourceRefs = resolved.refs;
-        snapshotFile = path.join(workDir, materialsFileFor(workId, input.key));
-        fs.writeFileSync(snapshotFile, resolved.text, { encoding: "utf8", mode: 0o600 });
-      } else if (input.readPaths && input.readPaths.length > 0) {
+      if (input.readPaths && input.readPaths.length > 0) {
         scopePaths = this.prepareReadPaths(parent, parentSession, input.readPaths);
       }
-      inputText = this.taskInput(workId, { ...parent, accessMode: policy.accessMode }, input, (input.materials?.length ?? 0) > 0, scopePaths, writeTarget);
+      inputText = this.taskInput(workId, { ...parent, accessMode: policy.accessMode }, input, scopePaths, writeTarget);
     } catch (err) {
       cleanup();
       throw err;
     }
 
-    const readScope: SubAgentReadScope = { paths: scopePaths, sourceRefs, readMemories: [], ...(execution ? { execution } : {}) };
+    const readScope: SubAgentReadScope = { paths: scopePaths, sourceRefs: [], readMemories: [], ...(execution ? { execution } : {}) };
     // 任务提交摘要：覆盖逻辑参数与任务身份，不含本次调用的父任务 id、模型选择
     // 与截止时间——跨轮次重放核实的是同一逻辑委派，返回首次记录。
     const submissionDigest = taskSubmissionDigest(workId, agentId, input.paramsDigest);
@@ -531,7 +425,7 @@ export class SubAgentManager {
           }
           return { work: racedWork, agent: agentNow, task: racedTask, created: false, newWork: false };
         }
-        if (!input.hostReview && this.store.countActiveSubAgentTasks(parentSession.id) >= SUBAGENT_LIMITS.perParentSession) {
+        if (this.store.countActiveSubAgentTasks(parentSession.id) >= SUBAGENT_LIMITS.perParentSession) {
           throw new SubAgentDelegationError("limit_exceeded", "本会话的 SubAgent 名额已用满，请等待现有执行结束");
         }
         check(); // 模型门闩重检必须在登记事务内
@@ -540,9 +434,7 @@ export class SubAgentManager {
         if (agentNow) {
           this.assertAvailable(agentNow, parentSession, reusedWork);
         }
-        // 准备后、提交前撤销的资料不得进入子上下文：复核该 Agent 历史任务与
-        // 本次任务的来源引用并集（复用保留的上下文含旧工作资料；快照正文不重
-        // 新解析）
+        // Reused contexts retain earlier source references; revocation must block registration.
         const previousTasks = agentNow ? this.store.listTasksBySession(agentNow.sessionId) : [];
         const scopes = [...previousTasks.map(task => ({ refs: task.readScope?.sourceRefs ?? [], taskId: task.id, grantIds: task.readScope?.execution?.source.authority?.grantIds })),
           { refs: readScope.sourceRefs, taskId: parent.id, grantIds: source?.authority?.grantIds }];
@@ -556,7 +448,7 @@ export class SubAgentManager {
         if (!parentNow || parentNow.sessionId !== parentSession.id) {
           throw new SubAgentDelegationError("forbidden", "父任务归属已变化，拒绝登记");
         }
-        this.assertSource(parentNow, parent, input.hostReview);
+        this.assertSource(parentNow, parent);
         if (source && !this.deps.verifySource?.(source)) throw new SubAgentDelegationError("source_invalid", "来源授权或配置在准备期间变化；未登记子任务，请核实后重新委派");
         if (!isDeepStrictEqual(parentNow.modelSelection, selection)) throw new SubAgentDelegationError("model_config_busy", "发起任务的模型选择在准备期间变化，请重新委派");
         if (input.workId && !racedWork) {
@@ -652,7 +544,6 @@ export class SubAgentManager {
           modelSelection: selection,
           submissionDigest,
           parentTaskId: parent.id,
-          sourceEventId: input.hostReview?.sourceEventId ?? null,
           deadline,
           workId,
           subAgentId: agent.id,
@@ -819,7 +710,7 @@ export class SubAgentManager {
       if ("hit" in context) return context.hit;
       const { work, sender, senderTask, target, text } = context;
       this.assertSource(senderTask, initial.senderTask);
-      this.checkMessageDelivery(work, target, prepared, senderTask.id);
+      this.checkMessageDelivery(target, prepared, senderTask.id);
       const msg: SubAgentMessage = {
         id: randomId("smsg"),
         workId: work.id,
@@ -859,7 +750,6 @@ export class SubAgentManager {
     if (senderTask.subAgentId && !sender) throw new SubAgentDelegationError("not_found", `任务 ${senderTask.id} 缺少 SubAgent 记录`);
     if (sender) {
       if (senderTask.workId !== work.id) throw new SubAgentDelegationError("forbidden", "只能从本工作的执行任务中发送本工作消息（跨当前工作范围的消息被拒绝）");
-      if (this.store.hasInboundSourcedSubAgentTask(sender.id)) throw new SubAgentDelegationError("forbidden", "宿主固定评审的 SubAgent 不参与工作内通信");
     } else if (senderTask.sessionId !== work.parentSessionId) {
       throw new SubAgentDelegationError("forbidden", "只能在本工作的父会话中发送工作内消息");
     }
@@ -885,22 +775,18 @@ export class SubAgentManager {
     return { work, sender, senderTask, target, text };
   }
 
-  /** 只有真正需要建执行任务的消息才预检模型与登记时的执行模式。 */
-  private messageSelection(work: WorkDelegation, target: SubAgent | null, sourceTaskId: string): ModelSelection | null {
+  /** Only messages creating an execution task require model preflight. */
+  private messageSelection(target: SubAgent | null, sourceTaskId: string): ModelSelection | null {
     if (target) {
       const selection = this.store.getTask(sourceTaskId)?.modelSelection;
       if (!selection) throw new SubAgentDelegationError("model_selection_missing", "消息来源任务缺少已保存的模型选择，请停止并核实记录");
       return selection;
     }
-    const identity = this.store.getSessionIdentity(work.parentSessionId);
-    const scheduled = getCodeScheduledTaskSource(this.store, sourceTaskId);
-    if (scheduled) return scheduled.snapshot.modelSelection;
-    return identity?.kind === "main" ? identity.role.modelSelection ?? this.deps.defaultModelSelection()
-      : identity?.kind === "scheduled" ? identity.modelSelection ?? this.deps.defaultModelSelection() : null;
+    return getCodeScheduledTaskSource(this.store, sourceTaskId)?.snapshot.modelSelection ?? null;
   }
 
   private async prepareMessageDelivery(work: WorkDelegation, target: SubAgent | null, accessMode: AccessMode, sourceTaskId: string): Promise<{ selection: ModelSelection; check: () => void } | null> {
-    const selection = this.messageSelection(work, target, sourceTaskId);
+    const selection = this.messageSelection(target, sourceTaskId);
     if (!selection) return null;
     if (target) accessMode = this.messageAccessMode(work, target, accessMode);
     this.deps.launcherFor(accessMode);
@@ -918,8 +804,8 @@ export class SubAgentManager {
     return subAgentAccessPolicy(sourceMode, validateSubAgentRole(requireSubAgentDefinition(target))).accessMode;
   }
 
-  private checkMessageDelivery(work: WorkDelegation, target: SubAgent | null, prepared: { selection: ModelSelection; check: () => void } | null, sourceTaskId: string): void {
-    if (!isDeepStrictEqual(this.messageSelection(work, target, sourceTaskId), prepared?.selection ?? null)) {
+  private checkMessageDelivery(target: SubAgent | null, prepared: { selection: ModelSelection; check: () => void } | null, sourceTaskId: string): void {
+    if (!isDeepStrictEqual(this.messageSelection(target, sourceTaskId), prepared?.selection ?? null)) {
       throw new SubAgentDelegationError("model_config_busy", "消息的模型选择在准备期间变化，请重试");
     }
     prepared?.check();
@@ -941,7 +827,7 @@ export class SubAgentManager {
         this.store.withTx(() => {
           const current = this.pendingMessageContext(msg);
           if (!current) return;
-          this.checkMessageDelivery(current.work, current.target, prepared, msg.fromTaskId);
+          this.checkMessageDelivery(current.target, prepared, msg.fromTaskId);
           this.deliverIfPossible(msg, current.work, current.target, prepared?.selection ?? null, kicks);
         });
         for (const sessionId of kicks) this.deps.kickSession(sessionId);
@@ -980,8 +866,7 @@ export class SubAgentManager {
       return null;
     }
     if (!msg.toSubAgentId) {
-      const kind = this.store.getSessionIdentity(work.parentSessionId)?.kind;
-      return kind === "main" || kind === "scheduled" || getCodeScheduleRunForTask(this.store, msg.fromTaskId) ? { work, target: null } : null;
+      return getCodeScheduleRunForTask(this.store, msg.fromTaskId) ? { work, target: null } : null;
     }
     const target = this.store.getSubAgent(msg.toSubAgentId);
     if (!target) { this.dropMessage(msg, "agent_missing"); return null; }
@@ -996,7 +881,7 @@ export class SubAgentManager {
         const previous = this.store.listTasksBySession(target.sessionId).filter(task => task.workId === work.id).at(-1);
         const source = requireSubAgentExecutionScope(previous?.readScope).execution.source;
         if (!this.deps.verifySource?.(source)) {
-          this.dropMessage(msg, this.store.getScheduledRunForTask(source.taskId)?.scheduleStatus === "canceled" ? "work_canceled" : "source_invalid");
+          this.dropMessage(msg, "source_invalid");
           return null;
         }
       } catch (error) {
@@ -1235,7 +1120,6 @@ export class SubAgentManager {
     if (agent.closedAt) return { code: "closed", message: `SubAgent 已关闭（${agent.closedAt}）：${purpose === "receive" ? "消息未投递" : "请新建 SubAgent"}`, reason: `closed:${agent.closedAt}` };
     const identity = this.store.getSessionIdentity(agent.sessionId);
     if (identity?.kind === "subagent" && identity.workflow) return { code: "forbidden", message: "工作流步骤由所属运行管理，不能通过普通委派复用或续派", reason: "workflow_bound" };
-    if (this.store.hasInboundSourcedSubAgentTask(agent.id)) return { code: "forbidden", message: "该 SubAgent 的工作源自入站事件（上下文含不可信外部资料）：不能复用或续派", reason: "inbound_review" };
     try { this.assertRole(agent); }
     catch (error) {
       if (!(error instanceof SubAgentDefinitionError) && !(error instanceof SubAgentRoleError) && !(error instanceof SubAgentDelegationError)) throw error;
@@ -1247,9 +1131,8 @@ export class SubAgentManager {
     return null;
   }
 
-  private assertRole(agent: SubAgent, role?: string, hostReview = false): void {
+  private assertRole(agent: SubAgent, role?: string): void {
     const definition = validateSubAgentRole(requireSubAgentDefinition(agent));
-    if (definition.kind !== (hostReview ? "host_review" : "role")) throw new SubAgentDelegationError("forbidden", "宿主固定评审身份不能从普通委派继续或复用，请新建 SubAgent");
     if (role !== undefined && role !== definition.name) throw new SubAgentDelegationError("role_conflict", `SubAgent 已固定角色 ${definition.name}，请为角色 ${role} 新建 SubAgent`);
   }
 
@@ -1268,7 +1151,7 @@ export class SubAgentManager {
     }
     const task = this.store.findTaskByRequest(agent.sessionId, subAgentTaskRequestId(work.id, input.key));
     if (!task) return null;
-    this.assertRole(agent, input.role, Boolean(input.hostReview));
+    this.assertRole(agent, input.role);
     if (task.submissionDigest !== taskSubmissionDigest(work.id, agent.id, input.paramsDigest)) {
       throw new SubAgentDelegationError("request_conflict", `委派幂等键冲突：${input.key} 已绑定参数不同的执行 ${task.id}`);
     }
@@ -1287,7 +1170,7 @@ export class SubAgentManager {
     if (!agent || !task) {
       throw new SubAgentDelegationError("not_found", `工作 ${work.id} 的执行记录不完整`);
     }
-    this.assertRole(agent, input.role, Boolean(input.hostReview));
+    this.assertRole(agent, input.role);
     return { work, agent, task, created: false, newWork: false };
   }
 
@@ -1341,27 +1224,9 @@ export class SubAgentManager {
     workId: string,
     parent: Task,
     input: SubAgentDelegateInput,
-    hasMaterials: boolean,
     paths: SubAgentReadScope["paths"],
     writeTarget?: WorkWriteTarget | null,
   ): string {
-    // 宿主评审（issue 19）：固定首行与来源事件行，正文为 GitHubEvents.request；
-    // 每次修订一项新工作、一个全新上下文，避免旧修订资料混进新 head 的核对
-    if (input.hostReview) {
-      const body = [
-        "[SubAgent 委派 · GitHub PR 评审]",
-        `工作 ${workId}（直接父任务 ${parent.id}，原样记录不作身份依据）。`,
-        `来源事件 ${input.hostReview.sourceEventId}（GitHub PR 入站；评审只归属于该事件的修订，修订失效由宿主另行说明）。`,
-        "你的工具只有 read / read_artifact 与宿主为本任务开放的只读 MCP：可以读取本目录与经 MCP 取得的 PR 资料；" +
-          "不能修改文件、执行命令、写外部服务或委派下级。",
-        "读不到所需资料（如无法经 MCP 取得 PR 信息）就明说能力范围，不要尝试其他手段。结束时的最终回答即评审草稿，宿主保存为任务产物并交回主 Agent。",
-        `---\n${input.request}`,
-      ].join("\n");
-      if (body.length > INPUT_TEXT_CAP) {
-        throw new SubAgentDelegationError("invalid_params", `委派正文（含边界说明）超过 ${INPUT_TEXT_CAP} 字符，请精简`);
-      }
-      return body;
-    }
     const modify = writeTarget != null;
     const fullAccess = parent.accessMode === "full_access";
     const lines: string[] = [
@@ -1391,10 +1256,9 @@ export class SubAgentManager {
       }
     }
     lines.push(
-      hasMaterials ? `资料：本目录 ${materialsFileFor(workId, input.key)} 是宿主选定的资料快照（快照正文不重新解析）。` : "资料：没有附带资料快照。",
       paths.length > 0 ? `只读路径（宿主钉定）：${paths.map((p) => p.path).join("、")}` : "只读路径：无。",
       `访问模式：${fullAccess ? "完全访问，使用启动账户已有权限，已开放工具无需逐次审批" : parent.accessMode === "auto-review" ? "自动审查，使用受限执行环境与原审批规则" : "请求确认，使用受限执行环境与原审批规则"}；权限由宿主取本次发起任务，不由正文决定。`,
-      "使用本任务实际提供的工具完成工作，个人业务与外部服务须沿宿主核实的来源资格；不能再委派下级或直接与拥有者交互。没有代码目标时只在独立目录处理获准资料；需要修改代码请由主 Agent 指定目标。",
+      "使用本任务实际提供的工具完成工作，外部服务须沿宿主核实的来源资格；不能再委派下级或直接与拥有者交互。没有代码目标时只在独立目录处理获准资料；需要修改代码请由主 Agent 指定目标。",
       "同项工作的协作：用 subagent_message 向主 Agent 或当前承接本工作的其他 SubAgent 发送有来源的消息（彼此上下文不自动共享）；" +
         "协作消息会作为本工作的新任务送达你。消息不扩大任何一方的工具与资料范围。",
       ...(modify

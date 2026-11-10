@@ -18,7 +18,7 @@ export function useComposerCommands({ model, session, text, edit, input, locked,
   const sending = useRef(false), latestText = useRef(text), id = useId();
   latestText.current = text;
   const online = model.status.state === "online", instanceId = model.view.instanceId;
-  const parsed = model.target === "code" ? parseSlashInput(text) : null;
+  const parsed = parseSlashInput(text);
   const application = parsed?.kind === "command";
   const skillQuery = /^\/skill(?:\s+|:)[^\s]*$/.test(text);
   const available = (name: SlashCommandName) => {
@@ -33,7 +33,7 @@ export function useComposerCommands({ model, session, text, edit, input, locked,
   useEffect(() => { setIndex(0); if (dismissed !== text) setDismissed(null); }, [text, dismissed]);
   useEffect(() => {
     setSkills([]); setSkillsError("");
-    if (!skillQuery || !online || !instanceId || model.target !== "code") return;
+    if (!skillQuery || !online || !instanceId) return;
     let disposed = false;
     void (async () => {
       const collected: Skills = [];
@@ -53,7 +53,7 @@ export function useComposerCommands({ model, session, text, edit, input, locked,
     })().catch(error => { if (!disposed) setSkillsError(error instanceof Error ? error.message : "Could not read skills. Reopen /skills to inspect them."); });
     return () => { disposed = true; };
   }, [skillQuery, online, instanceId, model, skillReload]);
-  const choices = model.target === "code" && focused && dismissed !== text ? slashChoices(text, skills, available) : null;
+  const choices = focused && dismissed !== text ? slashChoices(text, skills, available) : null;
   const selected = choices?.length ? Math.min(index, choices.length - 1) : 0;
   useEffect(() => { if (choices?.length) document.getElementById(`${id}-${selected}`)?.scrollIntoView({ block: "nearest" }); }, [id, selected, choices?.length]);
   function choose(at: number) {

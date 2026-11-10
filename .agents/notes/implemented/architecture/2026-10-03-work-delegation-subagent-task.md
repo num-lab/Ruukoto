@@ -2,13 +2,15 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original identifier: ADR 0020.
 
 [Configurable SubAgent roles](2026-10-14-configurable-subagent-roles.md) separates roles, source capabilities, and execution targets. [Durable source capabilities](2026-10-15-subagent-source-capabilities.md) owns current source, permission, and project-context rules. These later decisions supersede the original fixed-confirm analysis policy, not the separation of work, identity, and execution recorded here.
 
 ## Problem
 
-[The two-product decision](2026-10-02-two-agent-products.md) requires one level of SubAgents in both products: identities and context survive individual tasks, and a work delegation can span several conversation turns and executions. The old fixed coding role shared one session across all child tasks, conflated identity with execution, and offered no delegation tools to ordinary development sessions.
+[The two-product decision](../../archived/architecture/2026-10-02-two-agent-products.md) requires one level of SubAgents in both products: identities and context survive individual tasks, and a work delegation can span several conversation turns and executions. The old fixed coding role shared one session across all child tasks, conflated identity with execution, and offered no delegation tools to ordinary development sessions.
 
 ## Decision
 
@@ -28,7 +30,7 @@ New ordinary delegation uses the generic path only. Both `coding_delegate` analy
 
 The first generic implementation pinned analysis to `read` and `read_artifact`, plus `subagent_message` where collaboration was allowed, and fixed child tasks to confirm. Assembly, pre-send checks, and tool calls used the same eligibility decision. Host-pinned read paths and directory identity were rechecked when files opened; read-only mounts alone were not read authorization. SourceResolver produced bounded main-data snapshots within existing permission, saved their references, and reverified them before each model request. It did not copy complete parent history or automatically inject parent instructions, personal memory, or skills. `read_artifact` was limited to the task's own output, excluding other tasks' artifacts and prompt snapshots. Neither unaccepted group data nor accepted group summaries could become delegation material. Analysis could not upgrade itself into write work.
 
-That original no-inheritance/fixed-confirm policy is historical. Current role/source authorization follows [source capabilities](2026-10-15-subagent-source-capabilities.md) and [current-account full access](../feature/2026-10-12-full-access-current-account.md); write targets follow [worktrees](2026-10-04-subagent-worktrees.md). A task never derives authority from message text. [Scheduled tasks](../feature/2026-10-12-generic-scheduled-tasks.md) owns independent scheduled execution, provenance, and whole-run cancellation. [Workflow execution](2026-10-13-workflow-runtime-and-store.md) gives its coordinator separate authorization, pointers, results, and recovery; ordinary delegation remains governed here.
+That original no-inheritance/fixed-confirm policy is historical. Current role/source authorization follows [source capabilities](2026-10-15-subagent-source-capabilities.md) and [current-account full access](../feature/2026-10-12-full-access-current-account.md); write targets follow [worktrees](2026-10-04-subagent-worktrees.md). A task never derives authority from message text. [Scheduled tasks](../../archived/feature/2026-10-12-generic-scheduled-tasks.md) owns independent scheduled execution, provenance, and whole-run cancellation. [Workflow execution](2026-10-13-workflow-runtime-and-store.md) gives its coordinator separate authorization, pointers, results, and recovery; ordinary delegation remains governed here.
 
 [Continue/reuse/close](../feature/2026-10-04-subagent-reuse-close.md), [whole-work cancellation](../feature/2026-10-04-cancel-work.md), [work messages](../feature/2026-10-05-subagent-messaging.md), and [restart recovery](2026-10-05-subagent-restart-recovery.md) are separately replaceable decisions. [Context compaction](2026-09-26-lossy-context-compaction.md) keeps `subagentResults` and `subagentMessages` in host reference blocks, separate from conversation history. Early plan-mode checks followed `resumesTaskId`; [plan session mode](../feature/2026-10-08-plan-session-mode.md) replaced that inference with a trusted submission field.
 

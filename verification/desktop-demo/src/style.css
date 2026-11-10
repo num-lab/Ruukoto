@@ -255,8 +255,6 @@ code, pre { font-family: var(--font-mono); }
 .empty-state h1 { font-size: 22px; font-weight: 400; }
 .empty-state p { color: var(--text-secondary); font-size: 12px; line-height: 1.8; margin: 15px 0 20px; max-width: 400px; }
 .empty-state > span { color: var(--text-muted); font-size: 11px; margin-top: 20px; }
-.personal-row { justify-content: flex-start; margin: 0 10px 10px; width: calc(100% - 20px); height: 30px; padding: 0 10px; font-size: 12.5px; }
-.personal-row.active-pill { background: var(--bg-surface-active); }
 .demo-dialog { background: var(--bg-canvas); color: var(--text-primary); border-color: var(--ui-border); border-radius: 16px; max-width: 440px; }
 .demo-dialog [data-slot="dialog-title"] { font-size: 16px; font-weight: 500; }
 .demo-dialog [data-slot="dialog-description"] { font-size: 12px; line-height: 1.8; color: var(--text-secondary); }
@@ -399,7 +397,7 @@ html.dark { --git-lane-0: #60a5fa; --git-lane-1: #4ade80; --git-lane-2: #c084fc;
 .inspector-header { border-bottom: 0; }
 body { font-size: 15.5px; }
 .projects-heading, .right-tabs .right-tab, .diff-line { font-size: 13.5px; }
-.workspace-row > button:first-child, .workspace-session, .personal-row, .settings-row { font-size: 14.5px; }
+.workspace-row > button:first-child, .workspace-session, .settings-row { font-size: 14.5px; }
 .workspace-filter input, .center-tabs .center-tab, .context-details, .context-summary, .composer-actions [data-slot="select-trigger"], .composer .model-selector, .model-menu [role="menuitemradio"], .model-menu [data-slot="dropdown-menu-label"], .git-commit-subject, .git-commit-detail-body > p, .new-tab-page > span, .new-tab-page > button, .diff-error, .empty-state p, .demo-dialog [data-slot="dialog-description"], .demo-dialog [data-slot="dialog-footer"] button, .demo-dialog input, .toast-pill, [data-slot="select-item"], .settings-categories [data-slot="tabs-trigger"], .settings-row [data-slot="select-trigger"], .file-panel-heading, .file-tree .file-tree-row, .file-panel-empty, .file-source, .file-image { font-size: 14px; }
 .attachment-chip, .git-commit-detail-body, .diff-heading, .diff-heading code, .new-tab-page > p, .new-tab-page > button code, .new-tab-page > button small, .task-notice, .task-notice button, .empty-state > span, .diff-more, .browser-toolbar [data-slot="input"], .browser-note, .browser-error, .file-panel-heading > code, .file-preview-modes button { font-size: 13px; }
 .composer [data-slot="textarea"] { font-size: 15.5px; }

@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -65,8 +65,8 @@ test("控制接口切换提供方和思考强度，排队任务固定配置且 S
     config.providers.second = { ...config.providers.mock, models: [{ ...config.providers.mock.models[0], id: "reasoner", reasoning: true, maxTokens: 4096 }] };
     fs.writeFileSync(file, JSON.stringify(config));
     runtime = await Runtime.start({
-    product: personalProduct.runtime, dataDir: dirs.dataDir, agentDir: dirs.agentDir,
-      socketPath: path.join(dirs.root, "c.sock"), modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off",
+    profile: dirs.profile,
+      modelProvider: "mock", modelId: "mock-model", thinkingLevel: "off",
       toolFactory: (ctx) => createMockTools(ctx) });
     await ControlServer.start(runtime);
     client = await connectAuthedClient(runtime);

@@ -1,23 +1,9 @@
-/**
- * dev 启动器（issue 21 §1/§5）测试：
- *
- * - 单元：档案路径（稳定/按仓库区分/仓库外/随 HOME 覆盖）、子进程环境清洗、
- *   双产品隔离、监听分类矩阵、参数解析（移除 --tui）、模型配置导入；
- * - 集成（真实仓库 + HOME=临时目录，档案落在临时目录内）：
- *   普通 dev 启动就绪（清洗后环境可认证握手、QQ 停用标记生效）与 SIGINT 清理
- *   （无残留锁/孤儿进程）；已在运行拒绝且不碰外来后台；无有效模型直接失败；
- *   --import-models 只复制 models.json/auth.json（0600）；
- * - TUI 重载状态（FakeTerminal 直驱 app.ts）：草稿/会话/继续意图持久化与恢复、
- *   instanceId 篡改失效回落、继续目标任务已结束时丢弃意图（草稿保留，提交仍是新任务）；
- * - PTY（python3 + pty，无 python3 跳过）：npm run code 默认 TUI 与在线/首次离线
- *   配置中心；退出后启动器收尾、终端恢复、后台日志不与终端交错、子进程无残留。
- */
+/** Development profile, child ownership and real PTY lifecycle regressions. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as childProcess from "node:child_process";
 import { execFileSync, spawn } from "node:child_process";
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
@@ -29,10 +15,10 @@ import {
   classifyWatchPath,
   planWatchRestart,
   devProfileFor,
-  importModelConfigs,
   parseDevArgs,
-  probeControlPlane,
 } from "@ruukoto/tui/dev.ts";
+import { bootstrapProfile, selectionTuple, selectProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
+import { probeControlPlane } from "@ruukoto/control/ensure-backend.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
 import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ControlConnection } from "@ruukoto/control/connection.ts";
@@ -43,6 +29,7 @@ import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import { MockModelServer } from "./helpers/mock-provider.ts";
 import { killBackend, spawnBackend } from "./helpers/backend.ts";
 import {
+  cleanupDirs,
   createProjectSession,
   lastUserText,
   startTestRuntime,
@@ -54,15 +41,13 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function tmpHome(prefix = "rk-dev-"): string {
-  // macOS Unix socket 路径上限约 104 字符：os.tmpdir()（/var/folders/…）下的
-  // 档案 control.sock 会超限（listen EINVAL）；克隆目录名也占长度，HOME 前缀保持短。
   return fs.mkdtempSync(path.join("/tmp", prefix));
 }
 
 /** 在档案 agent 目录写入指向 MockModelServer 的有效模型配置。 */
 async function writeMockModelConfig(agentDir: string, baseUrl: string): Promise<void> {
   fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-  await writeModelsJson({ root: "", dataDir: "", agentDir }, baseUrl);
+  await writeModelsJson({ agentDir }, baseUrl);
   fs.writeFileSync(path.join(agentDir, "auth.json"), JSON.stringify({ mock: { type: "api_key", key: "mock-key" } }, null, 2), {
     mode: 0o600,
   });
@@ -75,8 +60,8 @@ interface DevRun {
   waitExit: () => Promise<number | null>;
 }
 
-function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}, product: "ruukoto-code" = "ruukoto-code"): DevRun {
-  const entry = `apps/${product}/src/dev.ts`;
+function runDev(home: string, args: string[] = [], extraEnv: NodeJS.ProcessEnv = {}): DevRun {
+  const entry = "apps/ruukoto/src/dev.ts";
   const child = spawn(process.execPath, ["--import", "tsx", entry, ...args], {
     cwd: repoRoot,
     env: { ...process.env, HOME: home, ...extraEnv },
@@ -108,21 +93,21 @@ async function killDev(run: DevRun): Promise<void> {
   }
 }
 
-function assertCodeBackendStopped(profile: ReturnType<typeof devProfileFor>): void {
+function assertCodeBackendStopped(profile: ProfilePaths): void {
   for (const lock of [path.join(profile.dataDir, "runtime.lock"), path.join(profile.agentDir, "config.lock")]) {
     assert.ok(!fs.existsSync(lock), `退出后释放 ${lock}`);
   }
-  assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "退出后清理控制面 socket");
-  const backendLog = fs.readFileSync(path.join(profile.logsDir, "backend.log"), "utf8");
+  assert.ok(!fs.existsSync(profile.socketPath), "退出后清理控制面 socket");
+  const backendLog = fs.readFileSync(profile.backendLogPath, "utf8");
   assert.ok(backendLog.includes("后台已启动"), "后台日志含启动记录");
   const pid = Number(/\(pid (\d+)\)/.exec(backendLog)?.[1]);
   assert.ok(Number.isInteger(pid) && pid > 0, `backend.log 应含后台 pid：${backendLog.slice(-300)}`);
   assert.throws(() => process.kill(pid, 0), /ESRCH/, "后台进程随开发入口退出，无残留");
   const db = new DatabaseSync(path.join(profile.dataDir, "ruukoto.db"), { readOnly: true });
   try {
-    assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'product.type'").get()!.value, "ruukoto-code");
+    assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'product.type'").get()!.value, "ruukoto");
     const started = db.prepare("SELECT body FROM events").all().map((row) => JSON.parse(String(row.body))).find((event) => event.type === "backend.started");
-    assert.equal(started?.product, "ruukoto-code");
+    assert.equal(started?.product, "ruukoto");
     assert.equal(started?.executionBackend, "native", "code 沿用产品默认执行后端");
   } finally {
     db.close();
@@ -131,92 +116,23 @@ function assertCodeBackendStopped(profile: ReturnType<typeof devProfileFor>): vo
 
 // ---------- 单元 ----------
 
-test("档案路径：稳定、按仓库区分、在仓库外、随 HOME 参数变化", () => {
+test("checkout raw selection is stable, isolated and round trips through child environment", async t => {
   const home = tmpHome();
-  const fixtureRepo = path.join(home, "fixture-repo");
-  fs.mkdirSync(fixtureRepo);
-  const a = devProfileFor(fixtureRepo, home);
-  const b = devProfileFor(fixtureRepo, home);
-  assert.deepEqual(a, b, "同一仓库同一 HOME 结果稳定");
-  const real = fs.realpathSync(fixtureRepo);
-  const hash = crypto.createHash("sha256").update(real).digest("hex").slice(0, 8);
-  assert.equal(a.product, "ruukoto");
-  assert.equal(a.root, path.join(home, ".ruukoto-dev", `fixture-repo-${hash}`));
-  assert.ok(!a.root.startsWith(real + path.sep), "档案在仓库外（保护根不含它）");
-  for (const sub of [a.dataDir, a.agentDir, a.controlDir, a.pendingDir, a.logsDir]) {
-    assert.ok(sub.startsWith(a.root + path.sep));
-  }
-  assert.equal(path.dirname(a.dataDir), a.root, "dirname(dataDir)/qq-work 落在档案内");
-  const other = devProfileFor(path.join(home, "another-repo"), home);
-  assert.notEqual(other.root, a.root, "不同仓库不同档案目录");
-  const home2 = tmpHome();
-  assert.notEqual(devProfileFor(fixtureRepo, home2).root, a.root, "HOME 覆盖生效");
-});
-
-test("code 档案：同仓库稳定复用，与 dev 及日常产品档案分别隔离", () => {
-  const home = tmpHome();
-  try {
-    const a = devProfileFor(repoRoot, home, "ruukoto-code");
-    const dev = devProfileFor(repoRoot, home);
-    assert.deepEqual(a, devProfileFor(repoRoot, home, "ruukoto-code"));
-    assert.equal(a.product, "ruukoto-code");
-    assert.equal(a.root, path.join(home, ".ruukoto-code-dev", path.basename(dev.root)));
-    for (const dir of ["dataDir", "agentDir", "controlDir", "pendingDir", "logsDir", "reloadStateFile"] as const) {
-      assert.notEqual(a[dir], dev[dir], `${dir} 不跨产品复用`);
-      assert.ok(a[dir].startsWith(a.root + path.sep), `${dir} 留在 code 开发档案内`);
-    }
-    assert.ok(!a.root.startsWith(path.join(home, ".ruukoto-code") + path.sep));
-    assert.ok(!a.root.startsWith(fs.realpathSync(repoRoot) + path.sep));
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test("环境清洗：生产令牌/执行账户变量被剥除，档案目录与 QQ 停用注入", () => {
-  const profile = devProfileFor(repoRoot, tmpHome());
-  const env = buildChildEnv(
-    {
-      PATH: "/usr/bin",
-      RUUKOTO_OWNER_TOKEN: "prod-token",
-      RUUKOTO_OWNER_TOKEN_FILE: "/etc/owner.token",
-      RUUKOTO_EXECUTION_BACKEND: "systemd",
-      RUUKOTO_SERVICE_SUDO: "900",
-      RUUKOTO_DATA_DIR: "/prod/data",
-      RUUKOTO_AGENT_DIR: "/prod/agent",
-      RUUKOTO_CONTROL_DIR: "/prod/control",
-      RUUKOTO_PENDING_DIR: "/prod/pending",
-      RUUKOTO_DISABLE_QQ: "0",
-      RUUKOTO_RELOAD_STATE_FILE: "/prod/reload.json",
-      RUUKOTO_DESKTOP_MANAGED: "1",
-      RUUKOTO_DESKTOP_DEV_NONCE: "inherited-nonce",
-    },
-    profile,
-  );
-  for (const key of [
-    "RUUKOTO_OWNER_TOKEN",
-    "RUUKOTO_OWNER_TOKEN_FILE",
-    "RUUKOTO_EXECUTION_BACKEND",
-    "RUUKOTO_SERVICE_SUDO",
-    "RUUKOTO_RELOAD_STATE_FILE",
-    "RUUKOTO_DESKTOP_MANAGED",
-    "RUUKOTO_DESKTOP_DEV_NONCE",
-  ]) {
-    assert.equal(env[key], undefined, `${key} 不得继承`);
-  }
-  assert.equal(env.PATH, "/usr/bin", "普通变量保留");
-  assert.equal(env.RUUKOTO_PRODUCT, "ruukoto", "产品由入口显式钉定");
-  assert.equal(env.RUUKOTO_DATA_DIR, profile.dataDir);
-  assert.equal(env.RUUKOTO_AGENT_DIR, profile.agentDir);
-  assert.equal(env.RUUKOTO_CONTROL_DIR, profile.controlDir);
-  assert.equal(env.RUUKOTO_PENDING_DIR, profile.pendingDir);
-  assert.equal(env.RUUKOTO_DISABLE_QQ, "1", "dev 固定停用真实 QQ 通道");
-  assert.equal(env.RUUKOTO_DISABLE_TELEGRAM, "1", "dev 固定停用真实 Telegram 通道");
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const selection = devProfileFor(repoRoot, home);
+  assert.deepEqual(selection, devProfileFor(repoRoot, home));
+  assert.ok(selection.dataDir.includes(".ruukoto-dev"));
+  const profile = await bootstrapProfile(selection);
+  const env = buildChildEnv({ PATH: "/usr/bin", RUUKOTO_OWNER_TOKEN: "daily", RUUKOTO_OWNER_TOKEN_FILE: "/daily/token", RUUKOTO_EXECUTION_BACKEND: "local", RUUKOTO_DATA_DIR: "/daily/data", RUUKOTO_DESKTOP_MANAGED: "1", RUUKOTO_DESKTOP_DEV_NONCE: "daily" }, profile);
+  assert.deepEqual(selectionTuple(selectProfile({}, env, home)), selectionTuple(selection));
+  assert.equal(env.PATH, "/usr/bin");
+  for (const key of ["RUUKOTO_OWNER_TOKEN", "RUUKOTO_OWNER_TOKEN_FILE", "RUUKOTO_EXECUTION_BACKEND", "RUUKOTO_DESKTOP_MANAGED", "RUUKOTO_DESKTOP_DEV_NONCE"]) assert.equal(env[key], undefined);
+  assert.notEqual(profile.dataDir, selection.dataDir);
 });
 
 test("监听分类：tui / config-tui / backend / both / self", () => {
   assert.equal(classifyWatchPath("packages/tui/src/dev.ts"), "self");
   assert.equal(classifyWatchPath("apps/ruukoto/src/dev.ts"), "self");
-  assert.equal(classifyWatchPath("apps/ruukoto-code/src/dev.ts"), "self");
   assert.equal(classifyWatchPath("apps/desktop/src/main/index.ts"), null);
   assert.equal(classifyWatchPath("apps/desktop/src/preload/index.ts"), null);
   assert.equal(classifyWatchPath("apps/desktop/src/renderer/App.tsx"), null);
@@ -228,10 +144,9 @@ test("监听分类：tui / config-tui / backend / both / self", () => {
   assert.equal(classifyWatchPath("packages/tui/src/config-tui/panels/models.ts"), "config-tui");
   assert.equal(classifyWatchPath("apps/ruukoto/src/main.ts"), "backend");
   assert.equal(classifyWatchPath("packages/tui/src/cli.ts"), "backend");
-  assert.equal(classifyWatchPath("apps/ruukoto-code/src/product.ts"), "backend");
   assert.equal(classifyWatchPath("packages/runtime/src/runtime.ts"), "backend");
   assert.equal(classifyWatchPath("packages/agent/src/model-config.ts"), "backend");
-  assert.equal(classifyWatchPath("packages/channels/src/qq/adapter.ts"), "backend");
+  assert.equal(classifyWatchPath("packages/channels/src/scheduler/time.ts"), "backend");
   assert.equal(classifyWatchPath("packages/control/src/server.ts"), "both");
   assert.equal(classifyWatchPath("packages/core/src/types.ts"), "both");
   assert.equal(classifyWatchPath("packages/tui/src/cli-entry.ts"), "both");
@@ -256,62 +171,20 @@ test("重启计划：后台变更只重启后台；配置中心不重连，随�
   assert.deepEqual(planWatchRestart(["config-tui"], "desktop"), { backend: false, frontend: false });
 });
 
-test("参数解析：dev 仅后台、code 默认 TUI；--config 取代 TUI，严格拒绝旧 --tui", () => {
-  assert.deepEqual(parseDevArgs([]), { tui: false, config: false, desktop: false, importModels: undefined, workspacePath: undefined });
-  assert.deepEqual(parseDevArgs([], "ruukoto-code"), { tui: true, config: false, desktop: false, importModels: undefined, workspacePath: undefined });
-  assert.deepEqual(parseDevArgs(["--config"]), { tui: false, config: true, desktop: false, importModels: undefined, workspacePath: undefined });
-  assert.deepEqual(parseDevArgs(["--config"], "ruukoto-code"), { tui: false, config: true, desktop: false, importModels: undefined, workspacePath: undefined });
-  for (const product of ["ruukoto", "ruukoto-code"] as const) {
-    assert.equal(parseDevArgs(["--import-models", "/tmp/x"], product).importModels, "/tmp/x");
-    assert.throws(() => parseDevArgs(["--tui"], product));
-    assert.throws(() => parseDevArgs(["--nope"], product));
-  }
-  assert.throws(() => parseDevArgs(["pos"]));
-});
-
-test("code 路径参数：单目录可与模型导入同用，拒绝多个目录及配置模式", () => {
-  for (const dir of ["../my project", "/tmp/work", "config", "server"]) {
-    assert.equal(parseDevArgs([dir], "ruukoto-code").workspacePath, dir);
-  }
-  assert.deepEqual(parseDevArgs(["../my project", "--import-models", "/tmp/models"], "ruukoto-code"), {
-    tui: true, config: false, desktop: false, importModels: "/tmp/models", workspacePath: "../my project",
-  });
-  assert.throws(() => parseDevArgs(["/tmp/a", "/tmp/b"], "ruukoto-code"), /只接受一个路径/);
-  assert.throws(() => parseDevArgs(["--config", "/tmp/a"], "ruukoto-code"), /不能与工作区路径同用/);
-  assert.equal(parseDevArgs(["--", "--config"], "ruukoto-code").workspacePath, "--config");
-});
-
-test("桌面参数：仅 code 可用，取代 TUI，拒绝配置中心与工作区路径", () => {
-  assert.deepEqual(parseDevArgs(["--desktop", "--import-models", "/tmp/models"], "ruukoto-code"), {
-    tui: false, config: false, desktop: true, importModels: "/tmp/models", workspacePath: undefined,
-  });
-  assert.throws(() => parseDevArgs(["--desktop"]), /只适用于 ruukoto-code/);
-  assert.throws(() => parseDevArgs(["--desktop", "--config"], "ruukoto-code"), /不能与 --config 同用/);
-  assert.throws(() => parseDevArgs(["--desktop", "/tmp/work"], "ruukoto-code"), /不能与工作区路径同用/);
-});
-
-test("importModelConfigs：只复制 models.json/auth.json（0600），忽略 credentials.json", () => {
-  const dir = tmpHome("ruukoto-test-import-");
-  const src = path.join(dir, "src");
-  const dst = path.join(dir, "agent");
-  fs.mkdirSync(src, { recursive: true });
-  fs.writeFileSync(path.join(src, "models.json"), "{}");
-  fs.writeFileSync(path.join(src, "auth.json"), "{}");
-  fs.writeFileSync(path.join(src, "credentials.json"), "{}");
-  const copied = importModelConfigs(src, dst);
-  assert.deepEqual(copied.sort(), ["auth.json", "models.json"]);
-  for (const name of ["models.json", "auth.json"]) {
-    assert.equal(fs.statSync(path.join(dst, name)).mode & 0o777, 0o600, `${name} 0600`);
-  }
-  assert.ok(!fs.existsSync(path.join(dst, "credentials.json")), "credentials.json 绝不导入");
-  assert.deepEqual(importModelConfigs(path.join(dir, "empty"), dst), [], "目录无文件不报错");
+test("dev selects TUI, configuration or desktop without product switches", () => {
+  assert.deepEqual(parseDevArgs([]), { tui: true, config: false, desktop: false, workspacePath: undefined });
+  assert.equal(parseDevArgs(["--config"]).config, true);
+  assert.equal(parseDevArgs(["--desktop"]).desktop, true);
+  assert.equal(parseDevArgs(["../my project"]).workspacePath, "../my project");
+  assert.equal(parseDevArgs(["--", "--config"]).workspacePath, "--config");
+  for (const args of [["--desktop", "--config"], ["--config", "/work"], ["--desktop", "/work"], ["a", "b"], ["--tui"], ["--import-models", "/old"]]) assert.throws(() => parseDevArgs(args));
 });
 
 // ---------- 集成（真实仓库 + HOME=临时目录） ----------
 
 test("桌面开发入口：清洗档案环境、每次生成 nonce；退出前端或启动器都清理整组进程", { timeout: 180_000 }, async () => {
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   const binDir = path.join(home, "bin");
@@ -336,8 +209,8 @@ process.on("SIGTERM", () => {
 });
 process.on("SIGUSR2", () => { electron.unref(); process.exit(0); });
 log({ kind: "vite", pid: process.pid, argv: process.argv.slice(2), cwd: process.cwd(),
-  product: process.env.RUUKOTO_PRODUCT, dataDir: process.env.RUUKOTO_CODE_DATA_DIR,
-  controlDir: process.env.RUUKOTO_CODE_CONTROL_DIR, ownerToken: process.env.RUUKOTO_OWNER_TOKEN,
+  dataDir: process.env.RUUKOTO_DATA_DIR,
+  controlDir: process.env.RUUKOTO_CONTROL_DIR, ownerToken: process.env.RUUKOTO_OWNER_TOKEN,
   managed: process.env.RUUKOTO_DESKTOP_MANAGED, nonce: process.env.RUUKOTO_DESKTOP_DEV_NONCE });
 setInterval(() => {}, 1000);
 `, { mode: 0o755 });
@@ -353,11 +226,11 @@ setInterval(() => {}, 1000);
       const run = runDev(home, ["--desktop"], {
         PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
         DESKTOP_FIXTURE_LOG: fixtureLog,
-        RUUKOTO_CODE_DATA_DIR: "/daily/data",
-        RUUKOTO_CODE_CONTROL_DIR: "/daily/control",
+        RUUKOTO_DATA_DIR: "/daily/data",
+        RUUKOTO_CONTROL_DIR: "/daily/control",
         RUUKOTO_OWNER_TOKEN: "daily-token",
         RUUKOTO_DESKTOP_DEV_NONCE: "inherited-nonce",
-      }, "ruukoto-code");
+      });
       let vitePid: number | undefined;
       try {
         await waitFor("桌面替身与 Electron 子进程已启动", () => {
@@ -368,9 +241,8 @@ setInterval(() => {}, 1000);
         vitePid = vite.pid;
         assert.deepEqual(vite.argv, ["dev", "--watch"]);
         assert.equal(vite.cwd, fs.realpathSync(path.join(repoRoot, "apps", "desktop")));
-        assert.equal(vite.product, "ruukoto-code");
-        assert.equal(vite.dataDir, profile.dataDir);
-        assert.equal(vite.controlDir, profile.controlDir);
+        assert.equal(vite.dataDir, profile.selection.dataDir);
+        assert.equal(vite.controlDir, profile.selection.controlDir);
         assert.equal(vite.ownerToken, undefined);
         assert.equal(vite.managed, "1");
         assert.ok(vite.nonce && vite.nonce !== "inherited-nonce");
@@ -405,16 +277,15 @@ setInterval(() => {}, 1000);
   }
 });
 
-for (const product of ["ruukoto-code"] as const) {
+{
   for (const flag of ["--tui", "--nope"]) {
-    test(`${product} 开发入口：${flag} 在建目录前失败（无副作用）`, { timeout: 60_000 }, async () => {
+    test(`development rejects ${flag} before storage`, { timeout: 60_000 }, async () => {
       const home = tmpHome();
-      const run = runDev(home, [flag], {}, product);
+      const run = runDev(home, [flag]);
       try {
         assert.equal(await run.waitExit(), 1);
         assert.ok(run.stderr().includes("参数错误"), run.stderr());
         assert.ok(!fs.existsSync(path.join(home, ".ruukoto-dev")), "dev 档案未被创建");
-        assert.ok(!fs.existsSync(path.join(home, ".ruukoto-code-dev")), "code 档案未被创建");
       } finally {
         await killDev(run);
         fs.rmSync(home, { recursive: true, force: true });
@@ -422,16 +293,16 @@ for (const product of ["ruukoto-code"] as const) {
     });
   }
 
-  test(`${product} 开发入口：无模型提示本入口的配置命令且不启动后台`, { timeout: 60_000 }, async () => {
+  test("development without a model leaves a recoverable profile but no backend", { timeout: 60_000 }, async () => {
     const home = tmpHome();
-    const profile = devProfileFor(repoRoot, home, product);
-    const run = runDev(home, [], {}, product);
+    const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
+    const run = runDev(home);
     try {
       assert.equal(await run.waitExit(), 1);
       assert.ok(run.stderr().includes("未配置有效模型"), run.stderr());
-      assert.ok(run.stderr().includes("npm run code -- --config"), run.stderr());
-      assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "后台未启动");
-      assert.ok(!fs.existsSync(path.join(profile.logsDir, "backend.log")), "未产生后台日志");
+      assert.ok(run.stderr().includes("npm run dev -- --config"), run.stderr());
+      assert.ok(!fs.existsSync(profile.socketPath), "后台未启动");
+      assert.ok(!fs.existsSync(profile.backendLogPath), "未产生后台日志");
     } finally {
       await killDev(run);
       fs.rmSync(home, { recursive: true, force: true });
@@ -439,33 +310,10 @@ for (const product of ["ruukoto-code"] as const) {
   });
 }
 
-test("code --import-models：复制后进入门禁；无效配置退出且 credentials.json 未导入", { timeout: 60_000 }, async () => {
-  const home = tmpHome();
-  const dir = tmpHome("ruukoto-test-import-src-");
-  fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ providers: {} }));
-  fs.writeFileSync(path.join(dir, "auth.json"), "{}");
-  fs.writeFileSync(path.join(dir, "credentials.json"), "{}");
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
-  const run = runDev(home, ["--import-models", dir]);
-  try {
-    const code = await run.waitExit();
-    assert.equal(code, 1, run.stderr());
-    assert.ok(run.stderr().includes("已导入模型配置"), run.stderr());
-    assert.ok(run.stderr().includes("未配置有效模型"), run.stderr());
-    assert.ok(fs.existsSync(path.join(profile.agentDir, "models.json")));
-    assert.ok(fs.existsSync(path.join(profile.agentDir, "auth.json")));
-    assert.equal(fs.statSync(path.join(profile.agentDir, "models.json")).mode & 0o777, 0o600);
-    assert.ok(!fs.existsSync(path.join(profile.agentDir, "credentials.json")));
-  } finally {
-    await killDev(run);
-    fs.rmSync(home, { recursive: true, force: true });
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test("code：开发实例已在运行 → 报错退出且不碰外来后台", { timeout: 180_000 }, async () => {
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   fs.mkdirSync(profile.dataDir, { recursive: true });
   fs.mkdirSync(profile.agentDir, { recursive: true });
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
@@ -474,30 +322,30 @@ test("code：开发实例已在运行 → 报错退出且不碰外来后台", { 
   try {
     const baseUrl = await server.start();
     await writeMockModelConfig(profile.agentDir, baseUrl);
-    backend = await spawnBackend(profile.dataDir, profile.agentDir);
+    backend = await spawnBackend(profile);
     run = runDev(home);
     const code = await run.waitExit();
     assert.equal(code, 1);
     assert.ok(run.stderr().includes("已在运行"), run.stderr());
     assert.ok(
-      await probeControlPlane(path.join(profile.controlDir, "control.sock"), readOwnerToken(profile.controlDir), 800),
+      await probeControlPlane(profile, readOwnerToken(profile.controlDir), 800),
       "外来后台仍在运行，dev 不得停止它",
     );
   } finally {
     if (run) await killDev(run);
     if (backend) await killBackend(backend);
     await server.close();
-    fs.rmSync(home, { recursive: true, force: true });
+    await cleanupDirs({ root: home, profile });
   }
 });
 
 test("code：有效模型但非 TTY 时非零退出并清理后台", { timeout: 120_000 }, async () => {
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   await writeMockModelConfig(profile.agentDir, baseUrl);
-  const run = runDev(home, [], {}, "ruukoto-code");
+  const run = runDev(home);
   try {
     assert.equal(await run.waitExit(), 1, run.stderr());
     assert.match(run.stderr(), /TUI 需要交互式终端/);
@@ -511,17 +359,15 @@ test("code：有效模型但非 TTY 时非零退出并清理后台", { timeout: 
 
 test("code --config：已有 socket 即拒绝接管，不等认证或把停止中的后台重复拉起", { timeout: 30_000 }, async () => {
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
-  fs.mkdirSync(profile.controlDir, { recursive: true });
-  fs.writeFileSync(path.join(profile.controlDir, "owner.token"), "a".repeat(64), { mode: 0o600 });
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   const sockets = new Set<net.Socket>();
   let accepted = false;
   const stalled = net.createServer((socket) => {
     sockets.add(socket);
     accepted = true;
   });
-  await new Promise<void>((resolve) => stalled.listen(path.join(profile.controlDir, "control.sock"), resolve));
-  const run = runDev(home, ["--config"], {}, "ruukoto-code");
+  await new Promise<void>((resolve) => stalled.listen(profile.socketPath, resolve));
+  const run = runDev(home, ["--config"]);
   try {
     assert.equal(await run.waitExit(), 1, run.stderr());
     assert.equal(accepted, true);
@@ -529,7 +375,7 @@ test("code --config：已有 socket 即拒绝接管，不等认证或把停止�
     assert.ok(!run.stderr().includes("先打开离线配置中心"), run.stderr());
     assert.ok(!run.stderr().includes("配置中心需要交互式终端"), "终止后不派生配置进程");
     assert.ok(!fs.existsSync(path.join(profile.agentDir, "config.lock")), "未启动离线配置或留下配置锁");
-    assert.ok(!fs.existsSync(path.join(profile.logsDir, "backend.log")), "未启动后台");
+    assert.ok(!fs.existsSync(profile.backendLogPath), "未启动后台");
   } finally {
     await killDev(run);
     for (const socket of sockets) socket.destroy();
@@ -556,7 +402,7 @@ async function startReloadApp(
   const state = new ViewState();
   let appRef: TuiApp | null = null;
   const connection = new ControlConnection(
-    { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
+    { profile: t.dirs.profile, token: readOwnerToken(t.runtime.controlDir())! },
     {
       onState: (s, d) => appRef?.onConnectionState(s, d),
       onSnapshot: (r, ctx) => appRef?.onSnapshot(r, ctx),
@@ -884,7 +730,7 @@ async function runCodeInPty(opts: {
   timeout?: number;
 }): Promise<PtyResult> {
   const payload = JSON.stringify({
-    cmd: ["npm", "run", "code", ...(opts.args?.length ? ["--", ...opts.args] : [])],
+    cmd: ["npm", "run", "dev", ...(opts.args?.length ? ["--", ...opts.args] : [])],
     env: opts.env,
     inputs: opts.inputs,
     expect: opts.expect,
@@ -907,13 +753,13 @@ async function runCodeInPty(opts: {
   });
 }
 
-test("PTY：npm run code 默认 TUI，/quit 后退出、终端恢复、日志不交错、无残留进程", { timeout: 90_000 }, async (t) => {
+test("PTY：npm run dev 默认 TUI，/quit 后退出、终端恢复、日志不交错、无残留进程", { timeout: 90_000 }, async (t) => {
   if (!hasPython3()) {
     t.skip("python3 不可用");
     return;
   }
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   await writeMockModelConfig(profile.agentDir, baseUrl);
@@ -928,15 +774,14 @@ test("PTY：npm run code 默认 TUI，/quit 后退出、终端恢复、日志不
     assert.ok(result.all.includes("\x1b[?1049l"), "Exit restores the terminal from the alternate screen");
     assert.ok(!result.all.includes("后台已启动"), "Backend logs stay out of terminal output");
     assertCodeBackendStopped(profile);
-    assert.ok(!fs.existsSync(path.join(profile.root, "workspace")), "Abandoning the draft creates no workspace directory");
+    assert.deepEqual(fs.existsSync(profile.workspaceDir) ? fs.readdirSync(profile.workspaceDir) : [], [], "Abandoning the draft creates no managed workspace");
     const db = new DatabaseSync(path.join(profile.dataDir, "ruukoto.db"), { readOnly: true });
     try {
       assert.equal(db.prepare("SELECT COUNT(*) AS count FROM projects WHERE root_real IS NOT NULL").get()!.count, 0);
-      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE id NOT IN (SELECT session_id FROM agent_roles)").get()!.count, 0);
+      assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sessions").get()!.count, 0);
       assert.equal(db.prepare("SELECT COUNT(*) AS count FROM tasks").get()!.count, 0);
     } finally { db.close(); }
-    assert.ok(!fs.existsSync(devProfileFor(repoRoot, home).root), "Code leaves the Personal development profile untouched");
-    assert.ok(!fs.existsSync(path.join(home, ".ruukoto-code")), "Code leaves the production Coding profile untouched");
+    assert.ok(!fs.existsSync(path.join(home, ".ruukoto")), "Development leaves daily storage untouched");
   } finally {
     await server.close();
     fs.rmSync(home, { recursive: true, force: true });
@@ -951,7 +796,7 @@ test("PTY：code 相对路径含空格时创建工作区，重新启动复用工
   const home = tmpHome();
   const workDir = path.join(home, "my project");
   fs.mkdirSync(workDir);
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   await writeMockModelConfig(profile.agentDir, baseUrl);
@@ -992,13 +837,13 @@ test("PTY：code 相对路径含空格时创建工作区，重新启动复用工
   }
 });
 
-test("PTY：npm run code -- --config 打开在线配置中心，退出时停开发后台", { timeout: 90_000 }, async (t) => {
+test("PTY：npm run dev -- --config 打开在线配置中心，退出时停开发后台", { timeout: 90_000 }, async (t) => {
   if (!hasPython3()) {
     t.skip("python3 不可用");
     return;
   }
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   await writeMockModelConfig(profile.agentDir, baseUrl);
@@ -1026,7 +871,7 @@ test("PTY：code 首次 --config 进入离线配置，放弃后不启动后台�
     return;
   }
   const home = tmpHome();
-  const profile = devProfileFor(repoRoot, home, "ruukoto-code");
+  const profile = await bootstrapProfile(devProfileFor(repoRoot, home));
   try {
     const result = await runCodeInPty({
       env: { HOME: home },
@@ -1037,9 +882,8 @@ test("PTY：code 首次 --config 进入离线配置，放弃后不启动后台�
     assert.equal(result.expectSeen, result.expectTotal, result.tail);
     assert.equal(result.exitCode, 1, "放弃首次模型配置后不能声称启动成功");
     assert.ok(!fs.existsSync(path.join(profile.agentDir, "config.lock")), "离线配置退出释放锁");
-    assert.ok(!fs.existsSync(path.join(profile.controlDir, "control.sock")), "后台未启动");
-    assert.ok(!fs.existsSync(path.join(profile.logsDir, "backend.log")), "未产生后台日志");
-    assert.ok(!fs.existsSync(devProfileFor(repoRoot, home).root), "首次配置只写 code 开发档案");
+    assert.ok(!fs.existsSync(profile.socketPath), "后台未启动");
+    assert.ok(!fs.existsSync(profile.backendLogPath), "未产生后台日志");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

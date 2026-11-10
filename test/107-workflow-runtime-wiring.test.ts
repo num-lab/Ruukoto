@@ -53,7 +53,6 @@ test("Runtime 的运行授权独立于原任务，主会话可继续，步骤结
     assert.equal(identity.workflow!.runId, run.id);
     assert.equal(identity.workflow!.sourceSessionId, session.id);
     assert.equal(rt.store.listUndeliveredSubAgentResults(session.id).length, 0);
-    assert.equal(rt.store.listRoleTasksPendingWake().some(item => item.id === task.id), false);
     assert.equal(rt.store.listTasksBySession(session.id).some(item => item.requestId === `wake:${task.id}`), false);
     assert.equal(t.server.calls.length, 2);
     assert.equal(rt.store.listTasksBySession(session.id).filter(item => item.requestId.startsWith("workflow-final:")).length, 1);
@@ -162,7 +161,7 @@ for (const paused of [false, true]) test(`重启使用真实步骤执行器时�
     if (paused) await rt.workflows!.control(run.id, "pause", requireWorkflowRun(rt.store, run.id).version, { action: "pause" });
     await rt.stop("test_restart");
     if (!paused) {
-      const db = new Db(rt.config.dataDir);
+      const db = new Db(rt.config.profile.dataDir);
       const store = new Store(db);
       try { store.withTx(() => setWorkflowState(store, run.id, "queued", null)); }
       finally { db.close(); }

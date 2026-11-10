@@ -4,7 +4,6 @@ import { MAX_ATTACHMENTS } from "@ruukoto/core/attachments.ts";
 import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { ModelSelection, Session, SessionDefaultMode, ThinkingLevel } from "@ruukoto/core/types.ts";
 import type { CodeState } from "./code-state.ts";
-import { queueDecision } from "./code-writes.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select.tsx";
@@ -105,7 +104,6 @@ export function Composer({ model, session, onNew, onSkills }: { model: CodeState
   const writes = model.writes;
   const draft = writes.draft(session.id);
   const input = useRef<HTMLTextAreaElement>(null);
-  const [queueConfirm, setQueueConfirm] = useState(false);
   const [stopConfirm, setStopConfirm] = useState(false);
   const [guidance, setGuidance] = useState(false);
   const picking = !!draft.attaching;
@@ -121,9 +119,8 @@ export function Composer({ model, session, onNew, onSkills }: { model: CodeState
   const stopping = !!active && !hasInput;
   // Guidance uses the active ordinary Task.
   const canSteer = !!active && !scheduled && session.queueState !== "paused";
-  const availableModes = model.target === "personal" ? composerModes.filter(mode => mode.value !== "plan") : composerModes;
+  const availableModes = composerModes;
   const selected = session.modelSelection;
-  const decision = queueDecision(model.view, session);
   const hasQueue = model.view.queuedTasksFor(session.id).length > 0;
   const resuming = session.queueState === "paused" && hasQueue && !hasInput && !active && !scheduled;
   const canSend = commands.application ? !checking && !writes.busy.has(session.id) && !picking : !blocked && !picking && !model.compactions.occupied(session.id) && (stopping || resuming || !inputLocked && hasInput && !!selected);
@@ -143,8 +140,6 @@ export function Composer({ model, session, onNew, onSkills }: { model: CodeState
     if (stopping) { void writes.control("interrupt", session.id, active!.id); return; }
     if (resuming) {
       if (writes.stopConfirmationNeeded(session.id)) setStopConfirm(true);
-      else if (decision.kind === "select_model") { writes.message = "The queued task has no model. Select a model first."; model.refresh(); }
-      else if (decision.kind === "confirm") setQueueConfirm(true);
       else void writes.resume(session);
       return;
     }
@@ -182,5 +177,5 @@ export function Composer({ model, session, onNew, onSkills }: { model: CodeState
         </div>
       </form>
     </div>
-  </div>{commands.help}<Dialog open={queueConfirm && resuming && decision.kind === "confirm"} onOpenChange={setQueueConfirm}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>Resume queue</DialogTitle><DialogDescription>{decision.kind === "confirm" ? `Fill in ${decision.selection.modelId} · ${decision.selection.thinkingLevel} for ${decision.count} queued task(s), then resume the queue.` : ""}</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setQueueConfirm(false)}>Cancel</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setQueueConfirm(false); void writes.resume(session, true); }}>Fill model and resume</Button></DialogFooter></DialogContent></Dialog><Dialog open={stopConfirm && resuming} onOpenChange={setStopConfirm}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>Verify the old run stopped</DialogTitle><DialogDescription>Verify in the runtime environment that the old task and its managed processes have exited. Confirming releases the held occupation and resumes the queue.</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setStopConfirm(false)}>Go verify</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setStopConfirm(false); void writes.resume(session, true, true); }}>Verified stopped; resume</Button></DialogFooter></DialogContent></Dialog></div>;
+  </div>{commands.help}<Dialog open={stopConfirm && resuming} onOpenChange={setStopConfirm}><DialogContent className="app-dialog"><DialogHeader><DialogTitle>Verify the old run stopped</DialogTitle><DialogDescription>Verify in the runtime environment that the old task and its managed processes have exited. Confirming releases the held occupation and resumes the queue.</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setStopConfirm(false)}>Go verify</Button><Button disabled={!canSend || !resuming} onClick={() => { if (!canSend || !resuming) return; setStopConfirm(false); void writes.resume(session, true); }}>Verified stopped; resume</Button></DialogFooter></DialogContent></Dialog></div>;
 }

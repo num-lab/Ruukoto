@@ -24,13 +24,12 @@ const notes = (view: SessionView) => view.flow.items.filter((entry) => entry.kin
 
 function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectResult["snapshot"] {
   return {
-    product: "ruukoto-code", mainSessionId: null,
+    product: "ruukoto",
     projects: [{ id: "proj_1", name: "演示", createRequestId: null, rootDir: null, instructionFiles: [], settingsVersion: 1, createdAt: "2026-09-20T00:00:00Z" }],
     sessions: [
       {
         id: "sess_1",
         projectId: "proj_1",
-        workspaceProjectId: null,
     name: null,
     branchSource: null,
         kind: "dev",
@@ -56,6 +55,7 @@ function snapshot(overrides: Partial<ConnectResult["snapshot"]> = {}): ConnectRe
     artifacts: [],
     previews: {},
     instanceId: "inst-1",
+    layout: "ruukoto-single-v1",
     execution: { backend: "local", note: "local 执行后端：无隔离" },
     defaultModel: { provider: "mock", id: "mock-model", name: "Mock", thinkingLevel: "off" },
     ...overrides,
@@ -83,9 +83,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     errorMessage: null,
     historyEntryIds: [],
     resumesTaskId: null,
-    agentId: null,
     parentTaskId: null,
-    sourceEventId: null,
     deadline: null,
     resultSummary: null,
     resultRef: null,
@@ -376,7 +374,7 @@ test("sanitizeForDisplay：不可见控制字符显示为转义形式；换行�
 });
 
 
-test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置事件同步", () => {
+test("model selection rejects stale versions and replay never rolls back", () => {
   const state = new ViewState();
   state.applySnapshot({ seq: 10, replay: [], snapshot: snapshot({ tasks: [task("queued", { status: "queued" })] }) }, false);
   const selection = { provider: "other", modelId: "model", thinkingLevel: "off" as const };
@@ -385,8 +383,6 @@ test("模型选择只接受非旧版本，replay 不回滚，旧排队补配置�
   state.applyEvent(ev(2, { type: "session.model_selection_changed", sessionId: "sess_1", modelSelection: { ...selection, modelId: "replay" }, modelSelectionVersion: 4 }), "replay");
   assert.deepEqual(state.sessions[0]!.modelSelection, selection);
   assert.equal(state.sessions[0]!.modelSelectionVersion, 3);
-  state.applyEvent(ev(11, { type: "tasks.model_selection_recorded", sessionId: "sess_1", taskIds: ["queued"], modelSelection: selection }), "live");
-  assert.deepEqual(state.getTask("queued")!.modelSelection, selection);
 });
 
 // ---------- 自动审查（issue 15） ----------
@@ -499,24 +495,6 @@ test("MCP 事件：服务变更全局提示与任务内不可用提示（issue 1
   assert.ok(notes(view).some((n) => n.text.includes("MCP 服务 docs") && n.text.includes("不可用") && n.text.includes("连接超时")), "不可用原因进会话提示");
 });
 
-test("github.* 历史事件：退役后按归档记录展示，不再提示旧命令（issue 17）", () => {
-  const state = new ViewState();
-  state.applySnapshot({ seq: 1, replay: [], snapshot: snapshot({ tasks: [task("task_1")] }) }, false);
-  state.openSession("sess_1");
-  // 提示由 live 事件产生（replay 的状态以快照为准，不重复生成提示——既有设计）
-  state.applyEvent(
-    ev(2, { type: "github.draft_saved", draftId: "draft_abc123456", version: 2, taskId: "task_1", sessionId: "sess_1", kind: "pr_review", bodySha256: "x".repeat(64), bodyBytes: 128 }),
-    "live",
-  );
-  state.applyEvent(
-    ev(3, { type: "github.publish_settled", publishOpId: "pub_def456789", draftId: "draft_abc123456", status: "effect_unknown", remoteUrl: null, errorMessage: "退役迁移：批准已消费" }),
-    "live",
-  );
-  const view = state.openSession("sess_1");
-  const all = [...notes(view), ...state.globalNotes].map((n) => n.text).join("\n");
-  assert.ok(all.includes("历史记录"), "github 事件按归档记录展示");
-  assert.ok(!all.includes("/github"), "不再提示已退役的 /github 命令");
-});
 
 test("TUI 共用审批选择器排除终态与旧权限版本，模式失败投影中断并结束计时", () => {
   const state = new ViewState();

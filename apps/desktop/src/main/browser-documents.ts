@@ -56,6 +56,7 @@ export class BrowserDocuments {
   private closed = false;
   private reads = 0;
   constructor(protectedPaths: string[]) { this.protectedRoots = protectedPaths.map(protectedRoot); }
+  protectPaths(paths: string[]): void { this.protectedRoots.push(...paths.map(protectedRoot)); }
   private protect(target: string): void {
     if (this.protectedRoots.some(root => inside(root, target))) failure("browser_file_unsafe", "This file is in a protected scope and can't be previewed.");
   }

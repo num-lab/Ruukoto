@@ -8,16 +8,16 @@
 
 | CLI | Purpose |
 | --- | --- |
-| `ruukoto-code [path]` | Open a workspace or the conversation selector, including No workspace; start backend on demand |
-| `ruukoto-code server` | Foreground backend |
-| `ruukoto-code config` | Model, credential and default configuration |
-| `ruukoto-code stop` | Graceful backend stop |
-| `ruukoto-code status` | Noninteractive backend/task status |
-| `ruukoto-code submit <input>` | Submit a new task to a selected conversation and return its ID |
-| `ruukoto-code resume-queue <session> [--stop-confirmed]` | Resume dispatch; use the flag only after verifying old retained execution has stopped |
-| `ruukoto-code mcp cua` | Open computer selection/recovery in configuration |
+| `ruukoto [path]` | Open a workspace or the conversation selector, including No workspace; start backend on demand |
+| `ruukoto server` | Foreground backend |
+| `ruukoto config` | Model, credential and default configuration |
+| `ruukoto stop` | Graceful backend stop |
+| `ruukoto status` | Noninteractive backend/task status |
+| `ruukoto submit <input>` | Submit a new task to a selected conversation and return its ID |
+| `ruukoto resume-queue <session> [--stop-confirmed]` | Resume dispatch; use the flag only after verifying old retained execution has stopped |
+| `ruukoto mcp cua` | Open computer selection/recovery in configuration |
 
-Online MCP settings are instance-wide across workspaces. The owner chooses allowed tools and read/write/unknown effects; newly allowed tools default to unknown. Personal remote services, credential rebinding and original-call finalization use [desktop management](desktop.md#mcp-call-finalization-and-computer-recovery) or the [Personal CLI](personal-durable.md).
+Online MCP settings are instance-wide across workspaces. The owner chooses allowed tools and read/write/unknown effects; newly allowed tools default to unknown. CLI parses the complete raw directory selection before stateful dispatch; TUI/configuration receive activated `ProfilePaths` in-process.
 
 | TUI command | Behavior |
 | --- | --- |
@@ -56,7 +56,7 @@ sequenceDiagram
   participant TUI
   participant Control
   participant View
-  Owner->>TUI: ruukoto-code .
+  Owner->>TUI: ruukoto .
   TUI->>Control: Discover backend
   opt Backend absent
     TUI->>Control: Start detached backend
@@ -68,15 +68,15 @@ sequenceDiagram
   TUI-->>Owner: Render in raw mode
 ```
 
-Queue retrieval saves the original request key before sending, verifies lost responses through its receipt, and restores text/attachments into the initiating draft. `/recall` remains historical recall. `/questions` answers, skips or cancels within the original task; closing the window leaves it waiting. Ordinary post-interrupt drafts create new tasks; CLI `continue` and TUI `/continue` are removed, while old pending records remain verification-only in their original instance.
+Queue retrieval saves the original request key before sending, verifies lost responses through its receipt, and restores text/attachments into the initiating draft. `/recall` remains historical recall. `/questions` answers, skips or cancels within the original task; closing the window leaves it waiting. Ordinary post-interrupt drafts create new tasks. Pending journals use only the current format; malformed files remain visible for inspection, never converted into new input.
 
-On-demand backend logs go to `<controlDir>/spawn.log`. The client listens for keyboard and `SIGWINCH`, then restores cursor, alternate screen and input mode on exit.
+On-demand backend logs use `ProfilePaths.spawnLogPath`; TUI command history, reload state and pending recovery likewise use resolver-owned paths. The client restores cursor, alternate screen and input mode on exit. Offline configuration bootstraps before model readiness and acquires the configuration lock. Ordinary configuration falls back offline only when the socket is absent or refuses the connection, and still takes `config.lock`; authentication, version and profile rejection remain terminal.
 
 Computer recovery starts from the original operation in MCP settings. Verify it stopped, enable the original computer service before observation, obtain and open a new screenshot, then accept that observation. The separate begin-recovery menu is retired; existing recovery-started records continue with observation. Fetching a replacement image clears old acceptance eligibility first.
 
 ## Invariants and Failure Handling
 
-- TUI exit, terminal closure and client disconnection do not stop backend work. `ruukoto-code stop` explicitly stops the service.
+- TUI exit, terminal closure and client disconnection do not stop backend work. `ruukoto stop` explicitly stops the service.
 - Model/tool text is filtered before terminal rendering to prevent control-sequence injection.
 - A disconnected client shows reconnection state and retries with backoff, then recovers its view.
 - The offline demo covers every persistent event kind, including schedules, queue/guidance changes, recall, side chat and browser waits; unsupported writes explicitly reject rather than contacting a backend.

@@ -6,7 +6,7 @@ import { test, type TestContext } from "node:test";
 import { ArtifactStore } from "@ruukoto/agent/artifacts.ts";
 import { createLocalLauncher } from "@ruukoto/agent/execution/launchers.ts";
 import { createSubAgentTools } from "@ruukoto/agent/subagent-tools.ts";
-import { BUILTIN_SUBAGENT_ROLES, HOST_REVIEW_DEFINITION, parseSubAgentRole, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
+import { BUILTIN_SUBAGENT_ROLES, parseSubAgentRole, subAgentRoleLibrary } from "@ruukoto/agent/subagent-roles.ts";
 import { createSourceResolver } from "@ruukoto/channels/source-resolver.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
 import { Db } from "@ruukoto/core/db.ts";
@@ -40,10 +40,10 @@ function fixture(t: TestContext) {
   const createManager = () => new SubAgentManager({
     store, roles: () => loadSubAgentRoleLibrary(agentDir), workRoot: path.join(root, "children"),
     workCopies: new WorkCopyManager({ worktreeRoot: path.join(root, "copies"), protectedRoots: () => [dataDir], execute: async () => { throw new Error("本用例不准备工作副本"); } }),
-    sources: createSourceResolver({ store, access: new AccessScope(db), artifacts: new ArtifactStore(dataDir, store), appData: () => null }),
-    resolveSelection: async () => () => {}, launcherFor: () => createLocalLauncher(), defaultModelSelection: () => ({ ...selection, modelId: "backend-default" }),
+    sources: createSourceResolver({ store, access: new AccessScope(db), artifacts: new ArtifactStore(dataDir, store) }),
+    resolveSelection: async () => () => {}, launcherFor: () => createLocalLauncher(),
     kickSession: () => {}, resumeQueue: async () => {}, parentDelivery: { messageRecorded: () => { throw new Error("本用例不唤醒父会话"); } },
-    cancelTask: async () => { throw new Error("本用例不取消任务"); }, protectedRoots: () => [dataDir], dataDir,
+    cancelTask: async () => { throw new Error("本用例不取消任务"); }, protectedRoots: () => [dataDir],
   });
   let manager = createManager();
   const cleanups: (() => Promise<void>)[] = [];
@@ -86,7 +86,6 @@ test("普通工具 schema 移除 mode，旧字段在执行前拒绝，目标参�
   const inputs: SubAgentDelegateInput[] = [];
   const tool = createSubAgentTools({
     coreStore: f.store,
-    sources: createSourceResolver({ store: f.store, access: new AccessScope(f.store.db), artifacts: new ArtifactStore(path.join(f.root, "data"), f.store), appData: () => null }),
     delegate: async input => { inputs.push(input); throw new Error("已捕获参数"); },
     close: () => assert.fail("本用例不关闭"), cancelWork: async () => assert.fail("本用例不取消"), message: async () => assert.fail("本用例不发消息"), integrate: async () => assert.fail("本用例不汇入"), readReply: () => null,
     artifacts: new ArtifactStore(path.join(f.root, "data"), f.store),
@@ -155,30 +154,13 @@ test("无效覆盖、未知角色与缺来源模型不登记新执行；损坏�
   assert.equal(f.store.getSubAgent(first.agent.id)!.definitionError, "definition_corrupt");
 });
 
-test("GitHub 固定定义绕开坏用户覆盖，保留已完成来源资格与原键恢复", async t => {
-  const f = fixture(t);
-  f.role("general", "正文");
-  fs.writeFileSync(path.join(f.agentDir, "agents", "general.md"), "坏覆盖");
-  f.role("reviewer", "用户覆盖不能取代宿主定义");
-  const { event } = f.store.withTx(() => f.store.registerInboundEvent({ source: "github", externalId: "event", actor: "contributor", targetRole: "main", body: "{}" }));
-  f.store.db.prepare("UPDATE tasks SET status = 'completed', access_mode = 'confirm', source_event_id = ? WHERE id = ?").run(event.id, f.parent.id);
-  const input = { parentTaskId: f.parent.id, key: "review", request: "固定评审", paramsDigest: "review", hostReview: { sourceEventId: event.id } };
-  const review = await f.manager.delegate(input);
-  assert.deepEqual(requireSubAgentDefinition(review.agent), HOST_REVIEW_DEFINITION);
-  f.finish(review.task);
-  f.restart();
-  const replay = await f.manager.delegate(input);
-  assert.equal(replay.task.id, review.task.id);
-  assert.deepEqual(requireSubAgentDefinition(replay.agent), HOST_REVIEW_DEFINITION);
-  f.store.db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(f.parent.id);
-  await assert.rejects(f.delegate("reuse-review", { subAgentId: review.agent.id }), { code: "forbidden" });
-});
+
 
 test("工作流启动固定完整目录与诊断，编辑后步骤取原 general；损坏目录暂停且不补配置", async t => {
   const f = fixture(t);
   const general = parseSubAgentRole("general", "---\ndescription: 原始角色\n---\n固定正文");
   let catalog = subAgentRoleLibrary([general], [{ name: "broken", code: "role_invalid_frontmatter", message: "修正文件" }]);
-  const source: WorkflowSource = { product: "ruukoto-code", projectId: f.session.projectId, sessionId: f.session.id, taskId: f.parent.id, permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
+  const source: WorkflowSource = { product: "ruukoto", projectId: f.session.projectId, sessionId: f.session.id, taskId: f.parent.id, permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: [], references: [] };
   const seen: string[] = [];
   const coordinator = new WorkflowCoordinator({ store: f.store, roles: () => catalog, workRoot: path.join(f.root, "workflow"), source: () => source, selection: () => selection, verifySource: () => true,
     agent: async context => { seen.push(requireSubAgentDefinition(f.store.getSubAgent(context.task.subAgentId!)!).body); return { output: "done" }; } });
@@ -210,7 +192,7 @@ test("工作流启动固定完整目录与诊断，编辑后步骤取原 general
 test("工作流固定无效 general 诊断，后来修好配置仍不能登记步骤执行", async t => {
   const f = fixture(t);
   let catalog = subAgentRoleLibrary([], [{ name: "general", code: "role_invalid_frontmatter", message: "修正文件" }]);
-  const source: WorkflowSource = { product: "ruukoto-code", projectId: f.session.projectId, sessionId: f.session.id, taskId: f.parent.id, permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null };
+  const source: WorkflowSource = { product: "ruukoto", projectId: f.session.projectId, sessionId: f.session.id, taskId: f.parent.id, permissionVersion: 1, accessMode: "full_access", grantedPaths: [], capabilities: [], references: [] };
   const coordinator = new WorkflowCoordinator({ store: f.store, roles: () => catalog, workRoot: path.join(f.root, "workflow"), source: () => source, selection: () => selection, verifySource: () => true, agent: async () => { throw new Error("坏角色不能执行"); } });
   f.cleanup(() => coordinator.stop("test_end"));
   const input = { sourceTaskId: f.parent.id, requestKey: "workflow", script: "return await agent('first', {request:'核对资料'});", input: null };

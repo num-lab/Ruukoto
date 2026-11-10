@@ -100,7 +100,7 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--ring); }
 
 .left-sidebar { --sidebar-width: var(--left-width); position: relative; }
-.left-sidebar, .right-sidebar { width: var(--sidebar-width); flex-shrink: 0; display: flex; overflow: hidden; transition: width var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard); }
+.left-sidebar, .right-sidebar { --sidebar-resize-width: 5px; width: var(--sidebar-width); flex-shrink: 0; display: flex; overflow: hidden; transition: width var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard); }
 .left-sidebar.is-collapsed, .right-sidebar.is-collapsed { width: 0; opacity: 0; pointer-events: none; }
 .sidebar-content { width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
 .window-controls { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; flex-shrink: 0; }
@@ -343,8 +343,8 @@ body {
 .empty-state > span { color: var(--text-3); font-size: var(--font-size-caption); margin-top: 20px; }
 .empty-state-detail { margin: -6px 0 14px; max-width: 480px; color: var(--text-3); font-family: var(--font-mono); font-size: var(--font-size-caption); line-height: var(--line-height-reading); overflow-wrap: anywhere; }
 .empty-state button { font-size: var(--font-size-ui); }
-.personal-row { justify-content: flex-start; margin: 10px 10px 10px; width: calc(100% - 20px); height: 30px; padding: 0 10px; font-size: var(--font-size-ui); transition: width var(--duration-slow) var(--ease-standard), margin-inline var(--duration-slow) var(--ease-standard), padding-inline var(--duration-slow) var(--ease-standard), gap var(--duration-slow) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.personal-row.active-pill { background: var(--fill-selected); border-radius: var(--radius-md); }
+.sidebar-action { justify-content: flex-start; margin: 10px 10px 10px; width: calc(100% - 20px); height: 30px; padding: 0 10px; font-size: var(--font-size-ui); transition: width var(--duration-slow) var(--ease-standard), margin-inline var(--duration-slow) var(--ease-standard), padding-inline var(--duration-slow) var(--ease-standard), gap var(--duration-slow) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.sidebar-action.active-pill { background: var(--fill-selected); border-radius: var(--radius-md); }
 .app-dialog { background: var(--bg-elevated); color: var(--text-1); border-color: var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); max-width: 440px; font-size: var(--font-size-ui); }
 .app-dialog [data-slot="dialog-title"] { font-size: var(--font-size-title); font-weight: 500; }
 .app-dialog [data-slot="dialog-description"] { font-size: var(--font-size-ui); line-height: var(--line-height-reading); color: var(--text-2); }
@@ -371,7 +371,7 @@ body {
 @media (max-height: 600px) { .composer [data-slot="textarea"] { min-height: 40px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 .diff-more { align-self: flex-start; border: 0; background: transparent; color: var(--text-2); font-size: var(--font-size-caption); padding: 10px 2px; text-decoration: underline; text-underline-offset: 3px; }
-.sidebar-resize-handle { position: absolute; top: 0; bottom: 0; width: 5px; z-index: var(--z-handle); cursor: col-resize; touch-action: none; outline-offset: -2px; }
+.sidebar-resize-handle { position: absolute; top: 0; bottom: 0; width: var(--sidebar-resize-width); z-index: var(--z-handle); cursor: col-resize; touch-action: none; outline-offset: -2px; }
 .resize-left { right: 0; }
 .resize-right { left: 0; }
 .sidebar-resize-handle:hover, .sidebar-resize-handle[data-dragging] { background: var(--border); }
@@ -389,33 +389,7 @@ body {
 .native-message-stream .markdown, .native-message-stream [data-slot="bubble-content"] { font-size: var(--font-size-reading); line-height: var(--line-height-reading); }
 .native-message-stream .markdown code { font-size: var(--font-size-small); }
 
-.personal-message-group { display: flex; width: 100%; flex-direction: column; gap: 6px; }
-.personal-message-time { margin: 0 12px 2px; color: var(--text-3); font-size: var(--font-size-caption); line-height: 16px; font-variant-numeric: tabular-nums; }
-.personal-message-group.user .personal-message-time { align-self: flex-end; }
-.personal-message-group.agent .personal-message:not(:last-child) [data-slot="bubble-content"] { border-bottom-left-radius: var(--radius-md); }
-.personal-message-group.agent .personal-message + .personal-message [data-slot="bubble-content"] { border-top-left-radius: var(--radius-md); }
-.personal-message-group.user .personal-message:not(:last-child) [data-slot="bubble-content"] { border-bottom-right-radius: var(--radius-md); }
-.personal-message-group.user .personal-message + .personal-message [data-slot="bubble-content"] { border-top-right-radius: var(--radius-md); }
-.native-message-stream .personal-input-loading { position: absolute; right: calc(100% + 8px); top: calc(50% - 7px); width: 14px; height: 14px; color: var(--text-3); }
-.composer.personal-composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "attach input send"; align-items: center; gap: 8px; min-height: 44px; padding: 4px 10px; border-radius: var(--radius-2xl); }
-.composer.personal-composer.is-expanded { grid-template-areas: "input input input" "attach . send"; grid-template-rows: auto auto; align-items: end; padding: 12px 10px 10px; }
-.composer.personal-composer.is-expanded:has(.attached-files) { grid-template-areas: "attachments attachments attachments" "input input input" "attach . send"; }
-.composer.personal-composer .attached-files { grid-area: attachments; margin-bottom: 0; }
-.composer.personal-composer .personal-attach { grid-area: attach; width: 24px; height: 24px; min-width: 24px; padding: 0; border-radius: 50%; background: transparent; color: var(--text-1); }
-.composer.personal-composer .personal-attach:hover { background: var(--fill-hover); }
-.composer.personal-composer .personal-attach > svg { width: 20px; height: 20px; }
-.composer.personal-composer [data-slot="textarea"] { grid-area: input; min-height: 24px; max-height: 180px; font-size: var(--font-size-reading); line-height: 24px; }
-.composer.personal-composer .personal-send { grid-area: send; }
 .main-canvas .stream-scroll { -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 12px), transparent 100%); mask-image: linear-gradient(to bottom, black calc(100% - 12px), transparent 100%); }
-@media (prefers-reduced-motion: no-preference) {
-  .personal-message-group.agent [data-slot="bubble"] { transform-origin: left bottom; }
-  .personal-message-group.user [data-slot="bubble"] { transform-origin: right bottom; }
-  .personal-message-group [data-slot="bubble"][data-animate="true"] { animation: personal-bubble-pop var(--duration-slow) var(--ease-emphasized) both; }
-  @keyframes personal-bubble-pop {
-    from { opacity: 0; transform: translateY(8px) scale(.96); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
-  }
-}
 
 .approval-card { border-radius: var(--radius-2xl); }
 .owner-question-card { min-width: 0; gap: 18px; border-radius: var(--radius-2xl); padding: 20px; background: var(--bg-surface); }
@@ -460,8 +434,8 @@ body {
 .browser-toolbar [data-slot="input"] { height: 28px; border: 0; padding: 0 8px; background: var(--bg-surface); box-shadow: none; font-size: var(--font-size-small); }
 .browser-toolbar .quiet-icon:disabled { opacity: .3; }
 .browser-panel iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--background); }
-/* Native page placeholder: the region reports geometry only; the host paints it. */
-.native-browser-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Reserve the resize strip outside the native page so it remains reachable without occluding the page. */
+.native-browser-host { flex: 1; min-height: 0; margin-left: var(--sidebar-resize-width); display: flex; flex-direction: column; }
 .native-browser-host .file-panel-empty { flex: 1; }
 .native-browser-caption { margin: 0; padding: 4px 12px; font-size: var(--font-size-caption); color: var(--text-3); border-top: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .browser-note, .browser-error { margin: 0; padding: 7px 12px; font-size: var(--font-size-caption); }
@@ -553,22 +527,22 @@ body {
 
 /* The five navigation actions stay reachable in the collapsed rail. */
 .left-sidebar.is-collapsed { width: var(--sidebar-rail); opacity: 1; pointer-events: auto; }
-.left-sidebar.is-collapsed .sidebar-content > :not(.window-controls, .personal-row, .scheduled-row, .sidebar-bottom) { display: none; }
-.personal-row > span { overflow: hidden; opacity: 1; transition: opacity var(--duration-base) var(--ease-standard), translate var(--duration-slow) var(--ease-standard); }
+.left-sidebar.is-collapsed .sidebar-content > :not(.window-controls, .sidebar-action, .scheduled-row, .sidebar-bottom) { display: none; }
+.sidebar-action > span { overflow: hidden; opacity: 1; transition: opacity var(--duration-base) var(--ease-standard), translate var(--duration-slow) var(--ease-standard); }
 .sidebar-bottom { transition: padding-inline var(--duration-slow) var(--ease-standard); }
-.sidebar-content .personal-row, .sidebar-content .personal-row > svg { color: var(--text-1); }
+.sidebar-content .sidebar-action, .sidebar-content .sidebar-action > svg { color: var(--text-1); }
 .scheduled-row { margin-top: -4px; }
-.left-sidebar.is-collapsed .personal-row { width: 30px; margin-inline: 9px; padding-inline: 6px; gap: 0; border-radius: var(--radius-sm); }
+.left-sidebar.is-collapsed .sidebar-action { width: 30px; margin-inline: 9px; padding-inline: 6px; gap: 0; border-radius: var(--radius-sm); }
 /* Creating in flight swaps the row's plus for a spinner; the disabled state
    dims it, so keep it opaque while the spin animation runs. */
 .workspace-row .workspace-add:has(.animate-spin) { opacity: 1; }
-.left-sidebar.is-collapsed .personal-row span { opacity: 0; translate: -4px 0; }
+.left-sidebar.is-collapsed .sidebar-action span { opacity: 0; translate: -4px 0; }
 .left-sidebar.is-collapsed .sidebar-bottom { margin-top: auto; padding-inline: 9px; }
 .left-sidebar.is-collapsed > .sidebar-resize-handle { display: none; }
 /* The fixed toggle ends at 110px; tabs keep a 12px gap beside it. */
 .native-window[data-sidebar-open="false"] .session-header { padding-left: calc(122px - var(--sidebar-rail)); }
-/* PA/Scheduled, settings, sidebar toggle, right new-tab and close icons are +2px. */
-.personal-row svg { width: 18px; height: 18px; }
+/* Sidebar actions, settings, sidebar toggle, right new-tab and close icons are +2px. */
+.sidebar-action svg { width: 18px; height: 18px; }
 .sidebar-bottom .quiet-icon svg, .sidebar-toggle svg, .inspector-toggle svg, .right-header .quiet-icon svg { width: 17px; height: 17px; }
 
 /* New chat creates its conversation on first send; its workspace selector stays outside the composer. */

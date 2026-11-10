@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import { test } from "node:test";
 import { isAgentReportParked, listAgentReports, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import { listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { lastToolText, lastUserText, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
 
 test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处理，全部结果终态后原任务唯一汇总", async () => {
@@ -37,7 +37,7 @@ test("已排队单目标补报仍受父轮等待闭包约束：拥有者先处�
       return { kind: "text", text: "唯一组汇总" };
     }
     return { kind: "text", text: "拥有者已处理" };
-  }, { config: { product: codeProduct.runtime }, workDirs: 1 });
+  }, { workDirs: 1 });
   try {
     const session = await t.runtime.createSession({ projectName: "queued-group", cwd: t.work[0] });
     const parent = await t.runtime.submit({ sessionId: session.id, requestId: "parent", input: "父轮", modelSelection: t.runtime.defaultSelection });

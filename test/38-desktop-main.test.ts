@@ -1,27 +1,31 @@
+import type { OpResult } from "@ruukoto/control/ops.ts";
 import type { DesktopBridge } from "../apps/desktop/src/shared/bridge.ts";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { ControlClientError } from "@ruukoto/control/client.ts";
-import { adoptEnvironment, codeTargetConfig, DesktopError, selectEnvironment } from "../apps/desktop/src/main/environment.ts";
+import { adoptEnvironment, desktopBackendConfig, DesktopError, selectEnvironment } from "../apps/desktop/src/main/environment.ts";
 import { CodeController, serializeFailure } from "../apps/desktop/src/main/controller.ts";
 import { DESKTOP_OPS, handleRequest, ipcResult, type DesktopOp } from "../apps/desktop/src/main/ipc.ts";
 import { cspFor, externalUrl, isRendererReload } from "../apps/desktop/src/main/security.ts";
 import { socketLookupCommand, versionRecovery } from "../apps/desktop/src/main/recovery.ts";
 import type { DesktopUpdate } from "../apps/desktop/src/shared/bridge.ts";
+import { bootstrapProfile, profileChildEnv, selectProfile } from "@ruukoto/core/profile.ts";
+
+const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), "rk-desktop-profile-"));
+const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(profileRoot, "data") }, {}));
+after(() => fs.rmSync(profileRoot, { recursive: true, force: true }));
 
 const root = path.resolve(import.meta.dirname, "..");
 const unavailable = async (): Promise<never> => { throw new ControlClientError("connection_unavailable", "连接不可用", "not_sent"); };
-const token = "desktop-owner-secret-".repeat(3);
+const token = fs.readFileSync(path.join(profile.controlDir, "owner.token"), "utf8").trim();
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-desktop-"));
   const previous = { ...process.env };
-  const env = { PATH: process.env.PATH, RUUKOTO_CODE_DATA_DIR: path.join(dir, "data"), RUUKOTO_CODE_CONTROL_DIR: path.join(dir, "explicit-control"), RUUKOTO_CODE_AGENT_DIR: path.join(dir, "agent"), RUUKOTO_OWNER_TOKEN: token };
-  fs.mkdirSync(env.RUUKOTO_CODE_CONTROL_DIR);
-  fs.writeFileSync(path.join(env.RUUKOTO_CODE_CONTROL_DIR, "owner.token"), token);
+  const env = profileChildEnv(profile.selection, { PATH: process.env.PATH });
   return { dir, env, restore() { adoptEnvironment(previous); fs.rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -29,21 +33,19 @@ test("桌面日常路径、令牌与后台参数均采用登录 shell 环境", a
   const f = fixture();
   try {
     let shells = 0;
-    const source = await selectEnvironment({ ...process.env, RUUKOTO_CODE_DATA_DIR: "/wrong", RUUKOTO_OWNER_TOKEN: "wrong" }, async () => { shells++; return { env: f.env, node: process.execPath }; });
+    const source = await selectEnvironment({ PATH: process.env.PATH, RUUKOTO_OWNER_TOKEN: "wrong" }, async () => { shells++; return { env: f.env, node: process.execPath }; });
     adoptEnvironment(source.env);
-    const config = codeTargetConfig(root, source);
+    const config = await desktopBackendConfig(root, source);
     assert.equal(shells, 1);
-    assert.equal(config.product, "ruukoto-code");
-    assert.equal(config.dataDir, f.env.RUUKOTO_CODE_DATA_DIR);
-    assert.equal(config.controlDir, f.env.RUUKOTO_CODE_CONTROL_DIR);
+    assert.deepEqual(config.profile, profile);
     assert.equal(config.spawnExecPath, process.execPath);
-    assert.deepEqual(config.spawnArgv, [path.join(root, "apps/ruukoto-code/bin/ruukoto-code.mjs"), "server", "--data-dir", config.dataDir, "--agent-dir", f.env.RUUKOTO_CODE_AGENT_DIR]);
-    assert.equal(config.env, source.env);
+    assert.deepEqual(config.spawnArgv, [path.join(root, "apps/ruukoto/bin/ruukoto.mjs"), "server"]);
+    assert.deepEqual(config.env, source.env);
     let ensures = 0, starts = 0;
     const updates: DesktopUpdate[] = [];
     const controller = new CodeController(config, update => updates.push(update), { ensure: async options => { ensures++; assert.equal(options, config); return { ok: true, spawned: false }; }, connection: (connection, callbacks) => {
       assert.equal(connection.token, token);
-      assert.equal(connection.socketPath, path.join(config.controlDir, "control.sock"));
+      assert.deepEqual(connection.profile, profile);
       return { start: async () => { starts++; const error = new ControlClientError("protocol_version", "旧后台", "rejected", { client: 26, server: 25 }); callbacks.onState("failed", error.message, error); throw error; }, close() {}, request: unavailable };
     } });
     await controller.reconnect();
@@ -68,11 +70,11 @@ test("受管桌面只用开发档案，不执行登录 shell 或 ensureBackend",
     const inherited = { ...f.env, RUUKOTO_DESKTOP_MANAGED: "1" };
     delete (inherited as NodeJS.ProcessEnv).RUUKOTO_OWNER_TOKEN;
     let shells = 0, ensures = 0, starts = 0;
-    const source = await selectEnvironment(inherited, async () => { shells++; return { env: { ...f.env, RUUKOTO_CODE_DATA_DIR: "/daily", RUUKOTO_OWNER_TOKEN: "daily" }, node: "/daily/node" }; });
+    const source = await selectEnvironment(inherited, async () => { shells++; return { env: { ...f.env, RUUKOTO_DATA_DIR: "/daily", RUUKOTO_OWNER_TOKEN: "daily" }, node: "/daily/node" }; });
     assert.deepEqual(source.env, inherited);
     adoptEnvironment(source.env);
-    const config = codeTargetConfig(root, source);
-    assert.equal(config.dataDir, f.env.RUUKOTO_CODE_DATA_DIR);
+    const config = await desktopBackendConfig(root, source);
+    assert.deepEqual(config.profile, profile);
     const controller = new CodeController(config, () => {}, { ensure: async () => { ensures++; return { ok: true, spawned: false }; }, connection: (connection, callbacks) => {
       assert.equal(connection.token, token);
       return { start: async () => { starts++; callbacks.onState("failed", "不兼容", new ControlClientError("protocol_version", "不兼容", "rejected", { client: 26, server: 25 })); }, close() {}, request: unavailable };
@@ -133,26 +135,18 @@ test("桌面开发 CSP 限定来源与 nonce，样式内联放行供 xterm 运�
   assert.equal(isRendererReload("file:///renderer/index.html", ""), false);
 });
 
-test("版本恢复方向使用结构化值，Code 指引按当前 socket 且正确转义路径", () => {
-  const controlDir = "/tmp/控制目录 with 'quote'";
-  for (const target of ["code", "personal"] as const) assert.match(versionRecovery(target, { client: 24, server: 25 }, false, controlDir).join("\n"), /rebuild/);
-  assert.match(versionRecovery("code", { client: 24, server: 25 }, false, controlDir).join("\n"), /desktop:mygo:build/);
-  assert.match(versionRecovery("personal", { client: 26, server: 25 }, false, controlDir).join("\n"), /same commit/);
-  const guide = versionRecovery("code", { client: 26, server: 25 }, false, controlDir).join("\n");
-  assert.match(guide, /exactly one PID/);
-  assert.match(guide, /ps -o user=,command=/);
-  assert.match(guide, /kill -TERM <PID>/);
-  assert.match(guide, /no listening process/);
-  assert.match(guide, /multiple PIDs/);
-  assert.ok(!guide.includes("|"));
-  const socket = path.join(controlDir, "control.sock");
+test("Recovery uses the authoritative socket, independently of persistent control storage", () => {
+  const socket = profile.socketPath;
+  const guide = versionRecovery({ client: 26, server: 25 }, false, profile).join("\n");
+  assert.ok(guide.includes(socketLookupCommand(socket)));
+  assert.ok(guide.includes(profile.spawnLogPath));
   const command = socketLookupCommand(socket);
   const escaped = command.slice("lsof -nP -a -U -- ".length);
   assert.equal(execFileSync("/bin/sh", ["-c", `printf '%s' ${escaped}`], { encoding: "utf8" }), socket);
 });
 
 test("仓库缺失与 node 不可用显示可操作错误，关闭期间不再新建连接", async () => {
-  assert.throws(() => codeTargetConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing" && error.message.includes("desktop:build") && error.message.includes("desktop:mygo:build"));
+  await assert.rejects(desktopBackendConfig("/missing-repository", { env: {}, node: process.execPath }), (error: unknown) => error instanceof DesktopError && error.code === "repository_missing");
   await assert.rejects(selectEnvironment({ PATH: "/missing-node", RUUKOTO_DESKTOP_MANAGED: "1" }), (error: unknown) => error instanceof DesktopError && error.code === "node_unavailable" && error.message.includes("launcher"));
   const f = fixture();
   try {
@@ -170,7 +164,7 @@ printf '\\000RUUKOTO_DESKTOP\\000%s\\000END\\000' '${JSON.stringify({ env: {}, n
     adoptEnvironment(f.env);
     let release!: (result: { ok: true; spawned: boolean }) => void;
     let starts = 0;
-    const controller = new CodeController(codeTargetConfig(root, { env: f.env, node: process.execPath }), () => {}, { ensure: () => new Promise(resolve => { release = resolve; }), connection: () => { starts++; return { start: async () => {}, close() {}, request: unavailable }; } });
+    const controller = new CodeController(await desktopBackendConfig(root, { env: f.env, node: process.execPath }), () => {}, { ensure: () => new Promise(resolve => { release = resolve; }), connection: () => { starts++; return { start: async () => {}, close() {}, request: unavailable }; } });
     const pending = controller.reconnect();
     controller.close();
     release({ ok: true, spawned: false });
@@ -184,39 +178,38 @@ import { PendingRequestStore, type PendingRequest } from "@ruukoto/control/pendi
 import type { ModelSelection, Session } from "@ruukoto/core/types.ts";
 import type { TaskView } from "@ruukoto/core/views.ts";
 import type { DesktopSubmitResult } from "../apps/desktop/src/shared/bridge.ts";
-import { CodeWrites, queueDecision } from "../apps/desktop/src/renderer/code-writes.ts";
+import { CodeWrites } from "../apps/desktop/src/renderer/code-writes.ts";
 import { ViewState } from "@ruukoto/view/state.ts";
-import { fakeControl, fakeSnapshot, type FakeScript } from "./helpers/fake-control.ts";
+import { fakeControl, fakeSnapshot, type FakeScript, type FakeHandlers } from "./helpers/fake-control.ts";
 import { startTestRuntime, waitFor } from "./helpers/testkit.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
 
 const selection: ModelSelection = { provider: "mock", modelId: "mock-model", thinkingLevel: "off" };
 function desktopSession(overrides: Partial<Session> = {}): Session {
-  return { id: "session", projectId: "project", workspaceProjectId: null, name: null, branchSource: null, kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: new Date().toISOString(), ...overrides };
+  return { id: "session", projectId: "project", name: null, branchSource: null, kind: "dev", cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "confirm", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: new Date().toISOString(), ...overrides };
 }
 function desktopTask(overrides: Partial<TaskView> = {}): TaskView {
-  return { id: "task", sessionId: "session", requestId: "original", input: "输入", inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: new Date().toISOString(), startedAt: null, endedAt: null, ...overrides };
+  return { id: "task", sessionId: "session", requestId: "original", input: "输入", inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, parentTaskId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: new Date().toISOString(), startedAt: null, endedAt: null, ...overrides };
 }
 function pendingRecord(overrides: Partial<PendingRequest> = {}): PendingRequest {
-  return { requestId: "original", op: "submit", params: { session_id: "session", input: "原输入", request_id: "original" }, instanceId: "inst-1", createdAt: new Date().toISOString(), ...overrides };
+  return { requestId: "original", op: "submit", params: { session_id: "session", input: "原输入", request_id: "original", model_selection: selection }, instanceId: profile.instanceId, createdAt: new Date().toISOString(), ...overrides };
 }
 function desktopHarness(script: FakeScript, seed: PendingRequest[] = [], existingDir?: string) {
   const f = fixture();
   const store = new PendingRequestStore(existingDir ?? path.join(f.dir, "pending"));
   seed.forEach(record => store.save(record));
   const updates: DesktopUpdate[] = [];
-  const fake = fakeControl(script);
+  const fake = fakeControl({ profile, ...script });
   const view = new ViewState();
   let online = false;
   const source = { env: { ...f.env, RUUKOTO_DESKTOP_MANAGED: "1" }, node: process.execPath };
-  const config = { ...codeTargetConfig(root, source), controlDir: f.env.RUUKOTO_CODE_CONTROL_DIR, socketPath: path.join(f.env.RUUKOTO_CODE_CONTROL_DIR, "control.sock") };
+  const config = { profile, managed: true, env: source.env };
   const controller = new CodeController(config, update => {
     updates.push(update);
     if (update.type === "snapshot") view.applySnapshot(update.result, update.instanceChanged);
     if (update.type === "state") online = update.state === "online";
     writes.update(update);
   }, { ensure: async () => { throw new Error("受管目标不能拉起后台"); }, connection: (config, callbacks) => new ControlConnection({ ...config, reconnectInitialMs: 5, reconnectMaxMs: 10, clientFactory: fake.factory }, callbacks) }, store);
-  const request = (target: unknown, op: unknown, params: unknown) => handleRequest(target, op, params, () => controller.reconnect(), (op, params) => controller.dispatch(op, params), (op, params) => { if (op !== "desktop_pending_read" && op !== "desktop_pending_clear") throw new Error("终端不进入提交恢复"); return controller.submissions!.local(op, params); });
+  const request = (target: unknown, op: unknown, params: unknown) => handleRequest(target, op, params, () => controller.reconnect(), (op, params) => controller.dispatch(op, params));
   const writes = new CodeWrites({ request }, view, () => online, () => {}, "code");
   return { store, controller, updates, fake, view, writes, request, dir: f.dir, async start() { await controller.reconnect(); await controller.submissions!.reconcile(); }, close() { controller.close(); f.restore(); } };
 }
@@ -251,7 +244,7 @@ test("严格待核实存储区分不存在、损坏和 IO 失败，宽容入口�
 
 test("桌面同连接缺口重同步会重新核实 kept，合并触发不并发且成功只通知一次", async () => {
   let found = false, queries = 0, active = 0, maxActive = 0, handshakes = 0;
-  const h = desktopHarness({ handshake: () => ({ seq: ++handshakes * 10, replay: [], snapshot: fakeSnapshot() }), handlers: { find_task: async () => {
+  const h = desktopHarness({ handshake: () => ({ seq: ++handshakes * 10, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId }) }), handlers: { find_task: async () => {
     queries++; active++; maxActive = Math.max(maxActive, active);
     await new Promise(resolve => setTimeout(resolve, 5));
     active--;
@@ -318,7 +311,7 @@ for (const op of ["submit"] as const) {
 
 test("桌面提交断线重连核实原任务；异实例保留且不重发", async () => {
   let accepted: TaskView | null = null;
-  let instanceId = "inst-1";
+  let instanceId = profile.instanceId;
   const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId }) }), handlers: {
     submit: (params, transport) => { accepted = desktopTask({ requestId: params.request_id }); transport.drop(); return accepted; }, find_task: () => ({ task: accepted }),
   } });
@@ -331,105 +324,33 @@ test("桌面提交断线重连核实原任务；异实例保留且不重发", as
     h.store.save(pendingRecord()); instanceId = "other";
     await h.controller.reconnect(); await h.controller.submissions!.reconcile();
     assert.equal(h.store.list().records.length, 1);
-    assert.equal(h.writes.entries.get("original")?.result?.kind, "foreign_instance");
+    assert.equal(h.controller.status.state, "failed");
     assert.equal(h.fake.transports.at(-1)!.requests.length, 0);
     assert.equal((await h.request("code", "find_task", {})).ok, false);
   } finally { h.close(); }
 });
 
-for (const op of ["submit"] as const) {
-  test(`桌面 ${op} 缺模型恢复先交付后清理，丢答／重载／重复确认不丢原文`, async () => {
-    const record = pendingRecord({ op, params: { session_id: "session", input: "原输入", request_id: "original" } });
-    const script: FakeScript = { handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { find_task: () => ({ task: null }) } };
-    const h = desktopHarness(script, [record]);
-    try {
-      await h.start();
-      assert.equal(h.writes.entries.get("original")?.result?.kind, "needs_resubmit");
-      const before = h.fake.transports[0].requests.length;
-      assert.equal(h.writes.blocked("session"), true);
-      assert.equal(h.writes.draft("session").text, "");
-      h.writes.defer();
-      assert.equal(h.fake.transports[0].requests.length, before, "暂不处理不发请求");
-      const read = await h.request("code", "desktop_pending_read", { request_id: "original" });
-      assert.equal(read.ok, true);
-      assert.equal(h.store.list().records.length, 1, "读取应答没有交付时，持久副本仍在");
-      h.controller.close();
-      const restarted = desktopHarness(script, [], h.store.dir);
-      try {
-        await restarted.start();
-        restarted.writes.edit("session", "已有草稿");
-        const bridge = { request: async (target: string, name: string, params: Record<string, unknown>) => {
-          const result = await restarted.request(target, name, params);
-          if (name === "desktop_pending_clear" && lost) { lost = false; return { ok: false as const, error: { code: "ipc_lost", outcome: "unknown" as const, message: "确认应答丢失" } }; }
-          return result;
-        } };
-        let lost = true;
-        const writes = new CodeWrites(bridge, restarted.view, () => true, () => {}, "code");
-        writes.update({ type: "pending", entries: [{ record, result: { kind: "needs_resubmit", requestId: record.requestId, params: record.params } }], corrupt: [], dir: restarted.store.dir });
-        writes.edit("session", "已有草稿");
-        await writes.restore("original");
-        assert.equal(writes.draft("session").text, "原输入\n\n已有草稿");
-        assert.equal(writes.blocked("session"), true);
-        assert.equal(restarted.store.read("original").kind, "absent");
-        await writes.restore("original");
-        assert.equal(writes.draft("session").text, "原输入\n\n已有草稿");
-        assert.equal(writes.blocked("session"), false);
-        await restarted.controller.submissions!.reconcile();
-        assert.equal(restarted.store.list().records.length, 0);
-      } finally { restarted.close(); }
-    } finally { h.close(); }
-  });
-}
-
-test("桌面恢复严格清理失败仍禁用，权限修复后再清；不存在幂等、未核实／异实例／损坏拒绝", async () => {
-  let failQuery = false;
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { find_task: () => { if (failQuery) throw new ControlClientError("request_timeout", "未知", "unknown"); return { task: null }; } } }, [pendingRecord()]);
+test("Desktop exposes malformed current journals without restoring or replaying input", async () => {
+  const record = pendingRecord({ params: { session_id: "session", input: "unverified original", request_id: "original" } });
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }) }, [record]);
   try {
+    const original = fs.readFileSync(path.join(h.store.dir, "original.json"), "utf8");
     await h.start();
-    assert.deepEqual(await h.request("code", "desktop_pending_clear", { request_id: "never" }), { ok: true, value: undefined });
-    const absent = await h.request("code", "desktop_pending_read", { request_id: "never" });
-    assert.equal(!absent.ok && absent.error.code, "not_restorable");
-    fs.chmodSync(h.store.dir, 0);
-    const failed = await h.request("code", "desktop_pending_clear", { request_id: "original" });
-    assert.equal(!failed.ok && failed.error.code, "pending_clear_failed");
-    assert.equal(h.writes.blocked("session"), true);
-    const unreadable = await h.request("code", "desktop_pending_read", { request_id: "original" });
-    assert.equal(!unreadable.ok && unreadable.error.code, "pending_read_failed");
-    fs.chmodSync(h.store.dir, 0o700);
-    assert.equal(h.store.read("original").kind, "record");
-    fs.chmodSync(h.store.dir, 0o500);
-    const undeletable = await h.request("code", "desktop_pending_clear", { request_id: "original" });
-    assert.equal(!undeletable.ok && undeletable.error.code, "pending_clear_failed");
-    fs.chmodSync(h.store.dir, 0o700);
-    await h.writes.restore("original");
-    assert.equal(h.writes.blocked("session"), false);
-    assert.equal(h.writes.draft("session").text, "原输入");
-    failQuery = true;
-    h.store.save(pendingRecord()); await h.controller.submissions!.reconcile();
-    for (const name of ["desktop_pending_read", "desktop_pending_clear"]) {
-      const result = await h.request("code", name, { request_id: "original" });
-      assert.equal(!result.ok && result.error.code, "not_restorable");
-    }
-    h.store.save(pendingRecord({ requestId: "foreign", instanceId: "foreign" }));
-    await h.controller.submissions!.reconcile();
-    fs.writeFileSync(path.join(h.store.dir, "broken.json"), "{}");
-    for (const request_id of ["foreign", "broken", "../escape"]) for (const name of ["desktop_pending_read", "desktop_pending_clear"]) {
-      const result = await h.request("code", name, { request_id });
-      assert.equal(!result.ok && result.error.code, "not_restorable");
-    }
-    assert.equal(h.store.read("original").kind, "record");
-    assert.equal(h.store.read("foreign").kind, "record");
-    assert.equal(h.store.read("broken").kind, "corrupt");
-    h.controller.submissions!.refresh();
-    assert.ok(h.writes.corrupt.includes("broken.json"));
-  } finally { fs.chmodSync(h.store.dir, 0o700); h.close(); }
+    await h.writes.preparePending("session");
+    assert.deepEqual(h.writes.corrupt, ["original.json"]);
+    assert.equal(h.writes.entries.size, 0);
+    assert.equal(h.writes.draft("session").text, "");
+    assert.equal(h.store.read("original").kind, "corrupt");
+    assert.equal(fs.readFileSync(path.join(h.store.dir, "original.json"), "utf8"), original);
+    assert.equal(h.fake.transports.flatMap(transport => transport.requests).some(request => request.op === "submit" || request.op === "find_task"), false);
+  } finally { h.close(); }
 });
 
 for (const code of ["request_timeout", "model_selection_conflict", "default_mode_conflict"] as const) {
   test(`桌面设置 ${code} 回读实际模型与模式，不重放设置`, async () => {
     const actual = desktopSession({ modelSelection: { ...selection, thinkingLevel: "low" }, modelSelectionVersion: 3, defaultAccessMode: "plan", defaultAccessModeVersion: 4 });
     const fail = () => { throw new ControlClientError(code, "设置应答", code === "request_timeout" ? "unknown" : "rejected"); };
-    const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { set_session_model: fail, set_session_mode: fail, get_session: () => actual } });
+    const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }), handlers: { set_session_model: fail, set_session_mode: fail, get_session: () => actual } });
     try {
       await h.start();
       await h.writes.setModel(h.view.sessions[0], selection);
@@ -450,7 +371,7 @@ test("桌面任务控制与恢复队列在线丢答回读，断线等待同实�
   const session = desktopSession({ queueState: "paused", queuePauseReason: "backend_restart" });
   const actualTask = desktopTask({ status: "interrupted" });
   const fail = () => { throw new ControlClientError("lost", "丢答", disconnect ? "disconnected" : "unknown"); };
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [session], tasks: [actualTask] }) }), handlers: { interrupt: fail, cancel: fail, resume_queue: fail, get_task: () => { if (failRead) throw new ControlClientError("timeout", "读失败", "unknown"); return { task: actualTask, seq: 0, outputPreview: null, toolOps: [], confirmations: [], artifacts: [] }; }, get_session: () => ({ ...session, queueState: "active" }) } });
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [session], tasks: [actualTask] }) }), handlers: { interrupt: fail, cancel: fail, resume_queue: fail, get_task: () => { if (failRead) throw new ControlClientError("timeout", "读失败", "unknown"); return { task: actualTask, seq: 0, outputPreview: null, toolOps: [], confirmations: [], artifacts: [] }; }, get_session: () => ({ ...session, queueState: "active" }) } });
   try {
     await h.start();
     await h.writes.control("interrupt", "session", "task");
@@ -475,37 +396,6 @@ test("桌面任务控制与恢复队列在线丢答回读，断线等待同实�
   } finally { h.close(); }
 });
 
-test("桌面队列决策区分补模型、取消确认和普通恢复；真实控制面只补旧任务", async () => {
-  const t = await startTestRuntime("d-queue", async () => ({ kind: "text", text: "ok" }), { config: { product: product.runtime } });
-  try {
-    const opened = await t.client.request<{ session: Session }>("open_workspace", { cwd: t.work[0], request_id: "queue_fixture" });
-    const session = opened.session;
-    t.runtime.store.setSessionQueueState(session.id, "paused", "backend_restart");
-    const first = await t.client.request<TaskView>("submit", { session_id: session.id, request_id: "old", input: "old", model_selection: selection });
-    const second = await t.client.request<TaskView>("submit", { session_id: session.id, request_id: "new", input: "new", model_selection: selection });
-    t.runtime.store.db.prepare("UPDATE tasks SET model_selection = NULL WHERE id = ?").run(first.id);
-    const preserved = { provider: "existing", modelId: "kept", thinkingLevel: "off" };
-    t.runtime.store.db.prepare("UPDATE tasks SET model_selection = ? WHERE id = ?").run(JSON.stringify(preserved), second.id);
-    const view = new ViewState();
-    view.applySnapshot(await t.client.handshake(), false);
-    const current = view.sessions.find(item => item.id === session.id)!;
-    current.modelSelection = null;
-    assert.deepEqual(queueDecision(view, current), { kind: "select_model" });
-    current.modelSelection = selection;
-    assert.deepEqual(queueDecision(view, current), { kind: "confirm", count: 1, selection });
-    assert.equal(t.runtime.store.getSession(session.id)!.queueState, "paused", "取消只关闭确认，不发请求");
-    await assert.rejects(t.client.request("resume_queue", { session_id: session.id }), { code: "model_selection_required" });
-    assert.equal(t.runtime.store.getSession(session.id)!.queueState, "paused");
-    const decision = queueDecision(view, current, true);
-    assert.equal(decision.kind, "send");
-    if (decision.kind !== "send") throw new Error("预期可恢复");
-    await t.client.request("resume_queue", decision.params);
-    assert.deepEqual(t.runtime.store.getTask(first.id)!.modelSelection, selection);
-    assert.deepEqual(t.runtime.store.getTask(second.id)!.modelSelection, preserved);
-    view.upsertTask({ ...first, modelSelection: selection });
-    assert.deepEqual(queueDecision(view, current), { kind: "send", params: { session_id: session.id } });
-  } finally { await t.shutdown(); }
-});
 
 test("桌面守护的丢答、核实错误和 IPC 返回同样隐藏拥有者令牌", async () => {
   const h = desktopHarness({ handlers: { submit: () => { throw new ControlClientError("timeout", `超时 ${token}`, "unknown"); }, find_task: () => { throw new ControlClientError("timeout", `查询失败 ${token}`, "unknown"); } } });
@@ -525,7 +415,7 @@ for (const outcome of ["not_sent", "rejected"] as const) {
     let release!: () => void;
     const delayed = new Promise<void>(done => { release = done; });
     let began = false;
-    const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { submit: async () => { began = true; await delayed; throw new ControlClientError("denied", "未执行", outcome); } } });
+    const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }), handlers: { submit: async () => { began = true; await delayed; throw new ControlClientError("denied", "未执行", outcome); } } });
     try {
       await h.start();
       h.writes.edit("session", "原输入");
@@ -537,7 +427,7 @@ for (const outcome of ["not_sent", "rejected"] as const) {
       h.writes.update({ type: "snapshot", result: foreign, instanceChanged: true });
       release(); await send;
       assert.equal(h.writes.draft("session").text, "");
-      const original = { seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) };
+      const original = { seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) };
       h.view.applySnapshot(original, true);
       h.writes.update({ type: "snapshot", result: original, instanceChanged: true });
       assert.equal(h.writes.draft("session").text, "原输入\n\n发送期间新草稿");
@@ -551,7 +441,7 @@ test("桌面设置迟到应答不覆盖新队列事件，模型目录按 nextOff
   const delayed = new Promise<void>(done => { release = done; });
   let began = false;
   const model = { provider: "mock", modelId: "mock-model", name: "Mock", contextWindow: 200000, maxTokens: 1024, thinkingLevels: ["off" as const, "low" as const], available: true, errorCode: null };
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { set_session_model: async () => { began = true; await delayed; return desktopSession({ modelSelectionVersion: 2 }); }, list_models: params => ({ models: params.offset === 0 ? [model] : [{ ...model, provider: "unavailable", available: false, errorCode: "model_auth_missing" }], total: 2, nextOffset: params.offset === 0 ? 1 : null }) } });
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }), handlers: { set_session_model: async () => { began = true; await delayed; return desktopSession({ modelSelectionVersion: 2 }); }, list_models: params => ({ models: params.offset === 0 ? [model] : [{ ...model, provider: "unavailable", available: false, errorCode: "model_auth_missing" }], total: 2, nextOffset: params.offset === 0 ? 1 : null }) } });
   try {
     await h.start();
     await h.writes.loadModels();
@@ -571,7 +461,7 @@ test("桌面设置迟到应答不覆盖新队列事件，模型目录按 nextOff
 test("桌面核实查询期间换实例不把旧输入重发到新实例", async () => {
   let release!: () => void;
   const delayed = new Promise<void>(done => { release = done; });
-  let queries = 0, sends = 0, instanceId = "inst-1";
+  let queries = 0, sends = 0, instanceId = profile.instanceId;
   const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId }) }), handlers: { find_task: async () => { queries++; await delayed; return { task: null }; }, submit: () => { sends++; return desktopTask(); } } }, [pendingRecord({ params: { session_id: "session", input: "旧实例输入", request_id: "original", model_selection: selection } })]);
   try {
     const start = h.start();
@@ -581,7 +471,7 @@ test("桌面核实查询期间换实例不把旧输入重发到新实例", async
     release(); await start; await h.controller.submissions!.reconcile();
     assert.equal(sends, 0);
     assert.equal(h.store.read("original").kind, "record");
-    assert.equal(h.writes.entries.get("original")?.result?.kind, "foreign_instance");
+    assert.equal(h.controller.status.state, "failed");
   } finally { release(); h.close(); }
 });
 
@@ -589,7 +479,7 @@ test("桌面队列丢答回读的迟到旧值不能覆盖新暂停或谎报可�
   let release!: () => void;
   const delayed = new Promise<void>(done => { release = done; });
   let began = false;
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession({ queueState: "paused" })] }) }), handlers: { resume_queue: () => { throw new ControlClientError("timeout", "丢答", "unknown"); }, get_session: async () => { began = true; await delayed; return desktopSession(); } } });
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession({ queueState: "paused" })] }) }), handlers: { resume_queue: () => { throw new ControlClientError("timeout", "丢答", "unknown"); }, get_session: async () => { began = true; await delayed; return desktopSession(); } } });
   try {
     await h.start();
     const operation = h.writes.resume(h.view.sessions[0]);
@@ -604,7 +494,7 @@ test("桌面队列丢答回读的迟到旧值不能覆盖新暂停或谎报可�
 
 test("桌面明确拒绝后宽容清理失败，之后核实拒绝不会再次合并原输入", async () => {
   let failedOnce = false;
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { submit: () => { if (!failedOnce) { failedOnce = true; fs.chmodSync(h.store.dir, 0o500); } throw new ControlClientError("denied", "拒绝", "rejected"); }, find_task: () => ({ task: null }) } });
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }), handlers: { submit: () => { if (!failedOnce) { failedOnce = true; fs.chmodSync(h.store.dir, 0o500); } throw new ControlClientError("denied", "拒绝", "rejected"); }, find_task: () => ({ task: null }) } });
   try {
     await h.start();
     h.writes.edit("session", "原输入");
@@ -625,16 +515,16 @@ import { DesktopApprovals } from "../apps/desktop/src/renderer/approvals.ts";
 import { FakeTransport } from "./helpers/fake-control.ts";
 
 function approval(overrides: Partial<ConfirmationRequestView> = {}): ConfirmationRequestView {
-  return { id: "approval", taskId: "task", sessionId: "session", toolOpId: "op", toolName: "http_request", params: { url: "https://example.com" }, paramsBytes: 29, paramsTruncated: false, scope: { kind: "tool", workspaceOnly: false }, cwdDev: 1, cwdIno: 1, permissionVersion: 1, status: "pending", createdAt: "2026-10-15T00:00:00Z", respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null, reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, standingPermissionId: null, standingPermissionVersion: null, ...overrides };
+  return { id: "approval", taskId: "task", sessionId: "session", toolOpId: "op", toolName: "http_request", params: { url: "https://example.com" }, paramsBytes: 29, paramsTruncated: false, scope: { kind: "tool", workspaceOnly: false }, cwdDev: 1, cwdIno: 1, permissionVersion: 1, status: "pending", createdAt: "2026-10-15T00:00:00Z", respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null, reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, ...overrides };
 }
 function noticeEvent(seq: number, body: PersistentEvent["body"], taskId = "task"): PersistentEvent { return { seq, body, taskId, sessionId: "session", createdAt: new Date().toISOString() }; }
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
-function noticeHarness(query: (target: "code" | "personal", taskId: string) => Promise<import("@ruukoto/control/ops.ts").OpResult<"get_task">> = async () => { throw new Error("查询不可用"); }) {
+function noticeHarness(query: (target: "code", taskId: string) => Promise<OpResult<"get_task">> = async () => { throw new Error("查询不可用"); }) {
   const notices: DesktopNotice[] = [];
   let count = 0, focused = false;
   const model = new DesktopNotifications(() => focused, notice => notices.push(notice), value => { count = value; }, query);
-  const snapshot = (target: "code" | "personal", tasks: TaskView[], confirmations: ConfirmationRequestView[] = [], instanceId = "inst-1", seq = 100) => model.update(target, { type: "snapshot", result: { seq, replay: [], snapshot: fakeSnapshot({ instanceId, sessions: [desktopSession()], tasks: structuredClone(tasks), confirmations: structuredClone(confirmations) }) }, instanceChanged: false });
-  const event = (target: "code" | "personal", event: PersistentEvent, kind: "live" | "replay" = "live") => model.update(target, { type: "event", event, kind });
+  const snapshot = (target: "code", tasks: TaskView[], confirmations: ConfirmationRequestView[] = [], instanceId = profile.instanceId, seq = 100) => model.update(target, { type: "snapshot", result: { seq, replay: [], snapshot: fakeSnapshot({ instanceId, sessions: [desktopSession()], tasks: structuredClone(tasks), confirmations: structuredClone(confirmations) }) }, instanceChanged: false });
+  const event = (target: "code", event: PersistentEvent, kind: "live" | "replay" = "live") => model.update(target, { type: "event", event, kind });
   return { model, notices, snapshot, event, get count() { return count; }, focus(value: boolean) { focused = value; } };
 }
 const taskDetail = (task = desktopTask(), confirmations: ConfirmationRequestView[] = [], seq = 100) => ({ task, confirmations, seq, toolOps: [], outputPreview: null, artifacts: [] });
@@ -648,7 +538,6 @@ test("Code通知首照与历史补发静默，live通知一次，PA不消费旧�
   const end = noticeEvent(101, { type: "task.interrupted", taskId: "new", sessionId: "session", reason: "owner_interrupt", cancelRequested: false, effectUnknown: false }, "new");
   h.event("code", end); h.event("code", end);
   assert.deepEqual(h.notices.map(notice => [notice.target, notice.sessionId, notice.taskId]), [["code", "session", "new"]]);
-  h.snapshot("personal", []); h.event("personal", end); assert.equal(h.notices.length, 1);
   h.snapshot("code", history, [], "new-instance");
   h.event("code", noticeEvent(90, { type: "task.completed", taskId: "hidden-old", sessionId: "session" }, "hidden-old"), "replay");
   assert.equal(h.notices.length, 1);
@@ -704,12 +593,12 @@ test("桌面缺补发时查询观察中的任务，失败下次重查，旧代�
   assert.equal(h.notices.length, 1);
 });
 
-function approvalHarness(handlers: import("./helpers/fake-control.ts").FakeHandlers = {}, target: "code" | "personal" = "code") {
+function approvalHarness(handlers: FakeHandlers = {}, target: "code" = "code") {
   const view = new ViewState();
   const c = approval();
   const transport = new FakeTransport({ handlers: { get_confirmation_params: () => ({ confirmation: c, params: { text: "{}", offset: 0, totalBytes: 2, truncated: false } }), ...handlers } });
   const model = new DesktopApprovals({ request: (actual, op, params) => { assert.equal(actual, target); return ipcResult(() => transport.request(op as DesktopOp, params as import("@ruukoto/control/ops.ts").OpParams<DesktopOp>)); } }, view, () => {}, target);
-  const snapshot = (confirmations = [approval()], instanceId = "inst-1") => {
+  const snapshot = (confirmations = [approval()], instanceId = profile.instanceId) => {
     const update: Extract<DesktopUpdate, { type: "snapshot" }> = { type: "snapshot", result: { seq: 100, replay: [], snapshot: fakeSnapshot({ instanceId, tasks: [desktopTask({ status: "awaiting_confirmation", permissionVersion: confirmations[0]?.permissionVersion ?? 1 })], confirmations }) }, instanceChanged: view.instanceId !== instanceId };
     view.applySnapshot(update.result, update.instanceChanged); model.update(update);
   };
@@ -802,7 +691,7 @@ for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实�
   const notices: DesktopNotice[] = []; let badge = 0;
   const notifications = new DesktopNotifications(() => false, notice => notices.push(notice), count => { badge = count; }, async (_target, id) => t.runtime.getTaskDetail(id)!);
   const events: PersistentEvent[] = [];
-  const connection = new ControlConnection({ socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! }, {
+  const connection = new ControlConnection({ profile: t.runtime.config.profile, token: readOwnerToken(t.runtime.controlDir())! }, {
     onState() {}, onSnapshot(result, context) { view.applySnapshot(result, context.instanceChanged); notifications.update("code", { type: "snapshot", result, instanceChanged: context.instanceChanged }); },
     onEvent(event, kind) { events.push(event); view.applyEvent(event, kind); notifications.update("code", { type: "event", event, kind }); },
   });
@@ -830,12 +719,6 @@ for (const ending of ["interrupt", "mode_failure"] as const) test(`桌面真实�
 });
 
 
-test("Personal旧控制面IPC统一拒绝，业务只经宿主持有的新接口", async () => {
-  for (const op of ["get_task", "get_confirmation_params", "respond_confirmation", "submit", "set_session_mode", "open_workspace", "create_session", "list_workspace_files", "read_workspace_file", "read_workspace_git"]) {
-    const result = await handleRequest("personal", op, {}, async () => {}, unavailable);
-    assert.equal(!result.ok && result.error.code, "op_not_allowed");
-  }
-});
 
 test("系统通知同步异常不打断审批投影与角标，也不在下个事件重复通知", () => {
   let calls = 0, badge = 0;
@@ -849,7 +732,7 @@ test("系统通知同步异常不打断审批投影与角标，也不在下个�
   assert.equal(calls, 1);
 });
 
-test("真实快照仅含20个终态，新实例有效旧游标补发21个历史时静默，online前缓冲live通知", async () => {
+test("Historical terminal events are silent on first connection while buffered live completion notifies once", async () => {
   const t = await startTestRuntime("desktop-history", async () => ({ kind: "text", text: "ok" }));
   let connection: ControlConnection | undefined;
   try {
@@ -864,21 +747,19 @@ test("真实快照仅含20个终态，新实例有效旧游标补发21个历史�
     const history = await t.client.handshake(1);
     assert.equal(history.snapshot.tasks.length, 20);
     assert.equal(history.replay.filter(event => event.body.type === "task.completed").length, 21);
-    const h = noticeHarness(); let handshakes = 0, beforeOnline = false;
-    const fake = fakeControl({ handshake: (since, transport) => {
-      if (++handshakes === 1) return { seq: 1, replay: [], snapshot: fakeSnapshot({ instanceId: "original" }) };
-      assert.equal(since, 1, "旧实例游标在新实例仍可用");
+    const h = noticeHarness(); let beforeOnline = false;
+    const fake = fakeControl({ handshake: (_since, transport) => {
       transport.emit({ ...noticeEvent(history.seq + 1, { type: "task.completed", taskId: "new-live", sessionId: session.id }, "new-live"), sessionId: session.id });
       return history;
     } });
-    connection = new ControlConnection({ socketPath: "/fake", token, clientFactory: fake.factory, reconnectInitialMs: 1 }, {
+    connection = new ControlConnection({ profile: t.runtime.config.profile, token, clientFactory: fake.factory, reconnectInitialMs: 1 }, {
       onState() {}, onSnapshot: (result, ctx) => h.model.update("code", { type: "snapshot", result, instanceChanged: ctx.instanceChanged }), onEvent(event, kind) {
         if (kind === "live") beforeOnline = connection!.state !== "online";
         h.model.update("code", { type: "event", event, kind });
       },
     });
-    await connection.start(); fake.transports[0].drop();
-    await waitFor("新实例同步完成", () => handshakes === 2 && connection!.state === "online");
+    await connection.start();
+    assert.equal(connection.state, "online");
     assert.equal(beforeOnline, true);
     assert.deepEqual(h.notices.map(notice => notice.taskId), ["new-live"]);
   } finally { connection?.close(); await t.shutdown(); }
@@ -888,7 +769,7 @@ test("定稿输入在原请求接收前保留，主进程沿用发送前分配�
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   let began = false;
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { submit: async params => { began = true; await gate; return desktopTask({ requestId: params.request_id, input: params.input }); } } });
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }), handlers: { submit: async params => { began = true; await gate; return desktopTask({ requestId: params.request_id, input: params.input }); } } });
   try {
     await h.start(); h.writes.edit("session", "保留原文");
     const send = h.writes.send("session");
@@ -905,7 +786,7 @@ test("定稿输入在原请求接收前保留，主进程沿用发送前分配�
 
 test("旧请求先核实且新发送返回 pending_existing 时，不清空未发送的新草稿", async () => {
   const view = new ViewState();
-  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  view.applySnapshot({ snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
   let finish!: (value: Awaited<ReturnType<DesktopBridge["request"]>>) => void;
   const writes = new CodeWrites({ request: async () => new Promise(resolve => { finish = resolve; }) }, view, () => true, () => {}, "code");
   writes.edit("session", "未发送的新草稿");
@@ -920,7 +801,7 @@ test("旧请求先核实且新发送返回 pending_existing 时，不清空未�
 
 test("同请求核实早于 IPC 应答时仅清理原输入，不回滚后续草稿", async () => {
   const view = new ViewState();
-  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  view.applySnapshot({ snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
   let finish!: (value: Awaited<ReturnType<DesktopBridge["request"]>>) => void;
   let params: Record<string, unknown> = {};
   const writes = new CodeWrites({ request: async (_target, _op, input) => { params = input; return new Promise(resolve => { finish = resolve; }); } }, view, () => true, () => {}, "code");
@@ -951,7 +832,7 @@ test("审批权威成功立即移除卡片，权限变化不得沿用已加载�
 
 test("渲染进程分配请求键也不能覆盖另一会话的未决持久记录", async () => {
   const record = pendingRecord();
-  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [desktopSession()] }) }), handlers: { find_task: () => { throw new ControlClientError("timeout", "保留", "unknown"); } } }, [record]);
+  const h = desktopHarness({ handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }) }), handlers: { find_task: () => { throw new ControlClientError("timeout", "保留", "unknown"); } } }, [record]);
   try {
     await h.start();
     const response = await h.request("code", "submit", { session_id: "different", request_id: record.requestId, input: "新输入", model_selection: selection });
@@ -964,7 +845,7 @@ test("渲染进程分配请求键也不能覆盖另一会话的未决持久记�
 
 test("核实中 IPC 先于 pending 更新时仍保留原文并禁止重复提交", async () => {
   const view = new ViewState();
-  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  view.applySnapshot({ snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
   let params: Record<string, unknown> = {};
   const writes = new CodeWrites({ request: async (_target, _op, input) => { params = input; return { ok: true, value: { kind: "pending_verification", requestId: input.request_id, outcome: "unknown", reason: "丢答" } }; } }, view, () => true, () => {}, "code");
   writes.edit("session", "原输入"); await writes.send("session");
@@ -979,7 +860,7 @@ test("核实中 IPC 先于 pending 更新时仍保留原文并禁止重复提交
 
 test("附件选取与上传状态按实例会话留在草稿，重新挂载不能绕过提交保护", async () => {
   const view = new ViewState();
-  view.applySnapshot({ snapshot: fakeSnapshot({ sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
+  view.applySnapshot({ snapshot: fakeSnapshot({ instanceId: profile.instanceId, sessions: [desktopSession()] }), seq: 0, replay: [] }, false);
   let sends = 0;
   const writes = new CodeWrites({ request: async () => { sends++; return { ok: true, value: undefined }; } }, view, () => true, () => {}, "code");
   writes.edit("session", "带附件的原文");
@@ -989,4 +870,31 @@ test("附件选取与上传状态按实例会话留在草稿，重新挂载不�
   assert.equal(sends, 0);
   writes.draft("session").attaching = false;
   assert.equal(writes.blocked("session"), false);
+});
+test("Desktop resolves every independent raw role override and hands the complete selection to children", async () => {
+  for (let mask = 0; mask < 16; mask++) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "desktop-profile-selection-"));
+    try {
+      const raw = selectProfile({
+        dataDir: path.join(home, mask & 1 ? "custom-data" : "data"),
+        ...(mask & 2 ? { agentDir: path.join(home, "custom-agent") } : {}),
+        ...(mask & 4 ? { controlDir: path.join(home, "long-control-" + "x".repeat(110)) } : {}),
+        ...(mask & 8 ? { pendingDir: path.join(home, "custom-pending") } : {}),
+      }, {});
+      const env = profileChildEnv(raw, { PATH: process.env.PATH });
+      const config = await desktopBackendConfig(root, { node: process.execPath, env });
+      assert.deepEqual(profileChildEnv(selectProfile({}, config.env), {}), profileChildEnv(raw, {}));
+      assert.notEqual(config.profile.dataDir, raw.dataDir);
+      assert.ok(config.profile.desktopPendingDir.startsWith(config.profile.pendingDir + path.sep));
+      assert.equal(config.profile.desktopDraftKey, `ruukoto-single-v1:${config.profile.instanceId}:draft`);
+      assert.ok(Buffer.byteLength(config.profile.socketPath) <= (process.platform === "darwin" ? 103 : 107));
+      assert.equal((await desktopBackendConfig(root, { node: process.execPath, env })).profile.instanceId, config.profile.instanceId);
+      await assert.rejects(desktopBackendConfig(root, { node: process.execPath, env: { ...env, RUUKOTO_DATA_DIR: config.profile.dataDir } }), { code: "profile_resolved_path" });
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  }
+});
+test("Explicit desktop raw selection survives login-shell defaults", async () => {
+  const env = profileChildEnv(profile.selection, { PATH: process.env.PATH });
+  const source = await selectEnvironment(env, async () => ({ node: process.execPath, env: { PATH: process.env.PATH, RUUKOTO_DATA_DIR: "/login/default" } }));
+  assert.deepEqual(profileChildEnv(selectProfile({}, source.env), {}), profileChildEnv(profile.selection, {}));
 });

@@ -1,5 +1,5 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
-import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
+
+
 /**
  * 架构工单 05：工具操作账本（直接构造 Store 与假族核实，重启回归起真实 Runtime）。
  *
@@ -19,9 +19,7 @@ import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import type { ApprovalScope } from "@ruukoto/core/types.ts";
 import { ToolOpLedger, hasNoWriteEffect, type FamilyCheck } from "@ruukoto/agent/tool-op-ledger.ts";
-import { APP_DATA_LEDGER } from "@ruukoto/agent/app-data/tools.ts";
-import { SCHEDULER_LEDGER } from "@ruukoto/channels/scheduler/ledger.ts";
-import { CHAT_RESULT_LEDGER } from "@ruukoto/channels/chat-result-tools.ts";
+import type { HostToolLedger } from "@ruukoto/agent/host-tool-families.ts";
 import { WEB_SEARCH_LEDGER } from "@ruukoto/agent/web-search.ts";
 import { HOST_DATA_LEDGER } from "@ruukoto/agent/host-tools.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
@@ -36,11 +34,12 @@ function fakeFamily(verdict: "committed" | "not_committed" | "unverifiable"): Fa
   return { verify: () => verdict, committed: (when) => `已提交：假账本（${when}）`, notCommitted: (when) => `已知未提交：假账本（${when}）` };
 }
 
-function kit(families: ConstructorParameters<typeof ToolOpLedger>[1] = {}) {
+function kit(families: Record<string, FamilyCheck> = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-ledger-"));
   const db = new Db(root);
   const store = new Store(db);
-  const ledger = new ToolOpLedger(store, families, [APP_DATA_LEDGER, SCHEDULER_LEDGER, CHAT_RESULT_LEDGER]);
+  const hostLedgers: HostToolLedger[] = Object.entries(families).map(([name, familyCheck]) => ({ names: [name], ruleFor: () => ({ family: name }), familyCheck }));
+  const ledger = new ToolOpLedger(store, hostLedgers);
   const project = store.createProject("p");
   const session = store.createSession({ projectId: project.id, cwd: root, cwdReal: root, cwdDev: 1, cwdIno: 1, piSessionId: "pi-1", confirmTools: [] });
   let n = 0;
@@ -102,13 +101,13 @@ test("worktree 启动与 Git 写入分开：ready 前停止或重启不标未知
   }
 });
 
-test("wait 及旧 agent_wait 停止与重启：等待不产生写效果，未返回的工具结果补记已知结论", () => {
+test("wait interruption and restart settle once without an unknown write effect", () => {
   const family = createAgentWaitFamily();
-  for (const toolName of ["wait", "agent_wait"]) for (const occasion of ["stop", "restart"] as const) {
+  for (const occasion of ["stop", "restart"] as const) {
     const k = kit();
     try {
-      const ledger = new ToolOpLedger(k.store, {}, [family.ledger!]);
-      const id = k.op(toolName, { targets: [{ kind: "task", task_id: "child" }], timeout_ms: 60_000 });
+      const ledger = new ToolOpLedger(k.store, [family.ledger!]);
+      const id = k.op("wait", { targets: [{ kind: "task", task_id: "child" }], timeout_ms: 60_000 });
       assert.equal(ledger.hasNoWriteEffect(k.get(id)), true);
       assert.deepEqual(ledger.beginStop(k.task.id), []);
       if (occasion === "restart") ledger.settleAll();
@@ -144,7 +143,7 @@ test("配对：结果与事件同一句、重复补记不重发；标效果未�
 });
 
 test("分类器：审批未消费 → 无写入效果 → 族核实 → 效果未知（重启）", () => {
-  const k = kit({ app_data: fakeFamily("committed"), scheduler: fakeFamily("not_committed"), delegation: fakeFamily("unverifiable") });
+  const k = kit({ test_committed: fakeFamily("committed"), test_uncommitted: fakeFamily("not_committed"), test_unknown: fakeFamily("unverifiable") });
   try {
     const read = k.op("read");
     const get = k.op("http_request", { method: "get", url: "https://x" });
@@ -152,10 +151,10 @@ test("分类器：审批未消费 → 无写入效果 → 族核实 → 效果�
     const fileRead = k.op("request_file_access", { path: "/a", operation: "read" }, { approval: "consumed" });
     const fileWrite = k.op("request_file_access", { path: "/a", operation: "write" }, { approval: "pending" });
     const fileReadPending = k.op("request_file_access", { path: "/a", operation: "read" }, { approval: "pending" });
-    const appDelete = k.op("app_data_delete", {}, { approval: "pending" });
-    const appInsert = k.op("app_data_insert");
-    const schedule = k.op("schedule_create");
-    const delegate = k.op("coding_delegate", { key: "k" });
+    const appDelete = k.op("test_committed", {}, { approval: "pending" });
+    const appInsert = k.op("test_committed");
+    const schedule = k.op("test_uncommitted");
+    const delegate = k.op("test_unknown", { key: "k" });
     const mcp = k.op("mcp_svc_write");
     const bash = k.op("bash");
     k.store.withTx(() => k.ledger.settleAll());
@@ -187,7 +186,7 @@ test("重启：终态任务残留的操作同样补记；族核实缺失即效�
     const done = k.newTask("completed");
     const bash = k.op("bash", {}, { taskId: done.id });
     const read = k.op("read", {}, { taskId: done.id });
-    const accept = k.op("chat_result_accept", {}, { taskId: done.id });
+    const accept = k.op("test_unregistered", {}, { taskId: done.id });
     k.store.withTx(() => k.ledger.settleAll());
     assert.equal(k.get(bash).effectUnknown, true);
     assert.equal(k.get(accept).effectUnknown, true, "未提供族核实 = 无法核实");
@@ -200,11 +199,11 @@ test("重启：终态任务残留的操作同样补记；族核实缺失即效�
 });
 
 test("停止：快照只含按审批判定且可能已开始的操作；快照内落了结果仍标未知；中止期间被消费的也标未知", () => {
-  const k = kit({ app_data: fakeFamily("unverifiable") });
+  const k = kit({ test_insert: fakeFamily("unverifiable") });
   try {
     const running = k.op("bash");
     const read = k.op("read");
-    const insert = k.op("app_data_insert");
+    const insert = k.op("test_insert");
     const waiting = k.op("mock_gate", {}, { approval: "pending" });
     const stillWaiting = k.op("mock_gate", {}, { approval: "pending" });
     const snapshot = k.ledger.beginStop(k.task.id);
@@ -227,9 +226,9 @@ test("停止：快照只含按审批判定且可能已开始的操作；快照�
 });
 
 test("结果写入失败：只对族能核实的操作即时补记", () => {
-  const k = kit({ app_data: fakeFamily("committed") });
+  const k = kit({ test_insert: fakeFamily("committed") });
   try {
-    const insert = k.op("app_data_insert");
+    const insert = k.op("test_insert");
     const bash = k.op("bash");
     k.store.withTx(() => k.ledger.settleAfterWriteFailure(k.task, insert));
     k.store.withTx(() => k.ledger.settleAfterWriteFailure(k.task, bash));
@@ -252,42 +251,35 @@ test("无写入效果按工具名或持久化参数判定", () => {
   assert.equal(hasNoWriteEffect({ toolName: "hasOwnProperty", params: {} }), false, "原型链上的键不当作规则");
 });
 
-for (const product of [personalProduct, codingProduct]) {
-test(`重启回归（${product.runtime.type}）：只读与旧个人账本可核实，bash 与已标记操作保持效果未知`, async () => {
+test("restart settles read-only operations and preserves unknown writes and existing task flags", async () => {
   const server = new MockModelServer(async () => ({ kind: "text", text: "ok" }));
   const baseUrl = await server.start();
   const { dirs } = await makeTestDirs("ledger-restart", 0);
   try {
     await writeModelsJson(dirs, baseUrl);
     const config: RuntimeConfig = {
-      product: product.runtime,
-      dataDir: dirs.dataDir,
-      agentDir: dirs.agentDir,
-      socketPath: path.join(dirs.root, "c.sock"),
+      profile: dirs.profile,
       thinkingLevel: "off",
       modelProvider: "mock",
       modelId: "mock-model",
       toolFactory: (ctx) => createMockTools(ctx),
     };
     const rt = await Runtime.start(config);
-    const main = rt.store.getAgentRole("main")!;
+    const session = await rt.createSession({ projectName: "ledger", cwd: dirs.root });
     await rt.stop("prep");
     const db = new Db(dirs.dataDir);
     try {
       const now = new Date().toISOString();
-      // task_flagged：崩溃前已被运行时标过效果未知（如 MCP 写调用超时），重启时无新操作
+      // Previously observed unknown effects survive even without a new unresolved operation.
       for (const [id, status, flagged] of [["task_live", "running", 0], ["task_done", "completed", 0], ["task_flagged", "running", 1]] as const) {
         db.prepare(
           `INSERT INTO tasks (id, session_id, request_id, input, status, access_mode, permission_version, granted_paths,
-             cancel_requested, effect_unknown, history_entry_ids, created_at, agent_id, queue_order)
-           VALUES (?, ?, ?, 'x', ?, 'confirm', 1, '[]', 0, ?, '[]', ?, 'main', 1)`,
-        ).run(id, main.sessionId, `req_${id}`, status, flagged, now);
+             cancel_requested, effect_unknown, history_entry_ids, created_at, queue_order)
+           VALUES (?, ?, ?, 'x', ?, 'confirm', 1, '[]', 0, ?, '[]', ?, 1)`,
+        ).run(id, session.id, `req_${id}`, status, flagged, now);
       }
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_read', 'task_live', 'read', '{}', ?, 0)`).run(now);
       db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES ('op_bash', 'task_done', 'bash', '{}', ?, 0)`).run(now);
-      for (const name of ["schedule_create", "schedule_query", "service_inspect", "chat_result_list"]) {
-        db.prepare(`INSERT INTO tool_ops (id, task_id, tool_name, params, intent_recorded_at, effect_unknown) VALUES (?, 'task_live', ?, '{}', ?, 0)`).run(`op_${name}`, name, now);
-      }
     } finally {
       db.close();
     }
@@ -297,12 +289,6 @@ test(`重启回归（${product.runtime.type}）：只读与旧个人账本可核
       assert.equal(live.status, "interrupted");
       assert.equal(live.effectUnknown, false, "只读操作中止不算效果未知");
       assert.equal(rt2.store.getToolOp("op_read")!.resultSummary, "未完成：只读操作在后台重启前中止，无写入效果");
-      assert.match(rt2.store.getToolOp("op_schedule_create")!.resultSummary!, /已知未提交/);
-      for (const name of ["schedule_query", "service_inspect", "chat_result_list"]) {
-        const op = rt2.store.getToolOp(`op_${name}`)!;
-        assert.equal(op.effectUnknown, false);
-        assert.match(op.resultSummary!, /无写入效果/);
-      }
       const interrupted = (taskId: string) =>
         (rt2.store.getEventsAfter(0).find((e) => e.body.type === "task.interrupted" && (e.body as any).taskId === taskId)!.body as any).effectUnknown;
       assert.equal(interrupted("task_live"), false);
@@ -317,4 +303,3 @@ test(`重启回归（${product.runtime.type}）：只读与旧个人账本可核
     await cleanupDirs(dirs);
   }
 });
-}

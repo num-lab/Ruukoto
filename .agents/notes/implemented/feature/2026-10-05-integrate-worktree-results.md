@@ -2,9 +2,11 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original source: ADR 0021, integration and main modification delegation supplement.
 
-[Current-workspace snapshots and child deltas](../architecture/2026-10-15-current-workspace-snapshots.md) supersedes content baselines, zero-write capture/host preparation, whole-file conflicts, and corrupt-baseline isolation. [Personal native execution](../architecture/2026-10-12-personal-native-sandbox.md) supersedes restricted backend choice; [current-account full access](2026-10-12-full-access-current-account.md) owns account/environment/authorization propagation. Other result/retention contracts remain.
+[Current-workspace snapshots and child deltas](../architecture/2026-10-15-current-workspace-snapshots.md) supersedes content baselines, zero-write capture/host preparation, whole-file conflicts, and corrupt-baseline isolation. [Personal native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) supersedes restricted backend choice; [current-account full access](2026-10-12-full-access-current-account.md) owns account/environment/authorization propagation. Other result/retention contracts remain.
 
 ## Problem
 

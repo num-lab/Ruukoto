@@ -33,7 +33,7 @@ let Scheduled: ComponentType<{ model: CodeState; onOpenSession: (id: string) => 
 type DraftValue = { workspaceId: string; text: string; mode: SessionDefaultMode; modelSelection: ModelSelection | null; attachments: DesktopAttachment[]; attaching?: boolean };
 let NewChatDraft: ComponentType<{ model: CodeState; workspaces: Project[]; value: DraftValue; fallbackSelection: ModelSelection | null; onChange: (value: DraftValue) => void; onSend: () => void; onAddWorkspace: () => void; starting: boolean; blocked: boolean }>;
 let filterWorkspaces: (workspaces: Project[], query: string) => Project[];
-let showsNewChat: (target: "code" | "personal", online: boolean, hasCurrent: boolean, hasDraft: boolean) => boolean;
+let showsNewChat: (target: "code", online: boolean, hasCurrent: boolean, hasDraft: boolean) => boolean;
 let ContextDetails: ComponentType<{ context: DesktopContextState }>;
 let ContextIndicator: ComponentType<{ context: DesktopContextState; onOpen: () => void }>;
 let selectionForModel: (option: ModelOption, current: ModelSelection | null) => ModelSelection | null;
@@ -61,10 +61,10 @@ const selection: ModelSelection = { provider: "mock", modelId: "model", thinking
 const option = (overrides: Partial<ModelOption> = {}): ModelOption => ({ provider: "mock", modelId: "model", name: "Current model", contextWindow: 200_000, maxTokens: 1000, thinkingLevels: ["off", "high"], available: true, errorCode: null, ...overrides });
 const at = "2026-10-16T00:00:00.000Z";
 function session(): Session {
-  return { id: "a", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "auto-review", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
+  return { id: "a", projectId: "workspace", kind: "dev", name: null, branchSource: null, cwd: "/work", cwdReal: "/work", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: selection, modelSelectionVersion: 1, defaultAccessMode: "auto-review", defaultAccessModeVersion: 1, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at };
 }
 function queuedTask(id: string, input: string, queueOrder: number): TaskView {
-  return { id, sessionId: "a", requestId: `request-${id}`, input, inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", queueOrder, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: null, endedAt: null };
+  return { id, sessionId: "a", requestId: `request-${id}`, input, inputPurpose: "user", modelSelection: selection, submissionDigest: null, status: "queued", queueOrder, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: [], resumesTaskId: null, parentTaskId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at, startedAt: null, endedAt: null };
 }
 function harness(handlers: FakeHandlers = {}, request?: DesktopBridge["request"]) {
   const transport = new FakeTransport({ handlers });
@@ -451,8 +451,6 @@ test("在线且未选会话时主画布默认是新对话草稿页，空态页�
   assert.equal(showsNewChat("code", true, true, false), false, "已选会话仍显示会话页");
   assert.equal(showsNewChat("code", false, false, false), false, "离线保留连接空态页");
   assert.equal(showsNewChat("code", false, true, true), true, "离线时已打开的草稿不收起");
-  assert.equal(showsNewChat("personal", true, false, false), false, "PA 主会话未就绪保留原空态页");
-  assert.equal(showsNewChat("personal", false, false, true), false);
 });
 
 test("工作区菜单按名称筛选，空结果与未登记工作区都有明确文案", () => {

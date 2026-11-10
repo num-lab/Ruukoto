@@ -4,7 +4,7 @@ import type { TaskView as Task } from "@ruukoto/core/views.ts";
  * 地方写定；TUI 按分类处理应答丢失（替身 + 假终端，不起后台）。
  */
 
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
@@ -21,12 +21,18 @@ import { SubmissionGuard } from "@ruukoto/control/submission.ts";
 import { ensureWorkspaceSession } from "@ruukoto/control/workspace.ts";
 import type { ConfirmationRequest, Project, Session, SessionCompactionRequest } from "@ruukoto/core/types.ts";
 import { confirmationToView } from "@ruukoto/core/views.ts";
+import { profileChildEnv } from "@ruukoto/core/profile.ts";
 import { TuiApp } from "@ruukoto/tui/tui/app.ts";
 import { CommandHistoryStore } from "@ruukoto/tui/tui/command-history.ts";
 import { ViewState } from "@ruukoto/tui/tui/state.ts";
-import { fakeControl, fakeSnapshot, type FakeHandlers, type FakeScript } from "./helpers/fake-control.ts";
+import { fakeControl, fakeSnapshot as unboundSnapshot, type FakeHandlers, type FakeScript } from "./helpers/fake-control.ts";
 import { FakeTerminal } from "./helpers/fake-terminal.ts";
-import { createProjectSession, routeResponder, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+import { cleanupDirs, createProjectSession, makeTestDirs, routeResponder, startTestRuntime, waitFor } from "./helpers/testkit.ts";
+
+const { dirs: connectionDirs } = await makeTestDirs("control-seam-profile", 0);
+after(() => cleanupDirs(connectionDirs));
+const fakeSnapshot = (overrides: Parameters<typeof unboundSnapshot>[0] = {}) =>
+  unboundSnapshot({ instanceId: connectionDirs.profile.instanceId, ...overrides });
 
 // ---------- op 表 ----------
 
@@ -56,8 +62,7 @@ const TUI_OPS: Record<TuiOp, true> = {
   message_recall: true, message_recall_verify: true, message_recall_state: true,
   get_context_breakdown: true, list_prompt_requests: true, read_prompt_snapshot: true, search_history: true, list_skills: true, list_subagent_roles: true,
   skills_list: true, skill_get: true,
-  list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true, qq_status: true, qq_set_enabled: true,
-  qq_inbox_list: true, qq_outbox_list: true,
+  list_memories: true, get_memory: true, revoke_memory: true, restore_memory: true,
   desktop_browser_register: true, desktop_browser_event: true, desktop_browser_chunk: true,
 };
 
@@ -133,7 +138,7 @@ async function stubServer(): Promise<{ socketPath: string; close(): Promise<void
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctl-stub-"));
   const socketPath = path.join(dir, "s.sock");
   const reply = (socket: net.Socket, id: string, code: string) =>
-    socket.write(`${JSON.stringify({ v: 1, id, ok: false, error: { code, message: code } })}\n`);
+    socket.write(`${JSON.stringify({ v: CONTROL_PROTOCOL_VERSION, id, ok: false, error: { code, message: code } })}\n`);
   const server = net.createServer((socket) => {
     let buffer = "";
     socket.setEncoding("utf8");
@@ -200,7 +205,7 @@ test("分类：服务端错误应答、超时、各种断线、发送前失败�
     assert.deepEqual(await failure(closing.request("x")), ["closed", "not_sent"], "关闭后再发");
 
     assert.deepEqual(await failure(ControlClient.connect(path.join(os.tmpdir(), "no-such-ruukoto.sock"))), ["connection_error", "not_sent"]);
-    const idle = new ControlConnection({ socketPath: stub.socketPath, token: "t" }, { onState() {}, onSnapshot() {}, onEvent() {} });
+    const idle = new ControlConnection({ profile: connectionDirs.profile, token: "t" }, { onState() {}, onSnapshot() {}, onEvent() {} });
     assert.deepEqual(await failure(idle.request("get_session", { session_id: "s" })), ["connection_unavailable", "not_sent"]);
     const guardDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-idle-"));
     const guardStore = new PendingRequestStore(guardDir);
@@ -230,7 +235,7 @@ const PROJECT: Project = { id: "proj_fake", name: "fake", createRequestId: null,
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
-    id: "sess_fake", projectId: PROJECT.id, workspaceProjectId: null,
+    id: "sess_fake", projectId: PROJECT.id,
     name: null,
     branchSource: null, kind: "dev", cwd: os.tmpdir(), cwdReal: os.tmpdir(), cwdDev: 0, cwdIno: 0,
     piSessionId: "pi_fake", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: { ...MODEL },
@@ -244,7 +249,7 @@ function task(overrides: Partial<Task> = {}): Task {
     id: "task_fake", sessionId: "sess_fake", requestId: "req_fake", input: "输入", inputPurpose: "user", modelSelection: { ...MODEL },
     submissionDigest: null, status: "queued", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [],
     pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null,
-    historyEntryIds: [], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null,
+    historyEntryIds: [], resumesTaskId: null, parentTaskId: null, deadline: null,
     resultSummary: null, resultRef: null,
     workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: T0, startedAt: null, endedAt: null, ...overrides,
   };
@@ -254,7 +259,7 @@ const CONFIRMATION: ConfirmationRequest = {
   id: "conf_fake", taskId: "task_fake", sessionId: "sess_fake", toolOpId: "toolop_fake", toolName: "mock_gate",
   params: { note: "批准我" }, scope: { kind: "tool", workspaceOnly: true }, cwdDev: 0, cwdIno: 0, permissionVersion: 1,
   status: "pending", createdAt: T0, respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null,
-  reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, standingPermissionId: null, standingPermissionVersion: null,
+  reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null,
 };
 
 /** 待审批任务的快照与详情应答（审批用例共用）。 */
@@ -291,13 +296,14 @@ async function startFakeApp(
   opts: { workspace?: { path: string }; seed?: (store: PendingRequestStore) => void; commandHistory?: true } = {},
 ) {
   const ctl = fakeControl({
+    profile: connectionDirs.profile,
     handshake: () => ({ seq: 0, replay: [], snapshot: fakeSnapshot({ projects: [PROJECT], sessions: [session()], ...script.snapshot }) }),
     ...script,
     handlers: { ...QUIET, ...script.handlers },
   });
   let app: TuiApp | null = null;
   const connection = new ControlConnection(
-    { socketPath: "(fake)", token: "t", clientFactory: ctl.factory, reconnectInitialMs: 20, reconnectMaxMs: 40 },
+    { profile: connectionDirs.profile, token: "t", clientFactory: ctl.factory, reconnectInitialMs: 20, reconnectMaxMs: 40 },
     {
       onState: (s, detail) => app?.onConnectionState(s, detail),
       onSnapshot: (result, ctx) => app?.onSnapshot(result, ctx),
@@ -429,15 +435,15 @@ test("/compact：重连和退出重进按实例、会话与原键核实，不自
   const h = await startFakeApp({ handlers: {
     get_session_compaction: params => { requested.push({ sessionId: params.session_id, requestId: params.request_id }); return current; },
   } }, { commandHistory: true, seed: store => {
-    new CommandHistoryStore(path.join(store.dir, "commands.sqlite")).save("inst-1", current.sessionId,
+    new CommandHistoryStore(path.join(store.dir, "commands.sqlite")).save(connectionDirs.profile.instanceId, current.sessionId,
       { key: "command:before-exit", kind: "command", line: "/compact 保留迁移", result: "正在压缩", isError: false, at: T0, seq: 1 });
-    new PendingRequestStore(path.join(store.dir, "compactions")).save({ requestId: current.requestId, op: "compact_session", instanceId: "inst-1",
+    new PendingRequestStore(path.join(store.dir, "compactions")).save({ requestId: current.requestId, op: "compact_session", instanceId: connectionDirs.profile.instanceId,
       params: { session_id: current.sessionId, prompt: "保留迁移", line: "/compact 保留迁移", command_key: "command:before-exit" }, createdAt: T0 });
   } });
   try {
     await waitFor("重进核实终态", () => h.commandResult().includes("手动压缩已中断"));
     assert.equal(h.state.openSession(current.sessionId).flow.items.filter(row => row.kind === "command").length, 1);
-    assert.match(new CommandHistoryStore(path.join(h.pendingStore.dir, "commands.sqlite")).load("inst-1", current.sessionId)[0]!.result!, /已中断/);
+    assert.match(new CommandHistoryStore(path.join(h.pendingStore.dir, "commands.sqlite")).load(connectionDirs.profile.instanceId, current.sessionId)[0]!.result!, /已中断/);
     assert.ok(requested.some(row => row.sessionId === current.sessionId && row.requestId === current.requestId));
     assert.equal(h.requested("compact_session"), 0);
     assert.equal(new PendingRequestStore(path.join(h.pendingStore.dir, "compactions")).list().records.length, 0);
@@ -480,15 +486,15 @@ test("/compact：另一已在线客户端核实终态，补读原命令并持久
   try {
     const commands = new CommandHistoryStore(path.join(h.pendingStore.dir, "commands.sqlite"));
     const pending = new PendingRequestStore(path.join(h.pendingStore.dir, "compactions"));
-    commands.save("inst-1", "sess_fake", { key: "command:other-client", kind: "command", line: "/compact", result: "正在压缩（请求 compact_shared）", isError: false, at: T0, seq: 1 });
-    pending.save({ requestId: "compact_shared", op: "compact_session", instanceId: "inst-1",
+    commands.save(connectionDirs.profile.instanceId, "sess_fake", { key: "command:other-client", kind: "command", line: "/compact", result: "正在压缩（请求 compact_shared）", isError: false, at: T0, seq: 1 });
+    pending.save({ requestId: "compact_shared", op: "compact_session", instanceId: connectionDirs.profile.instanceId,
       params: { session_id: "sess_fake", command_key: "command:other-client", line: "/compact" }, createdAt: T0 });
     current = compaction({ requestId: "compact_shared", status: "succeeded", endedAt: T0 });
     h.ctl.transports[0]!.emit({ seq: 1, createdAt: T0, taskId: null, sessionId: "sess_fake",
       body: { type: "session.context_compaction", sessionId: "sess_fake", requestId: "compact_shared", status: "succeeded" } });
     await waitFor("另一客户端补齐原命令结果", () => h.commandResult().includes("上下文已压缩"));
     assert.equal(pending.list().records.length, 0);
-    assert.match(commands.load("inst-1", "sess_fake")[0]!.result!, /上下文已压缩/);
+    assert.match(commands.load(connectionDirs.profile.instanceId, "sess_fake")[0]!.result!, /上下文已压缩/);
     assert.equal(h.requested("compact_session"), 0);
   } finally { h.quit(); }
 });
@@ -725,8 +731,8 @@ test("提交应答丢失而连接仍在：当场按原键核实这一条并关�
       },
     },
     {
-      // 另一条属于其他数据实例的旧记录：上线时报一次，当场核实不再碰它
-      seed: (store) => store.save({ requestId: "req_foreign", op: "submit", params: {}, instanceId: "inst-other", createdAt: T0 }),
+      // Reconcile the other instance's record only at startup, not after this input's lost response.
+      seed: (store) => store.save({ requestId: "req_foreign", op: "submit", params: { session_id: "sess_foreign", request_id: "req_foreign", input: "foreign input", model_selection: { provider: "mock", modelId: "mock-model", thinkingLevel: "off" } }, instanceId: "inst-other", createdAt: T0 }),
     },
   );
   try {
@@ -739,6 +745,18 @@ test("提交应答丢失而连接仍在：当场按原键核实这一条并关�
   } finally {
     h.quit();
   }
+});
+
+test("TUI exposes malformed current pending input without replaying or restoring it", async () => {
+  const h = await startFakeApp({}, { seed: store => store.save({ requestId: "invalid_input", op: "submit", instanceId: connectionDirs.profile.instanceId, createdAt: T0, params: { request_id: "invalid_input", session_id: "sess_fake", input: "unverified input" } }) });
+  try {
+    await waitFor("corrupt input remains visible", () => h.state.corruptPendingFiles.includes("invalid_input.json"));
+    assert.deepEqual(h.state.pendingInputs, []);
+    assert.equal(h.pendingStore.read("invalid_input").kind, "corrupt");
+    assert.equal(h.state.openSession("sess_fake").draft, "");
+    assert.equal(h.requested("submit"), 0);
+    assert.equal(h.requested("find_task"), 0);
+  } finally { h.quit(); }
 });
 
 test("工作区入口两次应答丢失：只当场核实一次，然后回落正常启动", async () => {
@@ -770,14 +788,11 @@ test("CLI submit：后台明确拒绝时打印「提交被拒绝」，不再提�
   const t = await startTestRuntime("cli-reject", routeResponder([]));
   try {
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
-    // CLI 按 <控制目录>/control.sock 连接；测试后台用短 socket 路径，链过去
-    const controlDir = t.runtime.controlDir();
-    fs.symlinkSync(t.runtime.socketPath(), path.join(controlDir, "control.sock"));
     const repoRoot = path.resolve(import.meta.dirname, "..");
     const child = childProcess.spawn(
       path.join(repoRoot, "node_modules", ".bin", "tsx"),
-      ["apps/ruukoto-code/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
-      { cwd: repoRoot, env: { ...process.env, RUUKOTO_CODE_DATA_DIR: t.dirs.dataDir, RUUKOTO_CODE_AGENT_DIR: t.dirs.agentDir, RUUKOTO_CODE_CONTROL_DIR: controlDir, RUUKOTO_CODE_PENDING_DIR: path.join(t.dirs.root, "pending"), RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" } },
+      ["apps/ruukoto/src/main.ts", "submit", sessionId, "req-cli-reject", "你好", "--model", "mock/no-such-model", "--thinking", "off"],
+      { cwd: repoRoot, env: profileChildEnv(t.dirs.profile.selection, { ...process.env, RUUKOTO_OWNER_TOKEN: "", RUUKOTO_OWNER_TOKEN_FILE: "" }) },
     );
     let stderr = "";
     child.stderr.on("data", (chunk) => (stderr += chunk));

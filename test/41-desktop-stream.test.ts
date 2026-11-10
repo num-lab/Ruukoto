@@ -12,13 +12,13 @@ import { waitFor } from "./helpers/testkit.ts";
 
 const at = (second: number) => new Date(Date.UTC(2026, 9, 15, 0, 0, second)).toISOString();
 function task(): TaskView {
-  return { id: "task", sessionId: "session", requestId: "request", input: "问题", inputPurpose: "user", modelSelection: null, submissionDigest: null, status: "completed", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: ["answer"], resumesTaskId: null, agentId: null, parentTaskId: null, sourceEventId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at(0), startedAt: at(1), endedAt: at(8) };
+  return { id: "task", sessionId: "session", requestId: "request", input: "问题", inputPurpose: "user", modelSelection: null, submissionDigest: null, status: "completed", queueOrder: 1, accessMode: "confirm", planMode: false, permissionVersion: 1, sourcePermissionVersion: null, grantedPaths: [], pendingAccessMode: null, interruptReason: null, cancelRequested: false, effectUnknown: false, errorMessage: null, historyEntryIds: ["answer"], resumesTaskId: null, parentTaskId: null, deadline: null, resultSummary: null, resultRef: null, workId: null, subAgentId: null, readScope: null, resultDeliveredAt: null, createdAt: at(0), startedAt: at(1), endedAt: at(8) };
 }
 function history(entryId: string, text: string, extra: Partial<HistoryEntryView> = {}): HistoryEntryView {
   return { entryId, taskId: "task", inputPurpose: "user", parentId: null, role: "assistant", text, timestamp: at(5), offset: 0, totalBytes: Buffer.byteLength(text), truncated: false, toolCalls: [], toolCallId: null, toolName: null, isError: null, hasNonTextContent: false, ...extra };
 }
 const event = (seq: number, body: PersistentEvent["body"]): PersistentEvent => ({ seq, body, sessionId: "session", taskId: "task", createdAt: at(seq) });
-const session: Session = { id: "session", projectId: "workspace", kind: "dev", workspaceProjectId: null, name: null, branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at(0) };
+const session: Session = { id: "session", projectId: "workspace", kind: "dev", name: null, branchSource: null, cwd: "/w", cwdReal: "/w", cwdDev: 1, cwdIno: 1, piSessionId: "pi", sessionFile: null, confirmTools: [], createRequestId: null, modelSelection: null, modelSelectionVersion: 0, defaultAccessMode: "confirm", defaultAccessModeVersion: 0, queueState: "active", queuePauseReason: null, queueRevision: 0, archivedAt: null, createdAt: at(0) };
 function harness(handlers: FakeHandlers, changed: () => void = () => {}) {
   const transport = new FakeTransport({ handlers: { list_session_summaries: () => [], list_tasks: () => ({ tasks: [], hasMore: false }), read_history: () => ({ fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null }), ...handlers } });
   const model = new CodeState({ request: (_target, op, params) => ipcResult(() => transport.request(op as DesktopOp, params as OpParams<DesktopOp>)) }, changed);
@@ -35,7 +35,7 @@ test("Desktop session attention follows pending decisions rather than task activ
   assert.equal(model.sessionNeedsDecision(session.id), false);
   source.status = "awaiting_confirmation";
   assert.equal(model.sessionNeedsDecision(session.id), false);
-  const approval: ConfirmationRequestView = { id: "approval", taskId: source.id, sessionId: session.id, toolOpId: "op", toolName: "bash", params: {}, paramsBytes: 2, paramsTruncated: false, scope: { kind: "tool", workspaceOnly: false }, cwdDev: 1, cwdIno: 1, permissionVersion: 1, status: "pending", createdAt: at(1), respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null, reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null, standingPermissionId: null, standingPermissionVersion: null };
+  const approval: ConfirmationRequestView = { id: "approval", taskId: source.id, sessionId: session.id, toolOpId: "op", toolName: "bash", params: {}, paramsBytes: 2, paramsTruncated: false, scope: { kind: "tool", workspaceOnly: false }, cwdDev: 1, cwdIno: 1, permissionVersion: 1, status: "pending", createdAt: at(1), respondedAt: null, consumedAt: null, reviewStatus: null, reviewDecision: null, reviewReason: null, reviewModel: null, reviewPolicyVersion: null, decisionSource: null };
   model.view.confirmations = [approval];
   assert.equal(model.sessionNeedsDecision(session.id), true);
   assert.equal(model.sessionNeedsDecision("other"), false);
@@ -163,7 +163,7 @@ test("桌面人工重连创建了新连接时，仍以实例身份清空旧标�
 });
 
 test("桌面通知导航按实例定位后消费，同实例快照不抢回已切换的会话", () => {
-  const model = new CodeState({ request: async (_target, op) => ({ ok: true, value: op === "work_list" ? { works: [] } : op === "read_history" ? { fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null } : op === "list_tasks" ? { tasks: [], hasMore: false } : { records: [], hasMore: false } }) }, () => {}, "personal");
+  const model = new CodeState({ request: async (_target, op) => ({ ok: true, value: op === "work_list" ? { works: [] } : op === "read_history" ? { fileAvailable: true, hasPartialTail: false, entries: [], nextBefore: null } : op === "list_tasks" ? { tasks: [], hasMore: false } : { records: [], hasMore: false } }) }, () => {});
   const result = { seq: 0, replay: [], snapshot: fakeSnapshot({ sessions: [session, { ...session, id: "second" }] }) };
   model.update({ type: "snapshot", result, instanceChanged: false });
   model.update({ type: "navigate", instanceId: "inst-1", navigation: { sessionId: "session", taskId: "task" } });

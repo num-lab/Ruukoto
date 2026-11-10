@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
 import { RuntimeApiError } from "@ruukoto/runtime/runtime.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { CODE_MCP_OPS, CODE_WEB_SEARCH_OPS, handleRequest } from "../apps/desktop/src/main/ipc.ts";
 import { startTestRuntime, createProjectSession, type TestRuntime } from "./helpers/testkit.ts";
 import { startMockMcp, MOCK_MCP_SECRET } from "./helpers/mock-mcp.ts";
@@ -19,7 +19,7 @@ function request<K extends TuiOp>(t: TestRuntime, op: K, params: OpParams<K>): P
 function rejected(code: string) { return (error: unknown) => error instanceof ControlClientError && error.code === code; }
 
 test("Code Cua 检查禁用草稿：静态工具与当前宿主权限分别返回，坏制品可行动且不启动 runtime", { skip: process.platform !== "darwin" }, async () => {
-  const t = await startTestRuntime("d-cua-check", quiet, { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-cua-check", quiet, {});
   const executable = path.join(t.dirs.root, "driver"), args = path.join(t.dirs.root, "args.json");
   const tools = [{ name: "get_desktop_state", description: "观察", input_schema: { type: "object", properties: {} } }, { name: "run_script", description: "脚本", input_schema: { type: "object", properties: {} } }];
   fs.writeFileSync(executable, `#!${process.execPath}\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(args)},JSON.stringify(process.argv.slice(2)));process.stdout.write(${JSON.stringify(JSON.stringify({ version: "0.38.0", tools }))});`, { mode: 0o700 });
@@ -44,7 +44,7 @@ test("Code MCP 操作只向 Code 放行，通用凭据写入与移除保持关�
     let called = false;
     const result = await handleRequest("personal", op, {}, async () => {}, async () => { called = true; });
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
+    if (!result.ok) assert.equal(result.error.code, "target_unavailable");
     assert.equal(called, false);
   }
   for (const op of ["add_credential", "upsert_credential", "save_credential", "remove_credential"]) {
@@ -89,8 +89,8 @@ test("Web 搜索凭据专用 op 只写固定 Tavily 绑定，项目开关按版�
 });
 
 test("MCP 无工作区可管理，实例内名称唯一且其他实例不共享", async () => {
-  const t = await startTestRuntime("d-mcp-instance", quiet, { config: { product: product.runtime } });
-  const other = await startTestRuntime("d-mcp-isolated", quiet, { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-mcp-instance", quiet, {});
+  const other = await startTestRuntime("d-mcp-isolated", quiet, {});
   try {
     assert.equal(t.runtime.store.listProjects().filter(project => project.rootDir !== null).length, 0);
     const service = await request(t, "mcp_configure", { name: "docs", endpoint, credential: null, tool_allowlist: [], enabled: false, expected_version: 0 });
@@ -114,7 +114,7 @@ test("MCP 无工作区可管理，实例内名称唯一且其他实例不共享"
 
 test("旧 MCP 来源操作与归属参数明确拒绝，不转成实例操作或联网", async () => {
   const mcp = await startMockMcp({ tools: [] });
-  const t = await startTestRuntime("d-mcp-old-params", quiet, { config: { product: product.runtime } });
+  const t = await startTestRuntime("d-mcp-old-params", quiet, {});
   try {
     const service = await request(t, "mcp_configure", { name: "draft", endpoint: mcp.url, credential: null, tool_allowlist: [], enabled: false });
     await request(t, "mcp_save_credential", { name: "bound", endpoint: mcp.url, secret: MOCK_MCP_SECRET });
@@ -134,7 +134,7 @@ test("旧 MCP 来源操作与归属参数明确拒绝，不转成实例操作或
     assert.deepEqual(t.runtime.credentials.list(), credentials); assert.deepEqual(t.runtime.store.getEventsAfter(0), events);
     assert.equal(mcp.hits.length, 0);
     const result = await handleRequest("code", "mcp_sources", {}, async () => {}, async () => { assert.fail("旧操作不能进入后台"); });
-    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "op_not_allowed");
+    assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "target_unavailable");
   } finally { await t.shutdown(); await mcp.close(); }
 });
 

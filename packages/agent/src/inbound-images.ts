@@ -15,40 +15,11 @@ export interface ImageReference {
   contentHash: string;
 }
 
-/** 继续链的图片绑定本轮用户消息，避免原交互移出上下文后丢失原图片。 */
+/** Continuations retain the original validated owner-attachment references. */
 export function taskImageReferences(task: Task, store: Store): ImageReference[] {
-  const tasks = new Set<string>();
-  const artifacts = new Set<string>();
   const references: ImageReference[] = [];
-  let source: Task | null = task;
-  while (source) {
-    if (source.sessionId !== task.sessionId || tasks.has(source.id)) throw new Error("image_reference_invalid:图片继续来源不属于当前会话或存在循环");
-    tasks.add(source.id);
-    if (source.sourceEventId) {
-      const event = store.getInboundEvent(source.sourceEventId);
-      if (!event && store.listArtifactsByTask(source.id).some(artifact => artifact.mimeType)) {
-        throw new Error("image_reference_invalid:图片来源事件不存在");
-      }
-      for (const id of event?.artifactRefs ?? []) {
-        const artifact = store.getArtifact(id);
-        if (!artifact) throw new Error("image_reference_invalid:来源产物不存在");
-        if (!artifact.mimeType) continue;
-        if (event?.taskId !== source.id || artifact.taskId !== source.id || artifact.sessionId !== task.sessionId ||
-            artifact.status !== "complete" || !artifact.contentHash) {
-          throw new Error("image_reference_invalid:图片产物尚未完成归属核对");
-        }
-        if (artifacts.has(id)) continue;
-        artifacts.add(id);
-        references.push({ artifactId: id, taskId: artifact.taskId, sessionId: artifact.sessionId,
-          mimeType: artifact.mimeType, byteCount: artifact.byteCount, contentHash: artifact.contentHash });
-      }
-    }
-    if (!source.resumesTaskId) break;
-    source = store.getTask(source.resumesTaskId);
-    if (!source) throw new Error("image_reference_invalid:图片继续来源任务不存在");
-  }
   for (const ref of taskAttachmentReferences(task, store)) {
-    if (ref.mimeType && !artifacts.has(ref.id)) references.push({ artifactId: ref.id, taskId: ref.taskId, sessionId: ref.sessionId, mimeType: ref.mimeType, byteCount: ref.size, contentHash: ref.contentHash });
+    if (ref.mimeType) references.push({ artifactId: ref.id, taskId: ref.taskId, sessionId: ref.sessionId, mimeType: ref.mimeType, byteCount: ref.size, contentHash: ref.contentHash });
   }
   return references;
 }

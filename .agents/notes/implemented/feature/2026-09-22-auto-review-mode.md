@@ -2,9 +2,11 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original identifier: ADR 0005.
 
-[Native execution](../architecture/2026-10-12-personal-native-sandbox.md) supersedes container routing; [current-account full access](2026-10-12-full-access-current-account.md) owns later account/environment/full-access rules. Review eligibility, no-tool input, owner fallback, races, and one-use consumption remain here. Personal durable wiring is separately owned and is not inferred from shared-runtime symbols below.
+[Native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) supersedes container routing; [current-account full access](2026-10-12-full-access-current-account.md) owns later account/environment/full-access rules. Review eligibility, no-tool input, owner fallback, races, and one-use consumption remain here. Personal durable wiring is separately owned and is not inferred from shared-runtime symbols below.
 
 ## Problem
 

@@ -2,9 +2,11 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 Original reference: ADR 0016
 
-The checkpoint/JSONL mechanism below belongs to Coding and the former shared Personal assembly. Current Personal uses native durable history and compaction under [Personal information ownership](2026-10-18-personal-memory-skills-history.md), not this SQLite checkpoint table. Both preserve the distinction between complete history and a bounded model view. The original main/coding/dev/chat role split is historical, not a reason to restore retired roles; see [the two products](2026-10-02-two-agent-products.md).
+The checkpoint/JSONL mechanism below belongs to Coding and the former shared Personal assembly. Current Personal uses native durable history and compaction under [Personal information ownership](../../archived/architecture/2026-10-18-personal-memory-skills-history.md), not this SQLite checkpoint table. Both preserve the distinction between complete history and a bounded model view. The original main/coding/dev/chat role split is historical, not a reason to restore retired roles; see [the two products](../../archived/architecture/2026-10-02-two-agent-products.md).
 
 ## Problem
 
@@ -74,7 +76,7 @@ Selection records store `checkpoint_id` (null for old records) and `compactionSu
 
 ## Deferred chat window
 
-The same design discussion proposed batch eviction of older QQ-group/chat messages, recovered through that group's history, with a separate decision before implementation. It was never implemented: [core group-chat retirement](../simplification/2026-10-02-retire-core-group-chat.md) made these conversations read-only. A future external group-chat module owns its own conversations/history under the product split.
+The same design discussion proposed batch eviction of older QQ-group/chat messages, recovered through that group's history, with a separate decision before implementation. It was never implemented: [core group-chat retirement](../../archived/simplification/2026-10-02-retire-core-group-chat.md) made these conversations read-only. A future external group-chat module owns its own conversations/history under the product split.
 
 ## Alternatives considered
 

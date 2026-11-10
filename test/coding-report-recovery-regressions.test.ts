@@ -6,7 +6,7 @@ import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { bindAgentReportFallback, getAgentReport, listAgentReports, registerAgentReport } from "@ruukoto/core/agent-wait.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { fixtureSubAgentDefinition, fixtureSubAgentScope } from "./helpers/subagent-definition.ts";
 import { lastUserText, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
@@ -21,7 +21,7 @@ async function reportInFlight() {
     if (lastUserText(request) === "ACTIVE") { await first.promise; return { kind: "text", text: "request N" }; }
     await second.promise;
     return { kind: "text", text: "final report" };
-  }, { config: { product: product.runtime } });
+  });
   const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session;
   const origin = rt.store.withTx(() => {
     rt.store.setSessionQueueState(session.id, "paused", "fixture");
@@ -30,7 +30,7 @@ async function reportInFlight() {
     rt.store.transitionTask(task.id, ["queued"], "running");
     return rt.store.getTask(task.id)!;
   });
-  const source = rt["workflowSource"](origin.id, false, true);
+  const source = rt["workflowSource"](origin.id, false);
   rt.store.withTx(() => rt.store.endTask(origin.id, ["running"], "completed"));
   await rt.resumeQueue(session.id);
   const receiver = await rt.submit({ sessionId: session.id, requestId: "receiver", input: "ACTIVE", modelSelection: rt.defaultSelection });

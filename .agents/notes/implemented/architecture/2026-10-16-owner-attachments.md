@@ -16,7 +16,7 @@ Optional submit/continue `attachments` carry only stable ID, safe filename, and 
 
 Driver restores owner attachments only from `task.attachments` and the continuation chain, never arbitrary task artifacts. Ordinary references live in user-message `ruukotoAttachmentRefs`; context explains utf8/base64 reads through `read_artifact`. Images reuse `ruukotoMediaRefs` and restore visual bytes just before sending. Original user text gains no local paths. History exposes only safe filename/size to renderer and retains attachment-only input. Branching verifies provenance events before freezing references. Every artifact with `contentHash` forbids append and verifies the original-byte hash when read.
 
-[Inbound images](2026-10-07-inbound-image-staging.md) keeps visual restoration and image persistence; [artifact export](../feature/2026-10-14-artifact-file-export.md) keeps artifact scope/export. This note owns the Desktop owner-selected-file input path.
+[Inbound images](../../archived/architecture/2026-10-07-inbound-image-staging.md) keeps visual restoration and image persistence; [artifact export](../feature/2026-10-14-artifact-file-export.md) keeps artifact scope/export. This note owns the Desktop owner-selected-file input path.
 
 ## Alternatives considered
 

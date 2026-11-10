@@ -1,18 +1,5 @@
 import { fixtureSubAgentDefinition } from "./helpers/subagent-definition.ts";
-/**
- * 配置中心 TUI 集成（issue 21 §3）：假 Terminal + 真实后台/控制协议。
- *
- * 覆盖：
- * 1. 在线：导航到「模型与提供方」设置后台默认模型，经控制面核实落库；
- * 2. 在线：API key 经遮蔽输入写入 auth.json（0600、秘密不进终端输出）；
- * 3. 在线：修订冲突时提示「已重新加载」并刷新出新数据；
- * 4. 离线：后台持有配置锁时拒绝进入；独立目录可写 key/默认模型且退出后释放锁；
- * 5. 重载状态：导航分区持久化、重启恢复、损坏文件提示后回主菜单；
- * 6. 工作区设置入口（agent-direction issue 06 步骤 3）：ruukoto-code 的项目分区按
- *    工作区/旧项目分类（ruukoto 不标注）、实例 MCP 管理、设置冲突
- *    重读后台、资料授权方向/同范围/已撤销、重载恢复沿用既有菜单 id；
- *    mcp_remove 的可选期望版本在协议层验证（CLI --expected-version 为同形透传）。
- */
+/** Configuration UI behavior with fake terminals, real storage and authenticated control. */
 
 import { test, type TestContext } from "node:test";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -21,13 +8,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { ControlClient } from "@ruukoto/control/client.ts";
+import { createServer, type Socket } from "node:net";
+import { CONTROL_PROTOCOL_VERSION } from "@ruukoto/control/protocol.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
 import { acquireConfigLock } from "@ruukoto/core/instance-lock.ts";
 import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
 import { ConfigTuiApp } from "@ruukoto/tui/config-tui/app.ts";
 import { OfflineModelBackend } from "@ruukoto/tui/config-tui/index.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
 import type { Session } from "@ruukoto/core/types.ts";
 import {
 startTestRuntime,
@@ -58,14 +46,12 @@ async function waitForText(term: FakeTerminal, text: string, desc = text, timeou
   await waitFor(`屏幕出现「${desc}」`, () => term.output().includes(text), timeoutMs);
 }
 
-function startConfig(t: TestRuntime, opts: { offline?: boolean; product?: "ruukoto" | "ruukoto-code" } = {}): ConfigHarness {
+function startConfig(t: TestRuntime, opts: { offline?: boolean } = {}): ConfigHarness {
   const terminal = new FakeTerminal();
   const done = runConfigTui({
     offline: opts.offline,
     terminal,
-    connect: { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
-    agentDir: t.dirs.agentDir,
-    product: opts.product,
+    profile: t.dirs.profile,
   });
   return {
     terminal,
@@ -195,22 +181,19 @@ test("在线：会话默认列表含 Plan，Esc 取消不保存，选择后持�
   }
 });
 
-test("配置中心按后台身份仅向普通开发会话提供 Plan，main、SubAgent 和归档不提供", async () => {
+test("configuration offers Plan to ordinary sessions but not SubAgents", async () => {
   const t = await startTestRuntime("cfg-tui-plan-identity", textResponder);
   try {
     const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
     const store = t.runtime.store;
     const create = async () => t.client.request<Session>("create_session", { project_id: projectId, cwd: t.work[0]! });
-    const main = store.getSession(store.getAgentRole("main")!.sessionId)!;
     const sub = await create();
     store.insertSubAgent({ definition: fixtureSubAgentDefinition(), id: "sub-mode", parentSessionId: sessionId, sessionId: sub.id, workDir: sub.cwd, activeWorkId: null, currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: sub.createdAt });
-    const archive = await create();
-    store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(archive.id);
     const snapshot = (await t.client.handshake()).snapshot;
-    const app = new ConfigTuiApp({ mode: "online", modelBackend: new OfflineModelBackend(t.dirs.agentDir), agentDir: t.dirs.agentDir, client: t.client, snapshot, terminal: new FakeTerminal(), onExit: () => {} }) as any;
+    const app = new ConfigTuiApp({ mode: "online", modelBackend: new OfflineModelBackend(t.dirs.profile), agentDir: t.dirs.agentDir, client: t.client, snapshot, terminal: new FakeTerminal(), onExit: () => {} }) as any;
     let values: string[] = [];
     app.pick = async (_title: string, items: Array<{ value: string }>) => { values = items.map((item) => item.value); return null; };
-    for (const [id, eligible] of [[sessionId, true], [main.id, false], [sub.id, false], [archive.id, false]] as const) {
+    for (const [id, eligible] of [[sessionId, true], [sub.id, false]] as const) {
       await app.sessionScreen(id).onSelect({ value: "mode" });
       assert.equal(values.includes("plan"), eligible, id);
       assert.equal(values.length, eligible ? 4 : 3);
@@ -306,7 +289,7 @@ test("离线真实入口：自定义 header 输入遮蔽，取消不改文件，
     const original = fs.readFileSync(file, "utf8");
     const initial = "Authorization=***, X-Keep=***, __proto__=***";
     const terminal = new FakeTerminal();
-    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const done = runConfigTui({ offline: true, terminal, profile: dirs.profile });
     const editHeaders = async (value: string): Promise<void> => {
       await waitForText(terminal, "mock 的自定义头");
       for (const _ of initial) terminal.send("\x7f");
@@ -482,10 +465,10 @@ test("离线真实入口：进入界面和默认/摘要选择器不自动 probe�
     const sources = addUnverifiedSources(dirs.agentDir);
     const assertNoEvaluation = watchModelReads(context);
     const terminal = new FakeTerminal();
-    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const done = runConfigTui({ offline: true, terminal, profile: dirs.profile });
     try {
       await readModelSelectors(terminal, sources.providerCount);
-      const view = await new OfflineModelBackend(dirs.agentDir).load();
+      const view = await new OfflineModelBackend(dirs.profile).load();
       for (const provider of ["mock", "command", "missing-env", "anthropic"]) assert.ok(view.models.some((model) => model.provider === provider), provider);
       assertNoEvaluation();
       assert.equal(fs.existsSync(sources.marker), false);
@@ -506,12 +489,12 @@ test("离线：无法证明的模型成员保留，真实思考档位未知时�
   try {
     fs.mkdirSync(dirs.agentDir, { recursive: true });
     fs.writeFileSync(path.join(dirs.agentDir, "models.json"), JSON.stringify({ providers: { unknown: { models: [{ id: "unknown-model", reasoning: true }] } } }));
-    const backend = new OfflineModelBackend(dirs.agentDir);
+    const backend = new OfflineModelBackend(dirs.profile);
     const view = await backend.load();
     assert.deepEqual(view.models, [{ provider: "unknown", modelId: "unknown-model", name: "unknown-model", thinkingLevels: null }]);
     await assert.rejects(() => backend.setDefaultModel({ provider: "unknown", modelId: "unknown-model", thinkingLevel: "high" }), (error: any) => error.code === "invalid_params");
     const terminal = new FakeTerminal();
-    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const done = runConfigTui({ offline: true, terminal, profile: dirs.profile });
     try {
       await waitForText(terminal, "配置分区");
       terminal.send(ENTER);
@@ -540,7 +523,7 @@ test("离线：仅存储来源的 SDK 模型可选摘要，编辑目录仍保留
     const authFile = path.join(dirs.agentDir, "auth.json");
     const auth = JSON.stringify({ anthropic: { type: "api_key", key: "synthetic-stored-key" } });
     fs.writeFileSync(authFile, auth);
-    const backend = new OfflineModelBackend(dirs.agentDir);
+    const backend = new OfflineModelBackend(dirs.profile);
     const builtin = (await backend.load()).models.find((model) => model.provider === "anthropic")!;
     assert.ok(builtin, "不能因 models.json 没有显式条目丢掉已配置的 SDK 模型");
     await backend.setSummaryModel({ provider: builtin.provider, modelId: builtin.modelId });
@@ -560,7 +543,7 @@ test("存储凭据：OAuth 替换/移除说明只作用于本地条目，目录�
     const envBefore = { ...process.env };
     const authFile = path.join(dirs.agentDir, "auth.json");
     fs.writeFileSync(authFile, JSON.stringify({ mock: { type: "oauth", access: "secret-access", refresh: "secret-refresh", expires: 0 } }));
-    const backend = new OfflineModelBackend(dirs.agentDir);
+    const backend = new OfflineModelBackend(dirs.profile);
     const app = new ConfigTuiApp({ mode: "offline", modelBackend: backend, agentDir: dirs.agentDir, terminal: new FakeTerminal(), onExit: () => {} }) as any;
     const confirmations: string[] = [];
     const notices: string[] = [];
@@ -606,8 +589,7 @@ test("离线：后台持有配置锁时拒绝进入，并打印占用说明", as
       code = await runConfigTui({
         offline: true,
         terminal: new FakeTerminal(),
-        connect: { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! },
-        agentDir: t.dirs.agentDir,
+        profile: t.dirs.profile,
       });
     } finally {
       console.error = origError;
@@ -629,7 +611,7 @@ test("离线：独立目录写 key 与默认模型，退出释放配置锁", asy
   try {
     await writeModelsJson(dirs, "http://127.0.0.1:1");
     const terminal = new FakeTerminal();
-    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const done = runConfigTui({ offline: true, terminal, profile: dirs.profile });
     const quit = async () => {
       terminal.send(CTRL_C);
       return done;
@@ -687,7 +669,7 @@ test("离线：设置摘要模型（issue 30），页头显示数据去向与所
   try {
     await writeModelsJson(dirs, "http://127.0.0.1:1");
     const terminal = new FakeTerminal();
-    const done = runConfigTui({ offline: true, terminal, agentDir: dirs.agentDir });
+    const done = runConfigTui({ offline: true, terminal, profile: dirs.profile });
     try {
       await waitForText(terminal, "配置分区（离线模式：仅模型配置可写）");
       terminal.send(ENTER); // 模型与提供方
@@ -715,10 +697,10 @@ test("离线：设置摘要模型（issue 30），页头显示数据去向与所
 test("重载状态：分区路径持久化与恢复，损坏文件提示后回主菜单", async () => {
   const t = await startTestRuntime("cfg-tui-reload", textResponder);
   const stateDir = await mkdtemp(path.join(tmpdir(), "ruukoto-cfg-reload-"));
-  const stateFile = path.join(stateDir, "reload.json");
-  const envKey = "RUUKOTO_RELOAD_STATE_FILE";
+  const stateFile = t.dirs.profile.reloadStatePath;
+  const envKey = "RUUKOTO_DEV_MANAGED";
   const origEnv = process.env[envKey];
-  process.env[envKey] = stateFile;
+  process.env[envKey] = "1";
   try {
     // 第一次：模型与提供方 → 提供方 mock → 模型列表后退出，分区路径应落盘
     // （模型列表屏幕由 value 为 models 的条目打开，id 必须与之一致才能恢复）
@@ -775,46 +757,14 @@ test("重载状态：分区路径持久化与恢复，损坏文件提示后回�
 
 const UP = "\x1b[A";
 
-test("ruukoto-code：项目分区先列工作区（显示根目录）再列旧项目；ruukoto 不标注", async () => {
-  const t = await startTestRuntime("cfg-tui-ws-partition", textResponder);
-  try {
-    const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-part-1" })) as any;
-    const legacy = (await t.client.request<any>("create_project", { name: "legacy-plain" })) as any;
-    await t.client.request("create_session", { project_id: legacy.id, cwd: t.work[1]! });
-    const rootReal = fs.realpathSync(t.work[0]!);
 
-    const hDev = startConfig(t, { product: "ruukoto-code" });
-    try {
-      await waitForText(hDev.terminal, "配置分区");
-      hDev.terminal.send(DOWN + ENTER); // 项目
-      await waitForText(hDev.terminal, "旧项目 · legacy-plain");
-      const out = hDev.terminal.output();
-      assert.ok(out.includes(`工作区 · ${ws.projectName}`), "工作区标注");
-      // 描述行按终端宽度截断：断言根目录前缀片段（完整 cwdReal 在数据层，见项目管理屏幕 intro）
-      assert.ok(out.includes(`根目录 ${rootReal.slice(0, 40)}`), "工作区展示根目录");
-      assert.ok(
-        out.lastIndexOf(`工作区 · ${ws.projectName}`) < out.lastIndexOf("旧项目 · legacy-plain"),
-        "工作区排在旧项目之前",
-      );
-      // 菜单 id 沿用 project:<id>（重载恢复按 value 匹配，不因标注改变形状）
-      assert.ok(!out.includes("workspace:"), "不引入新的菜单 id");
-    } finally {
-      assert.equal(await hDev.quit(), 0);
-    }
-
-
-  } finally {
-    await t.shutdown();
-  }
-});
-
-test("ruukoto-code：无工作区可创建 MCP 凭据并绑定服务、发现工具与停用，项目详情不再提供 MCP", async () => {
-  const t = await startTestRuntime("cfg-tui-instance-mcp", textResponder, { config: { product: codeProduct.runtime } });
+test("ruukoto：无工作区可创建 MCP 凭据并绑定服务、发现工具与停用，项目详情不再提供 MCP", async () => {
+  const t = await startTestRuntime("cfg-tui-instance-mcp", textResponder);
   const mcp = await startMockMcp({ tools: [{ name: "fetch" }], requireAuth: true });
   try {
-    const h = startConfig(t, { product: "ruukoto-code" });
+    const h = startConfig(t);
     try {
-      await waitForText(h.terminal, "配置分区"); h.terminal.send(DOWN.repeat(5) + ENTER);
+      await waitForText(h.terminal, "配置分区"); h.terminal.send(DOWN.repeat(4) + ENTER);
       await waitForText(h.terminal, "新增凭据"); h.terminal.send(ENTER);
       await waitForText(h.terminal, "凭据名称"); h.terminal.send("instance-mcp" + ENTER);
       await waitForText(h.terminal, "主机（"); h.terminal.send(mcp.host + ENTER);
@@ -846,22 +796,22 @@ test("ruukoto-code：无工作区可创建 MCP 凭据并绑定服务、发现工
     } finally { assert.equal(await h.quit(), 0); }
     const workspace = await t.client.request<{ session: { projectId: string } }>("open_workspace", { cwd: t.work[0], request_id: "mcp-project-menu" });
     const snapshot = (await t.client.handshake()).snapshot;
-    const app = new ConfigTuiApp({ mode: "online", modelBackend: new OfflineModelBackend(t.dirs.agentDir), agentDir: t.dirs.agentDir, client: t.client, snapshot, terminal: new FakeTerminal(), product: "ruukoto-code", onExit: () => {} }) as any;
+    const app = new ConfigTuiApp({ mode: "online", modelBackend: new OfflineModelBackend(t.dirs.profile), agentDir: t.dirs.agentDir, client: t.client, snapshot, terminal: new FakeTerminal(), onExit: () => {} }) as any;
     const projectItems = await app.projectScreen(workspace.session.projectId).load();
     assert.equal(projectItems.some((item: { value: string }) => item.value === "mcp"), false);
   } finally { await mcp.close(); await t.shutdown(); }
 });
 
-test("ruukoto-code：设置编辑期另一客户端保存后，本界面旧表单保存冲突并重读后台展示新值", async () => {
+test("ruukoto：设置编辑期另一客户端保存后，本界面旧表单保存冲突并重读后台展示新值", async () => {
   const t = await startTestRuntime("cfg-tui-ws-conflict", textResponder);
   try {
     const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-conflict-1" })) as any;
     const projectId = a.session.projectId as string;
-    const h = startConfig(t, { product: "ruukoto-code" });
+    const h = startConfig(t);
     try {
       await waitForText(h.terminal, "配置分区");
       h.terminal.send(DOWN + ENTER);
-      await waitForText(h.terminal, `工作区 · ${a.projectName}`);
+      await waitForText(h.terminal, a.projectName);
       h.terminal.send(ENTER);
       await waitForText(h.terminal, "指令文件：");
       h.terminal.send(ENTER); // 打开指令编辑框（此时表单版本 v1）
@@ -889,13 +839,13 @@ test("ruukoto-code：设置编辑期另一客户端保存后，本界面旧表�
   }
 });
 
-test("ruukoto-code：根菜单 Web Search 为实例级开关，保存全局生效", async () => {
+test("ruukoto：根菜单 Web Search 为实例级开关，保存全局生效", async () => {
   const t = await startTestRuntime("cfg-tui-websearch", textResponder);
   try {
-    const h = startConfig(t, { product: "ruukoto-code" });
+    const h = startConfig(t);
     try {
       await waitForText(h.terminal, "配置分区");
-      h.terminal.send(DOWN.repeat(6) + ENTER); // → Web Search
+      h.terminal.send(DOWN.repeat(5) + ENTER); // → Web Search
       await waitForText(h.terminal, "状态：启用（所有项目共用）");
       h.terminal.send(DOWN + ENTER); // → 停用
       await waitForText(h.terminal, "Web Search 已停用");
@@ -908,22 +858,24 @@ test("ruukoto-code：根菜单 Web Search 为实例级开关，保存全局生�
   }
 });
 
-test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提示不夸大；撤销后可在已撤销记录查看", async () => {
+test("ruukoto：资料授权标注出向/入向；同范围多条撤销提示不夸大；撤销后可在已撤销记录查看", async () => {
   const t = await startTestRuntime("cfg-tui-ws-grants", textResponder);
   try {
-    const pa = (await t.client.request<any>("create_project", { name: "alpha-g" })) as any;
-    const pb = (await t.client.request<any>("create_project", { name: "beta-g" })) as any;
+    const a = await t.runtime.openWorkspace({ cwd: t.work[0] });
+    const b = await t.runtime.openWorkspace({ cwd: t.work[1] });
+    const pa = t.runtime.store.getProject(a.session.projectId)!;
+    const pb = t.runtime.store.getProject(b.session.projectId)!;
     const firstHistory = (await t.client.request<any>("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "history", purpose: "第一条历史授权" })) as any;
     await t.client.request("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "history", purpose: "第二条历史授权" });
     await t.client.request("create_data_grant", { from_project_id: pb.id, to_project_id: pa.id, category: "memory" });
     const preRevoked = (await t.client.request<any>("create_data_grant", { from_project_id: pa.id, to_project_id: pb.id, category: "artifact" })) as any;
     await t.client.request("revoke_data_grant", { grant_id: preRevoked.id });
 
-    const h = startConfig(t, { product: "ruukoto-code" });
+    const h = startConfig(t);
     try {
       await waitForText(h.terminal, "配置分区");
       h.terminal.send(DOWN + ENTER); // 项目
-      await waitForText(h.terminal, "旧项目 · alpha-g");
+      await waitForText(h.terminal, pa.name);
       h.terminal.send(ENTER); // alpha（旧项目第一个）
       await waitForText(h.terminal, "指令文件：");
       h.terminal.send(DOWN.repeat(2) + ENTER); // → 资料授权
@@ -947,7 +899,6 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
       // 新建授权：方向固定 = 当前项目 → 所选目标
       h.terminal.send(DOWN + DOWN + ENTER); // grant2/入向 → 新建授权
       await waitForText(h.terminal, "授权目标项目");
-      assert.ok(h.terminal.output().includes("旧项目 · beta-g"), "目标选择沿用工作区/旧项目标注");
       h.terminal.send(ENTER); // beta-g
       await waitForText(h.terminal, "资料类别");
       h.terminal.send(DOWN + ENTER); // 产物
@@ -964,8 +915,8 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
       h.terminal.send(DOWN + ENTER); // 新建授权 → 查看已撤销
       await waitForText(h.terminal, "已撤销的资料授权");
       const revokedView = h.terminal.output();
-      assert.ok(revokedView.includes("alpha-g → beta-g · 历史 · 撤销于"), "刚撤销的授权出现在已撤销记录（含撤销时间）");
-      assert.ok(revokedView.includes("alpha-g → beta-g · 产物 · 撤销于"), "预置撤销的授权也在记录中");
+      assert.ok(revokedView.includes(`${pa.name} → ${pb.name} · 历史 · 撤销于`), "Revoked history grant remains visible");
+      assert.ok(revokedView.includes(`${pa.name} → ${pb.name} · 产物 · 撤销于`), "Previously revoked artifact grant remains visible");
       h.terminal.send(ESC); // 关闭只读记录
     } finally {
       assert.equal(await h.quit(), 0);
@@ -978,12 +929,12 @@ test("ruukoto-code：资料授权标注出向/入向；同范围多条撤销提�
 test("重载恢复：实例 MCP 分区持久化并恢复", async () => {
   const t = await startTestRuntime("cfg-tui-ws-reload", textResponder);
   const stateDir = await mkdtemp(path.join(tmpdir(), "ruukoto-cfg-ws-reload-"));
-  const stateFile = path.join(stateDir, "reload.json");
-  const envKey = "RUUKOTO_RELOAD_STATE_FILE";
+  const stateFile = t.dirs.profile.reloadStatePath;
+  const envKey = "RUUKOTO_DEV_MANAGED";
   const origEnv = process.env[envKey];
-  process.env[envKey] = stateFile;
+  process.env[envKey] = "1";
   try {
-    const h1 = startConfig(t, { product: "ruukoto-code" });
+    const h1 = startConfig(t);
     try {
       await waitForText(h1.terminal, "配置分区");
       h1.terminal.send(DOWN.repeat(3) + ENTER);
@@ -1000,7 +951,7 @@ test("重载恢复：实例 MCP 分区持久化并恢复", async () => {
       assert.equal(await h1.quit(), 0);
     }
 
-    const h2 = startConfig(t, { product: "ruukoto-code" });
+    const h2 = startConfig(t);
     try {
       await waitForText(h2.terminal, "新增服务", "重载后直接恢复到实例 MCP 分区");
     } finally {
@@ -1014,39 +965,6 @@ test("重载恢复：实例 MCP 分区持久化并恢复", async () => {
   }
 });
 
-test("旧重载状态的项目 MCP 入口已删除，不能打开实例服务", async () => {
-  const t = await startTestRuntime("cfg-tui-ws-xsvc", textResponder);
-  const stateDir = await mkdtemp(path.join(tmpdir(), "ruukoto-cfg-ws-xsvc-"));
-  const stateFile = path.join(stateDir, "reload.json");
-  const envKey = "RUUKOTO_RELOAD_STATE_FILE";
-  const origEnv = process.env[envKey];
-  process.env[envKey] = stateFile;
-  try {
-    const a = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-xsvc-a" })) as any;
-    const projectA = a.session.projectId as string;
-    const svcB = (await t.client.request<any>("mcp_configure", { name: "otherb", endpoint: "https://b.example.com/mcp", tool_allowlist: [] })) as any;
-    const { snapshot } = await t.client.handshake();
-    fs.writeFileSync(stateFile, JSON.stringify({
-      kind: "config-tui",
-      instanceId: snapshot.instanceId,
-      section: ["projects", `project:${projectA}`, "mcp", `svc:${svcB.id}`],
-      updatedAt: "",
-    }));
-    const h = startConfig(t, { product: "ruukoto-code" });
-    try {
-      await waitForText(h.terminal, "已不存在", "旧项目 MCP 菜单不随重载恢复");
-      assert.ok(h.terminal.output().includes("指令文件："), "停留在项目详情");
-      assert.ok(!h.terminal.output().includes("otherb"), "不打开实例服务");
-    } finally {
-      assert.equal(await h.quit(), 0);
-    }
-  } finally {
-    if (origEnv === undefined) delete process.env[envKey];
-    else process.env[envKey] = origEnv;
-    await rm(stateDir, { recursive: true, force: true });
-    await t.shutdown();
-  }
-});
 
 test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务仍在；不带版本删除", async () => {
   const t = await startTestRuntime("cfg-tui-mcp-remove", textResponder);
@@ -1079,51 +997,9 @@ test("mcp_remove 期望版本：匹配删除成功；陈旧版本冲突且服务
   }
 });
 
-test("ruukoto-code：工作区详情列出关联旧资料与原配置入口；来源设置按来源版本访问（issue 07 步骤 4）", async () => {
-  const t = await startTestRuntime("cfg-tui-ws-sources", textResponder);
-  try {
-    const ws = (await t.client.request<any>("open_workspace", { cwd: t.work[0]!, request_id: "ws-src-1" })) as any;
-    const wsId = ws.session.projectId as string;
-    const legacy = (await t.client.request<any>("create_project", { name: "legacy-src" })) as any;
-    const mapped = (await t.client.request<any>("create_session", { project_id: legacy.id, cwd: t.work[1]! })) as any;
-    t.runtime.store.withTx(() => t.runtime.store.mapSessionToWorkspace(mapped.id, wsId));
-    await t.client.request("create_data_grant", {
-      from_project_id: legacy.id, to_project_id: wsId, category: "history", purpose: "旧历史供工作区查阅",
-    });
-
-    const h = startConfig(t, { product: "ruukoto-code" });
-    try {
-      await waitForText(h.terminal, "配置分区");
-      h.terminal.send(DOWN + ENTER); // 项目
-      await waitForText(h.terminal, `工作区 · ${ws.projectName}`);
-      h.terminal.send(ENTER); // 工作区（首项）
-      await waitForText(h.terminal, "关联旧资料来源 1 项");
-      await waitForText(h.terminal, "关联旧资料：legacy-src");
-      const out = h.terminal.output();
-      assert.ok(out.includes("1 个映射会话"), "列出对应会话");
-      assert.ok(!out.includes("MCP 1 项"), "来源摘要不再统计实例 MCP");
-      assert.ok(out.includes("授权 出 1 / 入 0"), "列出原授权方向（不隐式合并）");
-      assert.ok(out.includes("v1"), "来源设置版本并列显示");
-      // 打开原配置入口：来源项目的指令/版本页面（沿用 06 的版本校验）
-      const beforeEnter = h.terminal.output().length;
-      h.terminal.send(DOWN.repeat(3) + ENTER); // instructions..grants → 关联旧资料
-      await waitForText(h.terminal, "项目 legacy-src");
-      const tail = h.terminal.output().slice(beforeEnter);
-      assert.ok(tail.includes("指令文件："), "来源详情打开");
-      assert.ok(tail.includes("旧项目"), "来源项目自身标注（不是工作区）");
-      assert.ok(!tail.includes("关联旧资料"), "来源详情不反向合并工作区");
-      h.terminal.send(ESC); // 回工作区详情
-      await waitForText(h.terminal, "关联旧资料：legacy-src");
-    } finally {
-      assert.equal(await h.quit(), 0);
-    }
-  } finally {
-    await t.shutdown();
-  }
-});
 
 test("Code Cua 配置TUI从固定程序创建停用服务，合并观察且未打开图片不提供接受动作", async context => {
-  const t = await startTestRuntime("cfg-cua", textResponder, { config: { product: codeProduct.runtime } });
+  const t = await startTestRuntime("cfg-cua", textResponder);
   const config = { kind: "cua-mac" as const, executable: "/Applications/Cua.app/Contents/MacOS/cua-driver", version: "0.38.0" as const, sha256: "a".repeat(64) };
   const targets = { targets: [{ label: "本机 Cua Driver 0.38.0", config }], issues: [] };
   context.mock.method(t.runtime, "mcpCuaTargets", async () => targets);
@@ -1132,7 +1008,7 @@ test("Code Cua 配置TUI从固定程序创建停用服务，合并观察且未�
   const observes = context.mock.method(t.runtime, "mcpCuaObserve", async () => { status = { ...status, state: "recovering", ownerStarted: true, observation: { id: "new-observation", artifactIds: ["missing-image"] } }; return status; });
   const accepts = context.mock.method(t.runtime, "mcpCuaAccept");
   try {
-    const h = startConfig(t, { product: "ruukoto-code" });
+    const h = startConfig(t);
     try {
       await waitForText(h.terminal, "配置分区"); h.terminal.send(DOWN.repeat(3) + ENTER);
       await waitForText(h.terminal, "添加本机 Cua Driver"); h.terminal.send(DOWN + ENTER);
@@ -1152,3 +1028,50 @@ test("Code Cua 配置TUI从固定程序创建停用服务，合并观察且未�
     } finally { assert.equal(await h.quit(), 0); }
   } finally { await t.shutdown(); }
 });
+
+test("model-free configuration falls back only when the backend socket is absent and preserves identity", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "ruukoto-config-first-"));
+  try {
+    const selection = selectProfile({}, {}, home);
+    const profile = await bootstrapProfile(selection);
+    const terminal = new FakeTerminal();
+    const done = runConfigTui({ profile, terminal });
+    await waitForText(terminal, "配置分区");
+    terminal.send(CTRL_C);
+    assert.equal(await done, 0);
+    assert.equal((await bootstrapProfile(selection)).instanceId, profile.instanceId);
+    assert.equal(fs.existsSync(path.join(profile.agentDir, "config.lock")), false);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+for (const code of ["protocol_version", "instance_mismatch", "profile_identity_mismatch", "authentication_failed"]) {
+  test(`configuration rejection ${code} never enters offline writes`, async () => {
+    const { dirs } = await makeTestDirs("cfg-rejected", 0);
+    const before = fs.readdirSync(dirs.agentDir).sort();
+    const sockets = new Set<Socket>();
+    const server = createServer(socket => {
+      sockets.add(socket);
+      socket.setEncoding("utf8");
+      let input = "";
+      socket.on("data", chunk => {
+        input += chunk;
+        const end = input.indexOf("\n");
+        if (end < 0) return;
+        const request = JSON.parse(input.slice(0, end)) as { id: string };
+        socket.end(JSON.stringify({ v: CONTROL_PROTOCOL_VERSION, id: request.id, ok: false, error: { code, message: "rejected profile" } }) + "\n");
+      });
+    });
+    await new Promise<void>(resolve => server.listen(dirs.profile.socketPath, resolve));
+    try {
+      const terminal = new FakeTerminal();
+      await assert.rejects(runConfigTui({ profile: dirs.profile, terminal }));
+      assert.deepEqual(fs.readdirSync(dirs.agentDir).sort(), before);
+      assert.equal(terminal.output().includes("离线"), false);
+      assert.equal(fs.existsSync(path.join(dirs.agentDir, "config.lock")), false);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      await cleanupDirs(dirs);
+    }
+  });
+}

@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { StoreConflictError, type Store } from "./store.ts";
-import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type NotifyTarget, type SubAgentReadScope, type Task, type ToolCategory } from "./types.ts";
+import { randomId, type AccessMode, type GrantedPath, type ModelSelection, type SubAgentReadScope, type Task, type ToolCategory } from "./types.ts";
 import type { ProductType } from "./product.ts";
 import type { SubAgentRoleCatalogSnapshot } from "./subagent-definition.ts";
 
@@ -23,11 +23,9 @@ export interface WorkflowSource {
   grantedPaths: GrantedPath[];
   capabilities: string[];
   references: SubAgentReadScope["sourceRefs"];
-  replyTarget: NotifyTarget | null;
-  scheduledRunId: string | null;
   codeScheduledRunId?: string;
-  /** 真实装配在启动时固定；旧库层替身可省略，真实 Driver 拒绝缺少快照的绑定。 */
-  authority?: { toolClass?: "dev" | "main"; categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
+  /** Frozen by actual tool assembly; execution rejects a missing authority snapshot. */
+  authority?: { toolClass?: "dev"; categories: ToolCategory[]; grantIds: string[]; configuration: string; workspace: { path: string; dev: number; ino: number } };
 }
 export interface WorkflowDefinition { id: string; digest: string; script: string; interfaceVersion?: number; createdAt: string }
 export interface WorkflowLaunch {
@@ -338,7 +336,7 @@ export function bindWorkflowExecution(store: Store, execution: WorkflowExecution
 export function workflowSlotsUsed(store: Store, sourceSessionId: string): number {
   const row = store.db.prepare(`SELECT COUNT(DISTINCT t.id) AS n FROM tasks t
     JOIN work_delegations w ON w.id = t.work_id
-    WHERE w.parent_session_id = ? AND t.source_event_id IS NULL AND
+    WHERE w.parent_session_id = ? AND
     (t.status IN ('running','awaiting_confirmation') OR EXISTS (SELECT 1 FROM occupancy o WHERE o.task_id = t.id))`).get(sourceSessionId) as { n: number };
   return row.n;
 }
@@ -367,7 +365,7 @@ export function saveWorkflowQuestion(store: Store, question: WorkflowQuestion): 
   store.appendEvent({ type: "workflow.step", runId: question.runId, key: question.stepKey, status: question.status === "pending" ? "waiting" : question.status === "answered" ? "completed" : "canceled", delivery: null }, { sessionId: question.source.sessionId });
 }
 export type WorkflowControl = { action: "pause" | "cancel" } | { action: "resume"; clockConfirmed?: boolean; stopsConfirmed?: boolean } | { action: "budget"; maxAttempts: number; durationMs: number };
-/** 控制面和 IM 的 JSON 边界；内部调用使用 WorkflowControl，不重复解析。 */
+/** Control-plane JSON boundary; internal callers already use WorkflowControl. */
 export function parseWorkflowControl(value: unknown): WorkflowControl {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new WorkflowError("invalid_params");
   const input = value as Record<string, unknown>;

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 Code treated provider/model display names, ordering, and genuinely new models as changes to existing execution, blocking edits during running/queued tasks. Personal MCP re-evaluated every credential on every save, so one stale credential blocked disable/delete and edits to unrelated services. Coding file search cached a missing rg until worker exit and always recommended restarting.
@@ -14,7 +16,7 @@ Personal MCP save reuses `validatePersonalMcpCredentials` only for new services,
 
 Coding worker calls `resolveFileSearchExecutable` for each search against its currently visible PATH. Personal host already did so. Diagnostics recommend installing in the existing PATH and retrying, reserving restart advice for backend-environment changes. Execution remains in the original sandbox; installation does not expand an existing unit's mounts.
 
-This partly implements [operation-scoped configuration](../../proposed/architecture/2026-10-25-operation-scoped-configuration.md), limited to Code presentation changes, MCP credential checks, and rg discovery. Other online application/migration/recovery remains with that proposal. [RuntimeModels](../architecture/2026-10-23-runtime-models.md), [Code model settings](../feature/2026-10-21-code-model-settings.md), [Personal MCP](../architecture/2026-10-17-personal-durable-mcp.md), and [controlled search](../feature/2026-10-21-controlled-file-search.md) keep stack, credential location, execution, and data boundaries except the explicitly replaced all-credentials-on-save rule.
+This partly implements [operation-scoped configuration](../../rejected/architecture/2026-10-25-operation-scoped-configuration.md), limited to Code presentation changes, MCP credential checks, and rg discovery. Other online application/migration/recovery remains with that proposal. [RuntimeModels](../architecture/2026-10-23-runtime-models.md), [Code model settings](../feature/2026-10-21-code-model-settings.md), [Personal MCP](../../archived/architecture/2026-10-17-personal-durable-mcp.md), and [controlled search](../feature/2026-10-21-controlled-file-search.md) keep stack, credential location, execution, and data boundaries except the explicitly replaced all-credentials-on-save rule.
 
 ## Alternatives considered
 

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [MCP host simplification](../simplification/2026-10-26-mcp-host-responsibilities.md) owns current result provenance and new ordinary-operation records. Image ordering, original bytes, artifact ownership, and non-replay after image failure remain here.
 
 ## Problem
@@ -16,7 +18,7 @@ Code writes immutable ArtifactStore images first and returns empty visual blocks
 
 Personal commits the full reply before saving private images and batch registerImages under the original pi.tool Task. Validate the same Task before image writes, respecting durable's no-task-table-read-after-write constraint. Optional version-1 imageProjection and immutable ruukoto.mcp-images entries save ordered text/image references and image problems. Recovery verifies entry backlinks, original response indexes, and hashes. Provider restores through original result/media backlinks. Original request/reply evidence stays; new image-aware pages replace base64 with references. Old records without projections retain summaries and are not rewritten at startup. Normal image-processing failures become image problems; registration transaction failure rolls back before recording a problem, without changing original effect/code/remoteEnded.
 
-[Image reads](../bug-fix/2026-10-12-read-images.md) and [Personal media](2026-10-18-personal-browser-media.md) retain local-read/provider rules. [Personal MCP](2026-10-17-personal-durable-mcp.md) retains complete replies and unknown occupancy; this adds image paging. [Transport reuse](2026-10-17-mcp-transport-reuse.md) owns HTTP and does not by itself establish stdio integration.
+[Image reads](../bug-fix/2026-10-12-read-images.md) and [Personal media](../../archived/architecture/2026-10-18-personal-browser-media.md) retain local-read/provider rules. [Personal MCP](../../archived/architecture/2026-10-17-personal-durable-mcp.md) retains complete replies and unknown occupancy; this adds image paging. [Transport reuse](2026-10-17-mcp-transport-reuse.md) owns HTTP and does not by itself establish stdio integration.
 
 ## Alternatives considered
 

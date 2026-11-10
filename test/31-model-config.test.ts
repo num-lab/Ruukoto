@@ -1,4 +1,4 @@
-import { product as personalProduct } from "./helpers/legacy-product.ts";
+
 /**
  * 集成与单元：模型配置管理（issue 21 §3/§4）。
  *
@@ -26,6 +26,7 @@ import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { ControlServer } from "@ruukoto/control/server.ts";
 import { acquireConfigLock, InstanceLockError } from "@ruukoto/core/instance-lock.ts";
+import { ProfileError } from "@ruukoto/core/profile.ts";
 import { configRevision, configSecrets, loadModelConfigMetadata, probeModelConfig, readModelConfigMetadata, removeProviderCredential, restoreCatalogSecrets, sanitizeCatalog, setProviderApiKey } from "@ruukoto/agent/model-config.ts";
 import { createMockTools } from "@ruukoto/agent/mock-tools.ts";
 import { Driver } from "@ruukoto/agent/driver.ts";
@@ -57,12 +58,9 @@ interface ManualRuntime {
 
 /** 进程内启动后台（不固定启动 provider，让默认模型走 models.json/持久默认解析）。 */
 async function startRt(dirs: TestDirs, extra: Partial<RuntimeConfig> = {
-    product: personalProduct.runtime,}): Promise<{ runtime: Runtime; client: ControlClient }> {
+    }): Promise<{ runtime: Runtime; client: ControlClient }> {
   const runtime = await Runtime.start({
-    product: personalProduct.runtime,
-    dataDir: dirs.dataDir,
-    agentDir: dirs.agentDir,
-    socketPath: path.join(dirs.root, "c.sock"),
+    profile: dirs.profile,
     toolFactory: (ctx) => createMockTools(ctx),
     ...extra,
   });
@@ -743,16 +741,13 @@ test("配置锁：同 agentDir 互斥、在线时离线写入被拒、停止后�
   const t = await startManual("model-config-lock", textResponder);
   const other = await makeTestDirs("model-config-lock-other", 0);
   try {
-    // 第二个后台：不同 dataDir、同一 agentDir → 配置锁拒绝
+    // A second profile cannot splice the active profile's agent directory into its binding.
     await assert.rejects(
       Runtime.start({
-    product: personalProduct.runtime,
-        dataDir: other.dirs.dataDir,
-        agentDir: t.dirs.agentDir,
-        socketPath: path.join(other.dirs.root, "c.sock"),
+        profile: { ...other.dirs.profile, agentDir: t.dirs.agentDir },
         toolFactory: (ctx) => createMockTools(ctx),
       }),
-      (err: any) => err instanceof InstanceLockError && err.message.includes("配置锁"),
+      (err: unknown) => err instanceof ProfileError,
     );
     // 在线期间离线写入方拿不到配置锁
     assert.throws(() => acquireConfigLock(t.dirs.agentDir), (err: any) => err instanceof InstanceLockError);

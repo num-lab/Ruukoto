@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { listAgentReports, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import { getBackgroundProcess } from "@ruukoto/core/background-processes.ts";
 import { afterTool, lastToolText, lastUserText, realTools, startTestRuntime, toolNamesOf, waitFor } from "./helpers/testkit.ts";
@@ -36,7 +36,7 @@ test("wait 等到主命令退出、明确停止后恢复目录，进程结果不
       }
       default: return { kind: "text", text: "完成" };
     }
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  }, { workDirs: 1, config: { ...realTools() } });
   const session = await t.runtime.createSession({ projectName: "wait-process", cwd: t.work[0], mode: "full_access" });
   const task = await t.runtime.submit({ sessionId: session.id, requestId: "run", input: "运行、等待并核实停止", modelSelection: t.runtime.defaultSelection });
   try {
@@ -62,7 +62,7 @@ for (const interruption of ["owner", "cancel"] as const) test(`进程 wait 的 $
       return { kind: "tool_calls", calls: [{ id: "wait-process", name: "wait", arguments: { targets: [{ kind: "process", process_id: processId }], timeout_ms: 30_000 } }] };
     }
     assert.fail("被中断后不能继续旧模型轮");
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  }, { workDirs: 1, config: { ...realTools() } });
   const session = await t.runtime.createSession({ projectName: "wait-process", cwd: t.work[0], mode: "full_access" });
   const task = await t.runtime.submit({ sessionId: session.id, requestId: "run", input: "等待后台", modelSelection: t.runtime.defaultSelection });
   try {
@@ -94,7 +94,7 @@ test("wait 拒绝混合或重复进程目标，未发出后台操作", async () 
     if (phase++ === 0) return { kind: "tool_calls", calls: [{ id: "mixed", name: "wait", arguments: { targets: [{ kind: "process", process_id: "foreign" }, { kind: "task", task_id: "foreign" }] } }] };
     if (phase === 2) return { kind: "tool_calls", calls: [{ id: "duplicate", name: "wait", arguments: { targets: [{ kind: "process", process_id: "foreign" }, { kind: "process", process_id: "foreign" }] } }] };
     return { kind: "text", text: "参数已拒绝" };
-  }, { config: { product: product.runtime } });
+  });
   try {
     const session = await t.runtime.createSession({ projectName: "wait-process", cwd: t.work[0] });
     const task = await t.runtime.submit({ sessionId: session.id, requestId: "run", input: "错误目标", modelSelection: t.runtime.defaultSelection });

@@ -14,7 +14,6 @@
 | `ViewState.applyEvent` | Apply a persistent state/output event |
 | `EventFlow` | Align text, thinking and tools into one conversation timeline |
 | `HistoryRecovery` | Coordinate history pages and long-body reads using UTF-8 byte offsets |
-| `personal-protocol.ts` | Browser-safe PA timeline, canonical family/question cards, typed action requests and original receipts |
 | `cuaBatchSummary` | Ordered one-line summaries of `run_steps` batch steps for approval surfaces |
 
 All interfaces work in browsers and Node; transport is supplied by the client.
@@ -32,12 +31,6 @@ ViewState
 Recovery first installs the `ConnectResult` snapshot, then applies subsequent events in sequence order. Older events must not roll the view back.
 
 Snapshots and `project.created` events retain the host-owned managed flag. Clients use it to group No workspace conversations while preserving each registered workspace identity and directory.
-
-Personal independently pages operation cards, owner questions, works and delegations in groups of at most eight. Family, operation and admission fix the canonical record; displayed occurrences place it in the timeline and retain redisplay identity. Committed updates refresh current state across those occurrences, while reconnect reads cached originals outside the first page. Optional family, question and recovery fields preserve the existing version-1 ordinary-tool protocol.
-
-Personal action receipts echo the exact original request and report admission or action outcome. The family's operation card separately reports effects and stopping. Original-receipt checks, current observations, immutable owner claims and recovery-image descriptors remain distinct typed facts; backend records determine action eligibility.
-
-Published Personal messages may carry up to eight final-file descriptors bound to that publication. Descriptors retain name, MIME, bytes, SHA-256 and partial status without exposing artifact storage or server paths. The chunk type repeats the same metadata with bounded base64 and offsets; the native host owns authenticated transfer, integrity verification and local save/preview.
 
 ## Main Flows
 
@@ -79,6 +72,3 @@ Initial projection establishes indexes before rendering. Streamed text and think
 - [Coding user queue](../../.agents/notes/implemented/feature/2026-10-30-coding-user-queue.md)
 - [Same-task owner questions](../../.agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md)
 - [Next-request report delivery](../../.agents/notes/implemented/feature/2026-10-30-coding-report-delivery-boundary.md)
-- [Personal desktop canonical choices](../../.agents/notes/implemented/feature/2026-11-05-personal-desktop-decisions.md)
-- [Personal native recovery facts](../../.agents/notes/implemented/architecture/2026-11-05-personal-desktop-recovery.md)
-- [Personal final files](../../.agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md)

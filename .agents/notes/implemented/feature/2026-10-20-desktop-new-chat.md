@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [Managed Coding workspaces](2026-11-07-managed-coding-workspaces.md) supersedes the workspace-selection requirement below; first-send creation and creation-bound identity/permissions remain.
 
 ## Problem

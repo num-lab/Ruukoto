@@ -2,7 +2,9 @@
 
 Status: implemented
 
-This note owns the approved overall choice, first-release boundaries and alternatives. [Role snapshots](2026-10-14-subagent-role-snapshots.md), [persistent source capabilities](2026-10-15-subagent-source-capabilities.md), [current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) and [workflow interfaces](2026-10-15-workflow-role-interface.md) own individual mechanisms. The original joint product/real-model acceptance remains in the offline `.scratch/subagent-roles/issues/05-acceptance.md`; implemented status does not establish that acceptance. The original shared-runtime Personal assembly is now retired by [the durable product entry](../simplification/2026-10-18-personal-product-entry.md); shared-runtime contracts here remain applicable to Coding and retained historical data, not a claim that the current Personal runtime uses this assembly.
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
+This note owns the approved overall choice, first-release boundaries and alternatives. [Role snapshots](2026-10-14-subagent-role-snapshots.md), [persistent source capabilities](2026-10-15-subagent-source-capabilities.md), [current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) and [workflow interfaces](2026-10-15-workflow-role-interface.md) own individual mechanisms. The original joint product/real-model acceptance remains in the offline `.scratch/subagent-roles/issues/05-acceptance.md`; implemented status does not establish that acceptance. The original shared-runtime Personal assembly is now retired by [the durable product entry](../../archived/simplification/2026-10-18-personal-product-entry.md); shared-runtime contracts here remain applicable to Coding and retained historical data, not a claim that the current Personal runtime uses this assembly.
 
 ## Problem
 
@@ -33,7 +35,7 @@ The original audit searched active notes by SubAgent, analyze/modify, workflow, 
 | [Workflow step capabilities](2026-10-13-workflow-step-capabilities.md) | Partly replaces separate ordinary/step capability assembly and a special verification mode; retains frozen results, independent verification, native limits and controlled integration. |
 | [Workflow decision](../feature/2026-10-12-agent-workflows.md) | Partly replaces capabilities enabled only through workflow ownership; retains orchestration, source permissions, limits and one final report. |
 | [Full access](../feature/2026-10-12-full-access-current-account.md) | Retains current-account trust and trusted source propagation; roles may explicitly tighten permissions. |
-| [Wait/report ownership](2026-10-14-agent-wait-and-report-ownership.md), [Personal native execution](2026-10-12-personal-native-sandbox.md) | Retains occupancy, stopping and internal-dialogue constraints. |
+| [Wait/report ownership](2026-10-14-agent-wait-and-report-ownership.md), [Personal native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) | Retains occupancy, stopping and internal-dialogue constraints. |
 
 Application data, Personal import, GitHub review, explicit access modes and unverified-stop preservation retain their separate decisions. Their caller checks belong to the original implementation plan; none is absorbed or archived.
 

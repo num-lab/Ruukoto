@@ -15,13 +15,12 @@ import { getBranchRequest, reserveBranchRequest, sourceArtifact, sourceResultTas
 import { HistoryReadError, historyTodoParams, readHistoryPrefix, snapshotSessionHistory, type HistorySnapshot } from "@ruukoto/core/history.ts";
 import { StoreConflictError, type Store } from "@ruukoto/core/store.ts";
 import { randomId, TASK_START_MARKER, type Artifact, type PersistentEventBody, type Session, type SessionBranchSource } from "@ruukoto/core/types.ts";
-import { canonicalJson } from "@ruukoto/core/import-files.ts";
+import { canonicalJson } from "@ruukoto/core/json.ts";
 
 export interface BranchSessionDeps {
   store: Store;
   access: AccessScope;
   sessionsDir: string;
-  enabled: boolean;
   validate(session: Session): Promise<void>;
 }
 
@@ -91,14 +90,11 @@ export function snapshotSources(deps: BranchSessionDeps, source: Session, snapsh
       if (message.role !== "user" || !Array.isArray(message.ruukotoMediaRefs)) throw new RuntimeApiError("history_corrupt", "历史图片引用格式无效");
       for (const raw of message.ruukotoMediaRefs as Array<Record<string, unknown>>) {
         const artifact = typeof raw?.artifactId === "string" ? store.getArtifact(raw.artifactId) : null;
-        const task = artifact && store.getTask(artifact.taskId);
-        const inbound = task?.sourceEventId ? store.getInboundEvent(task.sourceEventId) : null;
         const inherited = artifact && source.branchSource?.artifacts.find(a => a.id === artifact.id);
         const attachment = artifact && store.taskAttachments(artifact.taskId).some(ref => ref.id === artifact.id && ref.contentHash === artifact.contentHash);
         if (!artifact || artifact.sessionId !== raw.sessionId || artifact.taskId !== raw.taskId || artifact.mimeType !== raw.mimeType ||
             artifact.byteCount !== raw.byteCount || artifact.contentHash !== raw.contentHash || artifact.status !== "complete" ||
-            (!inherited && ((!tasks.has(artifact.taskId) && !guidanceVerified(artifact.taskId, entry.id)) ||
-              (!attachment && (inbound?.taskId !== artifact.taskId || !inbound.artifactRefs.includes(artifact.id)))))) {
+            (!inherited && ((!tasks.has(artifact.taskId) && !guidanceVerified(artifact.taskId, entry.id)) || !attachment))) {
           throw new RuntimeApiError("image_reference_invalid", "历史图片缺少宿主核实的来源");
         }
         addArtifact(artifact.id, artifact.taskId);
@@ -158,7 +154,6 @@ function publishedSession(deps: BranchSessionDeps, request: BranchRequest): Sess
 }
 
 export async function branchSession(deps: BranchSessionDeps, input: { sessionId: string; name?: string; taskId?: string; requestId: string }): Promise<Session> {
-  if (!deps.enabled) throw new RuntimeApiError("unavailable", "当前产品不提供会话分支");
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.requestId) || (input.name !== undefined && (!input.name.trim() || input.name.length > 512))) {
     throw new RuntimeApiError("invalid_params", "分支请求键或名称无效（名称最多 512 字符）");
   }
@@ -181,8 +176,8 @@ export async function branchSession(deps: BranchSessionDeps, input: { sessionId:
   await deps.validate(source);
   try {
     const fresh = deps.store.getSession(input.sessionId);
-    if (!fresh || deps.store.getSessionIdentity(fresh.id)?.kind !== "dev" || fresh.workspaceProjectId !== source.workspaceProjectId || fresh.projectId !== source.projectId) {
-      throw new RuntimeApiError("source_changed", "来源身份或工作区映射已改变，请核实后再分支");
+    if (!fresh || deps.store.getSessionIdentity(fresh.id)?.kind !== "dev" || fresh.projectId !== source.projectId) {
+      throw new RuntimeApiError("source_changed", "来源身份已改变，请核实后再分支");
     }
     const snapshotSource = fresh;
     // 目录核实会让出执行权，同键请求可能已经完成发布。
@@ -240,7 +235,7 @@ export async function recoverBranchSessions(deps: BranchSessionDeps): Promise<vo
     const request = getBranchRequest(deps.store, row.request_id)!;
     try {
       const source = deps.store.getSession(request.session.branchSource!.sessionId);
-      if (!deps.enabled || !source) throw new RuntimeApiError("unavailable", "分支来源或产品能力不可用");
+      if (!source) throw new RuntimeApiError("unavailable", "分支来源不可用");
       await deps.validate(source);
       publish(deps, request);
     } catch (error) {

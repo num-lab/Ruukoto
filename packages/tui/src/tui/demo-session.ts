@@ -1,5 +1,5 @@
 import type { TaskView as Task } from "@ruukoto/core/views.ts";
-/** Offline TUI fixture covering every persistent event without executing tasks or accessing profile data. */
+/** Offline TUI fixture; no tasks execute and no profile data is accessed. */
 
 import { ControlClientError, type ClientCloseInfo, type ControlTransport } from "@ruukoto/control/client.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
@@ -57,9 +57,7 @@ function task(over: Partial<Task> & { id: string; status: Task["status"] }): Tas
     errorMessage: null,
     historyEntryIds: [],
     resumesTaskId: null,
-    agentId: null,
     parentTaskId: null,
-    sourceEventId: null,
     deadline: null,
     resultSummary: null,
     resultRef: null,
@@ -97,7 +95,6 @@ const PROJECT: Project = { id: PROJECT_ID, name: "合成项目", createRequestId
 const SESSION: Session = {
   id: SESSION_ID,
   projectId: PROJECT_ID,
-  workspaceProjectId: null,
     name: null,
     branchSource: null,
   kind: "dev",
@@ -146,8 +143,6 @@ const CONFIRMATION: ConfirmationRequest = {
   reviewModel: "demo/demo-model",
   reviewPolicyVersion: "auto-review-v1",
   decisionSource: null,
-  standingPermissionId: null,
-  standingPermissionVersion: null,
 };
 
 /** 历史条目：覆盖各角色与边界（截断、工具错误、含非文本内容）。 */
@@ -292,7 +287,7 @@ function demoBreakdown(): ContextBreakdown {
   };
 }
 
-/** Every persistent event type appears with consecutive sequence numbers starting at one. */
+/** Representative current events use consecutive sequence numbers. */
 function demoEvents(): PersistentEvent[] {
   const entries = historyEntries();
   const answer = entries.find((entry) => entry.entryId === "entry_0002")!.text;
@@ -304,12 +299,9 @@ function demoEvents(): PersistentEvent[] {
     workspace: { cwd: SESSION.cwd, cwdReal: SESSION.cwdReal, dev: 1, ino: 1 }, version: 1, status: "completed", nextDueAt: null, reason: null, createdAt: NOW, updatedAt: NOW };
   const bodies: PersistentEventBody[] = [
     { type: "backend.started", dataDir: "/srv/demo/data", executionBackend: "native", product: "ruukoto" },
-    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: null },
-    { type: "project.root_attached", projectId: PROJECT_ID, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
+    { type: "project.created", projectId: PROJECT_ID, name: PROJECT.name, createRequestId: null, rootDir: { cwd: SESSION.cwd, cwdReal: SESSION.cwd, dev: 1, ino: 1 } },
     { type: "session.created", sessionId: SESSION_ID, projectId: PROJECT_ID, kind: "dev", cwd: SESSION.cwd, modelSelection: MODEL, modelSelectionVersion: 1, createRequestId: null },
     { type: "session.archive_changed", sessionId: SESSION_ID, archivedAt: null },
-    // Organizational membership changes display grouping, not data identity.
-    { type: "session.workspace_mapped", sessionId: SESSION_ID, projectId: PROJECT_ID, workspaceProjectId: PROJECT_ID },
     { type: "session.usage_updated", sessionId: SESSION_ID },
     { type: "side_chat.bound", parentSessionId: SESSION_ID, sideSessionId: "sess_demoside" },
     { type: "web_search.changed", version: 1, state: "enabled" },
@@ -332,7 +324,6 @@ function demoEvents(): PersistentEvent[] {
     { type: "workflow.changed", runId: "wfrun_demo", version: 1, status: "waiting", reason: null },
     { type: "workflow.step", runId: "wfrun_demo", key: "pick", status: "waiting", delivery: null },
     { type: "workflow.execution", runId: "wfrun_demo", taskId: "task_completed000", kind: "agent", status: "finished", stopVerified: true },
-    { type: "workflow.input", eventId: "evt_demo_workflow", source: "telegram", outcome: "answered" },
     { type: "agent_wait.changed", waitId: "wait_demo", taskId: "task_running000000", phase: "waiting", reason: null,
       wait: { id: "wait_demo", phase: "waiting", reason: null, deadline: null, targets: [{ kind: "workflow", id: "wfrun_demo", label: "工作流 · 资料整理", status: "waiting" }] } },
     { type: "task.resources_changed", taskId: "task_running000000", sessionId: SESSION_ID, phase: "conversation" },
@@ -397,8 +388,6 @@ function demoEvents(): PersistentEvent[] {
     { type: "task.confirmation_reviewed", taskId: "task_awaiting0000", confirmationId: CONFIRMATION.id, decision: "ask_owner", reason: "带凭据的写入不属于自动批准范围" },
     { type: "task.confirmation_resolved", taskId: "task_awaiting0000", confirmationId: "conf_old000000000", decision: "rejected" },
     { type: "task.approval_consumed", taskId: "task_awaiting0000", confirmationId: "conf_old000000001", toolOpId: "toolop_demo_approved", toolName: "http_request" },
-    { type: "standing_permission.created", permissionId: "sp_demo00000000001", approvalId: "conf_old000000002", eventId: "evt_demo00000000001", sessionId: SESSION_ID, channel: "qq_private", account: "880001", chatId: "880001", actor: "qq_private:880001", machineId: "demo-machine-0001", unit: "ruukoto-service-test.service", action: "restart" },
-    { type: "standing_permission.revoked", permissionId: "sp_demo00000000001", version: 2, reason: "effect_unknown", opId: "op_svc_demo0000001" },
     { type: "task.mode_switch_requested", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access" },
     { type: "task.mode_switched", taskId: "task_running000000", sessionId: SESSION_ID, from: "confirm", to: "full_access", permissionVersion: 2 },
     { type: "task.mode_switch_failed", taskId: "task_failed00000", sessionId: SESSION_ID, to: "full_access", reason: "任务已结束" },
@@ -423,34 +412,12 @@ function demoEvents(): PersistentEvent[] {
     { type: "memory.restored", memoryId: "mem_demo00000000", projectId: PROJECT_ID, fromVersion: 1, newVersion: 3, author: "owner", taskId: null },
     // issue 21 §4：模型配置在线应用（目录/凭据/后台默认模型）
     { type: "model.config_changed", kind: "api_key", provider: "demo" },
-    // issue 17：github.* 事件类型已退役，以下仅为历史记录的渲染样例（不再产生新实例）
-    { type: "github.binding_changed", bindingId: "bind_demo0000000", projectId: PROJECT_ID, apiHost: "api.github.com", owner: "demo", repo: "demo-repo", configVersion: 2, action: "upsert" },
-    { type: "github.draft_saved", draftId: "draft_demo000000", version: 1, taskId: "task_completed000", sessionId: SESSION_ID, kind: "pr_review_comment", bodySha256: "a".repeat(64), bodyBytes: 2048 },
-    { type: "github.draft_stale", draftId: "draft_demo000000", version: 1, reason: "PR head SHA 已变化" },
-    { type: "github.publish_requested", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", draftVersion: 1, taskId: "task_completed000", sessionId: SESSION_ID },
-    { type: "github.publish_settled", publishOpId: "pub_demo00000000", draftId: "draft_demo000000", status: "effect_unknown", remoteUrl: null, errorMessage: "发送后超时" },
     { type: "mcp.service_changed", serviceId: "mcps_demo000000", name: "docs", endpoint: "https://mcp.example.com/mcp/", configVersion: 1, action: "upsert" },
     { type: "project.jev_changed", projectId: PROJECT_ID, configVersion: 2, enabled: true },
     // agent-direction issue 06：项目指令的设置版本并发保护
     { type: "project.settings_changed", projectId: PROJECT_ID, settingsVersion: 2, instructionFiles: ["AGENTS.md"] },
     { type: "mcp.service_unavailable", serviceId: "mcps_demo000000", taskId: "task_completed000", sessionId: SESSION_ID, name: "docs", endpoint: "https://mcp.example.com/mcp/", reason: "连接超时（timeout）" },
-    // issue 07：QQ 群聊入口配置变化（群允许列表增删/启停/连接参数）
-    { type: "qq.config_changed", configVersion: 3, action: "group_added", groupId: "100001" },
-    { type: "qq.receive_gap", from: ts(70), to: ts(62) },
-    { type: "tasks.model_selection_recorded", sessionId: SESSION_ID, taskIds: ["task_queued000000"], modelSelection: MODEL },
     { type: "backend.recovered", interruptedTaskIds: ["task_interrupt00"], pausedSessionIds: [SESSION_ID] },
-    // issue 01：入站事件与子任务编排（角色任务结果回传与有界唤醒）
-    { type: "inbound.registered", eventId: "evt_demo000000001", source: "telegram", externalId: "msg-42", targetRole: "main", actor: "owner" },
-    { type: "inbound.queued", eventId: "evt_demo000000001", taskId: "task_completed000", targetRole: "main" },
-    { type: "inbound.skipped", eventId: "evt_demo000000002", source: "qq_private", reason: "qq_private_target_changed" },
-    // agent-direction issue 08：IM 审批控制消息回执与同键重投拒绝
-    { type: "im_approval.processed", eventId: "evt_demo000000003", source: "qq_private", commandKind: "decide", outcome: "approved" },
-    { type: "im_approval.redelivery_rejected", eventId: "evt_demo000000003", source: "qq_private", externalId: "990001:880001:42", reason: "同键异命令或身份不一致" },
-    { type: "chat_result.accepted", taskId: "task_completed000", acceptedByTaskId: "task_running000000", acceptedByOpId: "op_chat_accept000" },
-    { type: "child_task.completed", taskId: "task_completed000", parentTaskId: "task_running000000", agentId: "coding", summary: "分析结论：仓库健康", resultRef: "{\"sessionId\":\"sess_demo0000000000000000\",\"taskId\":\"task_completed000\"}" },
-    { type: "child_task.failed", taskId: "task_failed00000", parentTaskId: "task_running000000", agentId: "coding", errorMessage: "模型返回 429：速率限制" },
-    { type: "child_task.timeout", taskId: "task_canceled000", parentTaskId: "task_running000000", agentId: "coding", deadline: ts(5) },
-    { type: "child_task.result_unknown", taskId: "task_interrupt00", parentTaskId: null, agentId: "main", reason: "backend_restart" },
     // agent-direction issue 11：工作委托登记与 SubAgent 结果
     { type: "work_delegation.created", workId: "work_demo00000000001", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", agentSessionId: "sess_demoagent000000", taskId: "task_subagent000001" },
     { type: "subagent_task.completed", workId: "work_demo00000000001", subAgentId: "sagent_demo0000000001", taskId: "task_subagent000001", parentSessionId: SESSION_ID, parentTaskId: "task_running000000", summary: "只读分析结论：接口一致", resultRef: "{\"workId\":\"work_demo00000000001\",\"taskId\":\"task_subagent000001\"}" },
@@ -467,17 +434,6 @@ function demoEvents(): PersistentEvent[] {
     { type: "subagent.closed", subAgentId: "sagent_demo0000000001", parentSessionId: SESSION_ID, closedBy: "agent:task_running000000", taskId: "task_running000000" },
     // agent-direction issue 17：改动汇总（已取消工作、已关闭 SubAgent 的副本成果仍可找回汇总）
     { type: "work_delegation.integrated", workId: "work_demo00000000002", parentSessionId: SESSION_ID, subAgentId: "sagent_demo0000000001", taskId: "task_running000000", branch: "ruukoto/work-work_demo00000000002", baseCommit: "0123456789abcdef0123456789abcdef01234567", parentHead: "89abcdef0123456789abcdef0123456789abcd", files: ["src/a.ts"], filesChanged: 1, insertions: 12, deletions: 3, patchBytes: 742 },
-    // issue 02：main 应用数据空间（能力停止与操作拒绝）
-    { type: "app_data.unavailable", reason: "应用数据库实例标识与登记不符：保留未知效果，能力停止" },
-    { type: "app_data.rejected", taskId: "task_completed000", sessionId: SESSION_ID, source: "validation", toolName: "app_data_define_table", code: "reserved_name" },
-    { type: "schedule.changed", scheduleId: "sch_demo00000001", action: "created", version: 1, source: "main_tool", reason: "每日提醒" },
-    { type: "schedule.run", scheduleId: "sch_demo00000001", runId: "run_demo00000001", action: "registered", scheduledFor: "2026-09-24T01:00:00.000Z", delayMs: 0, coalescedFrom: null, coalescedTo: null },
-    { type: "notification.changed", opId: "nop_demo00000001", status: "effect_unknown", sourceKind: "schedule_run", reason: "timeout_or_abort" },
-    // issue 04：Telegram owner 入口
-    { type: "telegram.config_changed", configVersion: 2, action: "enabled" },
-    { type: "telegram.rejected", updateId: 101, chatId: "99", userId: "99", reason: "not_owner" },
-    { type: "telegram.reply_skipped", eventId: "evt_demo00000001", taskId: "task_completed000", reason: "target_unavailable" },
-    { type: "qq_private.reply_skipped", eventId: "evt_demo00000002", taskId: "task_completed000", reason: "target_changed" },
     { type: "backend.stopping", reason: "signal_sigterm" },
     { type: "backend.stopped", reason: "signal_sigterm" },
   ];
@@ -529,7 +485,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
   let timer: NodeJS.Timeout | null = null;
 
   const snapshot = (): ConnectResult["snapshot"] => ({
-    product: "ruukoto-code", mainSessionId: null,
+    product: "ruukoto",
     projects: [PROJECT],
     sessions: [SESSION],
     tasks,
@@ -541,6 +497,7 @@ export function createDemoClient(onNotice: (text: string) => void, intervalMs = 
       task_running000000: { messageId: "msg_live", text: "正在生成合成输出…\n第二行内容用于验证预览区域的高度与换行。", totalBytes: 64, truncated: false, seq: 4, state: "generating" },
     },
     instanceId: "inst_demo",
+    layout: "ruukoto-single-v1",
     execution: { backend: "native", note: "合成会话：不执行任何任务" },
     defaultModel: { provider: MODEL.provider, id: MODEL.modelId, name: "Demo Model", thinkingLevel: MODEL.thinkingLevel },
     subAgentSessionIds: [],

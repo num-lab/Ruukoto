@@ -1,26 +1,21 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
+// Note: See .agents/notes/implemented/feature/2026-10-21-owner-question-choice-types.md
+// Note: See .agents/notes/implemented/architecture/2026-11-10-single-product.md
 /**
- * 待确认请求记录（拥有者私有目录）：提交与控制操作的去重锚点。
- *
- * 纪律（issue 04 §3）：
- * - 发送前先生成 request_id 并把操作类型与完整请求参数原子落盘
- *   （临时文件 + rename，0600）；写入失败时不得发送请求；
- * - 输入确认接收后清除；手动压缩关联原命令，保留到核实唯一终态；
- * - 记录绑定数据实例标识：后台重启保留标识可继续核实；新数据库分配新
- *   标识，此时保留待核实输入并要求拥有者处理，不向空后台重发；
- * - 记录用于核实原请求，不作为会话历史副本；令牌等凭据
- *   永远不写入这里。
+ * Private journals bind each original request key and complete parameters to its
+ * data instance before sending. Lost responses retain that record for verification;
+ * malformed records remain visible on disk and never become new input.
  */
 
 import * as fs from "node:fs";
 import { parseCodeScheduleConfig } from "@ruukoto/core/code-scheduler.ts";
+import { parseModelSelection } from "@ruukoto/core/model-selection.ts";
+import { isSessionDefaultMode } from "@ruukoto/core/types.ts";
 import * as path from "node:path";
-import { dirEnvFor, productFromEnv, productRootDir } from "@ruukoto/core/product.ts";
 import { parseWorkflowControl, workflowLaunchDigest, type WorkflowLaunch } from "@ruukoto/core/workflow.ts";
 
 export interface PendingRequest {
   requestId: string;
-  op: "submit" | "continue" | "message_recall" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control" | "open_side_chat" | "submit_side_chat" | "create_managed_session" | "desktop_start_chat";
+  op: "submit" | "message_recall" | "branch_session" | "compact_session" | "workflow_start" | "workflow_answer" | "workflow_control" | "owner_question_answer" | "owner_question_cancel" | "session_background_end" | "code_schedule_save" | "code_schedule_control" | "open_side_chat" | "submit_side_chat" | "create_managed_session" | "desktop_start_chat";
   /** 完整原请求参数，包含请求键、业务输入及操作使用的原版本。 */
   params: Record<string, unknown>;
   /** 提交时握手返回的数据实例标识。 */
@@ -36,10 +31,6 @@ export interface PendingRequestList {
 
 export type PendingRequestRead = { kind: "record"; record: PendingRequest } | { kind: "absent" | "corrupt" };
 
-export function defaultPendingDir(): string {
-  const product = productFromEnv();
-  return dirEnvFor(product, "PENDING") ?? path.join(productRootDir(product), "pending");
-}
 
 export function validCodeScheduleParams(op: "code_schedule_save" | "code_schedule_control", params: Record<string, unknown>, requestId: string): boolean {
     if (params.request_id !== requestId) return false;
@@ -51,14 +42,31 @@ export function validCodeScheduleParams(op: "code_schedule_save" | "code_schedul
     return op === "code_schedule_save" || ["pause", "resume", "cancel"].includes(String(params.control)) && (params.acknowledge_run_id === undefined || params.control === "resume" && typeof params.acknowledge_run_id === "string" && !!params.acknowledge_run_id);
 }
 
-function validWorkflowParams(record: PendingRequest): boolean {
+export function validInputParams(record: Pick<PendingRequest, "op" | "params" | "requestId">): boolean {
   const params = record.params;
-  if (record.op === "code_schedule_save" || record.op === "code_schedule_control") return validCodeScheduleParams(record.op, params, record.requestId);
-  if (record.op === "message_recall") return params.request_id === record.requestId && typeof params.session_id === "string" && !!params.session_id && typeof params.task_id === "string" && !!params.task_id && Number.isSafeInteger(params.expected_revision) && Number(params.expected_revision) >= 0 && (params.purpose === "queued" || params.purpose === "historical");
-  if (record.op === "session_background_end") return params.request_id === record.requestId && typeof params.session_id === "string" && params.session_id.trim().length > 0 && Object.keys(params).every(key => key === "session_id" || key === "request_id");
+  if (record.op === "submit") {
+    if (params.request_id !== record.requestId || typeof params.session_id !== "string" || !params.session_id.trim() || typeof params.input !== "string") return false;
+    if (Object.keys(params).some(key => !["session_id", "request_id", "input", "model_selection", "attachments", "access_mode", "granted_paths", "guidance"].includes(key)) ||
+      params.access_mode !== undefined && !isSessionDefaultMode(params.access_mode) || params.guidance !== undefined && typeof params.guidance !== "boolean") return false;
+    if (params.attachments !== undefined && (!Array.isArray(params.attachments) || !params.attachments.every((value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const item = value as Record<string, unknown>;
+      return Object.keys(item).every(key => ["id", "name", "size"].includes(key)) && typeof item.id === "string" && !!item.id && typeof item.name === "string" && !!item.name && Number.isSafeInteger(item.size) && Number(item.size) >= 0;
+    }))) return false;
+    if (params.granted_paths !== undefined && (!Array.isArray(params.granted_paths) || !params.granted_paths.every((value: unknown) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const item = value as Record<string, unknown>;
+      return Object.keys(item).every(key => ["path", "access", "purpose"].includes(key)) && typeof item.path === "string" && (item.access === "read" || item.access === "read_write") && typeof item.purpose === "string";
+    }))) return false;
+    try { parseModelSelection(params.model_selection); }
+    catch { return false; }
+    return true;
+  }
   if (record.op === "owner_question_answer" || record.op === "owner_question_cancel") {
     if (params.request_id !== record.requestId || typeof params.session_id !== "string" || !params.session_id.trim() ||
       typeof params.question_id !== "string" || !params.question_id.trim() || !Number.isSafeInteger(params.question_version) || (params.question_version as number) < 1) return false;
+    const fields = record.op === "owner_question_answer" ? ["session_id", "question_id", "question_version", "request_id", "answers"] : ["session_id", "question_id", "question_version", "request_id"];
+    if (Object.keys(params).some(key => !fields.includes(key))) return false;
     if (record.op === "owner_question_answer") {
       if (!Array.isArray(params.answers) || params.answers.length < 1 || params.answers.length > 3) return false;
       return params.answers.every((answer: unknown) => {
@@ -77,6 +85,15 @@ function validWorkflowParams(record: PendingRequest): boolean {
     }
     return true;
   }
+  return true;
+}
+
+function validWorkflowParams(record: PendingRequest): boolean {
+  const params = record.params;
+  if (!validInputParams(record)) return false;
+  if (record.op === "code_schedule_save" || record.op === "code_schedule_control") return validCodeScheduleParams(record.op, params, record.requestId);
+  if (record.op === "message_recall") return params.request_id === record.requestId && typeof params.session_id === "string" && !!params.session_id && typeof params.task_id === "string" && !!params.task_id && Number.isSafeInteger(params.expected_revision) && Number(params.expected_revision) >= 0 && (params.purpose === "queued" || params.purpose === "historical");
+  if (record.op === "session_background_end") return params.request_id === record.requestId && typeof params.session_id === "string" && params.session_id.trim().length > 0 && Object.keys(params).every(key => key === "session_id" || key === "request_id");
   if (!record.op.startsWith("workflow_")) return true;
   if (params.request_id !== record.requestId) return false;
   const nonempty = (value: unknown) => typeof value === "string" && value.trim().length > 0;
@@ -96,7 +113,7 @@ function validWorkflowParams(record: PendingRequest): boolean {
 export class PendingRequestStore {
   readonly dir: string;
 
-  constructor(dir: string = defaultPendingDir()) {
+  constructor(dir: string) {
     this.dir = dir;
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
@@ -138,7 +155,7 @@ export class PendingRequestStore {
     catch { return { kind: "corrupt" }; }
     try {
       if (typeof raw?.requestId !== "string" || raw.requestId !== requestId ||
-        !["submit", "continue", "message_recall", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control", "open_side_chat", "submit_side_chat", "create_managed_session", "desktop_start_chat"].includes(raw.op) ||
+        !["submit", "message_recall", "branch_session", "compact_session", "workflow_start", "workflow_answer", "workflow_control", "owner_question_answer", "owner_question_cancel", "session_background_end", "code_schedule_save", "code_schedule_control", "open_side_chat", "submit_side_chat", "create_managed_session", "desktop_start_chat"].includes(raw.op) ||
         typeof raw.params !== "object" || raw.params === null || Array.isArray(raw.params) ||
         typeof raw.instanceId !== "string" || !raw.instanceId ||
         typeof raw.createdAt !== "string" || !Number.isFinite(Date.parse(raw.createdAt)) || !validWorkflowParams(raw)) return { kind: "corrupt" };

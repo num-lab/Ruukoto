@@ -4,12 +4,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { createLocalLauncher } from "@ruukoto/agent/execution/launchers.ts";
 import { Driver, type DriverDeps } from "@ruukoto/agent/driver.ts";
 import { createHostDataFamily } from "@ruukoto/agent/host-tools.ts";
-import { hostCallFor, type HostToolFamily } from "@ruukoto/agent/host-tool-families.ts";
 import { parseSubAgentRole } from "@ruukoto/agent/subagent-roles.ts";
 import { createSkillFamily, skillsDirFor } from "@ruukoto/agent/skills.ts";
 import { ToolOpLedger } from "@ruukoto/agent/tool-op-ledger.ts";
@@ -23,40 +20,40 @@ import type { Responder } from "./helpers/mock-provider.ts";
 
 const agent: SubAgent = { definition: fixtureSubAgentDefinition(), id: "agent", parentSessionId: "source", sessionId: "child", workDir: "/work", activeWorkId: null,
   currentTaskId: null, state: "idle", closedAt: null, closedBy: null, createdAt: "" };
-const profile = (sourceProjectId = "project"): WorkflowExecutionProfile => ({ toolClass: "main", sourceProjectId,
-  categories: sessionToolCategories("main") });
+const profile = (sourceProjectId = "project"): WorkflowExecutionProfile => ({ toolClass: "dev", sourceProjectId,
+  categories: sessionToolCategories("dev") });
 
 test("宿主步骤画像按来源收窄，旧固定画像不获得额外能力", () => {
   const identity = { kind: "subagent", agent, workflow: { runId: "run", stepKey: "one", sourceSessionId: "source" } } as const;
-  const step = executionProfile({ identity, workflow: profile(), writeTarget: false, review: false, planMode: true });
-  assert.equal(step.toolClass, "main");
+  const step = executionProfile({ identity, workflow: profile(), writeTarget: false, planMode: true });
+  assert.equal(step.toolClass, "dev");
   assert.equal(step.restricted, true);
   assert.equal(step.subAgentTools, null);
   assert.equal(step.plan, false);
-  assert.ok(step.workflow!.categories.includes("app_data"));
-  assert.ok(!step.workflow!.categories.includes("subagent") && !step.workflow!.categories.includes("delegation"));
+  assert.ok(step.workflow!.categories.includes("host_data"));
+  assert.ok(!step.workflow!.categories.includes("subagent") && !step.workflow!.categories.includes("workflow"));
   assert.equal(workflowAllows(profile(), "subagent_delegate"), false);
   assert.equal(workflowAllows(profile(), "workflow_start"), false);
   assert.equal(workflowAllows(profile(), "browser"), false);
   assert.ok(!step.workflow!.categories.includes("browser"));
   for (const name of ["edit", "write", "bash", "request_file_access"]) assert.equal(workflowAllows(profile(), name), false, name);
   assert.equal(workflowAllows({ ...profile(), verifyTarget: true }, "write"), true);
-  assert.equal(workflowAllows({ ...profile(), tools: ["app_data_query"] }, "app_data_insert"), false);
+  assert.equal(workflowAllows({ ...profile(), tools: ["history_read"] }, "memory_read"), false);
   assert.throws(() => executionProfile({ identity: { kind: "subagent", agent }, workflow: profile(), writeTarget: false,
-    review: false, planMode: false }), { code: "workflow_binding_invalid" });
-  const ordinary = executionProfile({ identity: { kind: "subagent", agent }, writeTarget: false, review: false, planMode: false });
-  assert.equal(subAgentAllows(ordinary.subAgentTools!, "app_data_query"), false);
+    planMode: false }), { code: "workflow_binding_invalid" });
+  const ordinary = executionProfile({ identity: { kind: "subagent", agent }, writeTarget: false, planMode: false });
+  assert.equal(subAgentAllows(ordinary.subAgentTools!, "history_read"), false);
   assert.equal(subAgentAllows(ordinary.subAgentTools!, "skill"), false);
   assert.equal(subAgentAllows(ordinary.subAgentTools!, "read"), true);
 });
 
-async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?: string[]; families?: HostToolFamily[] } = {}) {
+async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?: string[] } = {}) {
   const kit = await startAssemblyKit("workflow-capabilities", { responder, workDirs: 2 });
   const { session: source } = kit.project();
   const parent = kit.task(source, "主会话私有历史不复制给步骤");
   const authority: WorkflowSource = { product: "ruukoto", projectId: source.projectId, sessionId: source.id, taskId: parent.id,
     permissionVersion: parent.permissionVersion, accessMode: "full_access", grantedPaths: [], capabilities: profile().categories,
-    references: [], replyTarget: null, scheduledRunId: null, authority: { toolClass: "main", categories: profile().categories,
+    references: [], authority: { toolClass: "dev", categories: profile().categories,
       grantIds: [], configuration: "test", workspace: { path: source.cwdReal, dev: source.cwdDev, ino: source.cwdIno } } };
   const stat = fs.statSync(kit.work[1]);
   const child = kit.store.createSession({ projectId: source.projectId, cwd: kit.work[1], cwdReal: fs.realpathSync(kit.work[1]),
@@ -89,7 +86,7 @@ async function fixture(responder: Responder, opts: { ordinary?: boolean; tools?:
   const driverDeps: DriverDeps = { ...kit.deps, ledger: new ToolOpLedger(kit.store), historyIndex, sessionsDir: path.join(kit.dirs.dataDir, "sessions"),
     model: kit.model, thinkingLevel: "off", toolFactory: ({ router }) => createCodingTools(router),
     launcherFor: () => createLocalLauncher(), protectedRoots: [kit.dirs.dataDir], onOccupancyReleased: () => {},
-    hostToolFamilies: [hostData, createSkillFamily(), ...(opts.families ?? [])],
+    hostToolFamilies: [hostData, createSkillFamily()],
     workflow: {
       resolve: () => opts.ordinary ? null : { ...profile(source.projectId), tools: opts.tools },
       verify: () => authorized ? null : "资料或来源配置已撤销",
@@ -123,7 +120,7 @@ test("真实 Driver 装配来源业务与技能，步骤自身的技能结果落
     const names = toolNamesOf(k.server.calls[0]);
     for (const name of ["history_search", "memory_save", "skill", "read", "read_artifact"]) assert.ok(names.includes(name), name);
     for (const name of ["edit", "write", "bash"]) assert.ok(names.includes(name), name);
-    for (const name of ["subagent_delegate", "workflow_start", "subagent_message", "http_request", "request_file_access", "todo_write"]) assert.ok(!names.includes(name), name);
+    for (const name of ["subagent_delegate", "workflow_start", "subagent_message", "request_file_access"]) assert.ok(!names.includes(name), name);
     assert.ok(!inputText(k.server.calls[0]).includes("主会话私有历史不复制给步骤"));
     const file = k.store.getSession(k.child.id)!.sessionFile!;
     assert.ok(fs.readFileSync(file, "utf8").includes("只返回此技能的验收说明。"));
@@ -131,37 +128,7 @@ test("真实 Driver 装配来源业务与技能，步骤自身的技能结果落
   } finally { await k.close(); }
 });
 
-test("步骤与普通 SubAgent 以独立身份通过同一来源的个人业务宿主重核", async () => {
-  let effects = 0;
-  const family: HostToolFamily = { category: "app_data", names: ["app_data_fixture"], build: runtime => [defineTool({
-    name: "app_data_fixture", label: "app_data_fixture", description: "验证个人能力的执行归属", parameters: Type.Object({}),
-    execute: async sdkCallId => {
-      const call = hostCallFor(runtime.call.bindCall, runtime.call.taskContext, sdkCallId);
-      try {
-        assert.ok(call.context);
-        const problem = runtime.identity.verifyMain(call.context);
-        if (problem) throw new Error(problem);
-        effects++;
-        return { content: [{ type: "text" as const, text: "个人事务已执行" }], details: undefined };
-      } finally { call.release(); }
-    },
-  })] };
-  const k = await fixture(req => afterTool(req) ? { kind: "text", text: lastToolText(req) } :
-    { kind: "tool_calls", calls: [{ id: "personal", name: "app_data_fixture", arguments: {} }] }, { families: [family] });
-  try {
-    assert.equal((await k.run()).status, "completed");
-    assert.equal(effects, 1);
-    assert.equal(k.store.getSessionIdentity(k.child.id)!.kind, "subagent");
-    assert.match(inputText(k.server.calls[1]), /个人事务已执行/);
-  } finally { await k.close(); }
-  const ordinary = await fixture(req => afterTool(req) ? { kind: "text", text: lastToolText(req) } :
-    { kind: "tool_calls", calls: [{ id: "ordinary", name: "app_data_fixture", arguments: {} }] }, { ordinary: true, families: [family] });
-  try {
-    assert.equal((await ordinary.run()).status, "completed");
-    assert.ok(toolNamesOf(ordinary.server.calls[0]).includes("app_data_fixture"));
-    assert.equal(effects, 2);
-  } finally { await ordinary.close(); }
-});
+
 
 test("派生记忆的来源产物仍受步骤范围限制，直接工具和记忆入口都拒绝 prompt 快照", async () => {
   let artifactId = "";
@@ -201,32 +168,7 @@ test("发送后资料撤销在工具意图前阻断，后续模型请求也不�
   } finally { await k.close(); }
 });
 
-test("登记意图后、真实宿主 execute 取得绑定前再次撤销，个人能力没有产生效果", async () => {
-  let revoke = () => {}, effects = 0;
-  const family: HostToolFamily = { category: "app_data", names: ["app_data_fixture"], build: runtime => [defineTool({
-    name: "app_data_fixture", label: "app_data_fixture", description: "验证真实调用入口", parameters: Type.Object({}),
-    execute: async sdkCallId => {
-      revoke();
-      const call = hostCallFor(runtime.call.bindCall, runtime.call.taskContext, sdkCallId);
-      try {
-        assert.ok(call.context);
-        const problem = runtime.identity.verifyMain(call.context);
-        if (problem) throw new Error(problem);
-        effects++;
-        return { content: [{ type: "text" as const, text: "已写入" }], details: undefined };
-      } finally { call.release(); }
-    },
-  })] };
-  const k = await fixture(() => ({ kind: "tool_calls", calls: [{ id: "personal", name: "app_data_fixture", arguments: {} }] }), { families: [family] });
-  revoke = k.revoke;
-  try {
-    const ended = await k.run();
-    assert.equal(ended.status, "interrupted");
-    assert.equal(effects, 0);
-    assert.equal(k.server.calls.length, 1);
-    assert.equal(k.store.listToolOpsByTask(k.task.id).length, 1);
-  } finally { await k.close(); }
-});
+
 
 test("步骤宿主资料工具拒绝宿主排除的会话历史，显式收窄不扩大来源工具", async () => {
   let sessionId = "";

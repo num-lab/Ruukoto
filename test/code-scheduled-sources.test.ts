@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { CodeScheduleError, controlCodeSchedule, getCodeScheduleRun, getCodeScheduleRunForTask, getCodeScheduledTaskSource, registerCodeScheduleRun, saveCodeSchedule } from "@ruukoto/core/code-scheduler.ts";
 import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
 import { createWorkflowRun, listWorkflowExecutions, registerWorkflowStep, requireWorkflowRun, saveWorkflowDefinition, updateWorkflowRun } from "@ruukoto/core/workflow.ts";
@@ -33,7 +33,7 @@ test("Coding 定时委派、双向消息与结果唤醒沿原运行；取消截�
   const t = await startTestRuntime("code-scheduled-delegation", async req => {
     if (lastUserText(req).includes("[SubAgent 委派")) await childGate;
     return { kind: "text", text: "子工作已完成" };
-  }, { config: { product: product.runtime } });
+  });
   try {
     const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
     const child = await rt.subagents!.delegate({ parentTaskId: source.root.id, key: "child", request: "完成子工作", paramsDigest: "child" });
@@ -72,8 +72,46 @@ test("Coding 定时委派、双向消息与结果唤醒沿原运行；取消截�
   } finally { finishChild(); await t.shutdown(); }
 });
 
+for (const kind of ["result", "message"] as const) test(`scheduled ${kind} wakes reject invalid persisted sources before a parent model call`, async () => {
+  let finishChild!: () => void;
+  const gate = new Promise<void>(resolve => { finishChild = resolve; });
+  const t = await startTestRuntime(`code-scheduled-invalid-${kind}`, async () => {
+    await gate;
+    return { kind: "text", text: "child result" };
+  });
+  try {
+    const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
+    const child = await rt.subagents!.delegate({ parentTaskId: source.root.id, key: "child", request: "child work", paramsDigest: "child" });
+    await waitFor("child model request", () => t.server.calls.length === 1);
+    const message = kind === "message" ? await rt.subagents!.message({ senderTaskId: child.task.id, workId: child.work.id,
+      key: "parent", text: "child update", paramsDigest: "parent" }) : null;
+    finishChild();
+    await waitFor("host result wake persisted", () => rt.store.findTaskByRequest(source.session.id, `wake:${child.task.id}`) !== null);
+    const wake = message ? rt.store.getTask(message.message.deliveredTaskId!)!
+      : rt.store.findTaskByRequest(source.session.id, `wake:${child.task.id}`)!;
+    assert.equal(wake.status, "queued");
+    assert.equal(getCodeScheduledTaskSource(rt.store, wake.id)!.runId, source.run.id);
+    assert.equal(rt["parentDelivery"].wakeUnavailable(wake), null);
+    assert.equal(rt["verifyAgentReportSources"](wake.id), null);
+    rt.store.withTx(() => {
+      if (message) rt.store.db.prepare("UPDATE subagent_messages SET from_task_id = ? WHERE id = ?").run(source.root.id, message.message.id);
+      rt.store.db.prepare("UPDATE tasks SET sub_agent_id = NULL WHERE id = ?").run(child.task.id);
+    });
+    assert.equal(getCodeScheduledTaskSource(rt.store, wake.id)!.runId, source.run.id);
+    assert.equal(rt["parentDelivery"].wakeUnavailable(wake), "subagent_source_invalid");
+    assert.equal(rt["verifyAgentReportSources"](wake.id), "subagent_source_invalid");
+    rt.store.withTx(() => rt.store.setSessionQueueState(source.session.id, "active", null));
+    await rt["runQueueLoop"](source.session.id);
+    assert.equal(rt.store.getTask(wake.id)!.status, "canceled");
+    assert.equal(rt.store.getTask(wake.id)!.errorMessage, "subagent_source_invalid");
+    assert.equal(rt.store.getTask(wake.id)!.startedAt, null);
+    assert.equal(t.server.calls.length, 1);
+    assert.ok(rt.store.getTask(child.task.id)!.resultRef);
+  } finally { finishChild(); await t.shutdown(); }
+});
+
 test("Coding 定时工作流步骤和最终报告保持运行来源", async () => {
-  const t = await startTestRuntime("code-scheduled-workflow", () => ({ kind: "text", text: "步骤完成" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("code-scheduled-workflow", () => ({ kind: "text", text: "步骤完成" }));
   try {
     const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
     const workflow = rt.workflows!.start({ sourceTaskId: source.root.id, requestKey: "workflow", input: null,
@@ -98,7 +136,7 @@ test("根任务先结束时，迟到子结果进入父会话前不能关闭 Codi
   const t = await startTestRuntime("code-scheduled-late-result", async () => {
     await gate;
     return { kind: "text", text: "迟到子结果" };
-  }, { config: { product: product.runtime } });
+  });
   try {
     const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
     const child = await rt.subagents!.delegate({ parentTaskId: source.root.id, key: "late-result", request: "稍后完成", paramsDigest: "late-result" });
@@ -115,13 +153,13 @@ test("根任务先结束时，迟到子结果进入父会话前不能关闭 Codi
 });
 
 test("Code工作流宿主操作保留运行反链，未知效果纳入整项恢复", async () => {
-  const t = await startTestRuntime("cs-host", () => ({ kind: "text", text: "不应调用模型" }), { config: { product: product.runtime, workflowAgent: null } });
+  const t = await startTestRuntime("cs-host", () => ({ kind: "text", text: "不应调用模型" }), { config: { workflowAgent: null } });
   try {
     const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
     const workflow = rt.store.withTx(() => {
       const definition = saveWorkflowDefinition(rt.store, "return 1;");
       const run = createWorkflowRun(rt.store, { interfaceVersion: 2, id: "code-host", requestKey: "host", paramsDigest: "host", definitionId: definition.id, scriptDigest: definition.digest, input: null, inputDigest: "host",
-        source: { product: "ruukoto-code", projectId: source.session.projectId, sessionId: source.session.id, taskId: source.root.id, permissionVersion: source.root.permissionVersion, accessMode: source.root.accessMode, grantedPaths: [], capabilities: [], references: [], replyTarget: null, scheduledRunId: null, codeScheduledRunId: source.run.id },
+        source: { product: "ruukoto", projectId: source.session.projectId, sessionId: source.session.id, taskId: source.root.id, permissionVersion: source.root.permissionVersion, accessMode: source.root.accessMode, grantedPaths: [], capabilities: [], references: [], codeScheduledRunId: source.run.id },
         modelSelection: rt.defaultSelection, status: "running", version: 1, reason: null, attempts: 0, maxAttempts: 10, durationMs: 60_000, usedMs: 0, clockStartedAt: null, clockVerified: true, scriptUnits: [], scriptStopVerified: null, result: null, resultRecorded: false, createdAt: new Date().toISOString(), endedAt: null });
       registerWorkflowStep(rt.store, { runId: run.id, key: "host", ordinal: 1, kind: "integrate", params: {}, dependsOn: [] });
       return run;
@@ -154,7 +192,7 @@ test("Code工作流宿主操作保留运行反链，未知效果纳入整项恢�
 test("未知子结果的待报告可在版本绑定确认时终结为未送达，不要求新模型清账", async () => {
   let release = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
-  const t = await startTestRuntime("cs-unknown-report", async () => { await gate; return { kind: "text", text: "未知子结果" }; }, { config: { product: product.runtime } });
+  const t = await startTestRuntime("cs-unknown-report", async () => { await gate; return { kind: "text", text: "未知子结果" }; });
   try {
     const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
     const child = await rt.subagents!.delegate({ parentTaskId: source.root.id, key: "unknown-child", request: "受控子任务", paramsDigest: "unknown-child" });
@@ -186,7 +224,7 @@ test("未知子结果的待报告可在版本绑定确认时终结为未送达�
 for (const ending of ["source-revoked", "work-canceled"] as const) test(`已停止子工作 ${ending} 不会永远等待无法产生的结果唤醒`, async () => {
   let release = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
-  const t = await startTestRuntime(`cs-${ending}`, async () => { await gate; return { kind: "text", text: "子任务已结束" }; }, { config: { product: product.runtime } });
+  const t = await startTestRuntime(`cs-${ending}`, async () => { await gate; return { kind: "text", text: "子任务已结束" }; });
   try {
     const rt = t.runtime, source = await scheduledSource(rt, t.work[0]);
     const child = await rt.subagents!.delegate({ parentTaskId: source.root.id, key: "child", request: "受控子任务", paramsDigest: "child" });

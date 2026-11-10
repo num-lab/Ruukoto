@@ -2,12 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Terminal } from "@earendil-works/pi-tui";
 import { ControlClient } from "@ruukoto/control/client.ts";
-import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { executeApprovedHttpRequest } from "@ruukoto/agent/execution/approved-ops.ts";
 import { getProjectJevConfig, jevConfigKey, jevCredentialHost, JEV_HOST, type JevConfig } from "@ruukoto/agent/jev-config.ts";
 import { runConfigTui } from "@ruukoto/tui/config-tui/index.ts";
 import { createProjectSession, startTestRuntime, waitFor, type TestRuntime } from "./helpers/testkit.ts";
-import { legacyGroupArchive } from "./helpers/legacy-group-archive.ts";
 
 const quiet = async () => ({ kind: "text" as const, text: "ok" });
 const secret = "jev-test-secret-never-shown";
@@ -71,10 +69,10 @@ test("Jev 凭据：保存即隔离通用 HTTP，绑定项目后拒绝跨项目�
   }
 });
 
-test("Jev 配置：拒绝错误凭据、QQ/chat、坏字段与损坏持久配置", async () => {
+test("Jev 配置：拒绝错误凭据、坏字段与损坏持久配置", async () => {
   const t = await startTestRuntime("jev-boundaries", quiet);
   try {
-    const { projectId, sessionId } = await createProjectSession(t.client, t.work[0]!);
+    const { projectId } = await createProjectSession(t.client, t.work[0]!);
     await t.client.request("add_credential", binding);
     for (const patch of [
       { host: "other.example" }, { header: "x-api-key" }, { purpose: "mcp" }, { secret: "" },
@@ -85,11 +83,6 @@ test("Jev 配置：拒绝错误凭据、QQ/chat、坏字段与损坏持久配置
     }
     await assert.rejects(setConfig(t, projectId, { credential: null }), /选择服务凭据/);
     await assert.rejects(setConfig(t, "missing-project"), /项目不存在/);
-    // 旧安装的 chat 角色行由播种助手写入（核心群聊已退役，issue 20）
-    const chatRole = legacyGroupArchive({ store: t.runtime.store, qq: t.runtime.qqStore, workRoot: t.dirs.root }).seedChatRole();
-    await assert.rejects(setConfig(t, chatRole.projectId), /QQ 群聊与 chat/);
-    t.runtime.store.db.prepare("UPDATE sessions SET kind = 'qq_group' WHERE id = ?").run(sessionId);
-    await assert.rejects(setConfig(t, projectId), /QQ 群聊与 chat/);
     for (const config of [
       "{", "null", "[]", JSON.stringify({ enabled: true, credential: null, configVersion: 1 }),
       JSON.stringify({ enabled: "true", credential: binding.name, configVersion: 1 }),
@@ -148,9 +141,9 @@ test("Jev 配置中心：选择凭据、披露数据发送、处理并发冲突�
   let done: Promise<number> | undefined;
   const see = (text: string) => waitFor(text, () => terminal.output.includes(text));
   try {
-    const projectId = t.runtime.store.getAgentRole("main")!.projectId;
+    const projectId = (await t.runtime.createSession({ projectName: "jev-config", cwd: t.work[0] })).projectId;
     await t.client.request("add_credential", binding);
-    done = runConfigTui({ terminal, agentDir: t.dirs.agentDir, connect: { socketPath: t.runtime.socketPath(), token: readOwnerToken(t.runtime.controlDir())! } });
+    done = runConfigTui({ terminal, profile: t.dirs.profile });
     await see("配置分区");
     terminal.send(down, enter);
     await see("指令 ");

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 [HTML rendering](2026-10-25-desktop-markdown-html.md) supersedes the former raw-HTML skipping rule. Image and link rules remain.
 
 ## Problem

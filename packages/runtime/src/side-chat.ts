@@ -34,7 +34,6 @@ export interface SideChatDeps {
   store: Store;
   access: AccessScope;
   sessionsDir: string;
-  enabled: boolean;
   validate(session: Session): Promise<void>;
 }
 
@@ -105,7 +104,6 @@ function buildReceipt(deps: SideChatDeps, source: Session, snapshot: ReturnType<
  * 父会话最新历史。
  */
 export async function openSideChat(deps: SideChatDeps, input: { sessionId: string; requestId: string }): Promise<Session> {
-  if (!deps.enabled) throw new RuntimeApiError("unavailable", "当前产品不提供侧聊");
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.requestId)) throw new RuntimeApiError("invalid_params", "侧聊请求键无效");
   const digest = createHash("sha256").update(JSON.stringify([input.sessionId])).digest("hex");
   const byKey = getSideChatByRequest(deps.store, input.requestId);
@@ -117,8 +115,8 @@ export async function openSideChat(deps: SideChatDeps, input: { sessionId: strin
   await deps.validate(source);
   try {
     const fresh = deps.store.getSession(input.sessionId);
-    if (!fresh || deps.store.getSessionIdentity(fresh.id)?.kind !== "dev" || fresh.workspaceProjectId !== source.workspaceProjectId || fresh.projectId !== source.projectId) {
-      throw new RuntimeApiError("source_changed", "父会话身份或工作区映射已改变，请核实后再打开侧聊");
+    if (!fresh || deps.store.getSessionIdentity(fresh.id)?.kind !== "dev" || fresh.projectId !== source.projectId) {
+      throw new RuntimeApiError("source_changed", "父会话身份已改变，请核实后再打开侧聊");
     }
     const snapshotSource = fresh;
     // 目录核实会让出执行权，绑定可能已经被另一客户端占用并发布。
@@ -157,7 +155,7 @@ export async function recoverSideChats(deps: SideChatDeps): Promise<void> {
     const binding = getSideChatByParent(deps.store, row.parent_session_id)!;
     try {
       const source = deps.store.getSession(binding.parentSessionId);
-      if (!deps.enabled || !source) throw new RuntimeApiError("unavailable", "侧聊来源或产品能力不可用");
+      if (!source) throw new RuntimeApiError("unavailable", "侧聊来源不可用");
       await deps.validate(source);
       publish(deps, binding);
     } catch (error) {

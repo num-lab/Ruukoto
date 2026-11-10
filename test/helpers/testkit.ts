@@ -1,4 +1,3 @@
-import { product as personalProduct } from "./legacy-product.ts";
 /**
  * 集成测试公共设施（沿用 issue 01 的 mock 模型 + 临时目录方式）。
  *
@@ -22,6 +21,8 @@ import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
 import { Runtime, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
 import { Db } from "@ruukoto/core/db.ts";
+import { bootstrapProfile, selectProfile, type ProfilePaths } from "@ruukoto/core/profile.ts";
+import { acquireConfigLock, acquireInstanceLock } from "@ruukoto/core/instance-lock.ts";
 import { MemoryStore } from "@ruukoto/core/memory.ts";
 import { Store } from "@ruukoto/core/store.ts";
 import { randomId, type SelectionRecord, type Session, type Task } from "@ruukoto/core/types.ts";
@@ -47,17 +48,16 @@ export interface TestDirs {
   root: string;
   dataDir: string;
   agentDir: string;
+  controlDir: string;
+  socketPath: string;
+  profile: ProfilePaths;
 }
 
 export async function makeTestDirs(prefix: string, workDirs = 2): Promise<{ dirs: TestDirs; work: string[] }> {
   const root = await mkdtemp(path.join(tmpdir(), `ruukoto-it-${prefix}-`));
-  const dirs: TestDirs = {
-    root,
-    dataDir: path.join(root, "data"),
-    agentDir: path.join(root, "agent"),
-  };
-  await mkdir(dirs.dataDir, { recursive: true });
-  await mkdir(dirs.agentDir, { recursive: true });
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const dirs: TestDirs = { root, profile, dataDir: profile.dataDir, agentDir: profile.agentDir,
+    controlDir: profile.controlDir, socketPath: profile.socketPath };
   const work: string[] = [];
   for (let i = 0; i < workDirs; i++) {
     const dir = path.join(root, `work-${i}`);
@@ -67,11 +67,15 @@ export async function makeTestDirs(prefix: string, workDirs = 2): Promise<{ dirs
   return { dirs, work };
 }
 
-export async function cleanupDirs(dirs: TestDirs): Promise<void> {
+export async function cleanupDirs(dirs: Pick<TestDirs, "root" | "profile">): Promise<void> {
+  for (const [directory, lockName, acquire] of [[dirs.profile.dataDir, "runtime.lock", acquireInstanceLock], [dirs.profile.agentDir, "config.lock", acquireConfigLock]] as const) {
+    if (fs.existsSync(path.join(directory, lockName))) acquire(directory).release();
+  }
   await rm(dirs.root, { recursive: true, force: true });
+  await rm(path.dirname(dirs.profile.socketPath), { recursive: true, force: true });
 }
 
-export async function writeModelsJson(dirs: TestDirs, baseUrl: string, contextWindow = 200_000): Promise<void> {
+export async function writeModelsJson(dirs: Pick<TestDirs, "agentDir">, baseUrl: string, contextWindow = 200_000): Promise<void> {
   const models = {
     providers: {
       mock: {
@@ -118,11 +122,7 @@ export async function startTestRuntime(
   await writeModelsJson(dirs, baseUrl, opts.contextWindow ?? 200_000);
 
   const runtime = await Runtime.start({
-    product: personalProduct.runtime,
-    dataDir: dirs.dataDir,
-    agentDir: dirs.agentDir,
-    // macOS 的 Unix socket 路径长度有限：测试用短路径
-    socketPath: path.join(dirs.root, "c.sock"),
+    profile: dirs.profile,
     thinkingLevel: "off",
     modelProvider: "mock",
     modelId: "mock-model",
@@ -150,16 +150,16 @@ export async function startTestRuntime(
 }
 
 /** 以控制面目录中的拥有者令牌完成认证。 */
-export async function authenticateClient(client: ControlClient, controlDir: string): Promise<void> {
-  const token = readOwnerToken(controlDir);
+export async function authenticateClient(client: ControlClient, profile: ProfilePaths): Promise<void> {
+  const token = readOwnerToken(profile.controlDir);
   if (!token) throw new Error("测试环境缺少拥有者令牌");
-  await client.authenticate(token);
+  await client.authenticate(token, profile);
 }
 
 /** 连接控制面并以控制面目录中的拥有者令牌完成认证。 */
 export async function connectAuthedClient(runtime: Runtime): Promise<ControlClient> {
   const client = await ControlClient.connect(runtime.socketPath());
-  await authenticateClient(client, runtime.controlDir());
+  await authenticateClient(client, runtime.config.profile);
   return client;
 }
 

@@ -1,6 +1,6 @@
 # Architecture
 
-Ruukoto delivers two products from one repository. **Personal Agent (`ruukoto`)** uses the durable runtime's persistent conversations and tasks for daily assistance. **Coding Agent (`ruukoto-code`)** uses the shared runtime for software work, queued tasks and delegation. They operate independently.
+Ruukoto is one software-work assistant. Its application composes the shared runtime for workspace conversations, queued tasks, one-level delegation, workflows and scheduling; TUI, Electron and MyGo are clients of the same local backend.
 
 Detailed designs and contracts live in [modules](modules/).
 
@@ -10,9 +10,8 @@ Applications compose the packages; dependencies flow toward the shared foundatio
 
 | Module | Responsibility | Main dependencies and callers |
 | --- | --- | --- |
-| [products](modules/products.md), `apps/` | Product composition and CLI entry points | Assemble packages; neither product depends on the other |
-| [personal-durable](modules/personal-durable.md) | Personal conversations, work, IM/local/remote entries and tools | Pi 1.3.0 and system facilities; production and development share composition |
-| [runtime](modules/runtime.md) | Coding task lifecycle, per-conversation queues and SubAgents | `core`, `agent` and execution; driven by control and channels |
+| [products](modules/products.md), `apps/ruukoto/` | Sole application composition and CLI entry points | Assemble packages and consume core profile bootstrap |
+| [runtime](modules/runtime.md) | Task lifecycle, per-conversation queues, SubAgents and scheduling | `core`, `agent` and execution; driven by control and the scheduler |
 | [core](modules/core.md) | Data layout, SQLite schema, task states and conversation identity | No workspace dependencies |
 | [workflows](modules/workflows.md) | Versioned definitions, persistent runs and step controls | Core transactions and the agent script sandbox |
 | [agent-context](modules/agent-context.md) | Model context, history selection, reference snapshots and memory | Core storage; called by the runtime |
@@ -20,11 +19,11 @@ Applications compose the packages; dependencies flow toward the shared foundatio
 | [execution](modules/execution.md) | Native sandbox, tool workers and verified process exit | Part of the agent execution layer; uses core |
 | [control](modules/control.md) | Unix socket, owner-token authentication and RPC | Runtime and core; serves clients |
 | [view](modules/view.md) | Browser-safe state and history projections | Browser-safe core/control contracts |
-| [desktop](modules/desktop.md), `apps/desktop/` | Native hosts and desktop rendering | Node host connects to local control and remote HTTPS/WSS |
-| [tui](modules/tui.md) | Terminal UI, shared CLI and offline configuration | Control protocol, with standalone management commands |
-| [channels](modules/channels.md) | Shared QQ/Telegram entries, inbound images and GitHub events | Register core events and trigger runtime tasks |
-| [scheduler](modules/scheduler.md) | Time rules and notification outbox | Core, runtime and channel senders |
-| [deploy](modules/deploy.md) | systemd units, privilege helpers and OS permissions | Deployment configuration, not an in-process layer |
+| [desktop](modules/desktop.md), `apps/desktop/` | Electron/MyGo hosts and desktop rendering | Node host connects to verified local control; MyGo retains private native-browser frames |
+| [tui](modules/tui.md) | Terminal UI, CLI and offline configuration | Control protocol and activated core profile |
+| [channels](modules/channels.md) | Retained scheduling time calculations | Consumed by the runtime scheduler |
+| [scheduler](modules/scheduler.md) | Time rules and independent scheduled runs | Core and runtime; no IM outbox |
+| [deploy](modules/deploy.md) | Native OS prerequisites | Linux user-systemd and platform execution setup |
 
 At package level, `core` underpins `agent`, which supports `runtime`; `control` exposes runtime operations to clients. Product composition supplies callbacks where runtime dependencies would otherwise point backward.
 
@@ -56,26 +55,11 @@ sequenceDiagram
 - Terminal states are `completed`, `failed`, `canceled` and `interrupted`; finalization is transactional.
 - After an unexpected backend restart, unfinished shared-runtime tasks become `interrupted` with `backend_restart` rather than silently remaining active.
 
-## Flow 2: Incoming Message to Reply
+## Flow 2: Profile Activation and Clients
 
-Personal QQ, Telegram, terminal and PA desktop inputs enter the same durable main conversation. Acceptance persists the original source; replies retain it.
+Every stateful entry selects the same canonical raw data/agent/control/pending tuple. Core inspects supported predecessors under exclusion, publishes a preparation reserving one instance ID, installs bound roles and publishes one activation marker. Offline model setup occurs only after activation and does not require a ready backend.
 
-```mermaid
-sequenceDiagram
-  participant Entry as QQ / Telegram / desktop
-  participant Adapter as Personal adapter
-  participant Harness as Durable Harness
-  participant Main as Main conversation
-  participant Reply as Reply task
-  Entry->>Adapter: Message and source credentials
-  Adapter->>Harness: Persist admission
-  Harness->>Main: Submit input and advance conversation
-  Main-->>Harness: Corresponding model answer
-  Harness->>Reply: Fix platform, account and entry generation
-  Reply->>Entry: Verify original destination and send
-```
-
-Platform message IDs deduplicate acceptance. Reply tasks verify the original entry and credential generation instead of redirecting to a newer destination. A closed client or temporary network outage does not cancel already accepted conversations or analysis work.
+In-process callers receive `ProfilePaths`; spawned children receive the complete raw tuple and resolve the same activation. Clients verify layout, instance and protocol before using the resolver-owned temporary socket. Persistent control storage and pending journals remain separate from that endpoint. [Storage](modules/core.md) owns initialization and recovery; [usage](usage.md#6-fresh-profiles-and-old-data) explains effective paths and rejection.
 
 ## Flow 3: Tool Execution and Approval
 
@@ -124,14 +108,10 @@ sequenceDiagram
 
 Code-writing delegation uses an isolated work copy where required. `subagent_integrate` explicitly brings reviewed changes into the parent. Completing a task does not destroy its SubAgent: identity, history and artifacts remain available until explicit closure, and the work copy is retained.
 
-## PA Desktop Connection
-
-The remote path is **Tailscale Serve (HTTPS/WSS) → private Remote service → exclusive durable Harness**. The service verifies owner identity and application credentials. Initial pairing is explicit in the server's local management wizard; credentials can be revoked. See [desktop security](modules/desktop.md) and [deployment](../deploy/systemd/README.md).
-
 ## Design Rationale
 
 - [Backend tasks and terminal separation](../.agents/notes/implemented/architecture/2026-09-19-detach-terminal-from-task-runtime.md): event recovery and request idempotency.
-- [Two products](../.agents/notes/implemented/architecture/2026-10-02-two-agent-products.md): independent runtime, profiles and locks.
+- [Single product](../.agents/notes/implemented/architecture/2026-11-10-single-product.md): clean composition cutover and fresh profiles without old import.
 - [Workspace packages](../.agents/notes/implemented/architecture/2026-10-11-in-repo-workspace-packages.md): package ownership and imports.
 - [Tool workers](../.agents/notes/implemented/architecture/2026-09-20-tool-worker-per-task-container.md) and [native execution](../.agents/notes/implemented/architecture/2026-10-10-native-execution-sandbox.md): execution boundaries and verified stopping.
 - [History and context](../.agents/notes/implemented/architecture/2026-09-19-preserve-session-history.md): separate authorities.

@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 An owner reported task failure with an unchanged real path and inode but a changed device number, and requested removal of device-number detection. A device number describes the current mount; its change alone cannot prove replacement of a persistently registered directory. The actual volume remount cause was not verified.
@@ -12,7 +14,7 @@ Shared `verifyDirIdentity` and its synchronous variant compare registered real p
 
 The stored device field and physical-alias comparison in `sameDirIdentity` remain. Native startup, worker initialization and each invocation use `dev`/`ino` pinned for that execution and still reject changes during execution. This is distinct from comparing a persistent registration across launches. Frozen workflow sources, workspace snapshots, approval objects and legacy-import identity contracts are unchanged.
 
-[Native execution](../architecture/2026-10-10-native-execution-sandbox.md) retains host identity checks for one execution; this note explains conversion from persistent registration to the current launch identity. [Legacy import](../architecture/2026-10-04-legacy-instance-import.md) and [SubAgent reuse](../feature/2026-10-04-subagent-reuse-close.md) retain their independent attribution/source checks. [Runtime ownership](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) is unaffected.
+[Native execution](../architecture/2026-10-10-native-execution-sandbox.md) retains host identity checks for one execution; this note explains conversion from persistent registration to the current launch identity. [Legacy import](../../archived/architecture/2026-10-04-legacy-instance-import.md) and [SubAgent reuse](../feature/2026-10-04-subagent-reuse-close.md) retain their independent attribution/source checks. [Runtime ownership](../architecture/2026-09-19-detach-terminal-from-task-runtime.md) is unaffected.
 
 ## Alternatives considered
 

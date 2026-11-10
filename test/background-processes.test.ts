@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import { getBackgroundProcess, listActiveBackgroundProcesses } from "@ruukoto/core/background-processes.ts";
 import { backgroundProcessForModel } from "@ruukoto/agent/background-process-tools.ts";
@@ -45,7 +45,7 @@ test("全新会话后台跨轮保留、交接即拒绝写入，停止核实后�
     if (step === 1 && t.runtime.listBackgroundProcesses(session.id).processes[0].state !== "stopped") return { kind: "tool_calls", calls: [{ id: `status-${Date.now()}`, name: "process_status", arguments: { process_id: processId } }] };
     if (step < stages.length) return { kind: "tool_calls", calls: [stages[step++]] };
     return { kind: "text", text: "后台已停止并完成写入" };
-  }, { workDirs: 1, config: { ...realTools(), product: product.runtime } });
+  }, { workDirs: 1, config: { ...realTools() } });
   const session = await t.runtime.createSession({ projectName: "background", cwd: t.work[0], mode: "full_access" });
   const ready = path.join(t.work[0], "url");
   const script = `const fs=require('node:fs'),http=require('node:http');const server=http.createServer((req,res)=>res.end('BACKGROUND_OK'));server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port;fs.writeFileSync(${JSON.stringify(ready)},url);process.stdout.write(url+'\\n');});`;

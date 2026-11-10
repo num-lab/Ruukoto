@@ -1,11 +1,11 @@
 import { ControlClientError } from "@ruukoto/control/client.ts";
 import { ControlConnection, type ConnectionCallbacks, type ConnectionConfig } from "@ruukoto/control/connection.ts";
 import { ensureBackend, type EnsureBackendOptions, type EnsureBackendResult } from "@ruukoto/control/ensure-backend.ts";
-import { resolveOwnerToken } from "@ruukoto/control/connect.ts";
-import { readOwnerToken } from "@ruukoto/control/owner-token.ts";
+import { resolveClientConfig } from "@ruukoto/control/connect.ts";
+import { ProfileError } from "@ruukoto/core/profile.ts";
 import type { DesktopFailure, DesktopUpdate } from "../shared/bridge.ts";
 import type { OpParams, OpResult, TuiOp } from "@ruukoto/control/ops.ts";
-import { DesktopError, type CodeTargetConfig } from "./environment.ts";
+import { DesktopError, type DesktopBackendConfig } from "./environment.ts";
 import { versionRecovery } from "./recovery.ts";
 import { DesktopSubmissions } from "./submissions.ts";
 import { PendingRequestStore } from "@ruukoto/control/pending-requests.ts";
@@ -21,7 +21,7 @@ export interface ControllerDeps {
 export function serializeFailure(error: unknown, token?: string): DesktopFailure {
   const failure: DesktopFailure = error instanceof ControlClientError
     ? { code: error.code, outcome: error.outcome, message: error.message, ...(error.versions ? { versions: error.versions } : {}) }
-    : { code: error instanceof DesktopError ? error.code : "desktop_failed", outcome: "not_sent", message: error instanceof Error ? error.message : "The desktop operation failed; reconnect." };
+    : { code: error instanceof DesktopError || error instanceof ProfileError ? error.code : "desktop_failed", outcome: "not_sent", message: error instanceof Error ? error.message : "The desktop operation failed; reconnect." };
   if (token) failure.message = failure.message.replaceAll(token, "[token hidden]");
   return failure;
 }
@@ -38,7 +38,7 @@ export class CodeController {
   /** MyGo native-browser bridge: injected only by the MyGo shell; registration, narrow-command replies and event uplink go through the current connection. */
   private readonly browserBridge: DesktopBrowserBridge | null;
 
-  constructor(readonly config: CodeTargetConfig, private readonly publish: (update: DesktopUpdate) => void, private readonly deps: ControllerDeps = {
+  constructor(readonly config: DesktopBackendConfig, private readonly publish: (update: DesktopUpdate) => void, private readonly deps: ControllerDeps = {
     ensure: ensureBackend,
     connection: (config, callbacks) => new ControlConnection(config, callbacks),
   }, private readonly pendingStore?: PendingRequestStore, browserTransport?: MyGoBrowserTransport) {
@@ -50,9 +50,9 @@ export class CodeController {
     this.publish(update);
   }
   private failed(failure: DesktopFailure): void {
-    const secret = this.token ?? this.config.env?.RUUKOTO_OWNER_TOKEN ?? readOwnerToken(this.config.controlDir);
+    const secret = this.token;
     if (secret) failure = { ...failure, message: failure.message.replaceAll(secret, "[token hidden]") };
-    this.state({ type: "state", state: "failed", error: failure, detail: failure.message, ...(failure.versions ? { recovery: versionRecovery("code", failure.versions, this.config.managed, this.config.controlDir) } : {}) });
+    this.state({ type: "state", state: "failed", error: failure, detail: failure.message, ...(failure.versions ? { recovery: versionRecovery(failure.versions, this.config.managed, this.config.profile) } : {}) });
   }
   reconnect(): Promise<void> {
     if (this.stopped) return Promise.resolve();
@@ -68,6 +68,7 @@ export class CodeController {
     catch (error) { if (!this.stopped) this.failed(serializeFailure(error, this.token)); }
   }
   private async connectTarget(generation: number): Promise<void> {
+    this.publish({ type: "profile", profile: { instanceId: this.config.profile.instanceId, draftKey: this.config.profile.desktopDraftKey } });
     if (!this.config.managed) {
       const result = await this.deps.ensure(this.config);
       if (this.stopped) return;
@@ -76,10 +77,9 @@ export class CodeController {
         return;
       }
     }
-    this.token = this.config.managed ? readOwnerToken(this.config.controlDir) ?? undefined : resolveOwnerToken(this.config.controlDir);
-    if (!this.token) throw new DesktopError("owner_token_missing", "The dev archive's owner.token is unreadable; restart the dev launcher.");
+    this.token = resolveClientConfig(this.config.profile).token;
     this.connection = this.deps.connection({
-      socketPath: this.config.socketPath, token: this.token, expectedProduct: "ruukoto-code",
+      profile: this.config.profile, token: this.token,
       ...(this.browserBridge ? { callHandler: (op: string, params: Record<string, unknown>, callId: string) => this.browserBridge!.handleCall(op, params, callId, () => this.connection) } : {}),
     }, {
       onState: (state, detail, error) => {

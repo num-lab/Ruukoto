@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) retires the Personal-specific portions of this decision. The software-work behavior, source/operation identity and host-security constraints remain; historical evidence is not cutover acceptance.
+
 ## Problem
 
 Shared-runtime main has no direct MCP tools, but its controlled SubAgent delegation includes configured MCP under [source capabilities](../architecture/2026-10-15-subagent-source-capabilities.md). Preflight reused main's SDK without an MCP extension, saved an empty discovery signature, and then the child correctly rejected its nonempty registry as changed. The official discovery migration also omitted `tool_search` from default child candidates, unnecessarily turning unconstrained children into fixed direct-tool consumers.

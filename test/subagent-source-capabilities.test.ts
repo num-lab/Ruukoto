@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { product as codingProduct } from "../apps/ruukoto-code/src/product.ts";
+
 import { randomId, type Session, type Task } from "@ruukoto/core/types.ts";
 import { AccessScope } from "@ruukoto/core/access.ts";
 import { requireSubAgentExecution } from "@ruukoto/core/subagent-execution.ts";
@@ -38,8 +38,8 @@ async function childDone(rt: Runtime, taskId: string): Promise<Task> {
   return rt.store.getTask(taskId)!;
 }
 
-for (const product of [codingProduct]) test(`${product.runtime.type} 普通与工作流默认角色具有同源工具并在独立目录实际执行 bash`, async () => {
-  const t = await startTestRuntime(`source-bash-${product.runtime.type}`, req => {
+test(`ruukoto 普通与工作流默认角色具有同源工具并在独立目录实际执行 bash`, async () => {
+  const t = await startTestRuntime(`source-bash-ruukoto`, req => {
     if (lastUserText(req) === "RUN-DEFAULT-DELEGATE") {
       if (afterTool(req)) return { kind: "text", text: "默认委派已登记" };
       return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { request: "运行 shell", key: "ordinary" } }] };
@@ -51,7 +51,7 @@ for (const product of [codingProduct]) test(`${product.runtime.type} 普通与�
     return { kind: "tool_calls", calls: [{ id: "shell", name: "bash", arguments: {
       command: "test ! -e source-only.txt && printf SOURCE-BASH-OK > proof.txt && cat proof.txt",
     } }] };
-  }, { config: { ...realTools(), product: product.runtime } });
+  }, { config: { ...realTools() } });
   try {
     const rt = t.runtime, session = await rt.createSession({ projectName: "source", cwd: t.work[0] });
     fs.writeFileSync(path.join(session.cwdReal, "source-only.txt"), "源工作目录不自动复制\n");
@@ -122,27 +122,7 @@ test("普通来源项目指令、技能与角色正文可从子任务模型快�
   } finally { await t.shutdown(); }
 });
 
-test("普通个人来源执行 app_data，应用回执与账本归属真实子 Task", async () => {
-  const t = await startTestRuntime("ordinary-source-app-data", req => afterTool(req) ? { kind: "text", text: "个人业务完成" } :
-    { kind: "tool_calls", calls: [{ id: "define", name: "app_data_define_table", arguments: {
-      table: "child_rows", fields: [{ name: "value", type: "text" }], expected_schema_version: 0, reason: "来源授权个人业务",
-    } }] }, { config: realTools() });
-  try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!, source = sourceTask(rt, rt.store.getSession(main.sessionId)!);
-    const child = await rt.subagents!.delegate({ parentTaskId: source.id, key: "business", request: "建表", paramsDigest: "business" });
-    assert.equal((await childDone(rt, child.task.id)).status, "completed");
-    const operation = rt.store.listToolOpsByTask(child.task.id).find(op => op.toolName === "app_data_define_table")!;
-    assert.equal(operation.isError, false);
-    assert.equal(rt.store.getSessionIdentity(child.task.sessionId)!.kind, "subagent");
-    const app = new DatabaseSync(path.join(t.dirs.dataDir, "agent-data", "main.db"), { readOnly: true });
-    try {
-      const receipt = app.prepare("SELECT task_id, session_id, agent_id, op_id FROM app_audit WHERE op_id = ?").get(operation.id);
-      assert.deepEqual({ ...receipt }, { task_id: child.task.id, session_id: child.task.sessionId, agent_id: child.agent.id, op_id: operation.id });
-    } finally { app.close(); }
-    assert.equal(rt.store.listToolOpsByTask(source.id).length, 0);
-    for (const name of ["app_data_query", "bash"]) assert.ok(toolNamesOf(t.server.calls[0]).includes(name), name);
-  } finally { await t.shutdown(); }
-});
+
 
 // Note: See .agents/notes/implemented/testing/2026-11-07-ci-shards-and-fixtures.md
 test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图和模型请求为空", async () => {
@@ -172,18 +152,17 @@ test("显式角色缺工具或 MCP 远端缺失在登记前失败，工具意图
   } finally { await t.shutdown(); if (!mcpClosed) await mcp.close(); }
 });
 
-for (const change of ["configuration", "credential"] as const) test(`main delegation rejects MCP ${change} changes after its request starts`, async () => {
+for (const change of ["configuration", "credential"] as const) test(`Delegation rejects MCP ${change} changes after its parent request starts`, async () => {
   const mcp = await startMockMcp({ tools: [{ name: "read" }] });
   let changeSource!: () => Promise<void>;
   const t = await startTestRuntime(`main-mcp-${change}`, async request => {
     assert.equal(lastUserText(request), "DELEGATE-MCP");
-    assert.ok(!toolNamesOf(request).some(name => name === "tool_search" || name.startsWith("mcp__")));
     if (afterTool(request)) return { kind: "text", text: "Delegation rejected." };
     await changeSource();
     return { kind: "tool_calls", calls: [{ id: "delegate", name: "subagent_delegate", arguments: { request: "Read MCP", key: "changed", role: "probe" } }] };
   }, { config: realTools() });
   try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!;
+    const rt = t.runtime, session = await rt.createSession({ projectName: "mcp-source", cwd: t.work[0] });
     const credential = { name: "probe", host: mcp.host, header: "authorization", purpose: "mcp", secret: "original", scope: { operations: ["mcp"] } };
     rt.credentials.upsert(credential);
     await t.client.request("mcp_configure", { name: "probe", endpoint: mcp.url, credential: "probe", tool_allowlist: ["read"] });
@@ -192,9 +171,9 @@ for (const change of ["configuration", "credential"] as const) test(`main delega
       if (change === "configuration") await t.client.request("mcp_configure", { name: "probe", endpoint: `${mcp.url}?changed`, credential: "probe", tool_allowlist: ["read"] });
       else rt.credentials.upsert({ ...credential, secret: "changed" });
     };
-    const parent = await rt.submit({ sessionId: main.sessionId, requestId: "delegate", input: "DELEGATE-MCP", modelSelection: rt.defaultSelection, accessMode: "full_access" });
+    const parent = await rt.submit({ sessionId: session.id, requestId: "delegate", input: "DELEGATE-MCP", modelSelection: rt.defaultSelection, accessMode: "full_access" });
     assert.equal((await childDone(rt, parent.id)).status, "completed");
-    assert.equal(rt.store.listWorkDelegationsBySession(main.sessionId).length, 0);
+    assert.equal(rt.store.listWorkDelegationsBySession(session.id).length, 0);
     const operation = rt.store.listToolOpsByTask(parent.id).find(op => op.toolName === "subagent_delegate")!;
     assert.equal(operation.isError, true);
     assert.match(operation.resultSummary!, /mcp__probe__read/);
@@ -270,28 +249,28 @@ test("普通子任务模型应答后 MCP 配置变化在工具意图前阻断，
   } finally { await t.shutdown(); await mcp.close(); }
 });
 
-test("普通个人通知解析使用保存的 grant IDs，后来新增的资料授权不能扩大范围", async () => {
+test("Delegated source reads retain saved grant IDs and cannot use later grants", async () => {
   const t = await startTestRuntime("ordinary-source-grants", () => ({ kind: "text", text: "业务子任务完成" }), { config: realTools() });
   try {
-    const rt = t.runtime, main = rt.store.getAgentRole("main")!, source = sourceTask(rt, rt.store.getSession(main.sessionId)!);
+    const rt = t.runtime, session = await rt.createSession({ projectName: "source-grants", cwd: t.work[0] }), source = sourceTask(rt, session);
     const child = await rt.subagents!.delegate({ parentTaskId: source.id, key: "grants", request: "业务", paramsDigest: "grants" });
     assert.equal((await childDone(rt, child.task.id)).status, "completed");
-    const foreign = await rt.createSession({ projectName: "foreign", cwd: t.work[0] }), owner = sourceTask(rt, foreign);
+    const foreign = await rt.createSession({ projectName: "foreign", cwd: t.work[1] }), owner = sourceTask(rt, foreign);
     const access = new AccessScope(rt.store.db), artifacts = new ArtifactStore(t.dirs.dataDir, rt.store);
     const artifact = rt.store.withTx(() => {
       const record = artifacts.begin({ taskId: owner.id, sessionId: foreign.id, name: "foreign-note" });
       artifacts.append(record.id, Buffer.from("FOREIGN-SECRET")); artifacts.complete(record.id);
       return rt.store.getArtifact(record.id)!;
     });
-    rt.store.withTx(() => access.createGrant({ fromProjectId: foreign.projectId, toProjectId: main.projectId, category: "artifact" }));
-    const resolver = createSourceResolver({ store: rt.store, access, artifacts, appData: () => null });
-    assert.throws(() => resolver.resolve(main.projectId, [{ kind: "artifact", artifact_id: artifact.id }], child.task.id), /可读范围/);
+    rt.store.withTx(() => access.createGrant({ fromProjectId: foreign.projectId, toProjectId: session.projectId, category: "artifact" }));
+    const resolver = createSourceResolver({ store: rt.store, access, artifacts });
+    assert.throws(() => resolver.resolve(session.projectId, [{ kind: "artifact", artifact_id: artifact.id }], child.task.id), /可读范围/);
     const pinnedGrantIds = requireSubAgentExecution(rt.store.getTask(child.task.id)!.readScope?.execution).source.authority!.grantIds;
-    assert.throws(() => resolver.resolve(main.projectId, [{ kind: "artifact", artifact_id: artifact.id }], source.id, pinnedGrantIds), /可读范围/);
-    const allowed = resolver.resolve(main.projectId, [{ kind: "artifact", artifact_id: artifact.id }]);
+    assert.throws(() => resolver.resolve(session.projectId, [{ kind: "artifact", artifact_id: artifact.id }], source.id, pinnedGrantIds), /可读范围/);
+    const allowed = resolver.resolve(session.projectId, [{ kind: "artifact", artifact_id: artifact.id }]);
     assert.equal(allowed.text, "FOREIGN-SECRET");
-    assert.match(resolver.verify(main.projectId, allowed.refs, source.id, pinnedGrantIds)!, /授权已撤销|不可读/);
-    assert.match(resolver.verify(main.projectId, JSON.parse(JSON.stringify([{ ...allowed.refs[0], kind: "unknown" }])))!, /记录损坏/);
+    assert.match(resolver.verify(session.projectId, allowed.refs, source.id, pinnedGrantIds)!, /授权已撤销|不可读/);
+    assert.match(resolver.verify(session.projectId, JSON.parse(JSON.stringify([{ ...allowed.refs[0], kind: "unknown" }])))!, /记录损坏/);
   } finally { await t.shutdown(); }
 });
 
@@ -378,7 +357,7 @@ test("消息按保存的角色与来源能力收紧，冷恢复不读新文件�
     });
     fs.unlinkSync(path.join(t.dirs.agentDir, "agents", "stable.md"));
     t.client.close(); await rt.stop("test_restart");
-    recovered = await Runtime.start({ ...rt.config, socketPath: path.join(t.dirs.root, "recovered.sock") });
+    recovered = await Runtime.start(rt.config);
     const sender = sourceTask(recovered, recovered.store.getSession(session.id)!);
     const cold = await recovered.subagents!.message({ senderTaskId: sender.id, workId: child.work.id, toSubAgentId: child.agent.id,
       key: "cold", text: "恢复后仍不能提高", paramsDigest: "cold" });

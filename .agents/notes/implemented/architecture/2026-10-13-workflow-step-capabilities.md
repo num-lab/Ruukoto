@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 [Role/interface versions](2026-10-15-workflow-role-interface.md) supersedes role selection/host verify semantics/old interface upgrades. [Current-workspace snapshots](2026-10-15-current-workspace-snapshots.md) owns actual content baselines, zero-write capture, preparation, whole-file conflicts, and bad-baseline isolation. [Configurable roles](2026-10-14-configurable-subagent-roles.md) separates role/source/target; [durable source capabilities](2026-10-15-subagent-source-capabilities.md) owns shared authority/project-context rules. Frozen results, stopping, and controlled integration remain here.
 
 ## Problem
@@ -24,7 +26,7 @@ Register a stoppable handle before launch; actual identity updates that same han
 
 Schema 38 introduced provenance snapshots/freeze/verification fields under strict old-format refusal, not invented authorization backfill. [Whole-work delivery](../feature/2026-10-13-workflow-owner-input-and-delivery.md), [library/controls](../feature/2026-10-13-workflow-library-and-controls.md), and [joint acceptance](../testing/2026-10-13-workflow-joint-acceptance.md) own subsequent input/report/entry/evidence concerns.
 
-This partially extends [overall workflows](../feature/2026-10-12-agent-workflows.md) and [work copies](2026-10-04-subagent-worktrees.md). [Full access](../feature/2026-10-12-full-access-current-account.md)/[native execution](2026-10-12-personal-native-sandbox.md) are narrowed only for independent verification, not ordinary delegation. MCP/services/schedules retain approval/effect classification; copy neither credentials nor standing approvals. No archive changes/full-note absorption were required.
+This partially extends [overall workflows](../feature/2026-10-12-agent-workflows.md) and [work copies](2026-10-04-subagent-worktrees.md). [Full access](../feature/2026-10-12-full-access-current-account.md)/[native execution](../../archived/architecture/2026-10-12-personal-native-sandbox.md) are narrowed only for independent verification, not ordinary delegation. MCP/services/schedules retain approval/effect classification; copy neither credentials nor standing approvals. No archive changes/full-note absorption were required.
 
 ## Alternatives considered
 

@@ -5,7 +5,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { listAgentReports } from "@ruukoto/core/agent-wait.ts";
 import { requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { parseSessionFile } from "@ruukoto/core/history.ts";
-import { product } from "../apps/ruukoto-code/src/product.ts";
+
 import { inputText, lastUserText, realTools, startTestRuntime, waitFor } from "./helpers/testkit.ts";
 
 function latch() {
@@ -13,13 +13,32 @@ function latch() {
   return { promise: new Promise<void>(resolve => { release = resolve; }), release: () => release() };
 }
 
+test("owner request keys with internal wake prefixes execute as ordinary input", async () => {
+  const t = await startTestRuntime("coding-owner-wake-prefix", () => ({ kind: "text", text: "done" }));
+  try {
+    const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session;
+    for (const requestId of ["wake:manual", "smsg:manual"]) {
+      const input = { sessionId: session.id, requestId, input: `OWNER_INPUT_${requestId}`, modelSelection: rt.defaultSelection };
+      const task = await rt.submit(input);
+      await waitFor("owner prefix task reaches terminal state", () => ["completed", "failed", "canceled", "interrupted"].includes(rt.store.getTask(task.id)!.status));
+      assert.equal(rt.store.getTask(task.id)!.status, "completed");
+      assert.equal(task.parentTaskId, null);
+      assert.equal(rt["verifyAgentReportSources"](task.id), null);
+      assert.equal((await rt.submit(input)).id, task.id);
+    }
+    assert.equal(t.server.calls.length, 2);
+    assert.ok(lastUserText(t.server.calls[0]).includes("OWNER_INPUT_wake:manual"));
+    assert.ok(lastUserText(t.server.calls[1]).includes("OWNER_INPUT_smsg:manual"));
+  } finally { await t.shutdown(); }
+});
+
 for (const sources of [1, 2]) test(`active Coding task receives ${sources} independent reports in N+1 without a second Driver`, async () => {
   const response = latch(), child = latch();
   const t = await startTestRuntime("coding-boundary-report", async request => {
     if (lastUserText(request) === "ACTIVE") { await response.promise; return { kind: "text", text: "first response" }; }
     assert.match(lastUserText(request), /后台报告/);
     return { kind: "text", text: "reported current facts" };
-  }, { config: { product: product.runtime, workflowAgent: async () => { await child.promise; return { output: "REPORT_FACT" }; } } });
+  }, { config: { workflowAgent: async () => { await child.promise; return { output: "REPORT_FACT" }; } } });
   try {
     const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session;
     const origins = rt.store.withTx(() => {
@@ -61,7 +80,7 @@ for (const sources of [1, 2]) test(`active Coding task receives ${sources} indep
 
 for (const queued of [false, true]) test(`owner pause commits before stop and remains until explicit resume (${queued ? "queued input" : "empty queue"})`, async () => {
   const response = latch();
-  const t = await startTestRuntime("coding-owner-pause", async () => { await response.promise; return { kind: "text", text: "done" }; }, { config: { product: product.runtime } });
+  const t = await startTestRuntime("coding-owner-pause", async () => { await response.promise; return { kind: "text", text: "done" }; });
   try {
     const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session;
     const active = await rt.submit({ sessionId: session.id, requestId: "active", input: "ACTIVE", modelSelection: rt.defaultSelection });
@@ -84,7 +103,7 @@ for (const queued of [false, true]) test(`owner pause commits before stop and re
 });
 
 test("queued retrieval after historical recall preserves the saved owner pause", async () => {
-  const t = await startTestRuntime("coding-recall-pause", () => ({ kind: "text", text: "done" }), { config: { product: product.runtime } });
+  const t = await startTestRuntime("coding-recall-pause", () => ({ kind: "text", text: "done" }));
   try {
     const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session;
     const tasks = rt.store.withTx(() => {
@@ -108,7 +127,7 @@ test("queued retrieval after historical recall preserves the saved owner pause",
 
 test("a later owner pause overrides an earlier queued retrieval snapshot", async () => {
   const response = latch();
-  const t = await startTestRuntime("coding-later-pause", async () => { await response.promise; return { kind: "text", text: "done" }; }, { config: { product: product.runtime } });
+  const t = await startTestRuntime("coding-later-pause", async () => { await response.promise; return { kind: "text", text: "done" }; });
   try {
     const rt = t.runtime, session = (await rt.openWorkspace({ cwd: t.work[0] })).session;
     const active = await rt.submit({ sessionId: session.id, requestId: "active", input: "active", modelSelection: rt.defaultSelection });
@@ -140,7 +159,7 @@ test("same-Task questions, guidance and independent reports keep their identitie
     if (index === 0) await response.promise;
     if (index < 2) return { kind: "tool_calls", calls: [{ id: `question-${index}`, name: "ask_user", arguments: { questions: [{ question: `Question ${index + 1}` }] } }] };
     return { kind: "text", text: "completed" };
-  }, { config: { ...realTools(), product: product.runtime, workflowAgent: async ({ step }) => {
+  }, { config: { ...realTools(), workflowAgent: async ({ step }) => {
     await child.promise;
     return { output: JSON.stringify(step.params) };
   } } });

@@ -3,7 +3,7 @@
  *
  * - 工作区 `.pi/SYSTEM.md`、`.pi/APPEND_SYSTEM.md` 与 agentDir 下同名文件都存在时，
  *   发送前快照的系统提示仍等于宿主提示加 cwd 行；
- * - 普通开发会话与 main 使用各自的宿主提示；
+ * - Development conversations use the host-owned system prompt;
  * - 参考块块头不再重复说明，外部资料警示保留。
  */
 
@@ -47,31 +47,21 @@ function assertPrompts(rt: Runtime, sessionId: string, expected: string, label: 
   }
 }
 
-test("系统提示：开发会话、main 各用宿主提示，SYSTEM.md / APPEND_SYSTEM.md 不被发现；chat/coding 不再引导", async () => {
+test("development system prompts ignore discovered SYSTEM.md and APPEND_SYSTEM.md files", async () => {
   const t = await startTestRuntime("sysprompt-roles", async (req) => ({ kind: "text", text: `完成：${lastUserText(req).slice(0, 20)}` }));
   try {
     const rt = t.runtime;
     plantDiscovery(t.dirs.agentDir, false);
     plantDiscovery(t.work[0]!, true);
-    for (const role of rt.store.listAgentRoles()) plantDiscovery(role.workDir, true);
 
     const { sessionId } = await createProjectSession(t.client, t.work[0]!);
     const dev = await rt.submit({ sessionId, requestId: "dev-1", input: "DEV-MARK", modelSelection: rt.defaultSelection });
-    const orch = rt.orchestrator!;
-    const parent = await rt.submit({ sessionId: rt.store.getAgentRole("main")!.sessionId, requestId: "p-1", input: "MAIN-MARK", modelSelection: rt.defaultSelection });
 
     await waitFor("开发任务完成", () => rt.store.getTask(dev.id)!.status === "completed");
-    await waitFor("main 父任务完成", () => rt.store.getTask(parent.id)!.status === "completed");
 
     assertPrompts(rt, sessionId, SYSTEM_PROMPTS.dev, "普通开发会话");
-    assertPrompts(rt, rt.store.getAgentRole("main")!.sessionId, SYSTEM_PROMPTS.main, "main");
-    // 固定角色已退役（issue 20/23）：chat/coding 不引导，指向它们的入站登记即拒绝
-    assert.equal(rt.store.getAgentRole("chat"), null);
-    assert.equal(rt.store.getAgentRole("coding"), null);
-    await assert.rejects(() => orch.registerInboundEvent({ source: "test", externalId: "c1", targetRole: "chat" as "main", body: "CHAT-MARK" }), /目标角色无效/);
-    assert.equal(rt.store.findInboundEvent("test", "c1"), null);
-    assert.deepEqual(Object.keys(SYSTEM_PROMPTS).sort(), ["dev", "main", "side", "subagent", "workflow"]);
-    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 5);
+    assert.deepEqual(Object.keys(SYSTEM_PROMPTS).sort(), ["dev", "side", "subagent", "workflow"]);
+    assert.equal(new Set(Object.values(SYSTEM_PROMPTS)).size, 4);
   } finally {
     await t.shutdown();
   }
@@ -108,14 +98,8 @@ test("参考块块头只保留名称、id、类别与范围；资料受限会话
     assert.ok(all.includes("先用 skill 工具（参数 name）加载其正文"), "技能目录保留 skill 工具用法");
     assert.ok(!/参考内容|控制面身份|非当前指令|以当前要求为准/.test(all), all);
 
-    // 资料受限会话：参考块一律不注入，技能库与计划模式在组装构造时归一
-    const restricted = await kit.send(kit.begin(kit.task(session, "继续", old.id), session, {
-      restricted: true, accessor: { kind: "role_restricted", projectId }, plan: true, skills,
-    }), current, { tools });
-    assert.deepEqual(restricted.view.map(textOf), ["继续"]);
-    assert.equal(restricted.record.skillVersion, "", "受限会话不记技能库版本");
 
-    // 本次工具集没有 skill（如 GitHub 评审收窄）：不注入技能目录，选择记录照记技能库版本
+    // A narrowed tool set without skill must not inject its catalog.
     const narrowed = await kit.send(kit.begin(kit.task(session, "评审"), session, { skills }), [{ role: "user", content: "评审", timestamp: 1 }]);
     assert.ok(!narrowed.view.some((m) => textOf(m).startsWith("[技能目录]")), "无 skill 工具不注入技能目录");
     assert.equal(narrowed.record.skillVersion, skills.version);

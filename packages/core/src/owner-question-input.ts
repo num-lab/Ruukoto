@@ -1,4 +1,4 @@
-// Note: 见 .agents/notes/implemented/feature/2026-10-21-personal-owner-questions.md
+// Note: See .agents/notes/implemented/feature/2026-10-30-coding-owner-question-wait.md
 export type OwnerQuestionOption = string | { label: string; description?: string; recommended?: boolean };
 export interface OwnerQuestionItem { question: string; options?: OwnerQuestionOption[]; multiple?: boolean }
 export interface OwnerAnswer { text: string; option?: number; options?: number[] }

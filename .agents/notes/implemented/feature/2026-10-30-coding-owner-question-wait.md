@@ -2,6 +2,8 @@
 
 Status: implemented
 
+[Single-product cutover](../architecture/2026-11-10-single-product.md) supersedes this note’s Personal, dual-product and legacy-import scope. Retained software-work constraints below remain active; retired-product mechanisms and evidence are historical, not current commands, compatibility requirements or acceptance passes.
+
 ## Problem
 
 `ask_user` previously persisted questions, immediately returned pending and told the model to finish its turn; answering created a new queued Task. The owner requires the original task to wait for answers without putting them in the user queue. Merely changing answers into wakeups leaves permanent tool restrictions, premature old-batch execution and orphaned answerable cards after interruption.
@@ -52,7 +54,7 @@ Desktop, TUI and Code Scheduled show waiting-for-answer from actual pending ques
 
 [Coding persistent questions](2026-10-21-coding-owner-questions.md) is partially superseded: remove immediate return, new answer tasks, answer-time new configuration and old-card continuation after restart, while retaining trusted provenance, persistent questions, single batches, unique answers and non-approval semantics. [Question types](2026-10-21-owner-question-choice-types.md) keeps its types/interactions but changes in-task placement; [Coding Scheduled](2026-10-25-code-scheduled.md) retains provenance/fixed configuration and changes waiting-state derivation. All three retain their original decisions and link to the superseding contract.
 
-The Coding part of the [shared-question proposal](../../proposed/feature/2026-10-21-persistent-owner-questions.md) already has separate implemented decisions, which remain the specific baseline here. Its Personal part and [Personal questions](2026-10-21-personal-owner-questions.md) are unaffected; do not delete the entire note or mark it rejected. [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) still owns task/workflow waits; this decision does not expand its target types.
+The Coding part of the [shared-question proposal](../../proposed/feature/2026-10-21-persistent-owner-questions.md) already has separate implemented decisions, which remain the specific baseline here. Its Personal part and [Personal questions](../../archived/feature/2026-10-21-personal-owner-questions.md) are unaffected; do not delete the entire note or mark it rejected. [Wait/report ownership](../architecture/2026-10-14-agent-wait-and-report-ownership.md) still owns task/workflow waits; this decision does not expand its target types.
 
 ## Alternatives considered
 

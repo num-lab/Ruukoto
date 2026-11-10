@@ -1,8 +1,7 @@
+import { seedTestRole } from "./helpers/subagent-definition.ts";
 import { delegateFromActiveTask, messageFromActiveTask } from "./helpers/active-subagent-source.ts";
-import { product as personalProduct } from "./helpers/legacy-product.ts";
-import { HOST_REVIEW_DEFINITION } from "@ruukoto/agent/subagent-roles.ts";
+
 import { CredentialStore } from "@ruukoto/agent/execution/credentials.ts";
-import type { GitHubPullRequestEvent } from "@ruukoto/channels/github/webhook.ts";
 /**
  * 后台重启后恢复 SubAgent 与工作记录（agent-direction issue 15）。
  * Note: 见 .agents/notes/implemented/architecture/2026-10-05-subagent-restart-recovery.md
@@ -21,8 +20,6 @@ import type { GitHubPullRequestEvent } from "@ruukoto/channels/github/webhook.ts
  *   occupancy_unverified 暂停不被编排器启动恢复解除、Agent 记 unverified 且
  *   拒绝新委派（未核实前不与旧执行并发）；拥有者 resume-queue 核实后释放
  *   占用、解除暂停、Agent 回 idle 并可继续委派。
- * - 宿主固定评审（带 source_event_id）的排队子任务不中断：子会话的
- *   backend_restart 暂停由编排器启动恢复自动解除并继续执行（角色会话同口径）。
  * - 已批准但未完成的工具操作按现有账本核实（recover 的 settleAll 扫全部任务，
  *   SubAgent 任务共用同一账本表），由 43 项既有验证覆盖，本文件不重复播种。
  */
@@ -37,7 +34,7 @@ import { inputText, cleanupDirs, lastUserText, makeTestDirs, realTools, waitFor,
 import { Runtime, RuntimeApiError, type RuntimeConfig } from "@ruukoto/runtime/runtime.ts";
 import { Db } from "@ruukoto/core/db.ts";
 import { Store } from "@ruukoto/core/store.ts";
-import { randomId, type AccessMode, type NotifyTarget, type SubAgentMessage } from "@ruukoto/core/types.ts";
+import { randomId, type AccessMode, type SubAgentMessage } from "@ruukoto/core/types.ts";
 import { subAgentTaskRequestId } from "@ruukoto/agent/subagent-ledger.ts";
 
 /** 事件表里的某类事件。 */
@@ -49,7 +46,6 @@ function eventsOf(rt: Runtime, type: string): any[] {
 const responder: Responder = (req) => {
   const text = lastUserText(req);
   if (text.includes("[SubAgent 委派")) {
-    if (text.includes("REVIEW-MARK")) return { kind: "text", text: "REVIEW-DONE 评审结论" };
     if (text.includes("MARK-CONT")) return { kind: "text", text: "SUB-继续结论" };
     return { kind: "text", text: "SUB-DONE 结论" };
   }
@@ -58,12 +54,11 @@ const responder: Responder = (req) => {
 
 async function startKit(prefix: string) {
   const { dirs, work } = await makeTestDirs(prefix, 2);
+  seedTestRole(dirs.agentDir);
   const server = new MockModelServer(responder);
   await writeModelsJson(dirs, await server.start());
   const config: RuntimeConfig = {
-    product: personalProduct.runtime,
-    dataDir: dirs.dataDir,
-    agentDir: dirs.agentDir,
+    profile: dirs.profile,
     thinkingLevel: "off",
     modelProvider: "mock",
     modelId: "mock-model",
@@ -93,21 +88,17 @@ async function baseWork(kit: Awaited<ReturnType<typeof startKit>>, rt: Runtime, 
   const session = await rt.createSession({ projectName: "prec", cwd: kit.work[0]! });
   const parent = await rt.submit({ sessionId: session.id, requestId: `${key}-p1`, input: "开始", accessMode, modelSelection: rt.defaultSelection });
   await waitFor("父完成", () => rt.store.getTask(parent.id)!.status === "completed");
-  const d = await delegateFromActiveTask(rt, {
-    parentTaskId: parent.id,
-    key,
-    request: `首任务${key}`,
-    readPaths: ["."],
-    materials: null,
-    paramsDigest: `d-${key}`,
-  });
+  const d = await delegateFromActiveTask(rt, { parentTaskId: parent.id,
+  key,
+  request: `首任务${key}`,
+  readPaths: ["."], paramsDigest: `d-${key}`, });
   await waitFor("首任务完成", () => rt.store.getTask(d.task.id)!.status === "completed");
   await waitFor("Agent 空闲", () => rt.store.getSubAgent(d.agent.id)!.state === "idle");
   return { session, parent, d };
 }
 
-/** 播种同一工作下的一条排队任务（崩溃前的持久形态；来源事件由参数控制）。 */
-function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], parentTaskId: string, key: string, input: string, sourceEventId: string | null = null) {
+/** Seed a queued execution from the same work with its recorded source authority. */
+function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], parentTaskId: string, key: string, input: string) {
   return rt.store.withTx(() =>
     rt.store.insertQueuedTask({
       sessionId: d.agent.sessionId,
@@ -120,7 +111,6 @@ function seedQueued(rt: Runtime, d: Awaited<ReturnType<typeof baseWork>>["d"], p
       parentTaskId,
       workId: d.work.id,
       subAgentId: d.agent.id,
-      sourceEventId,
       readScope: rt.store.getTask(d.task.id)!.readScope,
     }).task,
   );
@@ -182,15 +172,11 @@ test("排队中的拥有者委派：重启定 interrupted、补记一次、Agent
     assert.ok(marks.some((m) => m.includes("[SubAgent 结果]") && m.includes(d.work.id)), "中断结果注入 dev 父模型");
 
     // —— 空闲 Agent 沿同一工作继续委派 ——
-    const d2 = await delegateFromActiveTask(rt, {
-      parentTaskId: parent2.id,
-      key: "q1-r2",
-      request: "继续MARK-CONT",
-      workId: d.work.id,
-      readPaths: ["."],
-      materials: null,
-      paramsDigest: "d-q1-r2",
-    });
+    const d2 = await delegateFromActiveTask(rt, { parentTaskId: parent2.id,
+    key: "q1-r2",
+    request: "继续MARK-CONT",
+    workId: d.work.id,
+    readPaths: ["."], paramsDigest: "d-q1-r2", });
     assert.equal(d2.created, true);
     assert.equal(d2.agent.id, d.agent.id);
     await waitFor("继续任务完成", () => rt.store.getTask(d2.task.id)!.status === "completed");
@@ -248,15 +234,11 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     // —— 未核实前拒绝新委派 ——
     await assert.rejects(
       () =>
-        delegateFromActiveTask(rt, {
-          parentTaskId: parent.id,
-          key: "q2-x",
-          request: "拒绝",
-          workId: d.work.id,
-          readPaths: ["."],
-          materials: null,
-          paramsDigest: "d-q2-x",
-        }),
+        delegateFromActiveTask(rt, { parentTaskId: parent.id,
+        key: "q2-x",
+        request: "拒绝",
+        workId: d.work.id,
+        readPaths: ["."], paramsDigest: "d-q2-x", }),
       /待核实|正忙/,
     );
 
@@ -264,7 +246,7 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     await assert.rejects(rt.resumeQueue(d.agent.sessionId), { code: "stop_unverified" });
     assert.equal(rt.store.getSubAgent(d.agent.id)!.state, "unverified");
     assert.equal(rt.store.listAllOccupancy().filter(o => o.taskId === seeded.id).length, 1);
-    await rt.resumeQueue(d.agent.sessionId, undefined, true);
+    await rt.resumeQueue(d.agent.sessionId, true);
     assert.equal(rt.store.listAllOccupancy().filter((o) => o.taskId === seeded.id).length, 0, "旧执行占用已释放");
     assert.equal(rt.store.getSession(d.agent.sessionId)!.queueState, "active");
     const delivered = rt.store.getSubAgentMessage(pending.id)!;
@@ -279,15 +261,11 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
     assert.equal(kit.server.calls.filter((c) => lastUserText(c).includes("RECOVER-PENDING-MARK")).length, 1, "恢复消息实际调用模型一次");
 
     // —— 回 idle 后可沿同一工作继续委派 ——
-    const d2 = await delegateFromActiveTask(rt, {
-      parentTaskId: parent.id,
-      key: "q2-r2",
-      request: "继续MARK-CONT",
-      workId: d.work.id,
-      readPaths: ["."],
-      materials: null,
-      paramsDigest: "d-q2-r2",
-    });
+    const d2 = await delegateFromActiveTask(rt, { parentTaskId: parent.id,
+    key: "q2-r2",
+    request: "继续MARK-CONT",
+    workId: d.work.id,
+    readPaths: ["."], paramsDigest: "d-q2-r2", });
     assert.equal(d2.created, true);
     await waitFor("继续任务完成", () => rt.store.getTask(d2.task.id)!.status === "completed");
   } finally {
@@ -295,53 +273,7 @@ test("占用未核实：保留占用与 unverified、不解除暂停；拥有者
   }
 });
 
-test("宿主固定评审排队任务：不中断，启动恢复自动解除子会话暂停并继续执行", async () => {
-  const kit = await startKit("recover-review");
-  let rt = kit.rt;
-  try {
-    await rt.stop("fixture_configure_review");
-    new CredentialStore(kit.dirs.agentDir).upsert({ name: "hook", host: "github.com", header: "x-hub-signature-256", purpose: "github_webhook", secret: "fixture-secret" });
-    const target: NotifyTarget = { channel: "telegram", account: "fixture-bot", chatId: "owner", configVersion: 1 };
-    kit.config.githubWebhook = { port: 0, credential: "hook", repositoryIds: [42] };
-    kit.config.scheduler = { tickMs: 0, channel: { target: () => target, available: () => false, send: async () => { throw new Error("恢复夹具不发送外部消息"); } } };
-    rt = await Runtime.start(kit.config);
-    const payload: GitHubPullRequestEvent = { deliveryId: "recover-review", action: "opened", repository: { id: 42, owner: "owner", name: "repo", fullName: "owner/repo" }, number: 7,
-      url: "https://github.com/owner/repo/pull/7", headSha: "a".repeat(40), baseSha: "b".repeat(40), headRef: "feature", baseRef: "main", sender: "contributor",
-      title: "REVIEW-MARK", body: "恢复固定评审", bodyTruncated: false, draft: false, state: "open", updatedAt: "2026-09-24T01:00:00Z" };
-    const event = rt.store.withTx(() => rt.store.registerInboundEvent({ source: "github", externalId: payload.deliveryId, actor: payload.sender, targetRole: "main", body: JSON.stringify(payload), replyTarget: target })).event;
-    const kick = rt["kick"].bind(rt), delegate = rt.subagents!.delegate.bind(rt.subagents);
-    rt["kick"] = sessionId => {
-      if (rt.store.getSessionIdentity(sessionId)?.kind === "subagent") rt.store.setSessionQueueState(sessionId, "paused", "backend_restart");
-      else kick(sessionId);
-    };
-    rt.subagents!.delegate = async input => {
-      if (input.hostReview) await waitFor("可信固定评审接收父轮完成", () => rt.store.getTask(input.parentTaskId)?.status === "completed");
-      return delegate(input);
-    };
-    try { await rt.orchestrator!.dispatchRegisteredEvents(); }
-    finally { rt["kick"] = kick; rt.subagents!.delegate = delegate; }
-    const work = rt.store.listWorkDelegations()[0]!, agent = rt.store.getSubAgent(work.subAgentId)!;
-    const d = { agent }, seeded = rt.store.listTasksByWork(work.id)[0]!;
-    assert.equal(rt.store.getTask(work.originTaskId)!.status, "completed");
-    assert.equal(agent.definition!.digest, HOST_REVIEW_DEFINITION.digest);
-    assert.equal(seeded.sourceEventId, event.id); assert.equal(seeded.readScope?.execution, undefined);
-    assert.equal(seeded.status, "queued");
-    const callsBefore = kit.server.calls.length;
-    await rt.stop("test_restart");
 
-    rt = await Runtime.start(kit.config);
-    await waitFor("评审任务完成", () => rt.store.getTask(seeded.id)!.status === "completed", 20_000);
-    assert.equal(rt.store.getSession(d.agent.sessionId)!.queueState, "active", "启动恢复自动解除暂停");
-    assert.equal(
-      kit.server.calls.slice(callsBefore).filter((c) => inputText(c).includes("REVIEW-MARK")).length,
-      1,
-      "评审任务继续执行且只执行一次",
-    );
-    await waitFor("Agent 空闲", () => rt.store.getSubAgent(d.agent.id)!.state === "idle");
-  } finally {
-    await kit.shutdown(rt);
-  }
-});
 
 for (const rollback of [false, true]) {
   test(`模型配置${rollback ? "回滚" : "成功应用"}后：实际 Runtime 解除门闩并补投 pending 消息一次`, async context => {

@@ -58,17 +58,15 @@ after(async () => { await server?.close(); });
 test("外观分段控件呈现三项并绑定 appearance 取值", async () => {
   const { SettingsState } = await server.ssrLoadModule("/settings-state.ts") as { SettingsState: new (changed: () => void) => { chooseCategory(c: string): void; show(t: string): void } };
   const { CodeState } = await server.ssrLoadModule("/code-state.ts") as { CodeState: new (bridge: unknown, redraw: () => void) => { view: { applySnapshot(s: unknown, c: boolean): void }; status: unknown } };
-  const { PersonalState } = await server.ssrLoadModule("/personal-state.ts") as { PersonalState: new (bridge: unknown, redraw: () => void) => unknown };
   const { fakeSnapshot } = await import("./helpers/fake-control.ts");
   const bridge = { request: async () => ({ ok: true, value: null }) };
   const code = new CodeState(bridge, () => {});
   code.view.applySnapshot({ snapshot: fakeSnapshot({ projects: [], sessions: [] }), replay: [], seq: 0 }, false);
   code.status = { type: "state", state: "online" };
-  const personal = new PersonalState(bridge, () => {});
   const settings = new SettingsState(() => {});
   settings.show("code");
   settings.chooseCategory("appearance");
-  const props = { settings, code, personal, appearance: "dark", onAppearance() {} };
+  const props = { settings, code, appearance: "dark", onAppearance() {} };
   const html = renderToStaticMarkup(createElement(SettingsContents, props));
   assert.match(html, /System/); assert.match(html, /Light/); assert.match(html, /Dark/);
   assert.match(html, /aria-pressed="true"[^>]*>[^<]*<svg[^]*?Dark/);

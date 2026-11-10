@@ -7,7 +7,8 @@ import { test } from "node:test";
 import { listAgentReports, listAgentWaits } from "@ruukoto/core/agent-wait.ts";
 import { getWorkflowQuestion, listWorkflowExecutions, listWorkflowRuns, requireWorkflowRun } from "@ruukoto/core/workflow.ts";
 import { Runtime } from "@ruukoto/runtime/runtime.ts";
-import { product as codeProduct } from "../apps/ruukoto-code/src/product.ts";
+import { bootstrapProfile, selectProfile } from "@ruukoto/core/profile.ts";
+
 import { waitFor } from "./helpers/testkit.ts";
 
 interface ProviderConfig { baseUrl: string; models: { id: string }[]; [key: string]: unknown }
@@ -79,23 +80,26 @@ test("真实模型门控代理支持 Responses 输入与扁平工具名，仅暂
   } finally { await proxy.close(); upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); }
 });
 
-for (const product of [codeProduct.runtime]) test(`${product.type} 真实模型：主动等待后查询结果，第二次等待被拥有者输入打断且后台唯一补报`, { skip: process.env.RUN_MODEL_CHECK !== "1", timeout: 480_000 }, async () => {
+test("ruukoto real model waits, observes results, accepts owner interruption and reports once", { skip: process.env.RUN_MODEL_CHECK !== "1", timeout: 480_000 }, async () => {
   const file = process.env.RUN_WORKFLOW_MODELS_FILE;
   assert.ok(file, "真实等待验收必须显式指定 RUN_WORKFLOW_MODELS_FILE");
   const raw = JSON.parse(fs.readFileSync(file, "utf8")) as { providers: Record<string, ProviderConfig> };
   const candidates = Object.entries(raw.providers).flatMap(([provider, value]) => value.models.filter(model => model.id.includes("deepseek")).map(model => ({ provider, model, value })));
   const selected = candidates.find(candidate => candidate.provider === "deepseek" && candidate.model.id.includes("flash")) ?? candidates[0];
   assert.ok(selected, "指定配置没有 DeepSeek 模型");
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-agent-wait-model-")), agentDir = path.join(root, "agent"), workspace = path.join(root, "work");
-  fs.mkdirSync(agentDir); fs.mkdirSync(workspace);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruukoto-agent-wait-model-"));
+  const profile = await bootstrapProfile(selectProfile({ dataDir: path.join(root, "data") }, {}));
+  const { agentDir } = profile;
+  const workspace = path.join(root, "work");
+  fs.mkdirSync(workspace);
   const proxy = await gateRealChildResponse(selected.value.baseUrl);
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: { [selected.provider]: { ...selected.value, baseUrl: proxy.baseUrl, models: [selected.model] } } }), { mode: 0o600 });
   let rt: Runtime | null = null, passed = false;
   try {
-    rt = await Runtime.start({ product, agentDir, dataDir: path.join(root, "data"), socketPath: path.join(root, "c.sock"), modelProvider: selected.provider,
-      modelId: selected.model.id, thinkingLevel: "off", qqDisabled: true });
+    rt = await Runtime.start({ profile, modelProvider: selected.provider,
+      modelId: selected.model.id, thinkingLevel: "off" });
     const runtime = rt;
-    const session = product.type === "ruukoto-code" ? await rt.createSession({ projectName: "real-wait", cwd: workspace }) : rt.store.getSession(rt.store.getAgentRole("main")!.sessionId)!;
+    const session = await rt.createSession({ projectName: "real-wait", cwd: workspace });
     await rt.setSessionDefaultMode({ sessionId: session.id, expectedVersion: session.defaultAccessModeVersion, mode: "full_access" });
     const firstDefinition = await rt.saveWorkflowDefinition({ name: "wait-first", script: 'return await agent("result",{request:"只回复 WAIT_RESULT_FIRST，不调用工具。",tools:[]});', expectedDigest: null, requestKey: "save-first" });
     const secondDefinition = await rt.saveWorkflowDefinition({ name: "wait-second", script: 'await ask("hold",{prompt:"继续第二项真实等待验收？",options:["yes"]}); return await agent("result",{request:"只回复 WAIT_CHILD_SECOND，不调用工具。",tools:[]});', expectedDigest: null, requestKey: "save-second" });
@@ -138,7 +142,7 @@ for (const product of [codeProduct.runtime]) test(`${product.type} 真实模型�
     assert.equal(report.consumption?.taskId, report.proof!.taskId);
     assert.equal(rt.store.listTasksBySession(session.id).filter(task => task.status === "completed" && rt!.getTaskDetail(task.id)!.task.inputPurpose === "internal_report").length, 1);
     assert.ok(rt.readTaskReply(report.proof!.taskId)!.text.trim());
-    const evidence = { product: product.type, provider: selected.provider, model: selected.model.id, sessionKind: product.type === "ruukoto" ? "main" : "dev", parentTaskId: parent.id,
+    const evidence = { product: "ruukoto", provider: selected.provider, model: selected.model.id, sessionKind: "dev", parentTaskId: parent.id,
       waits: listAgentWaits(rt.store, { taskId: parent.id }).map(wait => ({ id: wait.id, phase: wait.phase, reason: wait.reason, targets: wait.targets })),
       toolOps: rt.store.listToolOpsByTask(parent.id).map(op => ({ tool: op.toolName, isError: op.isError, effectUnknown: op.effectUnknown })),
       childTasks: listWorkflowExecutions(rt.store, second.id).map(execution => ({ taskId: execution.taskId, status: execution.status, stopVerified: execution.stopVerified })),

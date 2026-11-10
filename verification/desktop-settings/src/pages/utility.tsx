@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { ArchiveRestore, Moon, SquarePen, Sun } from "lucide-react";
+import { ArchiveRestore, Moon, Sun } from "lucide-react";
 import { SettingsButton, SettingsSegmented, SettingsSwitch } from "../components/controls.tsx";
 import { SettingsCard, SettingsGroup, SettingsList, SettingsListItem, SettingsPage, SettingsRow } from "../components/settings.tsx";
-import { Notice, RefreshButton, Tag, TextSetting } from "./shared.tsx";
+import { RefreshButton, Tag, TextSetting } from "./shared.tsx";
 
 export function AppearancePage({ theme, onThemeChange }: { theme: "dark" | "light"; onThemeChange: (theme: "dark" | "light") => void }) {
   return (
@@ -19,7 +19,7 @@ export function WebSearchPage() {
   const [editing, setEditing] = useState(false);
   const [configured, setConfigured] = useState(true);
   return (
-    <SettingsPage title="Web 搜索" description="管理 Code 的 Tavily 凭据与实例开关。">
+    <SettingsPage title="Web 搜索" description="管理 ruukoto 的 Tavily 凭据与实例开关。">
       <SettingsGroup title="Tavily 凭据" action={<RefreshButton label="重新读取凭据" />}>
         <SettingsCard>
           <SettingsRow title="当前凭据" description="web-search · api.tavily.com"><Tag>{configured ? "生效中" : "未配置"}</Tag></SettingsRow>
@@ -34,29 +34,7 @@ export function WebSearchPage() {
   );
 }
 
-export function PersonalConnectionPage() {
-  const [editingOrigin, setEditingOrigin] = useState(false);
-  const [editingPairing, setEditingPairing] = useState(false);
-  const [paired, setPaired] = useState(false);
-  const [origin, setOrigin] = useState("https://personal.example.ts.net");
-  return (
-    <SettingsPage title="PA 远程连接" description="连接此桌面与 Personal Agent，配置独立于聊天目标。">
-      <SettingsGroup title="个人 Agent" action={<RefreshButton label="重新读取连接" />}>
-        <SettingsCard>
-          {editingOrigin ? <>
-            <SettingsRow title="个人 Agent 地址" htmlFor="personal-origin"><input className="settings-plain-input" id="personal-origin" value={origin} onChange={event => setOrigin(event.target.value)} /></SettingsRow>
-            <SettingsRow title="地址编辑" description="保存地址不代表已完成配对。"><SettingsButton onClick={() => setEditingOrigin(false)}>保存地址</SettingsButton><SettingsButton variant="ghost" onClick={() => setEditingOrigin(false)}>取消</SettingsButton></SettingsRow>
-          </> : <SettingsRow title="个人 Agent 地址" description={origin}><SettingsButton variant="icon" aria-label="编辑地址" title="编辑地址" onClick={() => setEditingOrigin(true)}><SquarePen /></SettingsButton></SettingsRow>}
-          {editingPairing ? <>
-            <TextSetting id="personal-pair-label" title="此桌面的名称" defaultValue="MacBook Pro" />
-            <TextSetting id="personal-pair-code" title="服务器配对码" description="仅演示输入，不发送配对请求。" type="password" />
-            <SettingsRow title="配对操作" description="原配对结果需在原服务器核实。"><SettingsButton onClick={() => { setPaired(true); setEditingPairing(false); }}>配对并连接</SettingsButton><SettingsButton variant="ghost">恢复原配对</SettingsButton><SettingsButton variant="ghost" onClick={() => setEditingPairing(false)}>取消</SettingsButton></SettingsRow>
-          </> : <SettingsRow title="服务器配对" description={paired ? "此桌面已与服务器配对。" : "尚未配对，配置仍需服务器确认。"}><Tag>{paired ? "已配对" : "未配对"}</Tag><SettingsButton onClick={() => setEditingPairing(true)}>编辑配对</SettingsButton></SettingsRow>}
-        </SettingsCard>
-      </SettingsGroup>
-    </SettingsPage>
-  );
-}
+
 
 const archived = [
   { id: "release", name: "发布验收", workspace: "ruukoto", date: "2026-10-27" },

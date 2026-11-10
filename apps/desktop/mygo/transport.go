@@ -3,8 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -34,11 +32,6 @@ type sidecar struct {
 	onFail   func()
 	// Capture request identity in receipt order, then run the prepared work asynchronously.
 	onRequest         func(method string, args json.RawMessage) func() json.RawMessage
-	credentials       credentialStore
-	generation        string
-	credentialLast    uint64
-	credentialPending int
-	credentialWG      sync.WaitGroup
 	requestTimeout    time.Duration
 }
 
@@ -63,17 +56,7 @@ func disconnected() json.RawMessage {
 	return failure("bridge_disconnected", "disconnected", "MyGo 连接已关闭；请重新打开应用，原操作结果仍需核实。")
 }
 
-func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(method string, args json.RawMessage) func() json.RawMessage, stores ...credentialStore) (*sidecar, error) {
-	var credentials credentialStore
-	var generation string
-	if len(stores) != 0 {
-		credentials = stores[0]
-		bytes := make([]byte, 16)
-		if _, err := rand.Read(bytes); err != nil {
-			return nil, err
-		}
-		generation = hex.EncodeToString(bytes)
-	}
+func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(method string, args json.RawMessage) func() json.RawMessage) (*sidecar, error) {
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -89,7 +72,7 @@ func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(m
 		output.Close()
 		return nil, err
 	}
-	s := &sidecar{stdin: input, cmd: cmd, pending: make(map[uint64]*pendingCall), done: make(chan struct{}), onEvent: onEvent, onRequest: onRequest, credentials: credentials, generation: generation}
+	s := &sidecar{stdin: input, cmd: cmd, pending: make(map[uint64]*pendingCall), done: make(chan struct{}), onEvent: onEvent, onRequest: onRequest}
 	go func() {
 		s.read(output)
 		output.Close()
@@ -98,9 +81,6 @@ func startSidecar(cmd *exec.Cmd, onEvent func(json.RawMessage), onRequest func(m
 		}
 		close(s.done)
 	}()
-	if credentials != nil {
-		s.writePrivate(map[string]any{"kind": "credential_ready", "v": 1, "generation": generation})
-	}
 	return s, nil
 }
 
@@ -113,12 +93,6 @@ func (s *sidecar) read(output io.Reader) {
 		if json.Unmarshal(data, &message) != nil {
 			break
 		}
-		if message.Kind == "credential_request" {
-			if !s.receiveCredential(data) {
-				break
-			}
-			continue
-		}
 		if message.Kind == "request" {
 			var request struct {
 				Method string          `json:"method"`
@@ -130,7 +104,7 @@ func (s *sidecar) read(output io.Reader) {
 			s.mu.Lock()
 			handler, closed, stopping := s.onRequest, s.closed, s.stopping
 			s.mu.Unlock()
-			if handler == nil || closed || stopping && request.Method != "output_close_preview" {
+			if handler == nil || closed || stopping {
 				s.writeFrame(map[string]any{"kind": "response", "id": message.ID, "result": failure("bridge_closed", "not_sent", "MyGo 连接不可用，请重新打开应用后核实原操作。")}, true)
 				continue
 			}
@@ -138,8 +112,7 @@ func (s *sidecar) read(output io.Reader) {
 			run := handler(request.Method, request.Args)
 			go func() {
 				result := run()
-				// Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
-				s.writeFrame(map[string]any{"kind": "response", "id": id, "result": result}, request.Method == "output_close_preview")
+				s.writeFrame(map[string]any{"kind": "response", "id": id, "result": result}, false)
 			}()
 			continue
 		}
@@ -168,7 +141,7 @@ func (s *sidecar) read(output io.Reader) {
 		}
 	}
 	s.fail()
-	// Bad frames stop input the same as EOF so Node reclaims SSH; don't keep consuming an untrusted transport.
+	// Bad frames stop input like EOF so Node reclaims its owned resources.
 	s.stdin.Close()
 }
 
@@ -198,10 +171,8 @@ func (s *sidecar) fail() {
 	}
 	s.eventMu.Lock()
 	defer s.eventMu.Unlock()
-	for _, target := range []string{"code", "personal"} {
-		data, _ := json.Marshal(map[string]any{"kind": "update", "target": target, "update": map[string]any{"type": "state", "state": "failed", "error": json.RawMessage(extractFailure(disconnected()))}})
-		s.onEvent(data)
-	}
+	data, _ := json.Marshal(map[string]any{"kind": "update", "target": "code", "update": map[string]any{"type": "state", "state": "failed", "error": json.RawMessage(extractFailure(disconnected()))}})
+	s.onEvent(data)
 }
 
 func extractFailure(result json.RawMessage) json.RawMessage {
@@ -210,6 +181,27 @@ func extractFailure(result json.RawMessage) json.RawMessage {
 	}
 	json.Unmarshal(result, &value)
 	return value.Error
+}
+
+func (s *sidecar) writeFrame(value any, shutdownResponse bool) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		s.fail()
+		s.stdin.Close()
+		return
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.mu.Lock()
+	closed := s.closed || s.stopping && !shutdownResponse
+	s.mu.Unlock()
+	if closed {
+		return
+	}
+	if _, err := s.stdin.Write(append(data, '\n')); err != nil {
+		s.fail()
+		s.stdin.Close()
+	}
 }
 
 func (s *sidecar) call(ctx context.Context, method string, args ...any) json.RawMessage {
@@ -235,12 +227,6 @@ func (s *sidecar) call(ctx context.Context, method string, args ...any) json.Raw
 		timeout = 60 * time.Second
 	}
 	s.mu.Unlock()
-	// Note: See .agents/notes/implemented/architecture/2026-11-05-personal-final-outputs.md
-	humanWait := method == "request" && len(args) == 3 && args[0] == "personal" && args[1] == "desktop_personal_output_save"
-	// Note: See .agents/notes/implemented/architecture/2026-11-07-personal-inbound-attachments.md
-	// PA uploads are finite; each authenticated chunk retains its own request deadline.
-	uploadWait := method == "attachments" && len(args) == 4 && args[3] == "personal"
-	written := make(chan struct{})
 	// Do not hold the state lock while writing; shutdown must still close a blocked pipe.
 	go func() {
 		s.writeMu.Lock()
@@ -259,36 +245,19 @@ func (s *sidecar) call(ctx context.Context, method string, args ...any) json.Raw
 		if writeErr != nil {
 			s.fail()
 			s.stdin.Close()
-		} else {
-			close(written)
 		}
 	}()
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-	deadlineC := deadline.C
 	timedOut := false
 wait:
 	for {
 		select {
 		case result := <-waiting.result:
 			return result
-		case <-written:
-			written = nil
-			if humanWait || uploadWait {
-				// Pipe writes stay bounded; cancellation remains available while the owner chooses.
-				deadline.Stop()
-				deadlineC = nil
-			}
 		case <-ctx.Done():
 			break wait
-		case <-deadlineC:
-			s.mu.Lock()
-			delivered := (humanWait || uploadWait) && waiting.sent
-			s.mu.Unlock()
-			if delivered {
-				deadlineC = nil
-				continue
-			}
+		case <-deadline.C:
 			timedOut = true
 			break wait
 		}
@@ -308,7 +277,6 @@ wait:
 }
 
 func (s *sidecar) close() {
-	defer s.credentialWG.Wait()
 	s.mu.Lock()
 	s.stopping = true
 	s.mu.Unlock()
